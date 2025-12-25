@@ -1,5 +1,5 @@
 # ATLAS
-> **Autonomous Task & Labor Automation System**
+> **Adaptive Teamwork Layer for AI Systems**
 
 ---
 
