@@ -3,6 +3,7 @@
 ## High-Level Vision Document
 
 **Version:** 0.3.0-DRAFT
+**Tag:** v0.3-original
 **Last Updated:** December 2025
 **Status:** Vision & Architecture Definition
 
