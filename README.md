@@ -12,7 +12,7 @@ Repeat forever.
 
 **ATLAS handles the tedium so you can focus on the craft.**
 
-A CLI tool that orchestrates AI-assisted development workflows for Go projects. You describe what needs doing. ATLAS analyzes, implements, validates, and delivers—pausing at every decision point for your approval.
+A CLI tool that orchestrates AI-assisted SDD workflows for Go projects. You describe what needs doing. ATLAS analyzes, implements, validates, and delivers—pausing at every decision point for your approval.
 
 Work on multiple features in parallel. Let CI finish before you review. Stay in control.
 
