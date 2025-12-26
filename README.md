@@ -29,4 +29,4 @@ It doesn't guess. It doesn't cut corners. It doesn't ship code without validatio
 
 ---
 
-→ [Read the full vision](docs/external/vision.md)
+→ [Read the full vision](docs/external/vision.md) or the reduced [vision MVP](docs/external/vision-mvp.md)
