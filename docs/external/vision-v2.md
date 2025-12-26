@@ -1197,7 +1197,7 @@ $ atlas workspace destroy payment
 | **`test-coverage` template** | Analyze gaps, implement tests | Test workflow patterns established |
 | **`pr-update` template** | Update existing PR descriptions | PR workflow refinement needed |
 | **Learn/Rules Update** | Core workflow must be solid first | v1 is stable and useful |
-| **Research Agent** | Manual monitoring is fine for now | Tracking 5+ frameworks |
+| **[Research Agent](../internal/research-agent.md)** | Manual monitoring is fine for now | Tracking 5+ frameworks |
 | **Multi-Repo** | Enterprise complexity | Users demonstrate concrete need |
 | **Trust Levels** | Need rejection data first | 100+ task completions |
 | **Cloud Execution** | Local first | Need scale-out |
