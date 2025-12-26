@@ -419,7 +419,7 @@ Tasks checkpoint after each step, enabling resume after crashes or interruptions
 **Task JSON structure:**
 ```json
 {
-  "id": "task-a1b2c3d4",
+  "id": "task-20251226-100000",
   "template": "bugfix",
   "status": "running",
   "workspace": "fix-null-pointer",
@@ -442,7 +442,9 @@ Tasks checkpoint after each step, enabling resume after crashes or interruptions
 }
 ```
 
-**Location:** `~/.atlas/workspaces/fix-null-pointer/tasks/task-a1b2c3d4.json`
+**Location:** `~/.atlas/workspaces/fix-null-pointer/tasks/task-20251226-100000/task.json`
+
+**Task ID format:** `task-YYYYMMDD-HHMMSS` — Timestamp-based, human-readable, sorts chronologically.
 
 **State File Integrity:**
 
@@ -454,7 +456,7 @@ All JSON state files include safety mechanisms:
 ```json
 {
   "schema_version": 1,
-  "id": "task-a1b2c3d4",
+  "id": "task-20251226-100000",
   ...
 }
 ```
@@ -532,9 +534,6 @@ model:
 - `max_validation_loops: 5` — Validation retry cycles before forcing human intervention
 
 No token counting or cost tracking in v1—these safeguards prevent runaway execution.
-
-**Prompt enhancements:**
-Templates can include prompt modifiers like "ultrathink" to encourage deeper reasoning. These are just words in the prompt—no special API handling required.
 
 **AI Output Schema:**
 
@@ -630,22 +629,50 @@ This separation means:
 
 **Workspace lifecycle:**
 
-A workspace can contain multiple tasks (e.g., initial attempt, retry with different approach). Workspaces have three states:
+A workspace can contain multiple tasks. This happens when:
+- **Rejection + retry**: User rejects a task, starts fresh approach in same workspace
+- **Abandonment + restart**: Task abandoned, new task with different parameters
+- **Iterative work**: Analysis task, then implementation task
+
+Workspaces have three states:
 - `active` — Work in progress
 - `paused` — No running tasks, can resume later
 - `retired` — Work complete (PR merged), preserved for reference
 
 Workspaces are retired manually with `atlas workspace retire <name>` after verifying the PR was merged. Use `atlas workspace destroy <name>` for full cleanup (deletes both ATLAS state and the git worktree).
 
+**Workspace JSON (workspace.json):**
+```json
+{
+  "name": "auth-feature",
+  "repo_path": "/Users/me/projects/myrepo",
+  "worktree_path": "/Users/me/projects/myrepo-auth",
+  "branch": "feat/auth",
+  "status": "active",
+  "created_at": "2025-12-26T10:00:00Z",
+  "tasks": [
+    {"id": "task-20251226-100000", "status": "rejected", "template": "feature"},
+    {"id": "task-20251226-143022", "status": "running", "template": "feature"}
+  ]
+}
+```
+
 **Workspace manager:**
 ```go
 type Workspace struct {
-    Name         string    `json:"name"`
-    RepoPath     string    `json:"repo_path"`      // Original repo
-    WorktreePath string    `json:"worktree_path"`  // Created worktree
-    Branch       string    `json:"branch"`
-    CreatedAt    time.Time `json:"created_at"`
-    Status       string    `json:"status"`         // active, paused, retired
+    Name         string       `json:"name"`
+    RepoPath     string       `json:"repo_path"`      // Original repo
+    WorktreePath string       `json:"worktree_path"`  // Created worktree
+    Branch       string       `json:"branch"`
+    CreatedAt    time.Time    `json:"created_at"`
+    Status       string       `json:"status"`         // active, paused, retired
+    Tasks        []TaskRef    `json:"tasks"`          // Task history
+}
+
+type TaskRef struct {
+    ID       string `json:"id"`
+    Status   string `json:"status"`
+    Template string `json:"template"`
 }
 ```
 
@@ -756,7 +783,7 @@ fix: handle nil config options in parseConfig
 Added nil check before accessing cfg.Options.
 Added test case for nil options scenario.
 
-ATLAS-Task: task-a1b2c3d4
+ATLAS-Task: task-20251226-100000
 ATLAS-Template: bugfix
 ```
 
@@ -775,11 +802,11 @@ feat/add-user-authentication
 ```
 
 **PR creation:**
-Uses the diff to generate a detailed PR description with AI help, stored in `.atlas/artifacts/pr-description.md`.
+Uses the diff to generate a detailed PR description with AI help, stored in the task's artifacts folder.
 ```bash
 gh pr create \
   --title "fix: handle nil config options" \
-  --body "$(cat .atlas/artifacts/pr-description.md)" \
+  --body "$(cat ~/.atlas/workspaces/<ws>/tasks/<task-id>/artifacts/pr-description.md)" \
   --base main \
   --head fix/null-pointer-parseconfig
 ```
@@ -802,19 +829,19 @@ Key ideas preserved for future implementation:
 ```
 ~/.atlas/
 ├── logs/
-│   └── atlas.log                    # Host CLI operations
+│   └── atlas.log                              # Host CLI operations
 └── workspaces/
-    ├── auth/
-    │   └── logs/
-    │       ├── task-a1b2c3d4.log    # Full task execution log
-    │       └── task-e5f6g7h8.log
-    └── payment/
-        └── logs/...
+    └── auth/
+        └── tasks/
+            ├── task-20251226-100000/
+            │   └── task.log                   # Full task execution log
+            └── task-20251226-143022/
+                └── task.log
 ```
 
 **Log format (JSON-lines):**
 ```json
-{"ts":"2025-12-26T10:00:00Z","level":"info","event":"task_start","task_id":"task-a1b2c3d4"}
+{"ts":"2025-12-26T10:00:00Z","level":"info","event":"task_start","task_id":"task-20251226-100000"}
 {"ts":"2025-12-26T10:00:05Z","level":"info","event":"model_invoke","provider":"claude","tokens_in":15000}
 {"ts":"2025-12-26T10:00:45Z","level":"info","event":"model_complete","tokens_out":2500,"duration_ms":40000}
 {"ts":"2025-12-26T10:00:46Z","level":"info","event":"validation_start","command":"golangci-lint run"}
@@ -827,13 +854,13 @@ Key ideas preserved for future implementation:
 atlas status --verbose
 
 # Full log for a specific task
-cat ~/.atlas/workspaces/auth/logs/task-a1b2c3d4.log
+cat ~/.atlas/workspaces/auth/tasks/task-20251226-100000/task.log
 
 # Tail workspace logs live
 atlas workspace logs auth --follow
 
 # Parse logs with jq
-cat ~/.atlas/workspaces/*/logs/task-*.log | jq 'select(.event=="model_complete")'
+cat ~/.atlas/workspaces/*/tasks/*/task.log | jq 'select(.event=="model_complete")'
 ```
 
 ### 5.10 User Experience
@@ -1155,23 +1182,45 @@ Human approval is the security boundary. All code is reviewed before merge.
 **ATLAS home (~/.atlas/):**
 ```
 ~/.atlas/
-├── config.yaml                   # Global configuration
-├── backups/                      # Speckit upgrade backups
+├── config.yaml                            # Global configuration
 ├── logs/
-│   └── atlas.log                 # Host CLI operations
+│   └── atlas.log                          # Host CLI operations
+├── backups/
+│   └── speckit-<timestamp>/               # Speckit upgrade backups
 └── workspaces/
-    ├── auth/
-    │   ├── workspace.json        # Workspace metadata
-    │   ├── tasks/
-    │   │   └── task-a1b2c3d4.json
-    │   ├── artifacts/
-    │   │   ├── analysis.md
-    │   │   ├── spec.md
-    │   │   └── plan.md
-    │   └── logs/
-    │       └── task-a1b2c3d4.log
-    └── payment/
-        └── ...
+    └── auth/
+        ├── workspace.json                 # Workspace metadata + task history
+        └── tasks/
+            └── task-20251226-143022/      # Timestamp-based task ID
+                ├── task.json              # Task state & step history
+                ├── task.log               # Full execution log (JSON-lines)
+                └── artifacts/
+                    ├── analyze.md
+                    ├── spec.md            # (Speckit templates)
+                    ├── plan.md            # (Speckit templates)
+                    ├── tasks.md           # (Speckit templates)
+                    ├── checklist.md       # (Speckit templates)
+                    ├── validation.json
+                    ├── validation.1.json  # First attempt (on retry)
+                    ├── validation.2.json  # Second attempt (on retry)
+                    └── pr-description.md
+```
+
+**Artifact versioning:** When a step retries (e.g., validation fails, AI tries again), previous artifacts are preserved with numeric suffixes (`validation.1.json`, `validation.2.json`). The current/latest is always the base name (`validation.json`).
+
+**Browsing use cases:**
+```bash
+# All PR descriptions ever
+cat ~/.atlas/workspaces/*/tasks/*/artifacts/pr-description.md
+
+# All artifacts for a specific task
+ls ~/.atlas/workspaces/auth/tasks/task-20251226-143022/artifacts/
+
+# Workspace task history
+jq '.tasks' ~/.atlas/workspaces/auth/workspace.json
+
+# Latest task in a workspace (sorts chronologically)
+ls ~/.atlas/workspaces/auth/tasks/ | tail -1
 ```
 
 **Git worktree (stays clean):**
@@ -1190,7 +1239,7 @@ ATLAS state is completely separated from your repository. The worktree contains 
 ```json
 {
   "$schema": "atlas-task-output-v1",
-  "task_id": "task-a1b2c3d4",
+  "task_id": "task-20251226-100000",
   "status": "completed",
   "workspace": "fix-null-pointer",
   "output": {
@@ -1200,8 +1249,8 @@ ATLAS state is completely separated from your repository. The worktree contains 
       "pkg/config/parser_test.go"
     ],
     "artifacts": [
-      ".atlas/artifacts/analysis.md",
-      ".atlas/artifacts/implementation.md"
+      "~/.atlas/workspaces/fix-null-pointer/tasks/task-20251226-100000/artifacts/analyze.md",
+      "~/.atlas/workspaces/fix-null-pointer/tasks/task-20251226-100000/artifacts/pr-description.md"
     ],
     "validation_results": {
       "lint": {"passed": true, "duration_ms": 3200},

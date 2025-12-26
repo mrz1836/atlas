@@ -226,7 +226,7 @@ Feature implementation using Speckit for specification-driven development.
 
 **Best for:** Small to medium features with clear requirements
 
-### test-coverage
+### test-coverage (Post-MVP)
 
 Add test coverage to existing code.
 
@@ -234,7 +234,7 @@ Add test coverage to existing code.
 
 **Best for:** Improving test coverage, TDD retrofitting
 
-### refactor
+### refactor (Post-MVP)
 
 Incremental refactoring with validation between each step.
 
@@ -242,7 +242,7 @@ Incremental refactoring with validation between each step.
 
 **Best for:** Large refactoring efforts, breaking changes
 
-### learn
+### learn (Post-MVP)
 
 Analyze completed work and propose updates to project rules files. Spawned after `atlas approve` completes a task.
 
@@ -341,7 +341,7 @@ Full validation suite: format, then lint and test in parallel.
 
 **Commands:** Runs all validation commands with parallel execution for lint/test.
 
-### pr-update
+### pr-update (Post-MVP)
 
 Update an existing PR description based on new changes.
 
