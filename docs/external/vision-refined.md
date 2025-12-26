@@ -379,6 +379,12 @@ Tasks are the atomic units of work. State lives in `~/.atlas/workspaces/<name>/t
 | `running` | `gh_failed` | GitHub operation fails after retries |
 | `gh_failed` | `running` | Human resolves issue and retries |
 | `gh_failed` | `abandoned` | Human chooses abandon |
+| `running` | `ci_failed` | GitHub Actions workflow fails |
+| `running` | `ci_timeout` | CI polling timeout exceeded |
+| `ci_failed` | `running` | Human chooses retry from earlier step |
+| `ci_failed` | `abandoned` | Human chooses abandon |
+| `ci_timeout` | `running` | Human chooses to keep waiting or retry |
+| `ci_timeout` | `abandoned` | Human chooses abandon |
 
 **GitHub failure handling:**
 
@@ -397,6 +403,32 @@ GitHub operations (`gh pr create`, `git push`) automatically retry 3x with expon
 - Protected branch rejection
 - Network timeouts after retries
 
+**CI waiting:**
+
+After creating the PR, ATLAS waits for configured GitHub Actions workflows to complete before requesting human review. This ensures CI passes before the reviewer's time is spent.
+
+```yaml
+# .atlas/config.yaml
+ci:
+  workflows:
+    - name: "CI"
+      required: true
+    - name: "Lint"
+      required: true
+  poll_interval: 2m
+  timeout: 30m
+```
+
+ATLAS polls the GitHub Actions API for the PR's check runs every 2 minutes (configurable). If a required workflow fails or timeout is exceeded, the task pauses for human decision:
+
+```
+? CI workflow "CI" failed. What would you like to do?
+  ❯ View workflow logs — Open GitHub Actions in browser
+    Retry from implement — AI tries to fix based on CI output
+    Fix manually and resume — You fix, then 'atlas resume'
+    Abandon task — End task, keep branch for manual work
+```
+
 **Resume capability:**
 ```bash
 atlas resume <task-id>     # Continue interrupted task
@@ -411,6 +443,7 @@ Tasks checkpoint after each step, enabling resume after crashes or interruptions
 | ai | Claude SDK | No — pauses for approval after AI steps | No |
 | validation | Configured commands | Yes if passing; pauses on failure | No |
 | git | Git CLI operations | Default: Yes (configurable via `auto_proceed_git`) | Yes |
+| ci | GitHub Actions API | Yes if passing; pauses on failure/timeout | Yes |
 | human | Developer action | N/A — always waits for human | No |
 | sdd | Speckit slash commands | No — output requires review | No |
 
@@ -1034,7 +1067,10 @@ User: atlas start "fix null pointer panic in parseConfig when options is nil"
   ├─► Step 6: git_pr (Auto)
   │   └─► gh pr create
   │
-  └─► Step 7: review (Human)
+  ├─► Step 7: ci_wait (Auto)
+  │   └─► Polls GitHub Actions on PR until CI passes ✓
+  │
+  └─► Step 8: review (Human)
       └─► atlas approve OR atlas reject "reason"
 ```
 
@@ -1064,9 +1100,19 @@ User: atlas start "add retry logic to HTTP client" --template feature
   ├─► Step 7: checklist (SDD - Speckit)
   │   └─► /speckit.checklist → checklist.md
   │
-  ├─► Step 8-10: git operations
+  ├─► Step 8: git_commit (Auto)
+  │   └─► Creates branch, commits with trailers
   │
-  └─► Step 11: review (Human)
+  ├─► Step 9: git_push (Auto)
+  │   └─► Pushes to remote
+  │
+  ├─► Step 10: git_pr (Auto)
+  │   └─► gh pr create
+  │
+  ├─► Step 11: ci_wait (Auto)
+  │   └─► Polls GitHub Actions on PR until CI passes ✓
+  │
+  └─► Step 12: review (Human)
 ```
 
 ### Parallel Features

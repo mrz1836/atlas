@@ -116,6 +116,48 @@ Integrates with the Speckit framework for specification-driven development.
 - `implement` — Execute implementation
 - `checklist` — Generate completion checklist
 
+### CI Step
+
+Waits for GitHub Actions workflows to complete and checks their status.
+
+**Capabilities:**
+- Polls GitHub Actions API for workflow run status on the PR
+- Configurable polling interval (default: 2 minutes)
+- Configurable timeout (default: 30 minutes)
+- Watches specific workflows or all workflows triggered by the PR
+- Fails task if any watched workflow fails
+
+**Configuration:**
+```yaml
+# .atlas/config.yaml
+ci:
+  workflows:
+    - name: "CI"              # Workflow name to watch
+      required: true          # Fail if this workflow fails
+    - name: "Lint"
+      required: true
+    - name: "Security Scan"
+      required: false         # Warning only, don't block
+  poll_interval: 2m           # Check every 2 minutes
+  timeout: 30m                # Give up after 30 minutes
+```
+
+**Behavior:**
+1. After PR creation, queries GitHub Actions API for runs on the PR
+2. Polls at configured interval until all required workflows complete
+3. If all required workflows pass → continue to human review
+4. If any required workflow fails → enter `ci_failed` state (human decides)
+5. If timeout exceeded → enter `ci_timeout` state (human decides)
+
+**CI failure menu:**
+```
+? CI workflow "CI" failed. What would you like to do?
+  ❯ View workflow logs — Open GitHub Actions in browser
+    Retry from implement — AI tries to fix based on CI output
+    Fix manually and resume — You fix, then 'atlas resume'
+    Abandon task — End task, keep branch for manual work
+```
+
 ### Gather Step
 
 Optional step for collecting user input before execution. Skipped if CLI provides all required information.
@@ -214,7 +256,7 @@ steps:
 
 Simple bug fix workflow without SDD overhead.
 
-**Steps:** analyze → implement → validate → commit → push → pr → review
+**Steps:** analyze → implement → validate → commit → push → pr → ci_wait → review
 
 **Best for:** Bug fixes, small patches, quick corrections
 
@@ -222,7 +264,7 @@ Simple bug fix workflow without SDD overhead.
 
 Feature implementation using Speckit for specification-driven development.
 
-**Steps:** specify → review_spec → plan → tasks → implement → validate → checklist → commit → push → pr → review
+**Steps:** specify → review_spec → plan → tasks → implement → validate → checklist → commit → push → pr → ci_wait → review
 
 **Best for:** Small to medium features with clear requirements
 
