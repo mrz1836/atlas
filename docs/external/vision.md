@@ -2,7 +2,7 @@
 
 ## High-Level Vision Document
 
-**Version:** 0.2.0-DRAFT
+**Version:** 0.3.0-DRAFT
 **Last Updated:** December 2025
 **Status:** Vision & Architecture Definition
 
@@ -35,8 +35,9 @@
    - [Communication Abstraction](#6-communication-abstraction)
    - [Orchestration Agent](#7-orchestration-agent)
    - [Agent Runtime Environment](#8-agent-runtime-environment)
-   - [Research Agent](#9-research-agent)
-   - [Learning & Feedback System](#10-learning--feedback-system)
+   - [Research Agent (Internal)](#9-research-agent-internal)
+   - [Ecosystem Updates](#10-ecosystem-updates)
+   - [Learning & Feedback System](#11-learning--feedback-system)
 6. [Integration Patterns](#integration-patterns)
 7. [MVP Definition](#mvp-definition)
 8. [Failure Modes & Mitigation](#failure-modes--mitigation)
@@ -346,6 +347,7 @@ atlas start "fix login bug"   # Start a project from natural language
 atlas status                  # See what's running
 atlas approve <id>            # Approve a pending task
 atlas reject <id> "reason"    # Reject with feedback (triggers learning)
+atlas upgrade                 # Update ATLAS and all integrations
 ```
 
 #### Design Principles
@@ -1301,55 +1303,106 @@ atlas agent exec agent-456 -- git status
 
 ---
 
-### 9. Research Agent
+### 9. Research Agent (Internal)
 
-**Purpose:** Meta-system that monitors the SDD and memory framework landscape.
+**Purpose:** Internal maintainer tooling that monitors the SDD and memory framework landscape. This is **not a user-facing feature**.
 
-#### Responsibilities
+> **For Users:** You don't interact with the Research Agent. Simply run `atlas upgrade` to receive the latest framework integrations, adapter updates, and improvements. The Research Agent works behind the scenes to ensure ATLAS stays current.
 
-- Track development of integrated frameworks
-- Detect new features worth adopting
-- Identify breaking changes before they impact
-- Maintain statistics on framework effectiveness
-- Discover new projects in the ecosystem
+The Research Agent enables ATLAS maintainers to:
 
-#### Capabilities
+- Track development of integrated SDD frameworks (Speckit, BMAD, etc.)
+- Detect breaking changes before they impact users
+- Identify new features worth adopting
+- Discover emerging projects in the ecosystem
+- Generate compatibility reports for releases
 
-```
-ResearchAgent:
-  - ScanFramework(name) → FrameworkStatus
-  - DetectBreakingChanges(since) → []Change
-  - IdentifyNewFeatures(since) → []Feature
-  - DiscoverNewProjects(criteria) → []Project
-  - GenerateReport(period) → ResearchReport
-```
+**How it benefits you:** When maintainers run the Research Agent, discoveries are reviewed, tested, and packaged into ATLAS releases. Users receive these updates seamlessly via `atlas upgrade`, with a changelog showing what changed.
 
-#### Output Artifacts
-
-- Framework health dashboard data
-- Migration advisories
-- Feature adoption recommendations
-- New project evaluations
-
-**CLI Interface:**
-
-| Command | Description |
-|---------|-------------|
-| `atlas research scan` | Scan a framework for changes |
-| `atlas research report` | Generate research report |
-| `atlas research discover` | Discover new projects |
-| `atlas research compare` | Compare frameworks |
-
-Example:
-```bash
-atlas research scan --framework speckit --since 2025-01-01 --output json
-atlas research report --period monthly --format markdown
-atlas research discover --criteria sdd --min-stars 100
-```
+**Full Documentation:** See [research-agent.md](../internal/research-agent.md) for maintainer documentation.
 
 ---
 
-### 10. Learning & Feedback System
+### 10. Ecosystem Updates
+
+**Purpose:** Keep ATLAS and all integrations current with minimal user effort.
+
+#### User Experience
+
+```bash
+atlas upgrade                 # Update everything
+atlas upgrade --check         # See what would be updated (no changes)
+atlas upgrade --component sdd # Update only SDD frameworks
+```
+
+**What happens when you run `atlas upgrade`:**
+
+1. ATLAS checks for updates to core, adapters, and SDD frameworks
+2. Downloads and installs compatible versions
+3. Displays a clear changelog summary of what changed
+4. Verifies installation integrity
+
+#### Upgrade Output
+
+Every upgrade shows exactly what changed in a scannable format:
+
+```
+Checking for updates...
+
+┌─────────────────────────────────────────────────────────────────┐
+│                     ATLAS UPGRADE SUMMARY                       │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  CORE                                                           │
+│  ────                                                           │
+│  atlas-cli: 1.2.0 → 1.3.0                                       │
+│    • Added Linear adapter support                               │
+│    • Improved task retry logic with exponential backoff         │
+│    • Fixed memory leak in long-running workflows                │
+│                                                                 │
+│  SDD FRAMEWORKS                                                 │
+│  ──────────────                                                 │
+│  speckit: 2.1.0 → 2.2.0                                         │
+│    • New validation rules for API specs                         │
+│    • Performance improvements in large codebases                │
+│  bmad: 1.5.0 (no update available)                              │
+│                                                                 │
+│  ADAPTERS                                                       │
+│  ────────                                                       │
+│  github-adapter: 1.1.0 → 1.1.1                                  │
+│    • Bug fix: PR comments now preserve formatting               │
+│  asana-adapter: 1.0.0 (no update available)                     │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+
+Upgrade complete in 12.3s
+
+Run `atlas changelog` for full release notes.
+Run `atlas rollback` to revert to previous versions.
+```
+
+#### Additional Commands
+
+| Command | Description |
+|---------|-------------|
+| `atlas upgrade` | Update all components to latest compatible versions |
+| `atlas upgrade --check` | Preview available updates without installing |
+| `atlas upgrade --component <name>` | Update specific component only |
+| `atlas changelog` | View full release notes for current versions |
+| `atlas rollback` | Revert to previous versions if issues arise |
+| `atlas version` | Show current versions of all components |
+
+#### Design Principles
+
+- **Zero configuration:** Updates just work
+- **Compatibility guaranteed:** Only compatible versions are installed together
+- **Rollback support:** `atlas rollback` if issues arise
+- **Offline resilience:** Cached versions work without network
+- **Transparency:** Always shows exactly what changed and why
+
+---
+
+### 11. Learning & Feedback System
 
 **Purpose:** Capture task outcomes and adapt behavior based on experience.
 
@@ -1784,6 +1837,7 @@ If uncertain, defer.
 |---------|------|---------|
 | 0.1.0 | December 2025 | Initial vision document |
 | 0.2.0 | December 2025 | Added: Trust & Autonomy Ladder, Identity & Commit Model, UX Philosophy, Learning & Feedback System, Metrics & Observability, Context Strategy, Multi-Repo Task Coordination, Validation Strategy, Session & Memory Lifecycle, Failure Modes & Mitigation. Expanded: SDD Framework Integration with unified phase model, MVP Workflow with concrete Go project example. |
+| 0.3.0 | December 2025 | Clarified Research Agent as internal maintainer tooling (not user-facing). Added Ecosystem Updates section with `atlas upgrade` command and detailed changelog UX. Research Agent detailed documentation moved to separate maintainer docs. Renumbered Learning & Feedback System to §11. |
 
 ---
 
