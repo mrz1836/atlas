@@ -1,8 +1,8 @@
 # ATLAS: AI-Assisted Task Automation for Go Projects
 
-**Version:** 1.1.0-DRAFT
-**Tag:** v1.1-refined
-**Status:** Vision Document
+- **Version:** 1.1.0-DRAFT
+- **Tag:** v1.1-refined
+- **Status:** Vision Document
 
 ---
 
@@ -95,7 +95,7 @@ ATLAS is a pure Go application targeting Go 1.24+.
 
 ```
 ┌─────────────────────────────────────────────────┐
-│                  ATLAS Core                      │
+│                  ATLAS Core                     │
 ├─────────────────────────────────────────────────┤
 │  ModelClient Interface                          │
 │  ├─ ClaudeClient (anthropic-sdk-go)             │
@@ -119,7 +119,7 @@ ATLAS is a pure Go application targeting Go 1.24+.
 
 ### What We Don't Use
 
-- No ORM (direct SQL when needed)
+- No database (all state is file-based: JSON, YAML, Markdown)
 - No web framework (no HTTP server in v1)
 - No dependency injection framework (explicit wiring)
 - No LangChain/ADK/Genkit (direct API integration is simpler for v1)
@@ -212,21 +212,118 @@ ATLAS is installed globally via Go's package manager:
 go install github.com/owner/atlas@latest
 ```
 
-**Requirements:**
-- Go 1.24+
-- Git 2.20+ (for worktree support)
-- GitHub CLI (`gh`) for PR operations
-- mage-x (`go install github.com/mrz1836/mage-x@latest`)
-- go-pre-commit (`go install github.com/mrz1836/go-pre-commit@latest`)
-- uv (for Speckit) — ATLAS will install if missing
-- npm (for BMAD) — ATLAS will install if missing
+Then run the setup wizard:
 
-**First-time setup:**
 ```bash
 atlas init
 ```
 
-This launches an interactive wizard (powered by Charm huh) that configures:
+That's it. ATLAS handles everything else.
+
+#### Dependency Management
+
+ATLAS manages all required tools automatically. On first run (and periodically thereafter), it detects, installs, and upgrades dependencies.
+
+**Managed dependencies:**
+
+| Tool | Purpose | Pinned Version | Auto-Install |
+|------|---------|----------------|--------------|
+| Go | Runtime | 1.24+ | Detected only |
+| Git | Version control | 2.20+ | Detected only |
+| GitHub CLI (`gh`) | PR operations | Latest | ✓ |
+| mage-x | Build automation | v0.3.0 | ✓ |
+| go-pre-commit | Pre-commit hooks | v0.1.0 | ✓ |
+| uv | Speckit runtime | 0.5.x | ✓ |
+| npm | BMAD runtime | 10.x | Detected only |
+| Speckit | SDD framework | 1.0.0 | ✓ |
+| BMAD | SDD framework | alpha | ✓ |
+
+**Detection flow:**
+```
+atlas init
+  │
+  ├─► Scan: Detect installed tools and versions
+  │   └─► Show status table (installed ✓, missing ✗, outdated ⚠)
+  │
+  ├─► Prompt: "Install missing dependencies? [Y/n]"
+  │   └─► One-command install for all missing tools
+  │
+  └─► Configure: AI providers, GitHub auth, templates
+```
+
+**What you'll see:**
+```
+Checking dependencies...
+
+  TOOL            STATUS      VERSION     REQUIRED
+  Go              ✓ installed 1.24.1      1.24+
+  Git             ✓ installed 2.43.0      2.20+
+  gh              ✗ missing   —           latest
+  mage-x          ⚠ outdated  0.2.1       0.3.0
+  go-pre-commit   ✓ installed 0.1.0       0.1.0
+  uv              ✓ installed 0.5.12      0.5.x
+  Speckit         ✗ missing   —           1.0.0
+
+Install missing/outdated tools? [Y/n] y
+  Installing gh...        ✓
+  Upgrading mage-x...     ✓
+  Installing Speckit...   ✓
+
+All dependencies ready.
+```
+
+#### Self-Upgrade
+
+ATLAS can upgrade itself and all managed dependencies:
+
+```bash
+atlas upgrade              # Upgrade ATLAS + all tools
+atlas upgrade --self       # Upgrade ATLAS only
+atlas upgrade --tools      # Upgrade managed tools only
+atlas upgrade --check      # Show available updates without installing
+```
+
+#### SDD Framework Upgrades
+
+SDD frameworks (Speckit, BMAD) require special handling to preserve your customizations.
+
+**Speckit upgrades:**
+```bash
+atlas upgrade speckit
+```
+
+ATLAS handles Speckit upgrades intelligently:
+- Preserves your `constitution.md` and custom templates
+- Shows diff of what will change before applying
+- Backs up existing files to `.atlas/backups/`
+- Merges new features without overwriting customizations
+
+```
+Upgrading Speckit 0.9.0 → 1.0.0...
+
+  Files to update:
+    .speckit/prompts/specify.md    (new version available)
+    .speckit/prompts/plan.md       (new version available)
+
+  Files preserved (your customizations):
+    .speckit/constitution.md       (keeping yours)
+    .speckit/templates/custom.md   (keeping yours)
+
+  Apply upgrade? [Y/n] y
+  Backup created: .atlas/backups/speckit-0.9.0-20251226/
+  Upgrade complete.
+```
+
+**BMAD upgrades:**
+```bash
+atlas upgrade bmad
+```
+
+Same intelligent handling for BMAD configurations.
+
+**First-time setup wizard** (launched by `atlas init`):
+
+The interactive wizard (powered by Charm huh) configures:
 - AI provider selection and API credentials
 - GitHub authentication
 - Default template selection
@@ -705,6 +802,128 @@ atlas workspace logs auth --follow
 # Parse logs with jq
 cat ~/.atlas/logs/workspaces/*/task-*.log | jq 'select(.event=="model_complete")'
 ```
+
+### 5.10 User Experience
+
+ATLAS prioritizes clear, actionable feedback at every step. The CLI is designed so you always know what's happening, when action is needed, and how to respond.
+
+#### Status Display
+
+**`atlas status` — Snapshot with Action Hints**
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│  ATLAS Status                                                        │
+├──────────────────────────────────────────────────────────────────────┤
+│  WORKSPACE   BRANCH         STATUS              STEP    ACTION       │
+│  auth        feat/auth      running             3/7     —            │
+│  payment     fix/payment    ⚠ awaiting_approval 6/7     approve      │
+└──────────────────────────────────────────────────────────────────────┘
+
+⚠ 1 task needs your attention. Run: atlas approve payment
+Tip: Use 'atlas status --watch' for live updates
+```
+
+Key elements:
+- **ACTION column** — Shows exact command to run when action needed
+- **Visual indicator (⚠)** — Highlights tasks requiring attention
+- **Actionable footer** — Copy-paste command to proceed
+
+**`atlas status --watch` — Live Mode**
+
+- Refreshes every 2 seconds
+- Terminal bell (BEL character) when any task transitions to `awaiting_approval`
+- Shows timestamp of last update
+- Ctrl+C to exit
+
+#### Approval Flow
+
+**`atlas approve [workspace]` — Interactive Review**
+
+If no workspace specified and multiple tasks pending, interactive selection:
+```
+? Select task to approve:
+  ❯ payment (fix/payment) - Review PR
+    auth (feat/auth) - Review specification
+```
+
+Then shows interactive review screen:
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  Task: payment                                         fix/payment  │
+├─────────────────────────────────────────────────────────────────────┤
+│  Status: awaiting_approval                                          │
+│  Step: 6/7 - Review PR                                              │
+│                                                                     │
+│  Summary:                                                           │
+│    Fixed null pointer in parseConfig by adding nil check.           │
+│                                                                     │
+│  Files changed:                                                     │
+│    • pkg/config/parser.go (+12, -3)                                 │
+│    • pkg/config/parser_test.go (+45, -0)                            │
+│                                                                     │
+│  PR: https://github.com/user/repo/pull/42                           │
+├─────────────────────────────────────────────────────────────────────┤
+│  [a]pprove  [r]eject  [d]iff  [l]ogs  [o]pen PR  [q]uit            │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+**Key bindings:**
+| Key | Action |
+|-----|--------|
+| `a` | Approve and continue workflow |
+| `r` | Reject (prompts for feedback) |
+| `d` | Show git diff in pager |
+| `l` | Show recent task logs |
+| `o` | Open PR in browser (`gh pr view --web`) |
+| `q` | Quit without action |
+
+#### Rejection Flow
+
+**`atlas reject [workspace]` — Structured Feedback**
+
+Interactive prompt for rejection reason:
+```
+? Why are you rejecting this task?
+  ❯ Code quality issues
+    Missing tests
+    Wrong approach
+    Incomplete implementation
+    Other (provide details)
+
+Additional feedback (optional):
+> The error handling doesn't cover the timeout case
+```
+
+Feedback is stored in memory (`~/.atlas/memory/feedback/`) for learning and improvement.
+
+#### Dashboard (Post-MVP)
+
+**`atlas dashboard` — Split-Pane Multi-Workspace View**
+
+Full TUI dashboard for monitoring multiple workspaces simultaneously:
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│  ATLAS Dashboard                                    [q]uit [?]help      │
+├────────────────────────────────────┬────────────────────────────────────┤
+│  auth (feat/auth) - running 3/7   │  payment (fix/payment) ⚠ APPROVE   │
+├────────────────────────────────────┼────────────────────────────────────┤
+│  [12:34:01] Implementing...       │  [12:33:45] PR created             │
+│  [12:34:12] Running validation... │  [12:33:46] Awaiting approval      │
+│  [12:34:18] ✓ Validation passed   │                                    │
+│  [12:34:19] Running tests...      │  Press [Enter] to approve          │
+│  █████████░░░░░░░░░ 45%           │                                    │
+└────────────────────────────────────┴────────────────────────────────────┘
+```
+
+Features:
+- Split panes, one per active workspace
+- Real-time log streaming in each pane
+- Arrow keys to navigate between panes
+- Enter on highlighted pane to approve/interact
+- Resize panes with +/-
+
+*Note: Dashboard is a post-MVP enhancement. MVP focuses on `status`, `approve`, and `reject` commands.*
 
 ---
 
