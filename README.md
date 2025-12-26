@@ -2,10 +2,9 @@
     <img src=".github/images/header.png" alt="ATLAS, AI Task Lifecycle Automation System" title="ATLAS, AI Task Lifecycle Automation System" width=800/>
 </div>
 
-
 <br>
 
-You know the drill.
+_You know the drill._
 
 Fix the bug. Run the linter. Run the tests. Fix what the linter found. Run them again. Write the commit message. Push. Open the PR. Fill out the description. Wait.
 
@@ -23,4 +22,4 @@ At every checkpoint that matters, ATLAS stops and waits.
 
 ---
 
-→ [Read the full vision](docs/external/vision-refined.md)
+→ [Read the full vision](docs/external/vision-v2.md)
