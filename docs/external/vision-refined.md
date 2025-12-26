@@ -13,12 +13,12 @@ ATLAS is a CLI tool that orchestrates AI-assisted development workflows for Go p
 **What ATLAS does:**
 - Accepts a task description in natural language
 - Coordinates AI agents to analyze, implement, and validate code
-- Integrates with Speckit for specification-driven development
+- Integrates with [Speckit](https://github.com/github/spec-kit) for specification-driven development
 - Produces Git branches, commits, and pull requests
 
 **Built with:**
 - Pure Go 1.24+ with minimal dependencies
-- Direct integration with Claude API (anthropic-sdk-go)
+- CLI orchestration via Claude Code (`claude` command)
 - Charm libraries for beautiful terminal UX (lipgloss, huh, bubbles)
 - Git worktrees for parallel workspace isolation
 
@@ -40,7 +40,7 @@ ATLAS is a CLI tool that orchestrates AI-assisted development workflows for Go p
 - GitHub as the sole integration point
 - Local execution with Git worktrees for parallel work
 - Claude as the AI backend (interface allows future provider additions)
-- Integration with Speckit for SDD workflows
+- Integration with [Speckit](https://github.com/github/spec-kit) for SDD workflows
 
 ---
 
@@ -103,10 +103,10 @@ ATLAS is a pure Go application targeting Go 1.24+.
 ├─────────────────────────────────────────────────┤
 │  AIRunner Interface                             │
 │  └─ ClaudeCodeRunner (claude CLI)               │
-│      └─ Claude Code handles file ops, search    │
+│      └─ [Claude Code](https://code.claude.com/docs/en/cli-reference) handles file ops, search    │
 ├─────────────────────────────────────────────────┤
 │  SDD Framework Integration                      │
-│  └─ Speckit (.speckit/ repo + CLI)              │
+│  └─ [Speckit](https://github.com/github/spec-kit) (.speckit/ repo + CLI)              │
 └─────────────────────────────────────────────────┘
 ```
 
@@ -138,7 +138,7 @@ ATLAS is a pure Go application targeting Go 1.24+.
 │                                                                         │
 │  ┌─────────────────────────────┐  ┌─────────────────────────┐           │
 │  │  Worktree: auth-feature     │  │  Worktree: payment-fix  │           │
-│  │  ~/projects/repo-auth/      │  │  ~/projects/repo-pay/   │           │
+│  │  ../myrepo-auth/            │  │  ../myrepo-payment/     │           │
 │  │  ┌───────────────────────┐  │  │  ┌───────────────────┐  │           │
 │  │  │ Branch: feat/auth     │  │  │  │ Branch: fix/pay   │  │           │
 │  │  │ (your code only)      │  │  │  │ (your code only)  │  │           │
@@ -158,10 +158,10 @@ ATLAS is a pure Go application targeting Go 1.24+.
 
 **Data flow:**
 1. User runs `atlas start "fix the bug" --workspace bugfix-ws`
-2. ATLAS creates Git worktree at `~/projects/repo-bugfix-ws/`
+2. ATLAS creates Git worktree as sibling to repo (configurable)
 3. Task JSON created in `~/.atlas/workspaces/bugfix-ws/tasks/`
 4. Task Engine executes template steps (AI, validation, git, human)
-5. Claude invoked via SDK for AI steps
+5. Claude invoked via CLI (`claude -p --output-format json`) in worktree directory
 6. Git operations happen in worktree directory
 7. Human approves/rejects at checkpoints
 
@@ -235,10 +235,10 @@ ATLAS checks for required tools and manages a small set of ATLAS-owned dependenc
 | Git | Version control | 2.20+ | No (detect only) |
 | GitHub CLI (`gh`) | PR operations | 2.20+ | No (detect only) |
 | uv | Python tool runner | 0.5.x | No (detect only) |
-| Claude CLI (`claude`) | AI execution | 2.0.76+ | No (detect only) |
-| mage-x | Build automation | v0.3.0 | Yes (install/upgrade) |
-| go-pre-commit | Pre-commit hooks | v0.1.0 | Yes (install/upgrade) |
-| Speckit | SDD framework | 1.0.0 | Yes (install/upgrade) |
+| [Claude CLI (`claude`)](https://code.claude.com/docs/en/cli-reference) | AI execution | 2.0.76+ | No (detect only) |
+| [mage-x](https://github.com/mrz1836/mage-x) (`magex` command) | Build automation | v0.3.0 | Yes (install/upgrade) |
+| [go-pre-commit](https://github.com/mrz1836/go-pre-commit) | Pre-commit hooks | v0.1.0 | Yes (install/upgrade) |
+| [Speckit](https://github.com/github/spec-kit) | SDD framework | 1.0.0 | Yes (install/upgrade) |
 
 **Why this split:**
 - **Detect only:** Standard tools users install via their preferred method (brew, apt, etc.)
@@ -303,7 +303,7 @@ Upgrading Speckit 0.9.0 → 1.0.0...
   Upgrade complete.
 ```
 
-Flow: backup constitution → `uv tool upgrade speckit` → restore constitution from backup.
+Flow: backup constitution → `uv tool upgrade specify-cli` → restore constitution from backup.
 
 **First-time setup wizard** (launched by `atlas init`):
 
@@ -535,8 +535,7 @@ type AIRunner interface {
 type AIRequest struct {
     Prompt    string            // Task description or slash command
     WorkDir   string            // Worktree path
-    Mode      string            // "plan", "implement", "ask", "continue"
-    SessionID string            // Session ID to resume (for multi-turn conversations)
+    Mode      string            // "plan" or "implement"
     Context   []string          // Previous step artifact paths
     Model     string            // Model to use (e.g., "claude-sonnet-4-5-20250916")
     Flags     map[string]string // Additional CLI flags
@@ -546,8 +545,7 @@ type AIRequest struct {
 type AIResult struct {
     Output       string   // Captured stdout/response
     FilesChanged []string // Files modified (if any)
-    SessionID    string   // Session ID for resumption
-    NeedsInput   bool     // AI is asking a question, awaiting response
+    SessionID    string   // Session ID for logging
     ExitCode     int
 }
 ```
@@ -557,39 +555,35 @@ type AIResult struct {
 |------|---------|---------------|
 | `plan` | Explore codebase, propose approach | No |
 | `implement` | Execute changes | Yes |
-| `ask` | AI asks clarifying question | No |
-| `continue` | Resume session with user's answer | Depends on original mode |
 
 **Implementation (v1):**
 - `ClaudeCodeRunner` — Wraps the `claude` CLI
 
-ATLAS translates `AIRequest` to CLI invocation:
+ATLAS invokes `claude -p --output-format json --model <model>` in the worktree directory. Claude Code handles file operations; ATLAS parses the JSON response for logging and artifact extraction.
+
 ```bash
-claude --model <Model> --timeout <Timeout> --resume <SessionID> --print "<Prompt>"
-# Run in WorkDir with Context files available
-# Mode "plan" adds planning constraints to prompt
-# Mode "ask"/"continue" handles multi-turn Q&A
+# Example invocation
+cd /path/to/worktree
+claude -p --output-format json --model sonnet --max-turns 10 "<Prompt>"
+# Mode "plan" adds --permission-mode plan to restrict edits
 ```
 
-**Session lifecycle:**
+**Execution model:**
 
-Sessions are scoped to `task + step`. Session IDs follow the pattern: `<task-id>-<step-name>` (e.g., `task-20251226-100000-implement`).
+Each AI step is a single, atomic CLI invocation. No multi-turn conversations within a step.
 
-| Scenario | Session behavior |
-|----------|------------------|
-| New step starts | Fresh session (clean context) |
-| AI asks question | Same session continues |
-| User provides answer | Resume same session |
-| Step retries after failure | Fresh session (avoid poisoned context) |
-| Step retries after rejection | Fresh session with feedback injected |
+| Scenario | Behavior |
+|----------|----------|
+| Step starts | Fresh invocation with prompt + context artifacts |
+| Step completes | Parse JSON response, extract session_id for logging |
+| Step retries | Fresh invocation with error/feedback context injected into prompt |
 
-**Why fresh sessions on retry:** When AI produces bad output, continuing the same session carries forward the flawed reasoning. Starting fresh with error context or rejection feedback gives AI a clean slate.
+**Why fresh invocations on retry:** When AI produces bad output, continuing the same session carries forward the flawed reasoning. Starting fresh with error context or rejection feedback gives AI a clean slate.
 
-**Session storage:**
+**Step logs:**
 ```
-~/.atlas/workspaces/<ws>/tasks/<task-id>/sessions/
-  implement.json       # Session metadata + resume token
-  implement.log        # Full conversation log
+~/.atlas/workspaces/<ws>/tasks/<task-id>/artifacts/
+  implement.log        # Full CLI output captured
 ```
 
 **Future runners:** Interface supports other AI CLI tools (Cursor, Aider, etc.) by implementing the same interface with tool-specific flag/session mappings.
@@ -601,10 +595,9 @@ ai:
   runner: claude-code
   default_model: claude-sonnet-4-5-20250916
   timeout: 30m
-  max_retries: 3
-  max_validation_loops: 5
-  flags:                        # Default flags passed to CLI
-    allowedTools: "Read,Glob,Grep,Bash"
+  max_turns: 10                   # Max agentic turns per step
+  flags:                          # Default flags passed to CLI
+    tools: "Read,Edit,Write,Bash,Glob,Grep"
 ```
 
 **Per-template model override:**
@@ -618,8 +611,8 @@ templates:
 
 **Safeguards:**
 - `timeout: 30m` — Maximum time for any single AI step
-- `max_retries: 3` — AI step failures before human intervention
-- `max_validation_loops: 5` — Validation retry cycles before forcing human intervention
+- `max_turns: 10` — Maximum agentic turns per CLI invocation
+- Validation failures always pause for human decision (no auto-retry loops)
 
 **Step artifacts:**
 
@@ -639,8 +632,8 @@ ATLAS integrates with SDD frameworks as external tools, not abstractions. The fr
 **What is Speckit:** A spec-driven development toolkit providing structured specification, planning, and implementation workflows.
 
 **Two-part installation:**
-1. **CLI tool** (global): `uv tool install speckit` — Provides the `speckit` command
-2. **Project repo** (per-project): Installs Speckit's prompt patterns into `.speckit/` via mage-x
+1. **CLI tool** (global): `uv tool install specify-cli --from git+https://github.com/github/spec-kit.git` — Provides the `specify` command
+2. **Project repo** (per-project): Installs Speckit's prompt patterns into `.speckit/` via `specify init`
 
 ATLAS manages both installations. The CLI provides upgrade/management commands; the project repo provides slash command definitions that Claude can access.
 
@@ -669,9 +662,19 @@ ATLAS manages both installations. The CLI provides upgrade/management commands; 
 
 ATLAS uses two related concepts (see Glossary for definitions):
 - **Workspace**: ATLAS state (`~/.atlas/workspaces/<name>/`) — tasks, artifacts, logs
-- **Worktree**: Git working directory (`~/projects/<repo>-<name>/`) — your code
+- **Worktree**: Git working directory (sibling to repo by default) — your code
 
 This separation enables working on multiple features simultaneously without interference.
+
+**Worktree location** (configurable):
+```yaml
+# ~/.atlas/config.yaml
+worktree:
+  base_dir: ""  # Empty = sibling to repo (e.g., ../myrepo-auth)
+  # Or explicit: ~/projects/atlas-worktrees/
+```
+
+Default: If your repo is at `/Users/me/projects/myrepo`, worktrees are created at `/Users/me/projects/myrepo-<workspace>`.
 
 **Why Git worktrees:**
 - **Native Git feature** — No additional dependencies
@@ -683,9 +686,9 @@ This separation enables working on multiple features simultaneously without inte
 **Worktree lifecycle:**
 ```bash
 # ATLAS internally runs:
-git worktree add ~/projects/myrepo-auth feat/auth  # Create
-git worktree list                                   # List
-git worktree remove ~/projects/myrepo-auth         # Cleanup
+git worktree add ../myrepo-auth feat/auth   # Create (sibling to repo)
+git worktree list                           # List
+git worktree remove ../myrepo-auth          # Cleanup
 ```
 
 **State separation:**
@@ -771,7 +774,7 @@ atlas workspace destroy payment  # After merge
 - Branch: `<type>/<workspace-name>` (e.g., `fix/null-pointer-config`)
 
 **Conflict detection:**
-- **Worktree path conflict**: If `~/projects/<repo>-<name>/` already exists, ATLAS appends a numeric suffix (`-2`, `-3`, etc.)
+- **Worktree path conflict**: If the target worktree path already exists, ATLAS appends a numeric suffix (`-2`, `-3`, etc.)
 - **Branch conflict**: If branch `<type>/<name>` already exists, ATLAS appends a timestamp suffix (e.g., `fix/auth-20251226`)
 - Both cases display a clear warning message explaining the renamed path/branch
 
@@ -1158,14 +1161,14 @@ User: atlas start "add retry logic to HTTP client" --template feature
 # Terminal 1
 $ atlas start "add user authentication" --workspace auth
 Creating workspace 'auth'...
-  → Creating worktree at ~/projects/myrepo-auth
+  → Creating worktree at ../myrepo-auth
   → Creating branch: feat/auth
   → Starting task chain...
 
 # Terminal 2
 $ atlas start "fix payment timeout" --workspace payment
 Creating workspace 'payment'...
-  → Creating worktree at ~/projects/myrepo-payment
+  → Creating worktree at ../myrepo-payment
   → Creating branch: fix/payment
   → Starting task chain...
 
@@ -1308,7 +1311,7 @@ ls ~/.atlas/workspaces/auth/tasks/ | tail -1
 
 **Git worktree (stays clean):**
 ```
-~/projects/myrepo-auth/           # Git worktree
+../myrepo-auth/                   # Git worktree (sibling to original repo)
 ├── .speckit/                     # Speckit config (if using SDD)
 └── ... (your code)
 ```
@@ -1361,7 +1364,7 @@ ATLAS state is completely separated from your repository. The worktree contains 
 | Term | Definition |
 |------|------------|
 | **Workspace** | ATLAS's logical unit of work. Contains task state, artifacts, and logs. Stored in `~/.atlas/workspaces/<name>/`. |
-| **Worktree** | A Git working directory. ATLAS creates worktrees via `git worktree add` for parallel feature development. Located at `~/projects/<repo>-<name>/`. |
+| **Worktree** | A Git working directory. ATLAS creates worktrees via `git worktree add` for parallel feature development. By default, created as siblings to the original repo. |
 | **Task** | A single execution of a template. Workspaces can contain multiple tasks. |
 | **Template** | A predefined workflow (bugfix, feature, etc.) compiled into ATLAS as Go code. |
 | **SDD** | Specification-Driven Development. A methodology where features are specified before implementation. |
