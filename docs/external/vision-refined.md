@@ -15,7 +15,6 @@ ATLAS is a CLI tool that orchestrates AI-assisted development workflows for Go p
 - Coordinates AI agents to analyze, implement, and validate code
 - Integrates with Speckit for specification-driven development
 - Produces Git branches, commits, and pull requests
-- Learns from accepted and rejected work to improve over time
 
 **Built with:**
 - Pure Go 1.24+ with minimal dependencies
@@ -29,6 +28,7 @@ ATLAS is a CLI tool that orchestrates AI-assisted development workflows for Go p
 - Not language-agnostic—Go projects only in v1
 - Not cross-platform—macOS only in v1 (Terminal.app, iTerm2, modern terminals)
 - Not magic—AI makes mistakes, validation catches some, humans catch the rest
+- Not a learning system—no automatic project rules updates in v1
 
 **Who it's for:**
 - Go developers who want to accelerate routine development tasks
@@ -176,7 +176,7 @@ atlas status                            # Show all workspaces and tasks
 atlas approve [workspace]               # Approve pending work
 atlas reject [workspace]                # Reject with interactive feedback
 atlas resume [task-id]                  # Resume interrupted task
-atlas workspace <list|destroy|logs>     # Manage workspaces
+atlas workspace <list|retire|destroy|logs>  # Manage workspaces
 ```
 
 **Workspace-aware behavior:**
@@ -184,6 +184,8 @@ atlas workspace <list|destroy|logs>     # Manage workspaces
 - `atlas start "desc" --workspace feat-x` — Uses explicit workspace name
 - `atlas status` — Shows all workspaces and their task states
 - `atlas workspace logs <name> [--follow]` — Stream task logs from workspace
+- `atlas workspace retire <name>` — Mark workspace as complete (after PR merged)
+- `atlas workspace destroy <name>` — Full cleanup: deletes ATLAS state AND git worktree
 
 **Flags (all commands):**
 - `--output json|text` — Machine or human output (default: text for TTY)
@@ -285,7 +287,7 @@ atlas upgrade speckit      # Upgrade Speckit specifically
 
 #### Speckit Upgrades
 
-Speckit upgrades preserve your `constitution.md`:
+Speckit upgrades preserve your `constitution.md` (a Speckit-specific file that defines project governance principles and coding standards):
 
 ```
 Upgrading Speckit 0.9.0 → 1.0.0...
@@ -318,12 +320,35 @@ Configuration stored in `~/.atlas/config.yaml`.
 Tasks are the atomic units of work. State lives in `~/.atlas/workspaces/<name>/tasks/` as JSON files.
 
 **Task lifecycle:**
+
 ```
-pending ─► running ─► validating ─┬─► awaiting_approval ─► completed
-                                  │         │
-                                  │         └─► rejected ─► (task ends, feedback stored)
-                                  │
-                                  └─► validation_failed ─► (human decides next step)
+                                ┌──────────────┐
+                                │   pending    │
+                                └──────┬───────┘
+                                       │ start
+                                       ▼
+                                ┌──────────────┐
+                       ┌───────►│   running    │◄─────────┐
+                       │        └──────┬───────┘          │
+                       │               │ ai complete      │ retry
+                       │               ▼                  │
+                       │        ┌──────────────┐          │
+                       │        │  validating  │──────────┤
+                       │        └──────┬───────┘          │
+                       │               │                  │
+                       │     ┌─────────┴─────────┐        │
+                       │     │ pass              │ fail   │
+                       │     ▼                   ▼        │
+                ┌──────┴──────────┐      ┌────────────────┴┐
+                │awaiting_approval│      │validation_failed│
+                └──────┬──────────┘      └─────────────────┘
+                       │                        │
+             ┌─────────┴─────────┐              │ abandon
+             │ approve           │ reject       ▼
+             ▼                   ▼         ┌───────────┐
+      ┌───────────┐         ┌──────────┐   │ abandoned │
+      │ completed │         │ rejected │   └───────────┘
+      └───────────┘         └──────────┘
 ```
 
 **Key concepts:**
@@ -351,6 +376,26 @@ pending ─► running ─► validating ─┬─► awaiting_approval ─► c
 | `validation_failed` | `abandoned` | Human chooses abandon |
 | `awaiting_approval` | `completed` | Human runs `atlas approve` |
 | `awaiting_approval` | `rejected` | Human runs `atlas reject` |
+| `running` | `gh_failed` | GitHub operation fails after retries |
+| `gh_failed` | `running` | Human resolves issue and retries |
+| `gh_failed` | `abandoned` | Human chooses abandon |
+
+**GitHub failure handling:**
+
+GitHub operations (`gh pr create`, `git push`) automatically retry 3x with exponential backoff for transient errors. After exhausting retries, the task enters `gh_failed` state:
+
+```
+? GitHub operation failed: gh pr create returned "rate limit exceeded"
+  ❯ Retry now — Try the operation again
+    Fix and retry — You fix the issue, then retry
+    Abandon task — End task, keep branch for manual work
+```
+
+**Triggers for human intervention:**
+- Authentication failures (expired token, missing permissions)
+- Rate limits exceeded
+- Protected branch rejection
+- Network timeouts after retries
 
 **Resume capability:**
 ```bash
@@ -361,13 +406,15 @@ atlas resume               # Resume most recent task in workspace
 Tasks checkpoint after each step, enabling resume after crashes or interruptions.
 
 **Step types:**
-| Type | Executor | Auto-proceeds? |
-|------|----------|----------------|
-| ai | Claude SDK | No (pauses for approval after all AI steps) |
-| validation | Configured commands | Yes if passing; pauses on failure for human decision |
-| git | Git CLI operations | No (pauses before PR creation) |
-| human | Developer action | N/A (waits for human) |
-| sdd | Speckit CLI | Varies by command |
+| Type | Executor | Auto-proceeds? | Configurable? |
+|------|----------|----------------|---------------|
+| ai | Claude SDK | No — pauses for approval after AI steps | No |
+| validation | Configured commands | Yes if passing; pauses on failure | No |
+| git | Git CLI operations | Default: Yes (configurable via `auto_proceed_git`) | Yes |
+| human | Developer action | N/A — always waits for human | No |
+| sdd | Speckit slash commands | No — output requires review | No |
+
+**Note:** "Auto-proceeds" means the task continues without pausing for human input. Git operations (commit, push, PR) auto-proceed by default but can be configured to pause via `auto_proceed_git: false` in template config.
 
 **Task JSON structure:**
 ```json
@@ -413,7 +460,8 @@ All JSON state files include safety mechanisms:
 ```
 
 **Templates:**
-Pre-defined task chains for common workflows, implemented as Go code compiled into the ATLAS binary. This approach provides type safety, compile-time validation, testability, and IDE support. See [templates.md](templates.md) for comprehensive documentation.
+
+Pre-defined task chains for common workflows, implemented as Go code compiled into the ATLAS binary. This approach provides type safety, compile-time validation, testability, and IDE support. Users customize template behavior through configuration files (`~/.atlas/config.yaml` and `.atlas/config.yaml`), not by modifying templates directly. See [templates.md](templates.md) for comprehensive documentation.
 
 Built-in templates:
 - `bugfix` — Analyze, implement, validate, commit, PR
@@ -428,7 +476,19 @@ Utility templates (lightweight, single-purpose):
 
 **Parallel step execution:** Steps can be grouped with `parallel_group` for concurrent execution (e.g., lint and test run together after format completes).
 
-Users customize template behavior via CLI flags and `~/.atlas/config.yaml` (validation commands, model selection, etc.).
+**Template customization (via config, not code):**
+```yaml
+# .atlas/config.yaml
+templates:
+  bugfix:
+    auto_proceed_git: true      # Git operations don't pause for approval
+    model: claude-sonnet-4-5-20250916
+  feature:
+    auto_proceed_git: false     # Pause before PR creation
+    model: claude-opus-4-5-20251101
+```
+
+Users customize validation commands, model selection, and auto-proceed behavior via configuration files. Templates themselves are immutable Go code.
 
 ### 5.3 Model Client Layer
 
@@ -466,7 +526,12 @@ model:
   timeout: 30m  # Long-running tasks need room
 ```
 
-No token counting or cost tracking in v1—timeout (30m) is the only guard.
+**Safeguards:**
+- `timeout: 30m` — Maximum time for any single AI step
+- `max_ai_retries: 3` — AI step failures before breaking to human intervention
+- `max_validation_loops: 5` — Validation retry cycles before forcing human intervention
+
+No token counting or cost tracking in v1—these safeguards prevent runaway execution.
 
 **Prompt enhancements:**
 Templates can include prompt modifiers like "ultrathink" to encourage deeper reasoning. These are just words in the prompt—no special API handling required.
@@ -508,9 +573,9 @@ ATLAS integrates with SDD frameworks as external tools, not abstractions. The fr
 uv tool install speckit
 ```
 
-**Slash commands (pass-through to Speckit):**
+**Slash commands (passed to Claude):**
 
-These are slash commands—prompt-based actions invoked in AI conversations—not ATLAS templates. ATLAS passes them through to Speckit:
+Slash commands are prompt-based actions. ATLAS passes them to Claude along with user-provided context, then captures the structured output as artifacts.
 
 | Command | Purpose |
 |---------|---------|
@@ -521,17 +586,7 @@ These are slash commands—prompt-based actions invoked in AI conversations—no
 | `/speckit.implement` | Execute tasks to build features |
 | `/speckit.checklist` | Generate quality validation checklists |
 
-**Usage in templates (SDD step type):**
-```yaml
-steps:
-  - name: specify
-    type: sdd
-    framework: speckit
-    command: /speckit.specify
-    args:
-      description: "{{.Description}}"
-    output: .atlas/artifacts/spec.md
-```
+**Execution model:** When a template step specifies an SDD command, ATLAS constructs a prompt containing the slash command and any user context, sends it to Claude, validates the response matches the expected schema, and stores the output as an artifact (e.g., `~/.atlas/workspaces/<name>/artifacts/spec.md`).
 
 #### When to Use Speckit
 
@@ -541,9 +596,13 @@ steps:
 | Small features | Speckit | Lightweight, focused specs |
 | Large features | Speckit | Full specification + planning |
 
-### 5.5 Workspace Isolation (Git Worktrees)
+### 5.5 Workspaces and Git Worktrees
 
-Workspaces enable working on multiple features simultaneously without interference.
+ATLAS uses two related concepts (see Glossary for definitions):
+- **Workspace**: ATLAS state (`~/.atlas/workspaces/<name>/`) — tasks, artifacts, logs
+- **Worktree**: Git working directory (`~/projects/<repo>-<name>/`) — your code
+
+This separation enables working on multiple features simultaneously without interference.
 
 **Why Git worktrees:**
 - **Native Git feature** — No additional dependencies
@@ -569,6 +628,15 @@ This separation means:
 - Resume works after crashes
 - No `.atlas/` pollution in your repo
 
+**Workspace lifecycle:**
+
+A workspace can contain multiple tasks (e.g., initial attempt, retry with different approach). Workspaces have three states:
+- `active` — Work in progress
+- `paused` — No running tasks, can resume later
+- `retired` — Work complete (PR merged), preserved for reference
+
+Workspaces are retired manually with `atlas workspace retire <name>` after verifying the PR was merged. Use `atlas workspace destroy <name>` for full cleanup (deletes both ATLAS state and the git worktree).
+
 **Workspace manager:**
 ```go
 type Workspace struct {
@@ -577,7 +645,7 @@ type Workspace struct {
     WorktreePath string    `json:"worktree_path"`  // Created worktree
     Branch       string    `json:"branch"`
     CreatedAt    time.Time `json:"created_at"`
-    Status       string    `json:"status"`         // active, paused, completed
+    Status       string    `json:"status"`         // active, paused, retired
 }
 ```
 
@@ -604,6 +672,11 @@ atlas workspace destroy payment  # After merge
 - Auto-generated: `fix-null-pointer-config` (from description)
 - Override: `--workspace my-custom-name`
 - Branch: `<type>/<workspace-name>` (e.g., `fix/null-pointer-config`)
+
+**Conflict detection:**
+- **Worktree path conflict**: If `~/projects/<repo>-<name>/` already exists, ATLAS appends a numeric suffix (`-2`, `-3`, etc.)
+- **Branch conflict**: If branch `<type>/<name>` already exists, ATLAS appends a timestamp suffix (e.g., `fix/auth-20251226`)
+- Both cases display a clear warning message explaining the renamed path/branch
 
 ### 5.6 Validation
 
@@ -1019,6 +1092,7 @@ $ atlas workspace destroy payment
 | **ADK/Genkit** | Direct SDK is simpler for v1 | Multi-agent workflows needed |
 | **Additional PM Tools** | GitHub covers target users | Enterprise customers require |
 | **Token/Cost Tracking** | Timeout is sufficient guard | Budget concerns arise |
+| **Advanced Resume** | Basic checkpoint resume sufficient for v1 | Complex failure scenarios arise |
 
 ---
 
@@ -1034,6 +1108,7 @@ $ atlas workspace destroy payment
 | **AI mistakes** | Incorrect code | Human approval required |
 | **Worktree conflicts** | Branch already exists | Clear error message, suggest cleanup |
 | **SDD framework issues** | Speckit failures | Graceful fallback, show framework output |
+| **GitHub failures** | PR creation fails, push rejected | Auto-retry (3x), then `gh_failed` state for human intervention |
 
 ---
 
@@ -1146,6 +1221,19 @@ ATLAS state is completely separated from your repository. The worktree contains 
   }
 }
 ```
+
+---
+
+## Appendix C: Glossary
+
+| Term | Definition |
+|------|------------|
+| **Workspace** | ATLAS's logical unit of work. Contains task state, artifacts, and logs. Stored in `~/.atlas/workspaces/<name>/`. |
+| **Worktree** | A Git working directory. ATLAS creates worktrees via `git worktree add` for parallel feature development. Located at `~/projects/<repo>-<name>/`. |
+| **Task** | A single execution of a template. Workspaces can contain multiple tasks. |
+| **Template** | A predefined workflow (bugfix, feature, etc.) compiled into ATLAS as Go code. |
+| **SDD** | Specification-Driven Development. A methodology where features are specified before implementation. |
+| **Speckit** | An SDD framework providing slash commands for specification, planning, and implementation. |
 
 ---
 
