@@ -1,4 +1,4 @@
-# ATLAS: AI-Assisted Task Automation for Go Projects
+# ATLAS: AI Task Lifecycle Automation System
 
 - **Version:** 1.1.0-DRAFT
 - **Tag:** v1.1-refined
@@ -13,7 +13,7 @@ ATLAS is a CLI tool that orchestrates AI-assisted development workflows for Go p
 **What ATLAS does:**
 - Accepts a task description in natural language
 - Coordinates AI agents to analyze, implement, and validate code
-- Integrates with SDD frameworks (Speckit, BMAD) for specification-driven development
+- Integrates with Speckit for specification-driven development
 - Produces Git branches, commits, and pull requests
 - Learns from accepted and rejected work to improve over time
 
@@ -39,7 +39,7 @@ ATLAS is a CLI tool that orchestrates AI-assisted development workflows for Go p
 - GitHub as the sole integration point
 - Local execution with Git worktrees for parallel work
 - Claude (primary) + Gemini (fallback) as AI backends
-- Integration with Speckit and BMAD for SDD workflows
+- Integration with Speckit for SDD workflows
 
 ---
 
@@ -51,7 +51,7 @@ Git is not just version control—it's the audit trail, delivery mechanism, and 
 
 ### Text is Truth
 
-All state is stored as human-readable text files. JSON for structured data, Markdown for prose, YAML for configuration. No databases, no binary formats. You can always `cat` your way to understanding what ATLAS did.
+All state is stored as human-readable text files. JSON for structured data, Markdown for prose, YAML for configuration. Templates and workflows are Go code compiled into the binary—type-safe, testable, and dependable. No databases, no binary formats. You can always `cat` your way to understanding what ATLAS did.
 
 ### Human Authority at Checkpoints
 
@@ -104,8 +104,7 @@ ATLAS is a pure Go application targeting Go 1.24+.
 │      └─ Fallback when Claude unavailable        │
 ├─────────────────────────────────────────────────┤
 │  SDD Framework Integration                      │
-│  ├─ Speckit (uv tool, /speckit.* commands)      │
-│  └─ BMAD (npm, *agent commands)                 │
+│  └─ Speckit (uv tool, /speckit.* commands)      │
 └─────────────────────────────────────────────────┘
 ```
 
@@ -147,10 +146,10 @@ ATLAS is a pure Go application targeting Go 1.24+.
 │                                                                 │
 │  ┌─────────────────────────────────────────────────────────┐    │
 │  │                    Shared (Host)                        │    │
-│  │  Memory: ~/.atlas/memory/                               │    │
-│  │  Templates: ~/.atlas/templates/*.yaml                   │    │
 │  │  Config: ~/.atlas/config.yaml                           │    │
-│  │  Logs: ~/.atlas/logs/                                   │    │
+│  │  Logs:                                                  │    │
+│  │    ~/.atlas/logs/atlas.log          (host operations)   │    │
+│  │    ~/.atlas/logs/workspaces/<ws>/   (per-workspace)     │    │
 │  └─────────────────────────────────────────────────────────┘    │
 │                                                                 │
 └─────────────────────────────────────────────────────────────────┘
@@ -163,7 +162,7 @@ ATLAS is a pure Go application targeting Go 1.24+.
 4. Task Engine executes template steps (AI, validation, git, human)
 5. Claude/Gemini invoked via SDK for AI steps
 6. Git operations happen in worktree directory
-7. Human approves/rejects; outcome stored in shared memory
+7. Human approves/rejects; optionally spawns `learn` task to update project rules
 
 ---
 
@@ -178,7 +177,8 @@ atlas init                              # Initialize ATLAS configuration
 atlas start "description" [--workspace] # Start task in workspace
 atlas status                            # Show all workspaces and tasks
 atlas approve <task-id>                 # Approve pending work
-atlas reject <task-id> "reason"         # Reject with feedback
+atlas reject <task-id> "reason"         # Reject with feedback (task ends)
+atlas reject <task-id> --retry "guidance" # Reject and retry with guidance
 atlas workspace <list|stop|destroy|logs> # Manage workspaces
 ```
 
@@ -234,9 +234,7 @@ ATLAS manages all required tools automatically. On first run (and periodically t
 | mage-x | Build automation | v0.3.0 | ✓ |
 | go-pre-commit | Pre-commit hooks | v0.1.0 | ✓ |
 | uv | Speckit runtime | 0.5.x | ✓ |
-| npm | BMAD runtime | 10.x | Detected only |
 | Speckit | SDD framework | 1.0.0 | ✓ |
-| BMAD | SDD framework | alpha | ✓ |
 
 **Detection flow:**
 ```
@@ -285,7 +283,7 @@ atlas upgrade --check      # Show available updates without installing
 
 #### SDD Framework Upgrades
 
-SDD frameworks (Speckit, BMAD) require special handling to preserve your customizations.
+Speckit requires special handling to preserve your customizations.
 
 **Speckit upgrades:**
 ```bash
@@ -314,13 +312,6 @@ Upgrading Speckit 0.9.0 → 1.0.0...
   Upgrade complete.
 ```
 
-**BMAD upgrades:**
-```bash
-atlas upgrade bmad
-```
-
-Same intelligent handling for BMAD configurations.
-
 **First-time setup wizard** (launched by `atlas init`):
 
 The interactive wizard (powered by Charm huh) configures:
@@ -339,7 +330,9 @@ Tasks are the atomic units of work. State lives in `.atlas/tasks/` as JSON files
 ```
 pending ─► running ─► validating ─┬─► awaiting_approval ─► completed
                                   │         │
-                                  │         └─► rejected ─► (feedback stored)
+                                  │         ├─► rejected ─► (task ends, feedback stored)
+                                  │         │
+                                  │         └─► retry ─► running (with feedback context)
                                   │
                                   └─► validation_failed ─► running (retry loop)
                                               │
@@ -357,6 +350,7 @@ pending ─► running ─► validating ─┬─► awaiting_approval ─► c
 | `validation_failed` | `failed` | Max retries exceeded |
 | `awaiting_approval` | `completed` | Human runs `atlas approve` |
 | `awaiting_approval` | `rejected` | Human runs `atlas reject` |
+| `awaiting_approval` | `running` | Human runs `atlas reject --retry "guidance"` |
 
 **Step types:**
 | Type | Executor | Auto-proceeds? |
@@ -365,7 +359,7 @@ pending ─► running ─► validating ─┬─► awaiting_approval ─► c
 | validation | Configured commands | Yes (if passing) |
 | git | Git CLI operations | No (pauses before PR creation) |
 | human | Developer action | N/A (waits for human) |
-| sdd | Speckit/BMAD CLI | Varies by command |
+| sdd | Speckit CLI | Varies by command |
 
 **Task JSON structure:**
 ```json
@@ -398,14 +392,27 @@ pending ─► running ─► validating ─┬─► awaiting_approval ─► c
 ```
 
 **Templates:**
-Pre-defined task chains for common workflows. See [templates.md](templates.md) for comprehensive documentation.
+Pre-defined task chains for common workflows, implemented as Go code compiled into the ATLAS binary. This approach provides type safety, compile-time validation, testability, and IDE support. See [templates.md](templates.md) for comprehensive documentation.
 
 Built-in templates:
 - `bugfix` — Analyze, implement, validate, commit, PR
 - `feature` — Speckit SDD: specify, plan, implement, validate, PR
-- `feature-bmad` — BMAD: analysis, PRD, architecture, implement, QA, PR
 - `test-coverage` — Analyze gaps, implement tests, validate, PR
 - `refactor` — Incremental refactoring with validation between steps
+- `learn` — Analyze completed task, propose updates to project rules files
+
+Utility templates (lightweight, single-purpose):
+- `commit` — Smart commits: garbage detection, logical grouping, message generation
+- `clean` — Detect/remove temporary and backup files
+- `format` — Run code formatting only
+- `lint` — Run linters only
+- `test` — Run tests only
+- `validate` — Full validation suite (format, then lint+test in parallel)
+- `pr-update` — Update existing PR description from new changes
+
+**Parallel step execution:** Steps can be grouped with `parallel_group` for concurrent execution (e.g., lint and test run together after format completes).
+
+Users customize template behavior via CLI flags and `~/.atlas/config.yaml` (validation commands, model selection, etc.).
 
 ### 5.3 Model Client Layer
 
@@ -503,7 +510,10 @@ ATLAS integrates with SDD frameworks as external tools, not abstractions. The fr
 uv tool install specify-cli --from git+https://github.com/github/spec-kit.git
 ```
 
-**Commands available to templates:**
+**Slash commands (pass-through to Speckit):**
+
+These are slash commands—prompt-based actions invoked in AI conversations—not ATLAS templates. ATLAS passes them through to Speckit:
+
 | Command | Purpose |
 |---------|---------|
 | `/speckit.constitution` | Create project governing principles |
@@ -513,7 +523,7 @@ uv tool install specify-cli --from git+https://github.com/github/spec-kit.git
 | `/speckit.implement` | Execute tasks to build features |
 | `/speckit.checklist` | Generate quality validation checklists |
 
-**Template usage:**
+**Usage in templates (SDD step type):**
 ```yaml
 steps:
   - name: specify
@@ -525,54 +535,13 @@ steps:
     output: .atlas/artifacts/spec.md
 ```
 
-#### BMAD Integration
-
-**What is BMAD:** Breakthrough Method for Agile AI-Driven Development—a multi-agent framework with specialized roles.
-
-**Installation:** ATLAS auto-installs via npm:
-```bash
-npx bmad-method@alpha install
-```
-
-**Agents available to templates:**
-| Agent | Role |
-|-------|------|
-| `*analyst` | Brainstorming and analysis |
-| `*pm` | PRD creation |
-| `*architect` | Technical architecture |
-| `*developer` | Implementation |
-| `*qa` | Quality assurance |
-
-**Workflow tracks:**
-| Track | Best For | Planning Depth |
-|-------|----------|----------------|
-| Quick Flow | Bug fixes, small features | Tech spec only |
-| Standard | Products, platforms | PRD + Architecture |
-| Enterprise | Compliance, scalability | Full governance |
-
-**Template usage:**
-```yaml
-sdd:
-  framework: bmad
-  track: standard
-
-steps:
-  - name: prd
-    type: sdd
-    command: "*pm"
-    args:
-      task: create-prd
-    output: .atlas/artifacts/prd.md
-```
-
-#### When to Use Which
+#### When to Use Speckit
 
 | Use Case | Recommended | Rationale |
 |----------|-------------|-----------|
 | Bug fixes | No SDD | Overkill; just analyze + fix |
 | Small features | Speckit | Lightweight, focused specs |
-| Large features | Speckit or BMAD | Full specification + planning |
-| Enterprise/compliance | BMAD Enterprise | Governance, full docs |
+| Large features | Speckit | Full specification + planning |
 
 ### 5.5 Workspace Isolation (Git Worktrees)
 
@@ -727,6 +696,7 @@ feat/add-user-authentication
 ```
 
 **PR creation:**
+Uses the diff to generate a detailed PR description with AI help, stored in `.atlas/artifacts/pr-description.md`.
 ```bash
 gh pr create \
   --title "fix: handle nil config options" \
@@ -735,35 +705,60 @@ gh pr create \
   --head fix/null-pointer-parseconfig
 ```
 
-### 5.8 Memory
+### 5.8 Project Rules Update
 
-Memory persists context across tasks and sessions. Stored as Markdown files in `~/.atlas/memory/` (global, shared across all workspaces).
+ATLAS can learn from completed work by updating project rules files. This is an explicit, human-controlled process—not automatic background learning.
 
-**Structure:**
+**Configuration:**
+```yaml
+# .atlas/config.yaml (project-level)
+rules:
+  files:
+    - path: .speckit/constitution.md
+      description: "Core project principles and constraints"
+    - path: AGENTS.md
+      description: "AI agent behavior guidelines"
+    - path: docs/CODING_STANDARDS.md
+      description: "Code style and patterns"
+
+  # Optional: guidelines for how rules should be written
+  update_guidelines: |
+    - Keep rules concise and actionable
+    - Prefer specific examples over abstract principles
+    - Group related rules under clear headings
 ```
-~/.atlas/memory/
-├── feedback/               # Rejection reasons, learnings
-│   └── 2025-12-26-task-a1b2c3d4.md
-├── context/                # Project-specific context
-│   └── coding-standards.md
-└── decisions/              # Architectural decisions
-    └── 2025-12-use-cobra.md
+
+**Workflow:**
+After `atlas approve` completes a task:
+```
+Task completed successfully. PR: https://github.com/user/repo/pull/42
+Update project rules based on this work? [y/N]
 ```
 
-**Memory write path:**
-The host CLI writes memory based on user actions:
+If the user selects yes, ATLAS spawns a `learn` task with input from the completed work:
+- Original task description and template used
+- Task output/artifacts
+- Any rejection feedback from validation retries
+- PR URL and files changed
 
-| User Action | Memory Written |
-|-------------|----------------|
-| `atlas reject <task> "reason"` | Feedback entry with rejection reason |
-| `atlas approve <task>` | Success logged (optional) |
+**Learn template steps:**
+1. **read_rules** (AI) — Read current rules files from project config, understand structure
+2. **analyze_learnings** (AI) — Review task artifacts, identify patterns worth codifying
+3. **propose_updates** (AI) — Draft specific updates respecting each file's format/purpose
+4. **review_updates** (Human) — Show diff of proposed changes, approve/reject
+5. **apply_updates** (Git) — Commit rule changes with `ATLAS-Learn` trailer
 
-**Search:**
-Memory is searched via grep. Simple, debuggable, sufficient for hundreds of entries.
+**The learn agent specializes in:**
+- Understanding each project's rules file conventions
+- Knowing which file is appropriate for different types of rules
+- Respecting the existing structure and style of each file
+- Proposing minimal, targeted updates (not rewrites)
 
-```bash
-grep -r "error handling" ~/.atlas/memory/
-```
+**Why this approach:**
+- Learning is explicit and human-controlled
+- Rules are version-controlled in the project (not a separate system)
+- Uses existing infrastructure (templates, task spawning)
+- Aligns with "Text is Truth" principle
 
 ### 5.9 Observability
 
@@ -864,7 +859,7 @@ Then shows interactive review screen:
 │                                                                     │
 │  PR: https://github.com/user/repo/pull/42                           │
 ├─────────────────────────────────────────────────────────────────────┤
-│  [a]pprove  [r]eject  [d]iff  [l]ogs  [o]pen PR  [q]uit            │
+│  [a]pprove  [r]eject  [d]iff  [l]ogs  [o]pen PR  [q]uit             │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -878,11 +873,63 @@ Then shows interactive review screen:
 | `o` | Open PR in browser (`gh pr view --web`) |
 | `q` | Quit without action |
 
+**After approval:**
+When the task completes, ATLAS offers to update project rules:
+```
+Task completed successfully. PR: https://github.com/user/repo/pull/42
+Update project rules based on this work? [y/N]
+```
+
+If yes, spawns a `learn` task (see Section 5.8). If no or if no rules files are configured, the workflow ends.
+
 #### Rejection Flow
 
-**`atlas reject [workspace]` — Structured Feedback**
+**`atlas reject [workspace]` — Interactive Decision Flow**
 
-Interactive prompt for rejection reason:
+When rejecting, ATLAS presents an interactive decision flow:
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  Rejecting: payment                                    fix/payment  │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  ? What would you like to do?                                       │
+│    ❯ Reject and retry — AI tries again with your feedback           │
+│      Reject (done) — End task, keep code for manual work            │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+**Path A: Reject and Retry**
+
+If "Reject and retry" is selected:
+```
+? What needs to change?
+  ❯ Code quality issues
+    Missing tests
+    Wrong approach
+    Incomplete implementation
+    Other (provide details)
+
+? Which step should retry?
+  ❯ implement — Re-implement with your feedback (Recommended)
+    analyze — Re-analyze the problem first
+    Full restart — Start from the beginning
+
+Additional guidance for AI:
+> Focus on the timeout case - the current implementation doesn't handle
+> network timeouts properly. See pkg/http/client.go:245 for context.
+
+Retrying task with feedback...
+  → Returning to 'implement' step
+  → AI will receive your feedback as context
+```
+
+The task returns to `running` state with feedback context injected into the AI prompt.
+
+**Path B: Reject (Done)**
+
+If "Reject (done)" is selected:
 ```
 ? Why are you rejecting this task?
   ❯ Code quality issues
@@ -892,38 +939,27 @@ Interactive prompt for rejection reason:
     Other (provide details)
 
 Additional feedback (optional):
-> The error handling doesn't cover the timeout case
+> The approach is fundamentally wrong for our architecture.
+
+Task rejected.
+  → Branch 'fix/payment' preserved with current changes
+  → Feedback stored for future learning
+  → Run 'atlas start "..." --workspace payment' to try fresh approach
 ```
 
-Feedback is stored in memory (`~/.atlas/memory/feedback/`) for learning and improvement.
+The task ends. Branch and code remain for manual intervention. Feedback is stored in the task's JSON file and can be used by the `learn` template when updating project rules.
 
-#### Dashboard (Post-MVP)
+**CLI shortcuts:**
+```bash
+# Interactive flow (recommended)
+atlas reject payment
 
-**`atlas dashboard` — Split-Pane Multi-Workspace View**
+# Direct retry with inline feedback
+atlas reject payment --retry "handle timeout case in HTTP client"
 
-Full TUI dashboard for monitoring multiple workspaces simultaneously:
+# Direct terminal rejection
+atlas reject payment "wrong architectural approach"
 ```
-┌─────────────────────────────────────────────────────────────────────────┐
-│  ATLAS Dashboard                                    [q]uit [?]help      │
-├────────────────────────────────────┬────────────────────────────────────┤
-│  auth (feat/auth) - running 3/7   │  payment (fix/payment) ⚠ APPROVE   │
-├────────────────────────────────────┼────────────────────────────────────┤
-│  [12:34:01] Implementing...       │  [12:33:45] PR created             │
-│  [12:34:12] Running validation... │  [12:33:46] Awaiting approval      │
-│  [12:34:18] ✓ Validation passed   │                                    │
-│  [12:34:19] Running tests...      │  Press [Enter] to approve          │
-│  █████████░░░░░░░░░ 45%           │                                    │
-└────────────────────────────────────┴────────────────────────────────────┘
-```
-
-Features:
-- Split panes, one per active workspace
-- Real-time log streaming in each pane
-- Arrow keys to navigate between panes
-- Enter on highlighted pane to approve/interact
-- Resize panes with +/-
-
-*Note: Dashboard is a post-MVP enhancement. MVP focuses on `status`, `approve`, and `reject` commands.*
 
 ---
 
@@ -1030,7 +1066,6 @@ $ atlas workspace destroy payment
 | Feature | Why Deferred | Revisit When |
 |---------|--------------|--------------|
 | **Multi-Repo** | Enterprise complexity | Users demonstrate concrete need |
-| **Semantic Search** | Grep works for small memory | Memory exceeds ~1000 entries |
 | **Trust Levels** | Need rejection data first | 100+ task completions |
 | **Cloud Execution** | Local first | Need scale-out |
 | **Other Languages** | Go-first simplifies validation | Go version is stable |
@@ -1050,7 +1085,8 @@ $ atlas workspace destroy payment
 | **Breaks workflow** | Merge conflicts | Additive only—works with existing Git |
 | **AI mistakes** | Incorrect code | Human approval required |
 | **Worktree conflicts** | Branch already exists | Clear error message, suggest cleanup |
-| **SDD framework issues** | Speckit/BMAD failures | Graceful fallback, show framework output |
+| **SDD framework issues** | Speckit failures | Graceful fallback, show framework output |
+| **No rules files configured** | Learn task skipped | Prompt user to configure rules files |
 
 ---
 
@@ -1061,7 +1097,7 @@ $ atlas workspace destroy payment
 | Obstacle | Impact | Notes |
 |----------|--------|-------|
 | **Git credential complexity** | High | SSH vs HTTPS, PATs, 2FA. Budget time for edge cases. |
-| **SDD framework installation** | Medium | Need uv for Speckit, npm for BMAD. Auto-install adds complexity. |
+| **SDD framework installation** | Medium | Need uv for Speckit. Auto-install adds complexity. |
 | **Worktree branch conflicts** | Medium | Handle existing branches gracefully. |
 | **Large repo context** | Medium | File selection heuristics need iteration. |
 
@@ -1098,12 +1134,6 @@ Human approval is the security boundary. All code is reviewed before merge.
 ```
 ~/.atlas/
 ├── config.yaml               # Global configuration
-├── memory/                   # Shared across all workspaces
-│   ├── feedback/
-│   ├── context/
-│   └── decisions/
-├── templates/                # User template overrides
-│   └── custom.yaml
 ├── workspaces/               # Metadata about active workspaces
 │   ├── auth.json
 │   └── payment.json
@@ -1126,7 +1156,6 @@ Human approval is the security boundary. All code is reviewed before merge.
 │       ├── spec.md
 │       └── plan.md
 ├── .speckit/                 # Speckit config (if using)
-├── .bmad/                    # BMAD config (if using)
 └── ... (your code)
 ```
 

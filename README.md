@@ -1,32 +1,25 @@
 # ATLAS
-> **Adaptive Teamwork Layer for AI Systems**
+
+> **AI Task Lifecycle Automation System**
 
 ---
 
-Imagine waking up to find your backlog lighter.
+You know the drill.
 
-Not because you worked late—because someone else did. Someone who never loses context. Someone who remembers every architectural decision, every edge case, every lesson learned across every project you've ever touched together.
+Fix the bug. Run the linter. Run the tests. Fix what the linter found. Run them again. Write the commit message. Push. Open the PR. Fill out the description. Wait.
 
-**ATLAS is that someone.**
+Repeat forever.
 
----
-
-This isn't another AI assistant that spits out boilerplate and leaves you to clean up.
-
-ATLAS is a virtual senior developer. It plugs into your existing workflow—Asana, Linear, GitHub Projects—and does the work.
-
-Investigate. Propose. Wait for approval. Implement. Validate. Open the PR. Wait for review.
-
-The loop closes. The code ships.
+**ATLAS handles the tedium so you can focus on the craft.**
 
 ---
 
-At every critical junction, ATLAS stops and asks.
+A CLI tool that orchestrates AI-assisted development workflows for Go projects. You describe what needs doing. ATLAS analyzes, implements, validates, and delivers—pausing at every decision point for your approval.
 
-It doesn't guess. It doesn't cut corners. It doesn't ship code without validation.
+At every checkpoint that matters, ATLAS stops and waits.
 
 **You keep the wheel. ATLAS carries the weight.**
 
 ---
 
-→ [Read the original vision](docs/external/vision.md) or the [refined mvp vision](docs/external/vision-refined.md)
+→ [Read the vision](docs/external/vision-refined.md)
