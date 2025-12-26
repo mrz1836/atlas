@@ -19,7 +19,7 @@ ATLAS is a CLI tool that orchestrates AI-assisted development workflows for Go p
 
 **Built with:**
 - Pure Go 1.24+ with minimal dependencies
-- Direct integration with Claude and Gemini APIs (anthropic-sdk-go, google-genai)
+- Direct integration with Claude API (anthropic-sdk-go)
 - Charm libraries for beautiful terminal UX (lipgloss, huh, bubbles)
 - Git worktrees for parallel workspace isolation
 
@@ -27,6 +27,7 @@ ATLAS is a CLI tool that orchestrates AI-assisted development workflows for Go p
 - Not a "virtual employee"—it's a workflow automation tool that requires human oversight
 - Not a universal PM integration—GitHub only in v1
 - Not language-agnostic—Go projects only in v1
+- Not cross-platform—macOS only in v1 (Terminal.app, iTerm2, modern terminals)
 - Not magic—AI makes mistakes, validation catches some, humans catch the rest
 
 **Who it's for:**
@@ -38,7 +39,7 @@ ATLAS is a CLI tool that orchestrates AI-assisted development workflows for Go p
 - Single-repository Go projects
 - GitHub as the sole integration point
 - Local execution with Git worktrees for parallel work
-- Claude (primary) + Gemini (fallback) as AI backends
+- Claude as the AI backend (interface allows future provider additions)
 - Integration with Speckit for SDD workflows
 
 ---
@@ -88,7 +89,6 @@ ATLAS is a pure Go application targeting Go 1.24+.
 | Configuration | `spf13/viper` | Multi-source config, pairs with Cobra |
 | Structured Logging | `rs/zerolog` | Zero-allocation, JSON-native |
 | Claude API | `anthropics/anthropic-sdk-go` | Official Claude SDK |
-| Gemini API | `google/generative-ai-go` | Official Gemini SDK |
 | GitHub API | `google/go-github` | Official GitHub v3/v4 client |
 
 ### AI Architecture
@@ -98,10 +98,8 @@ ATLAS is a pure Go application targeting Go 1.24+.
 │                  ATLAS Core                     │
 ├─────────────────────────────────────────────────┤
 │  ModelClient Interface                          │
-│  ├─ ClaudeClient (anthropic-sdk-go)             │
-│  │   └─ Primary provider, best code quality     │
-│  └─ GeminiClient (google-genai)                 │
-│      └─ Fallback when Claude unavailable        │
+│  └─ ClaudeClient (anthropic-sdk-go)             │
+│      └─ Primary provider                        │
 ├─────────────────────────────────────────────────┤
 │  SDD Framework Integration                      │
 │  └─ Speckit (uv tool, /speckit.* commands)      │
@@ -114,7 +112,7 @@ ATLAS is a pure Go application targeting Go 1.24+.
 - Easy debugging—read your code, not framework internals
 - Type safety from official SDKs
 
-**Future consideration:** ADK Go and Genkit for multi-agent orchestration when workflows become more complex.
+**Interface extensibility:** The `ModelClient` interface allows adding providers (Gemini, etc.) without core changes. Deferred until needed.
 
 ### What We Don't Use
 
@@ -159,7 +157,7 @@ ATLAS is a pure Go application targeting Go 1.24+.
 2. ATLAS creates Git worktree at `~/projects/repo-bugfix-ws/`
 3. Task JSON created in `~/.atlas/workspaces/bugfix-ws/tasks/`
 4. Task Engine executes template steps (AI, validation, git, human)
-5. Claude/Gemini invoked via SDK for AI steps
+5. Claude invoked via SDK for AI steps
 6. Git operations happen in worktree directory
 7. Human approves/rejects at checkpoints
 
@@ -287,27 +285,17 @@ atlas upgrade speckit      # Upgrade Speckit specifically
 
 #### Speckit Upgrades
 
-Speckit gets special handling to preserve your customizations:
-
-- Preserves your `constitution.md` and custom templates
-- Shows diff of what will change before applying
-- Backs up existing files before upgrading
+Speckit upgrades preserve your `constitution.md`:
 
 ```
 Upgrading Speckit 0.9.0 → 1.0.0...
-
-  Files to update:
-    .speckit/prompts/specify.md    (new version available)
-    .speckit/prompts/plan.md       (new version available)
-
-  Files preserved (your customizations):
-    .speckit/constitution.md       (keeping yours)
-    .speckit/templates/custom.md   (keeping yours)
-
-  Apply upgrade? [Y/n] y
-  Backup created: ~/.atlas/backups/speckit-0.9.0-20251226/
+  Backing up constitution.md → ~/.atlas/backups/speckit-<timestamp>/
+  Installing Speckit 1.0.0...
+  Restoring constitution.md from backup...
   Upgrade complete.
 ```
+
+Flow: backup constitution → `uv tool upgrade speckit` → restore constitution from backup.
 
 **First-time setup wizard** (launched by `atlas init`):
 
@@ -319,6 +307,12 @@ The interactive wizard (powered by Charm huh) configures:
 
 Configuration stored in `~/.atlas/config.yaml`.
 
+**Config Precedence (highest to lowest):**
+1. CLI flags
+2. Project config (`.atlas/config.yaml`)
+3. Global config (`~/.atlas/config.yaml`)
+4. Template defaults (compiled into binary)
+
 ### 5.2 Task Engine
 
 Tasks are the atomic units of work. State lives in `~/.atlas/workspaces/<name>/tasks/` as JSON files.
@@ -329,15 +323,22 @@ pending ─► running ─► validating ─┬─► awaiting_approval ─► c
                                   │         │
                                   │         └─► rejected ─► (task ends, feedback stored)
                                   │
-                                  └─► fixing ─► validating (AI fix loop)
-                                         │
-                                         └─► failed (max fix attempts exceeded)
+                                  └─► validation_failed ─► (human decides next step)
 ```
 
 **Key concepts:**
-- **Validation failures** (lint/test errors) → immediate AI fix loop, not task retry
+- **Validation failures** (lint/test errors) → pause for human decision
 - **Task retry** = catastrophic failure only (API down, crash, network timeout)
 - **Resume** = continue interrupted task from last checkpoint
+
+**Validation failed menu (interactive):**
+```
+? Validation failed. What would you like to do?
+  ❯ Retry this step — AI tries again with error context
+    Retry from earlier step — Go back to analyze/implement
+    Fix manually and resume — You fix, then 'atlas resume'
+    Abandon task — End task, keep branch for manual work
+```
 
 **State transitions:**
 | From | To | Trigger |
@@ -345,9 +346,9 @@ pending ─► running ─► validating ─┬─► awaiting_approval ─► c
 | `pending` | `running` | Task execution starts |
 | `running` | `validating` | AI produces output |
 | `validating` | `awaiting_approval` | All validations pass |
-| `validating` | `fixing` | Validation fails (lint/test errors) |
-| `fixing` | `validating` | AI fix applied, re-validate |
-| `fixing` | `failed` | Max fix attempts exceeded |
+| `validating` | `validation_failed` | Validation fails (lint/test errors) |
+| `validation_failed` | `running` | Human chooses retry |
+| `validation_failed` | `abandoned` | Human chooses abandon |
 | `awaiting_approval` | `completed` | Human runs `atlas approve` |
 | `awaiting_approval` | `rejected` | Human runs `atlas reject` |
 
@@ -362,8 +363,8 @@ Tasks checkpoint after each step, enabling resume after crashes or interruptions
 **Step types:**
 | Type | Executor | Auto-proceeds? |
 |------|----------|----------------|
-| ai | Claude/Gemini SDK | No (pauses for approval after all AI steps) |
-| validation | Configured commands | Yes (if passing) |
+| ai | Claude SDK | No (pauses for approval after all AI steps) |
+| validation | Configured commands | Yes if passing; pauses on failure for human decision |
 | git | Git CLI operations | No (pauses before PR creation) |
 | human | Developer action | N/A (waits for human) |
 | sdd | Speckit CLI | Varies by command |
@@ -390,15 +391,26 @@ Tasks checkpoint after each step, enabling resume after crashes or interruptions
     "repo": "owner/project",
     "base_branch": "main",
     "work_branch": "fix/null-pointer-parseconfig"
-  },
-  "fix_attempts": {
-    "count": 0,
-    "max": 3
   }
 }
 ```
 
 **Location:** `~/.atlas/workspaces/fix-null-pointer/tasks/task-a1b2c3d4.json`
+
+**State File Integrity:**
+
+All JSON state files include safety mechanisms:
+- **Schema versioning:** Every file includes `"schema_version": 1` for forward compatibility
+- **Atomic writes:** Write to temp file, then rename (atomic on POSIX)
+- **File locking:** Use `flock` for concurrent workspace access
+
+```json
+{
+  "schema_version": 1,
+  "id": "task-a1b2c3d4",
+  ...
+}
+```
 
 **Templates:**
 Pre-defined task chains for common workflows, implemented as Go code compiled into the ATLAS binary. This approach provides type safety, compile-time validation, testability, and IDE support. See [templates.md](templates.md) for comprehensive documentation.
@@ -406,17 +418,13 @@ Pre-defined task chains for common workflows, implemented as Go code compiled in
 Built-in templates:
 - `bugfix` — Analyze, implement, validate, commit, PR
 - `feature` — Speckit SDD: specify, plan, implement, validate, PR
-- `test-coverage` — Analyze gaps, implement tests, validate, PR
-- `refactor` — Incremental refactoring with validation between steps
+- `commit` — Smart commits: garbage detection, logical grouping, message generation
 
 Utility templates (lightweight, single-purpose):
-- `commit` — Smart commits: garbage detection, logical grouping, message generation
-- `clean` — Detect/remove temporary and backup files
 - `format` — Run code formatting only
 - `lint` — Run linters only
 - `test` — Run tests only
 - `validate` — Full validation suite (format, then lint+test in parallel)
-- `pr-update` — Update existing PR description from new changes
 
 **Parallel step execution:** Steps can be grouped with `parallel_group` for concurrent execution (e.g., lint and test run together after format completes).
 
@@ -443,41 +451,46 @@ type CompletionResponse struct {
 }
 ```
 
-**Implementations:**
-- `ClaudeClient` — Uses anthropic-sdk-go, primary provider
-- `GeminiClient` — Uses google-genai, fallback provider
+**Implementation:**
+- `ClaudeClient` — Uses anthropic-sdk-go
 
-**Fallback pattern:**
-```go
-func (e *Engine) invokeModel(ctx context.Context, req *CompletionRequest) (*CompletionResponse, error) {
-    resp, err := e.primary.Complete(ctx, req)
-    if err != nil && e.fallback != nil {
-        log.Warn("Primary model failed, trying fallback", "error", err)
-        return e.fallback.Complete(ctx, req)
-    }
-    return resp, err
-}
-```
-
-Fallback triggers on: rate limits, API errors, timeouts. No token counting or cost tracking in v1—timeout (300s) is the only guard.
+The interface allows adding providers (Gemini, OpenAI, etc.) in the future without core changes.
 
 **Configuration:**
 ```yaml
 # ~/.atlas/config.yaml
 model:
-  primary:
-    provider: claude
-    model: claude-sonnet-4-5-20250916
-    api_key_env: ANTHROPIC_API_KEY
-  fallback:
-    provider: gemini
-    model: gemini-2.5-pro
-    api_key_env: GOOGLE_API_KEY
-  timeout: 300s
+  provider: claude
+  model: claude-sonnet-4-5-20250916
+  api_key_env: ANTHROPIC_API_KEY
+  timeout: 30m  # Long-running tasks need room
 ```
 
+No token counting or cost tracking in v1—timeout (30m) is the only guard.
+
 **Prompt enhancements:**
-Templates can include prompt modifiers like "ultrathink" to encourage deeper reasoning. These are just words in the prompt—no special API handling required. Models that support extended thinking will use it; others ignore it gracefully.
+Templates can include prompt modifiers like "ultrathink" to encourage deeper reasoning. These are just words in the prompt—no special API handling required.
+
+**AI Output Schema:**
+
+All AI steps produce structured JSON output, validated before proceeding:
+
+```json
+{
+  "schema_version": 1,
+  "step": "analyze",
+  "output": {
+    "summary": "Root cause: cfg.Options accessed without nil check",
+    "root_cause": "Missing nil check in parseConfig",
+    "files_to_modify": ["pkg/config/parser.go"],
+    "approach": "Add nil check before accessing Options field"
+  }
+}
+```
+
+- AI prompted to return JSON matching step-specific schema
+- ATLAS validates output against schema before proceeding
+- Parse/validation failure → `validation_failed` state (human decides)
 
 ### 5.4 SDD Framework Integration
 
@@ -632,8 +645,8 @@ Code Generated
     │
     ▼
 ┌─────────────────────┐
-│ Run Validations     │◄──── Auto-retry with AI fixes
-│ (configurable)      │      (up to N attempts)
+│ Run Validations     │──── Fail ──► validation_failed (human decides)
+│ (configurable)      │
 └─────────┬───────────┘
           │ Pass
           ▼
@@ -994,6 +1007,9 @@ $ atlas workspace destroy payment
 
 | Feature | Why Deferred | Revisit When |
 |---------|--------------|--------------|
+| **`refactor` template** | Core templates must prove value first | Bugfix/feature patterns established |
+| **`test-coverage` template** | Analyze gaps, implement tests | Test workflow patterns established |
+| **`pr-update` template** | Update existing PR descriptions | PR workflow refinement needed |
 | **Learn/Rules Update** | Core workflow must be solid first | v1 is stable and useful |
 | **Research Agent** | Manual monitoring is fine for now | Tracking 5+ frameworks |
 | **Multi-Repo** | Enterprise complexity | Users demonstrate concrete need |
@@ -1038,7 +1054,7 @@ $ atlas workspace destroy payment
 |------|------------|--------------|
 | Worktree left behind | User manually cleans up | Users complain repeatedly |
 | No output sanitization | Human reviews all PRs | Security incident |
-| API cost runaway | Timeout per task (300s) | Budget exceeded |
+| API cost runaway | Timeout per task (30m) | Budget exceeded |
 | SDD framework breaking changes | Pin versions, test updates | Framework update breaks ATLAS |
 
 ### 9.3 Security Acknowledgment
