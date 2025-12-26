@@ -88,8 +88,12 @@ ATLAS is a pure Go application targeting Go 1.24+.
 | Progress/Spinners | `charmbracelet/bubbles` | Animated feedback |
 | Configuration | `spf13/viper` | Multi-source config, pairs with Cobra |
 | Structured Logging | `rs/zerolog` | Zero-allocation, JSON-native |
-| Claude API | `anthropics/anthropic-sdk-go` | Official Claude SDK |
 | GitHub API | `google/go-github` | Official GitHub v3/v4 client |
+
+**External tools (not Go dependencies):**
+- `claude` CLI — AI execution via Claude Code
+- `gh` CLI — GitHub PR/issue operations
+- `git` — Version control operations
 
 ### AI Architecture
 
@@ -97,29 +101,29 @@ ATLAS is a pure Go application targeting Go 1.24+.
 ┌─────────────────────────────────────────────────┐
 │                  ATLAS Core                     │
 ├─────────────────────────────────────────────────┤
-│  ModelClient Interface                          │
-│  └─ ClaudeClient (anthropic-sdk-go)             │
-│      └─ Primary provider                        │
+│  AIRunner Interface                             │
+│  └─ ClaudeCodeRunner (claude CLI)               │
+│      └─ Claude Code handles file ops, search    │
 ├─────────────────────────────────────────────────┤
 │  SDD Framework Integration                      │
-│  └─ Speckit (uv tool, /speckit.* commands)      │
+│  └─ Speckit (.speckit/ repo + CLI)              │
 └─────────────────────────────────────────────────┘
 ```
 
-**Why direct SDK integration:**
-- Full control over request/response handling
-- No framework abstraction overhead
-- Easy debugging—read your code, not framework internals
-- Type safety from official SDKs
+**Why AI CLI integration:**
+- Leverage mature AI coding tools (Claude Code handles file operations, context, search)
+- ATLAS stays focused on orchestration, not AI agent internals
+- Easy debugging—inspect CLI invocations and outputs
+- Future flexibility—swap CLI tools without core changes
 
-**Interface extensibility:** The `ModelClient` interface allows adding providers (Gemini, etc.) without core changes. Deferred until needed.
+**Interface extensibility:** The `AIRunner` interface allows adding other AI CLI tools (Cursor, Aider, etc.) without core changes. Deferred until needed.
 
 ### What We Don't Use
 
 - No database (all state is file-based: JSON, YAML, Markdown)
 - No web framework (no HTTP server in v1)
 - No dependency injection framework (explicit wiring)
-- No LangChain/ADK/Genkit (direct API integration is simpler for v1)
+- No LangChain/ADK/Genkit (AI CLI tools handle the complexity)
 
 ---
 
@@ -231,6 +235,7 @@ ATLAS checks for required tools and manages a small set of ATLAS-owned dependenc
 | Git | Version control | 2.20+ | No (detect only) |
 | GitHub CLI (`gh`) | PR operations | 2.20+ | No (detect only) |
 | uv | Python tool runner | 0.5.x | No (detect only) |
+| Claude CLI (`claude`) | AI execution | 2.0.76+ | No (detect only) |
 | mage-x | Build automation | v0.3.0 | Yes (install/upgrade) |
 | go-pre-commit | Pre-commit hooks | v0.1.0 | Yes (install/upgrade) |
 | Speckit | SDD framework | 1.0.0 | Yes (install/upgrade) |
@@ -264,6 +269,7 @@ Checking dependencies...
   Git             ✓ installed 2.43.0      2.20+       —
   gh              ✓ installed 2.45.0      2.20+       —
   uv              ✓ installed 0.5.12      0.5.x       —
+  claude          ✓ installed 0.10.0      0.10.x      —
   mage-x          ⚠ outdated  0.2.1       0.3.0       ATLAS
   go-pre-commit   ✓ installed 0.1.0       0.1.0       ATLAS
   Speckit         ✗ missing   —           1.0.0       ATLAS
@@ -330,7 +336,7 @@ Tasks are the atomic units of work. State lives in `~/.atlas/workspaces/<name>/t
                                 ┌──────────────┐
                        ┌───────►│   running    │◄─────────┐
                        │        └──────┬───────┘          │
-                       │               │ ai complete      │ retry
+                       │ retry         │ step complete    │ retry
                        │               ▼                  │
                        │        ┌──────────────┐          │
                        │        │  validating  │──────────┤
@@ -341,50 +347,37 @@ Tasks are the atomic units of work. State lives in `~/.atlas/workspaces/<name>/t
                        │     ▼                   ▼        │
                 ┌──────┴──────────┐      ┌────────────────┴┐
                 │awaiting_approval│      │validation_failed│
-                └──────┬──────────┘      └─────────────────┘
-                       │                        │
-             ┌─────────┴─────────┐              │ abandon
-             │ approve           │ reject       ▼
-             ▼                   ▼         ┌───────────┐
-      ┌───────────┐         ┌──────────┐   │ abandoned │
-      │ completed │         │ rejected │   └───────────┘
-      └───────────┘         └──────────┘
-```
-
-**Key concepts:**
-- **Validation failures** (lint/test errors) → pause for human decision
-- **Task retry** = catastrophic failure only (API down, crash, network timeout)
-- **Resume** = continue interrupted task from last checkpoint
-
-**Validation failed menu (interactive):**
-```
-? Validation failed. What would you like to do?
-  ❯ Retry this step — AI tries again with error context
-    Retry from earlier step — Go back to analyze/implement
-    Fix manually and resume — You fix, then 'atlas resume'
-    Abandon task — End task, keep branch for manual work
+                └───────┬─────────┘      └─────────────────┘
+                        │                       │
+          ┌─────────────┼─────────────┐         │ abandon
+          │ approve     │ retry       │ reject  ▼
+          ▼             │             ▼    ┌───────────┐
+   ┌───────────┐        │      ┌──────────┐│ abandoned │
+   │ completed │        └──────┤ rejected │└───────────┘
+   └───────────┘               └──────────┘
 ```
 
 **State transitions:**
 | From | To | Trigger |
 |------|-----|---------|
-| `pending` | `running` | Task execution starts |
-| `running` | `validating` | AI produces output |
-| `validating` | `awaiting_approval` | All validations pass |
-| `validating` | `validation_failed` | Validation fails (lint/test errors) |
+| `pending` | `running` | Task starts |
+| `running` | `validating` | Step produces output |
+| `validating` | `awaiting_approval` | Validation passes |
+| `validating` | `validation_failed` | Validation fails |
 | `validation_failed` | `running` | Human chooses retry |
 | `validation_failed` | `abandoned` | Human chooses abandon |
-| `awaiting_approval` | `completed` | Human runs `atlas approve` |
-| `awaiting_approval` | `rejected` | Human runs `atlas reject` |
+| `awaiting_approval` | `completed` | Human approves |
+| `awaiting_approval` | `running` | Human chooses retry with feedback |
+| `awaiting_approval` | `rejected` | Human rejects (done) |
 | `running` | `gh_failed` | GitHub operation fails after retries |
-| `gh_failed` | `running` | Human resolves issue and retries |
-| `gh_failed` | `abandoned` | Human chooses abandon |
-| `running` | `ci_failed` | GitHub Actions workflow fails |
-| `running` | `ci_timeout` | CI polling timeout exceeded |
-| `ci_failed` | `running` | Human chooses retry from earlier step |
-| `ci_failed` | `abandoned` | Human chooses abandon |
-| `ci_timeout` | `running` | Human chooses to keep waiting or retry |
-| `ci_timeout` | `abandoned` | Human chooses abandon |
+| `gh_failed` | `running` | Human resolves and retries |
+| `gh_failed` | `abandoned` | Human abandons |
+| `running` | `ci_failed` | CI workflow fails |
+| `running` | `ci_timeout` | CI polling timeout |
+| `ci_failed` | `running` | Human retries |
+| `ci_failed` | `abandoned` | Human abandons |
+| `ci_timeout` | `running` | Human retries or waits |
+| `ci_timeout` | `abandoned` | Human abandons |
 
 **GitHub failure handling:**
 
@@ -438,16 +431,21 @@ atlas resume               # Resume most recent task in workspace
 Tasks checkpoint after each step, enabling resume after crashes or interruptions.
 
 **Step types:**
-| Type | Executor | Auto-proceeds? | Configurable? |
-|------|----------|----------------|---------------|
-| ai | Claude SDK | No — pauses for approval after AI steps | No |
-| validation | Configured commands | Yes if passing; pauses on failure | No |
-| git | Git CLI operations | Default: Yes (configurable via `auto_proceed_git`) | Yes |
-| ci | GitHub Actions API | Yes if passing; pauses on failure/timeout | Yes |
-| human | Developer action | N/A — always waits for human | No |
-| sdd | Speckit slash commands | No — output requires review | No |
+| Type | Executor | Auto-proceeds? |
+|------|----------|----------------|
+| ai | AI Runner (Claude Code CLI) | Yes — proceeds to next step |
+| validation | Configured commands | Yes if passing; pauses on failure |
+| git | Git CLI operations | Yes (configurable via `auto_proceed_git: false`) |
+| ci | GitHub Actions API | Yes if passing; pauses on failure/timeout |
+| human | Interactive prompt | No — always waits for human decision |
+| sdd | Speckit via AI Runner | Yes — proceeds to next step |
 
-**Note:** "Auto-proceeds" means the task continues without pausing for human input. Git operations (commit, push, PR) auto-proceed by default but can be configured to pause via `auto_proceed_git: false` in template config.
+**Human steps:** All human steps are "pause for decision" moments. The UI adapts based on context:
+- After AI implementation → shows diff, offers approve/reject/retry
+- After specification → shows spec, offers approve/reject/retry
+- After validation failure → shows errors, offers retry options
+
+Templates define **when** human steps occur (e.g., `review_spec` after `/speckit.specify`). ATLAS determines **what** to show based on the preceding step's artifacts.
 
 **Task JSON structure:**
 ```json
@@ -525,69 +523,112 @@ templates:
 
 Users customize validation commands, model selection, and auto-proceed behavior via configuration files. Templates themselves are immutable Go code.
 
-### 5.3 Model Client Layer
+### 5.3 AI Runner Layer
 
-ATLAS uses a simple interface for AI model integration:
+ATLAS orchestrates **when** to invoke AI; the AI CLI handles **how** (file reading, editing, search, context management).
 
 ```go
-type ModelClient interface {
-    Complete(ctx context.Context, req *CompletionRequest) (*CompletionResponse, error)
+type AIRunner interface {
+    Run(ctx context.Context, req *AIRequest) (*AIResult, error)
 }
 
-type CompletionRequest struct {
-    System    string
-    Messages  []Message
-    MaxTokens int
+type AIRequest struct {
+    Prompt    string            // Task description or slash command
+    WorkDir   string            // Worktree path
+    Mode      string            // "plan", "implement", "ask", "continue"
+    SessionID string            // Session ID to resume (for multi-turn conversations)
+    Context   []string          // Previous step artifact paths
+    Model     string            // Model to use (e.g., "claude-sonnet-4-5-20250916")
+    Flags     map[string]string // Additional CLI flags
+    Timeout   time.Duration     // Per-step timeout
 }
 
-type CompletionResponse struct {
-    Content    string
-    StopReason string
+type AIResult struct {
+    Output       string   // Captured stdout/response
+    FilesChanged []string // Files modified (if any)
+    SessionID    string   // Session ID for resumption
+    NeedsInput   bool     // AI is asking a question, awaiting response
+    ExitCode     int
 }
 ```
 
-**Implementation:**
-- `ClaudeClient` — Uses anthropic-sdk-go
+**Modes:**
+| Mode | Purpose | Edits allowed |
+|------|---------|---------------|
+| `plan` | Explore codebase, propose approach | No |
+| `implement` | Execute changes | Yes |
+| `ask` | AI asks clarifying question | No |
+| `continue` | Resume session with user's answer | Depends on original mode |
 
-The interface allows adding providers (Gemini, OpenAI, etc.) in the future without core changes.
+**Implementation (v1):**
+- `ClaudeCodeRunner` — Wraps the `claude` CLI
+
+ATLAS translates `AIRequest` to CLI invocation:
+```bash
+claude --model <Model> --timeout <Timeout> --resume <SessionID> --print "<Prompt>"
+# Run in WorkDir with Context files available
+# Mode "plan" adds planning constraints to prompt
+# Mode "ask"/"continue" handles multi-turn Q&A
+```
+
+**Session lifecycle:**
+
+Sessions are scoped to `task + step`. Session IDs follow the pattern: `<task-id>-<step-name>` (e.g., `task-20251226-100000-implement`).
+
+| Scenario | Session behavior |
+|----------|------------------|
+| New step starts | Fresh session (clean context) |
+| AI asks question | Same session continues |
+| User provides answer | Resume same session |
+| Step retries after failure | Fresh session (avoid poisoned context) |
+| Step retries after rejection | Fresh session with feedback injected |
+
+**Why fresh sessions on retry:** When AI produces bad output, continuing the same session carries forward the flawed reasoning. Starting fresh with error context or rejection feedback gives AI a clean slate.
+
+**Session storage:**
+```
+~/.atlas/workspaces/<ws>/tasks/<task-id>/sessions/
+  implement.json       # Session metadata + resume token
+  implement.log        # Full conversation log
+```
+
+**Future runners:** Interface supports other AI CLI tools (Cursor, Aider, etc.) by implementing the same interface with tool-specific flag/session mappings.
 
 **Configuration:**
 ```yaml
 # ~/.atlas/config.yaml
-model:
-  provider: claude
-  model: claude-sonnet-4-5-20250916
-  api_key_env: ANTHROPIC_API_KEY
-  timeout: 30m  # Long-running tasks need room
+ai:
+  runner: claude-code
+  default_model: claude-sonnet-4-5-20250916
+  timeout: 30m
+  max_retries: 3
+  max_validation_loops: 5
+  flags:                        # Default flags passed to CLI
+    allowedTools: "Read,Glob,Grep,Bash"
+```
+
+**Per-template model override:**
+```yaml
+templates:
+  bugfix:
+    model: claude-sonnet-4-5-20250916  # Fast for simple fixes
+  feature:
+    model: claude-opus-4-5-20251101    # Thorough for complex features
 ```
 
 **Safeguards:**
 - `timeout: 30m` — Maximum time for any single AI step
-- `max_ai_retries: 3` — AI step failures before breaking to human intervention
+- `max_retries: 3` — AI step failures before human intervention
 - `max_validation_loops: 5` — Validation retry cycles before forcing human intervention
 
-No token counting or cost tracking in v1—these safeguards prevent runaway execution.
+**Step artifacts:**
 
-**AI Output Schema:**
+AI steps produce artifacts stored in `~/.atlas/workspaces/<ws>/tasks/<task-id>/artifacts/`:
+- `analyze.md` — Analysis output
+- `implement.log` — Implementation session log
+- `spec.md`, `plan.md`, etc. — SDD outputs
 
-All AI steps produce structured JSON output, validated before proceeding:
-
-```json
-{
-  "schema_version": 1,
-  "step": "analyze",
-  "output": {
-    "summary": "Root cause: cfg.Options accessed without nil check",
-    "root_cause": "Missing nil check in parseConfig",
-    "files_to_modify": ["pkg/config/parser.go"],
-    "approach": "Add nil check before accessing Options field"
-  }
-}
-```
-
-- AI prompted to return JSON matching step-specific schema
-- ATLAS validates output against schema before proceeding
-- Parse/validation failure → `validation_failed` state (human decides)
+Artifacts from previous steps are passed as context to subsequent steps.
 
 ### 5.4 SDD Framework Integration
 
@@ -595,19 +636,15 @@ ATLAS integrates with SDD frameworks as external tools, not abstractions. The fr
 
 #### Speckit Integration
 
-**What is Speckit:** GitHub's spec-driven development toolkit providing structured specification, planning, and implementation workflows.
+**What is Speckit:** A spec-driven development toolkit providing structured specification, planning, and implementation workflows.
 
-**Prerequisites:** uv must be installed (ATLAS detects but doesn't install it).
+**Two-part installation:**
+1. **CLI tool** (global): `uv tool install speckit` — Provides the `speckit` command
+2. **Project repo** (per-project): Installs Speckit's prompt patterns into `.speckit/` via mage-x
 
-**Installation:** ATLAS manages Speckit installation and upgrades:
-```bash
-# ATLAS internally runs:
-uv tool install speckit
-```
+ATLAS manages both installations. The CLI provides upgrade/management commands; the project repo provides slash command definitions that Claude can access.
 
-**Slash commands (passed to Claude):**
-
-Slash commands are prompt-based actions. ATLAS passes them to Claude along with user-provided context, then captures the structured output as artifacts.
+**Slash commands:**
 
 | Command | Purpose |
 |---------|---------|
@@ -618,7 +655,7 @@ Slash commands are prompt-based actions. ATLAS passes them to Claude along with 
 | `/speckit.implement` | Execute tasks to build features |
 | `/speckit.checklist` | Generate quality validation checklists |
 
-**Execution model:** When a template step specifies an SDD command, ATLAS constructs a prompt containing the slash command and any user context, sends it to Claude, validates the response matches the expected schema, and stores the output as an artifact (e.g., `~/.atlas/workspaces/<name>/artifacts/spec.md`).
+**Execution model:** ATLAS invokes the AI Runner with a prompt containing the slash command. Claude Code (with access to `.speckit/` in the worktree) executes the command and produces structured output. ATLAS captures the output as an artifact.
 
 #### When to Use Speckit
 
@@ -821,11 +858,11 @@ ATLAS-Template: bugfix
 ```
 
 **Smart commit grouping:**
-The `git:smart_commit` action:
-1. Groups modified files by package/directory
-2. Separates source, test, and config changes
-3. Creates one commit per logical unit
-4. Generates meaningful commit messages with AI assistance
+Adapted from the `/sc` (smart commit) command. The `git:smart_commit` action:
+1. Groups modified files by logical unit (package/directory)
+2. Detects and flags uncommittable content (garbage, secrets, debug code)
+3. Generates meaningful commit messages via AI
+4. Creates atomic commits per logical change
 
 **Branch naming:**
 ```
