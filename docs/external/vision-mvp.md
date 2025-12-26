@@ -29,7 +29,8 @@ ATLAS is a CLI tool that orchestrates AI-assisted development workflows for Go p
 **Explicit scope (v1):**
 - Single-repository Go projects
 - GitHub as the sole integration point
-- Local execution (no cloud infrastructure required)
+- Local Docker execution (cloud-ready architecture)
+- Parallel feature development via isolated workspaces
 - Claude as the AI backend
 
 ---
@@ -61,37 +62,41 @@ Every file ATLAS creates is inspectable. No hidden state, no opaque databases. D
 ## 3. Architecture Overview
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                         ATLAS CLI                           │
-│                                                             │
-│  atlas init | start | status | approve | reject             │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐   │
-│  │ Task Engine  │───►│  AI Agent    │───►│  Git Ops     │   │
-│  │              │    │              │    │              │   │
-│  │ JSON files   │    │ Claude CLI   │    │ branch/PR    │   │
-│  │ in .atlas/   │    │              │    │ via gh       │   │
-│  └──────┬───────┘    └──────────────┘    └──────────────┘   │
-│         │                                                   │
-│         ▼                                                   │
-│  ┌──────────────┐    ┌──────────────┐                       │
-│  │   Memory     │    │  Templates   │                       │
-│  │              │    │              │                       │
-│  │ Markdown in  │    │ YAML workflow│                       │
-│  │ .atlas/      │    │ definitions  │                       │
-│  └──────────────┘    └──────────────┘                       │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                       ATLAS CLI (Host)                           │
+│                                                                 │
+│  atlas init | start | status | approve | reject | workspace     │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  ┌───────────────────────────┐  ┌───────────────────────────┐   │
+│  │  Workspace: auth-feature  │  │  Workspace: payment-fix   │   │
+│  │  (Docker container)       │  │  (Docker container)       │   │
+│  │  ┌─────────────────────┐  │  │  ┌─────────────────────┐  │   │
+│  │  │ Cloned repo @ branch│  │  │  │ Cloned repo @ branch│  │   │
+│  │  │ .atlas/tasks/*.json │  │  │  │ .atlas/tasks/*.json │  │   │
+│  │  │ Task Engine + Agent │  │  │  │ Task Engine + Agent │  │   │
+│  │  │ Go toolchain + Git  │  │  │  │ Go toolchain + Git  │  │   │
+│  │  └─────────────────────┘  │  │  └─────────────────────┘  │   │
+│  └───────────────────────────┘  └───────────────────────────┘   │
+│                                                                 │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │                    Shared (Host)                        │    │
+│  │  Memory: ~/.atlas/memory/ (read-only mount)             │    │
+│  │  Templates: ~/.atlas/templates/*.yaml                   │    │
+│  │  Config: ~/.atlas/config.yaml                           │    │
+│  │  Credentials: mounted into containers                   │    │
+│  └─────────────────────────────────────────────────────────┘    │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 **Data flow:**
-1. User runs `atlas start "fix the bug"`
-2. Task Engine creates task JSON, selects template
-3. Template defines task chain (analyze → implement → validate → commit → PR)
-4. Each task invokes AI Agent or automated validation
-5. Git Ops creates branches, commits (with trailers), and PRs
-6. Human approves or rejects; outcome stored in Memory
+1. User runs `atlas start "fix the bug" --workspace bugfix-ws`
+2. Host CLI creates/reuses Docker workspace container
+3. Inside container: repo cloned, branch created, task JSON created
+4. Task Engine (in container) runs task chain via Claude CLI
+5. Git push happens from inside container
+6. Human approves/rejects via host CLI; outcome stored in shared memory
 
 ---
 
@@ -99,15 +104,21 @@ Every file ATLAS creates is inspectable. No hidden state, no opaque databases. D
 
 ### 4.1 CLI Interface
 
-Five commands cover 95% of usage:
+Six commands cover 95% of usage:
 
 ```bash
-atlas init                      # Initialize ATLAS in current repo
-atlas start "description"       # Start a task from natural language
-atlas status                    # Show running tasks and pending approvals
-atlas approve <task-id>         # Approve pending work
-atlas reject <task-id> "reason" # Reject with feedback (stored for learning)
+atlas init                              # Initialize ATLAS configuration
+atlas start "description" [--workspace] # Start task in workspace
+atlas status                            # Show all workspaces and tasks
+atlas approve <task-id>                 # Approve pending work
+atlas reject <task-id> "reason"         # Reject with feedback
+atlas workspace <list|stop|destroy>     # Manage workspaces
 ```
+
+**Workspace-aware behavior:**
+- `atlas start "desc"` — Uses default workspace or creates one
+- `atlas start "desc" --workspace feat-x` — Creates/reuses named workspace
+- `atlas status` — Shows all workspaces and their task states
 
 **Flags (all commands):**
 - `--output json|text` — Machine or human output (default: text for TTY)
@@ -337,6 +348,63 @@ gh pr create \
   --head fix/null-pointer-parseconfig
 ```
 
+### 4.6 Workspace Isolation (Docker)
+
+Workspaces enable working on multiple features simultaneously on the same repo without interference.
+
+**Why Docker:**
+- **Parallel features:** Feature A and Feature B run in separate containers
+- **Clean state:** Each workspace starts with a fresh clone
+- **Resource isolation:** Container limits prevent runaway processes
+- **Cloud path:** Same container image works locally and on K8s/ECS tomorrow
+
+**Workspace lifecycle:**
+```bash
+# Start two features in parallel
+atlas start "add user authentication" --workspace auth-feature
+atlas start "fix payment processing" --workspace payment-fix
+
+# Check status of all workspaces
+atlas status
+# Output:
+# WORKSPACE        STATUS              CURRENT TASK
+# auth-feature     running             3/7 - Implementing
+# payment-fix      awaiting_approval   5/7 - Review PR
+
+# Manage workspaces
+atlas workspace list              # List all workspaces
+atlas workspace stop auth-feature # Pause a workspace
+atlas workspace destroy payment-fix # Clean up after merge
+```
+
+**Container contents (base image):**
+- Go toolchain (latest stable)
+- Git with full capabilities
+- Claude CLI for AI tasks
+- golangci-lint for validation
+- ATLAS task runner (lightweight)
+
+**Mounts:**
+| Host Path | Container Path | Mode |
+|-----------|---------------|------|
+| `~/.atlas/memory/` | `/atlas/memory/` | read-only |
+| `~/.atlas/templates/` | `/atlas/templates/` | read-only |
+| Git credentials | `/root/.gitconfig` | read-only |
+| Claude API key | env var | — |
+
+**Communication:**
+- Host CLI orchestrates via `docker exec`
+- Task state lives in container's `.atlas/tasks/`
+- Results streamed via stdout/stderr
+- Git push happens from inside container
+- New memory entries written by host CLI after task completion
+
+**What this does NOT add:**
+- No Temporal (file-based state still)
+- No gRPC (just docker exec + stdout)
+- No complex orchestration layer
+- No multi-node deployment
+
 ---
 
 ## 5. Workflow Examples
@@ -390,6 +458,52 @@ The `feature` template might include additional steps:
 - Documentation update task
 - Changelog entry task
 
+### Parallel Features Workflow
+
+Work on multiple features simultaneously using workspaces:
+
+```
+Terminal 1:
+$ atlas start "add user authentication" --workspace auth
+Creating workspace 'auth'...
+  → Cloning repo into container
+  → Creating branch: feat/add-user-authentication
+  → Starting task chain...
+
+Task 1: Analyze (AI) ─────────────────────────────►│
+                                                   │
+Terminal 2:                                        │
+$ atlas start "fix payment timeout" --workspace pay│
+Creating workspace 'pay'...                        │
+  → Cloning repo into container                    │
+  → Creating branch: fix/payment-timeout           │
+  → Starting task chain...                         │
+                                                   │
+Task 1: Analyze (AI) ──────►│                      │ (running in parallel)
+Task 2: Implement (AI) ─────►│                     │
+                             │                     │
+$ atlas status               │                     │
+┌──────────────────────────────────────────────────┐
+│ WORKSPACE   STATUS              TASK             │
+│ auth        running             2/7 Implement    │
+│ pay         awaiting_approval   5/7 Review PR    │
+└──────────────────────────────────────────────────┘
+
+$ atlas approve pay-task-xyz
+  → PR merged
+  → Memory updated with outcome
+  → Workspace 'pay' ready for cleanup
+
+$ atlas workspace destroy pay
+  → Container removed
+```
+
+**Key points:**
+- Each workspace is completely isolated
+- No merge conflicts between parallel work
+- Memory is shared (learnings from `pay` available to `auth`)
+- Host CLI manages all workspaces from single terminal
+
 ---
 
 ## 6. What's Deferred
@@ -404,7 +518,7 @@ These features are explicitly out of scope for v1. Each has a trigger for when t
 | **Trust Levels** | Need rejection data first | 100+ task completions with outcome data |
 | **Multi-Repo** | Enterprise complexity | Users demonstrate concrete need |
 | **Temporal/Durable Execution** | File state is sufficient | Workflows exceed file-based limits |
-| **Docker Isolation** | Local execution is fine | Security requirements emerge |
+| **Cloud Execution** | Docker locally first | Local CPU exhausted, need scale-out |
 | **Other Languages** | Go-first simplifies validation | Go version is stable and adopted |
 | **Other AI Backends** | Claude integration is primary | Users require Anthropic alternatives |
 
@@ -431,22 +545,34 @@ How ATLAS fails, and how the design mitigates it:
 
 ## Appendix: File Structure
 
+**Host (~/.atlas/):**
 ```
-project-root/
-├── .atlas/
-│   ├── config.yaml           # Project configuration
-│   ├── tasks/
-│   │   ├── task-a1b2c3d4.json
-│   │   └── task-e5f6g7h8.json
-│   ├── memory/
-│   │   ├── decisions/
-│   │   ├── feedback/
-│   │   ├── context/
-│   │   └── archive/
-│   └── templates/
-│       ├── bugfix.yaml
-│       └── feature.yaml
-└── ... (your code)
+~/.atlas/
+├── config.yaml               # Global configuration
+├── memory/                   # Shared across all workspaces (read-only mount)
+│   ├── decisions/
+│   ├── feedback/
+│   ├── context/
+│   └── archive/
+├── templates/                # Shared workflow templates
+│   ├── bugfix.yaml
+│   └── feature.yaml
+└── workspaces/               # Metadata about active workspaces
+    ├── auth-feature.json
+    └── payment-fix.json
+```
+
+**Inside each workspace container:**
+```
+/workspace/
+├── <cloned-repo>/            # Full repo clone at feature branch
+│   ├── .atlas/
+│   │   └── tasks/            # Task state for this workspace
+│   │       ├── task-a1b2c3d4.json
+│   │       └── task-e5f6g7h8.json
+│   └── ... (your code)
+├── /atlas/memory/            # Read-only mount from host
+└── /atlas/templates/         # Read-only mount from host
 ```
 
 ---
