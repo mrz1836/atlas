@@ -1,4 +1,4 @@
-# ATLAS: Autonomous Task & Labor Automation System
+# ATLAS: Adaptive Teamwork Layer for AI Systems
 
 ## High-Level Vision Document
 
