@@ -128,41 +128,40 @@ ATLAS is a pure Go application targeting Go 1.24+.
 ## 4. Architecture Overview
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                       ATLAS CLI                                 │
-│                                                                 │
-│  atlas init | start | status | approve | reject | workspace     │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                 │
-│  ┌─────────────────────────────┐  ┌─────────────────────────┐   │
-│  │  Worktree: auth-feature     │  │  Worktree: payment-fix  │   │
-│  │  ~/projects/repo-auth/      │  │  ~/projects/repo-pay/   │   │
-│  │  ┌───────────────────────┐  │  │  ┌───────────────────┐  │   │
-│  │  │ Branch: feat/auth     │  │  │  │ Branch: fix/pay   │  │   │
-│  │  │ .atlas/tasks/*.json   │  │  │  │ .atlas/tasks/...  │  │   │
-│  │  │ .atlas/artifacts/     │  │  │  │ .atlas/artifacts/ │  │   │
-│  │  └───────────────────────┘  │  │  └───────────────────┘  │   │
-│  └─────────────────────────────┘  └─────────────────────────┘   │
-│                                                                 │
-│  ┌─────────────────────────────────────────────────────────┐    │
-│  │                    Shared (Host)                        │    │
-│  │  Config: ~/.atlas/config.yaml                           │    │
-│  │  Logs:                                                  │    │
-│  │    ~/.atlas/logs/atlas.log          (host operations)   │    │
-│  │    ~/.atlas/logs/workspaces/<ws>/   (per-workspace)     │    │
-│  └─────────────────────────────────────────────────────────┘    │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────┐
+│                              ATLAS CLI                                  │
+│                                                                         │
+│  atlas init | start | status | approve | reject | resume |  workspace   │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│  ┌─────────────────────────────┐  ┌─────────────────────────┐           │
+│  │  Worktree: auth-feature     │  │  Worktree: payment-fix  │           │
+│  │  ~/projects/repo-auth/      │  │  ~/projects/repo-pay/   │           │
+│  │  ┌───────────────────────┐  │  │  ┌───────────────────┐  │           │
+│  │  │ Branch: feat/auth     │  │  │  │ Branch: fix/pay   │  │           │
+│  │  │ (your code only)      │  │  │  │ (your code only)  │  │           │
+│  │  └───────────────────────┘  │  │  └───────────────────┘  │           │
+│  └─────────────────────────────┘  └─────────────────────────┘           │
+│                                                                         │
+│  ┌─────────────────────────────────────────────────────────┐            │
+│  │                    ~/.atlas/ (Host)                     │            │
+│  │  config.yaml                                            │            │
+│  │  workspaces/                                            │            │
+│  │    auth/   → tasks/, artifacts/, logs/                  │            │
+│  │    payment/ → tasks/, artifacts/, logs/                 │            │
+│  └─────────────────────────────────────────────────────────┘            │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
 
 **Data flow:**
 1. User runs `atlas start "fix the bug" --workspace bugfix-ws`
 2. ATLAS creates Git worktree at `~/projects/repo-bugfix-ws/`
-3. Task JSON created in worktree's `.atlas/tasks/`
+3. Task JSON created in `~/.atlas/workspaces/bugfix-ws/tasks/`
 4. Task Engine executes template steps (AI, validation, git, human)
 5. Claude/Gemini invoked via SDK for AI steps
 6. Git operations happen in worktree directory
-7. Human approves/rejects; optionally spawns `learn` task to update project rules
+7. Human approves/rejects at checkpoints
 
 ---
 
@@ -170,16 +169,16 @@ ATLAS is a pure Go application targeting Go 1.24+.
 
 ### 5.1 CLI Interface
 
-Six commands cover 95% of usage:
+Seven commands cover 95% of usage:
 
 ```bash
 atlas init                              # Initialize ATLAS configuration
 atlas start "description" [--workspace] # Start task in workspace
 atlas status                            # Show all workspaces and tasks
-atlas approve <task-id>                 # Approve pending work
-atlas reject <task-id> "reason"         # Reject with feedback (task ends)
-atlas reject <task-id> --retry "guidance" # Reject and retry with guidance
-atlas workspace <list|stop|destroy|logs> # Manage workspaces
+atlas approve [workspace]               # Approve pending work
+atlas reject [workspace]                # Reject with interactive feedback
+atlas resume [task-id]                  # Resume interrupted task
+atlas workspace <list|destroy|logs>     # Manage workspaces
 ```
 
 **Workspace-aware behavior:**
@@ -222,29 +221,36 @@ That's it. ATLAS handles everything else.
 
 #### Dependency Management
 
-ATLAS manages all required tools automatically. On first run (and periodically thereafter), it detects, installs, and upgrades dependencies.
+ATLAS checks for required tools and manages a small set of ATLAS-owned dependencies.
 
-**Managed dependencies:**
+**Dependencies:**
 
-| Tool | Purpose | Pinned Version | Auto-Install |
-|------|---------|----------------|--------------|
-| Go | Runtime | 1.24+ | Detected only |
-| Git | Version control | 2.20+ | Detected only |
-| GitHub CLI (`gh`) | PR operations | Latest | ✓ |
-| mage-x | Build automation | v0.3.0 | ✓ |
-| go-pre-commit | Pre-commit hooks | v0.1.0 | ✓ |
-| uv | Speckit runtime | 0.5.x | ✓ |
-| Speckit | SDD framework | 1.0.0 | ✓ |
+| Tool | Purpose | Required Version | Managed by ATLAS? |
+|------|---------|------------------|-------------------|
+| Go | Runtime | 1.24+ | No (detect only) |
+| Git | Version control | 2.20+ | No (detect only) |
+| GitHub CLI (`gh`) | PR operations | 2.20+ | No (detect only) |
+| uv | Python tool runner | 0.5.x | No (detect only) |
+| mage-x | Build automation | v0.3.0 | Yes (install/upgrade) |
+| go-pre-commit | Pre-commit hooks | v0.1.0 | Yes (install/upgrade) |
+| Speckit | SDD framework | 1.0.0 | Yes (install/upgrade) |
+
+**Why this split:**
+- **Detect only:** Standard tools users install via their preferred method (brew, apt, etc.)
+- **Managed:** ATLAS-ecosystem tools where we control the upgrade experience
 
 **Detection flow:**
 ```
 atlas init
   │
-  ├─► Scan: Detect installed tools and versions
-  │   └─► Show status table (installed ✓, missing ✗, outdated ⚠)
+  ├─► Scan: Check required tools
+  │   └─► Show status (installed ✓, missing ✗, outdated ⚠)
   │
-  ├─► Prompt: "Install missing dependencies? [Y/n]"
-  │   └─► One-command install for all missing tools
+  ├─► If missing required tools:
+  │   └─► Error with install instructions (user installs manually)
+  │
+  ├─► If managed tools missing/outdated:
+  │   └─► Prompt: "Install/upgrade ATLAS tools? [Y/n]"
   │
   └─► Configure: AI providers, GitHub auth, templates
 ```
@@ -253,17 +259,16 @@ atlas init
 ```
 Checking dependencies...
 
-  TOOL            STATUS      VERSION     REQUIRED
-  Go              ✓ installed 1.24.1      1.24+
-  Git             ✓ installed 2.43.0      2.20+
-  gh              ✗ missing   —           latest
-  mage-x          ⚠ outdated  0.2.1       0.3.0
-  go-pre-commit   ✓ installed 0.1.0       0.1.0
-  uv              ✓ installed 0.5.12      0.5.x
-  Speckit         ✗ missing   —           1.0.0
+  TOOL            STATUS      VERSION     REQUIRED    MANAGED
+  Go              ✓ installed 1.24.1      1.24+       —
+  Git             ✓ installed 2.43.0      2.20+       —
+  gh              ✓ installed 2.45.0      2.20+       —
+  uv              ✓ installed 0.5.12      0.5.x       —
+  mage-x          ⚠ outdated  0.2.1       0.3.0       ATLAS
+  go-pre-commit   ✓ installed 0.1.0       0.1.0       ATLAS
+  Speckit         ✗ missing   —           1.0.0       ATLAS
 
-Install missing/outdated tools? [Y/n] y
-  Installing gh...        ✓
+Install/upgrade ATLAS-managed tools? [Y/n] y
   Upgrading mage-x...     ✓
   Installing Speckit...   ✓
 
@@ -272,29 +277,21 @@ All dependencies ready.
 
 #### Self-Upgrade
 
-ATLAS can upgrade itself and all managed dependencies:
+ATLAS can upgrade itself and managed tools:
 
 ```bash
-atlas upgrade              # Upgrade ATLAS + all tools
-atlas upgrade --self       # Upgrade ATLAS only
-atlas upgrade --tools      # Upgrade managed tools only
+atlas upgrade              # Upgrade ATLAS + managed tools
 atlas upgrade --check      # Show available updates without installing
+atlas upgrade speckit      # Upgrade Speckit specifically
 ```
 
-#### SDD Framework Upgrades
+#### Speckit Upgrades
 
-Speckit requires special handling to preserve your customizations.
+Speckit gets special handling to preserve your customizations:
 
-**Speckit upgrades:**
-```bash
-atlas upgrade speckit
-```
-
-ATLAS handles Speckit upgrades intelligently:
 - Preserves your `constitution.md` and custom templates
 - Shows diff of what will change before applying
-- Backs up existing files to `.atlas/backups/`
-- Merges new features without overwriting customizations
+- Backs up existing files before upgrading
 
 ```
 Upgrading Speckit 0.9.0 → 1.0.0...
@@ -308,7 +305,7 @@ Upgrading Speckit 0.9.0 → 1.0.0...
     .speckit/templates/custom.md   (keeping yours)
 
   Apply upgrade? [Y/n] y
-  Backup created: .atlas/backups/speckit-0.9.0-20251226/
+  Backup created: ~/.atlas/backups/speckit-0.9.0-20251226/
   Upgrade complete.
 ```
 
@@ -324,20 +321,23 @@ Configuration stored in `~/.atlas/config.yaml`.
 
 ### 5.2 Task Engine
 
-Tasks are the atomic units of work. State lives in `.atlas/tasks/` as JSON files.
+Tasks are the atomic units of work. State lives in `~/.atlas/workspaces/<name>/tasks/` as JSON files.
 
 **Task lifecycle:**
 ```
 pending ─► running ─► validating ─┬─► awaiting_approval ─► completed
                                   │         │
-                                  │         ├─► rejected ─► (task ends, feedback stored)
-                                  │         │
-                                  │         └─► retry ─► running (with feedback context)
+                                  │         └─► rejected ─► (task ends, feedback stored)
                                   │
-                                  └─► validation_failed ─► running (retry loop)
-                                              │
-                                              └─► failed (max retries exceeded)
+                                  └─► fixing ─► validating (AI fix loop)
+                                         │
+                                         └─► failed (max fix attempts exceeded)
 ```
+
+**Key concepts:**
+- **Validation failures** (lint/test errors) → immediate AI fix loop, not task retry
+- **Task retry** = catastrophic failure only (API down, crash, network timeout)
+- **Resume** = continue interrupted task from last checkpoint
 
 **State transitions:**
 | From | To | Trigger |
@@ -345,12 +345,19 @@ pending ─► running ─► validating ─┬─► awaiting_approval ─► c
 | `pending` | `running` | Task execution starts |
 | `running` | `validating` | AI produces output |
 | `validating` | `awaiting_approval` | All validations pass |
-| `validating` | `validation_failed` | Any validation fails |
-| `validation_failed` | `running` | Retry with failure context (retry < max) |
-| `validation_failed` | `failed` | Max retries exceeded |
+| `validating` | `fixing` | Validation fails (lint/test errors) |
+| `fixing` | `validating` | AI fix applied, re-validate |
+| `fixing` | `failed` | Max fix attempts exceeded |
 | `awaiting_approval` | `completed` | Human runs `atlas approve` |
 | `awaiting_approval` | `rejected` | Human runs `atlas reject` |
-| `awaiting_approval` | `running` | Human runs `atlas reject --retry "guidance"` |
+
+**Resume capability:**
+```bash
+atlas resume <task-id>     # Continue interrupted task
+atlas resume               # Resume most recent task in workspace
+```
+
+Tasks checkpoint after each step, enabling resume after crashes or interruptions.
 
 **Step types:**
 | Type | Executor | Auto-proceeds? |
@@ -366,14 +373,14 @@ pending ─► running ─► validating ─┬─► awaiting_approval ─► c
 {
   "id": "task-a1b2c3d4",
   "template": "bugfix",
-  "status": "pending",
+  "status": "running",
   "workspace": "fix-null-pointer",
   "created_at": "2025-12-26T10:00:00Z",
   "input": {
     "description": "Fix null pointer in parseConfig",
     "files": ["pkg/config/parser.go"]
   },
-  "current_step": 0,
+  "current_step": 1,
   "steps": [
     {"name": "analyze", "status": "completed", "output": "..."},
     {"name": "implement", "status": "running"},
@@ -384,12 +391,14 @@ pending ─► running ─► validating ─┬─► awaiting_approval ─► c
     "base_branch": "main",
     "work_branch": "fix/null-pointer-parseconfig"
   },
-  "retry": {
+  "fix_attempts": {
     "count": 0,
     "max": 3
   }
 }
 ```
+
+**Location:** `~/.atlas/workspaces/fix-null-pointer/tasks/task-a1b2c3d4.json`
 
 **Templates:**
 Pre-defined task chains for common workflows, implemented as Go code compiled into the ATLAS binary. This approach provides type safety, compile-time validation, testability, and IDE support. See [templates.md](templates.md) for comprehensive documentation.
@@ -399,7 +408,6 @@ Built-in templates:
 - `feature` — Speckit SDD: specify, plan, implement, validate, PR
 - `test-coverage` — Analyze gaps, implement tests, validate, PR
 - `refactor` — Incremental refactoring with validation between steps
-- `learn` — Analyze completed task, propose updates to project rules files
 
 Utility templates (lightweight, single-purpose):
 - `commit` — Smart commits: garbage detection, logical grouping, message generation
@@ -427,13 +435,10 @@ type CompletionRequest struct {
     System    string
     Messages  []Message
     MaxTokens int
-    Model     string  // Optional override
 }
 
 type CompletionResponse struct {
     Content    string
-    TokensIn   int
-    TokensOut  int
     StopReason string
 }
 ```
@@ -454,6 +459,8 @@ func (e *Engine) invokeModel(ctx context.Context, req *CompletionRequest) (*Comp
 }
 ```
 
+Fallback triggers on: rate limits, API errors, timeouts. No token counting or cost tracking in v1—timeout (300s) is the only guard.
+
 **Configuration:**
 ```yaml
 # ~/.atlas/config.yaml
@@ -462,40 +469,15 @@ model:
     provider: claude
     model: claude-sonnet-4-5-20250916
     api_key_env: ANTHROPIC_API_KEY
-  deep_thinking:
-    provider: claude
-    model: claude-opus-4-5-20251124
-    api_key_env: ANTHROPIC_API_KEY
-    thinking:
-      enabled: true
-      budget_tokens: 32000  # ultrathink
   fallback:
     provider: gemini
-    model: gemini-3-pro-preview
+    model: gemini-2.5-pro
     api_key_env: GOOGLE_API_KEY
-  fast:
-    provider: claude
-    model: claude-haiku-4-5-20251015
-    api_key_env: ANTHROPIC_API_KEY
   timeout: 300s
-  max_tokens: 100000
 ```
 
-**Model selection per step:**
-Templates can specify different models for different steps:
-```yaml
-steps:
-  - name: architecture_review
-    type: ai
-    model: claude-opus-4-5
-    thinking: ultrathink        # Enable 32k+ thinking budget
-  - name: analyze
-    type: ai
-    model: claude-sonnet-4-5    # Best coding model
-  - name: commit_message
-    type: ai
-    model: claude-haiku-4-5     # Fast, cheap for simple tasks
-```
+**Prompt enhancements:**
+Templates can include prompt modifiers like "ultrathink" to encourage deeper reasoning. These are just words in the prompt—no special API handling required. Models that support extended thinking will use it; others ignore it gracefully.
 
 ### 5.4 SDD Framework Integration
 
@@ -505,9 +487,12 @@ ATLAS integrates with SDD frameworks as external tools, not abstractions. The fr
 
 **What is Speckit:** GitHub's spec-driven development toolkit providing structured specification, planning, and implementation workflows.
 
-**Installation:** ATLAS auto-installs via uv:
+**Prerequisites:** uv must be installed (ATLAS detects but doesn't install it).
+
+**Installation:** ATLAS manages Speckit installation and upgrades:
 ```bash
-uv tool install specify-cli --from git+https://github.com/github/spec-kit.git
+# ATLAS internally runs:
+uv tool install speckit
 ```
 
 **Slash commands (pass-through to Speckit):**
@@ -562,6 +547,15 @@ git worktree list                                   # List
 git worktree remove ~/projects/myrepo-auth         # Cleanup
 ```
 
+**State separation:**
+- **ATLAS state** lives in `~/.atlas/workspaces/<name>/` (tasks, artifacts, logs)
+- **Git worktree** stays clean (just your code + .speckit if using SDD)
+
+This separation means:
+- Task state survives accidental worktree deletion
+- Resume works after crashes
+- No `.atlas/` pollution in your repo
+
 **Workspace manager:**
 ```go
 type Workspace struct {
@@ -569,7 +563,6 @@ type Workspace struct {
     RepoPath     string    `json:"repo_path"`      // Original repo
     WorktreePath string    `json:"worktree_path"`  // Created worktree
     Branch       string    `json:"branch"`
-    TaskID       string    `json:"task_id"`
     CreatedAt    time.Time `json:"created_at"`
     Status       string    `json:"status"`         // active, paused, completed
 }
@@ -705,73 +698,32 @@ gh pr create \
   --head fix/null-pointer-parseconfig
 ```
 
-### 5.8 Project Rules Update
+### 5.8 Project Rules Update (Post-MVP)
 
-ATLAS can learn from completed work by updating project rules files. This is an explicit, human-controlled process—not automatic background learning.
+ATLAS can learn from completed work by suggesting updates to project rules files (AGENTS.md, constitution.md, etc.).
 
-**Configuration:**
-```yaml
-# .atlas/config.yaml (project-level)
-rules:
-  files:
-    - path: .speckit/constitution.md
-      description: "Core project principles and constraints"
-    - path: AGENTS.md
-      description: "AI agent behavior guidelines"
-    - path: docs/CODING_STANDARDS.md
-      description: "Code style and patterns"
+**Deferred to post-MVP.** Core concept: after task approval, optionally analyze what was learned and propose updates to project guidance files.
 
-  # Optional: guidelines for how rules should be written
-  update_guidelines: |
-    - Keep rules concise and actionable
-    - Prefer specific examples over abstract principles
-    - Group related rules under clear headings
-```
-
-**Workflow:**
-After `atlas approve` completes a task:
-```
-Task completed successfully. PR: https://github.com/user/repo/pull/42
-Update project rules based on this work? [y/N]
-```
-
-If the user selects yes, ATLAS spawns a `learn` task with input from the completed work:
-- Original task description and template used
-- Task output/artifacts
-- Any rejection feedback from validation retries
-- PR URL and files changed
-
-**Learn template steps:**
-1. **read_rules** (AI) — Read current rules files from project config, understand structure
-2. **analyze_learnings** (AI) — Review task artifacts, identify patterns worth codifying
-3. **propose_updates** (AI) — Draft specific updates respecting each file's format/purpose
-4. **review_updates** (Human) — Show diff of proposed changes, approve/reject
-5. **apply_updates** (Git) — Commit rule changes with `ATLAS-Learn` trailer
-
-**The learn agent specializes in:**
-- Understanding each project's rules file conventions
-- Knowing which file is appropriate for different types of rules
-- Respecting the existing structure and style of each file
-- Proposing minimal, targeted updates (not rewrites)
-
-**Why this approach:**
-- Learning is explicit and human-controlled
-- Rules are version-controlled in the project (not a separate system)
-- Uses existing infrastructure (templates, task spawning)
-- Aligns with "Text is Truth" principle
+Key ideas preserved for future implementation:
+- Explicit, human-controlled process (not automatic)
+- Rules stay version-controlled in the project
+- AI proposes minimal, targeted updates
+- Human reviews diff before applying
 
 ### 5.9 Observability
 
 **Log locations:**
 ```
-~/.atlas/logs/
-├── atlas.log                    # Host CLI operations
+~/.atlas/
+├── logs/
+│   └── atlas.log                    # Host CLI operations
 └── workspaces/
     ├── auth/
-    │   ├── task-a1b2c3d4.log   # Full task execution log
-    │   └── task-e5f6g7h8.log
+    │   └── logs/
+    │       ├── task-a1b2c3d4.log    # Full task execution log
+    │       └── task-e5f6g7h8.log
     └── payment/
-        └── ...
+        └── logs/...
 ```
 
 **Log format (JSON-lines):**
@@ -789,13 +741,13 @@ If the user selects yes, ATLAS spawns a `learn` task with input from the complet
 atlas status --verbose
 
 # Full log for a specific task
-cat ~/.atlas/logs/workspaces/auth/task-a1b2c3d4.log
+cat ~/.atlas/workspaces/auth/logs/task-a1b2c3d4.log
 
 # Tail workspace logs live
 atlas workspace logs auth --follow
 
 # Parse logs with jq
-cat ~/.atlas/logs/workspaces/*/task-*.log | jq 'select(.event=="model_complete")'
+cat ~/.atlas/workspaces/*/logs/task-*.log | jq 'select(.event=="model_complete")'
 ```
 
 ### 5.10 User Experience
@@ -842,7 +794,7 @@ If no workspace specified and multiple tasks pending, interactive selection:
     auth (feat/auth) - Review specification
 ```
 
-Then shows interactive review screen:
+Then shows task summary and interactive menu:
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
 │  Task: payment                                         fix/payment  │
@@ -859,28 +811,17 @@ Then shows interactive review screen:
 │                                                                     │
 │  PR: https://github.com/user/repo/pull/42                           │
 ├─────────────────────────────────────────────────────────────────────┤
-│  [a]pprove  [r]eject  [d]iff  [l]ogs  [o]pen PR  [q]uit             │
+│  ? What would you like to do?                                       │
+│    ❯ Approve and continue                                           │
+│      Reject (with feedback)                                         │
+│      View diff                                                      │
+│      View logs                                                      │
+│      Open PR in browser                                             │
+│      Cancel                                                         │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-**Key bindings:**
-| Key | Action |
-|-----|--------|
-| `a` | Approve and continue workflow |
-| `r` | Reject (prompts for feedback) |
-| `d` | Show git diff in pager |
-| `l` | Show recent task logs |
-| `o` | Open PR in browser (`gh pr view --web`) |
-| `q` | Quit without action |
-
-**After approval:**
-When the task completes, ATLAS offers to update project rules:
-```
-Task completed successfully. PR: https://github.com/user/repo/pull/42
-Update project rules based on this work? [y/N]
-```
-
-If yes, spawns a `learn` task (see Section 5.8). If no or if no rules files are configured, the workflow ends.
+Interactive menus (powered by charmbracelet/huh) guide you through every decision. No keyboard shortcuts to memorize—just arrow keys and enter.
 
 #### Rejection Flow
 
@@ -947,19 +888,7 @@ Task rejected.
   → Run 'atlas start "..." --workspace payment' to try fresh approach
 ```
 
-The task ends. Branch and code remain for manual intervention. Feedback is stored in the task's JSON file and can be used by the `learn` template when updating project rules.
-
-**CLI shortcuts:**
-```bash
-# Interactive flow (recommended)
-atlas reject payment
-
-# Direct retry with inline feedback
-atlas reject payment --retry "handle timeout case in HTTP client"
-
-# Direct terminal rejection
-atlas reject payment "wrong architectural approach"
-```
+The task ends. Branch and code remain for manual intervention. Feedback is stored in the task's JSON file for future reference.
 
 ---
 
@@ -1065,12 +994,15 @@ $ atlas workspace destroy payment
 
 | Feature | Why Deferred | Revisit When |
 |---------|--------------|--------------|
+| **Learn/Rules Update** | Core workflow must be solid first | v1 is stable and useful |
+| **Research Agent** | Manual monitoring is fine for now | Tracking 5+ frameworks |
 | **Multi-Repo** | Enterprise complexity | Users demonstrate concrete need |
 | **Trust Levels** | Need rejection data first | 100+ task completions |
 | **Cloud Execution** | Local first | Need scale-out |
 | **Other Languages** | Go-first simplifies validation | Go version is stable |
 | **ADK/Genkit** | Direct SDK is simpler for v1 | Multi-agent workflows needed |
 | **Additional PM Tools** | GitHub covers target users | Enterprise customers require |
+| **Token/Cost Tracking** | Timeout is sufficient guard | Budget concerns arise |
 
 ---
 
@@ -1086,7 +1018,6 @@ $ atlas workspace destroy payment
 | **AI mistakes** | Incorrect code | Human approval required |
 | **Worktree conflicts** | Branch already exists | Clear error message, suggest cleanup |
 | **SDD framework issues** | Speckit failures | Graceful fallback, show framework output |
-| **No rules files configured** | Learn task skipped | Prompt user to configure rules files |
 
 ---
 
@@ -1130,34 +1061,36 @@ Human approval is the security boundary. All code is reviewed before merge.
 
 ## Appendix A: File Structure
 
-**Host (~/.atlas/):**
+**ATLAS home (~/.atlas/):**
 ```
 ~/.atlas/
-├── config.yaml               # Global configuration
-├── workspaces/               # Metadata about active workspaces
-│   ├── auth.json
-│   └── payment.json
-└── logs/
-    ├── atlas.log             # Host CLI operations
-    └── workspaces/
-        ├── auth/
-        │   └── task-a1b2c3d4.log
-        └── payment/
+├── config.yaml                   # Global configuration
+├── backups/                      # Speckit upgrade backups
+├── logs/
+│   └── atlas.log                 # Host CLI operations
+└── workspaces/
+    ├── auth/
+    │   ├── workspace.json        # Workspace metadata
+    │   ├── tasks/
+    │   │   └── task-a1b2c3d4.json
+    │   ├── artifacts/
+    │   │   ├── analysis.md
+    │   │   ├── spec.md
+    │   │   └── plan.md
+    │   └── logs/
+    │       └── task-a1b2c3d4.log
+    └── payment/
+        └── ...
 ```
 
-**Inside each worktree:**
+**Git worktree (stays clean):**
 ```
-~/projects/myrepo-auth/       # Git worktree
-├── .atlas/
-│   ├── tasks/                # Task state for this workspace
-│   │   └── task-a1b2c3d4.json
-│   └── artifacts/            # Generated artifacts (specs, plans, etc.)
-│       ├── analysis.md
-│       ├── spec.md
-│       └── plan.md
-├── .speckit/                 # Speckit config (if using)
+~/projects/myrepo-auth/           # Git worktree
+├── .speckit/                     # Speckit config (if using SDD)
 └── ... (your code)
 ```
+
+ATLAS state is completely separated from your repository. The worktree contains only your code and optional SDD configuration.
 
 ---
 

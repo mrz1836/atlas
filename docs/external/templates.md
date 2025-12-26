@@ -19,20 +19,6 @@ atlas start "Fix nil pointer in user service" --template bugfix
 atlas start "Add OAuth2 authentication" --template feature
 ```
 
-### Templates vs Slash Commands
-
-ATLAS has two separate systems for automation:
-
-| | Templates | Slash Commands |
-|-|-----------|----------------|
-| **Purpose** | Multi-step workflow orchestration | Quick, single-purpose actions |
-| **Invocation** | `atlas start --template X` | `/command` in AI conversations |
-| **Implementation** | Go code (compiled) | Prompt definitions |
-| **State** | Full task lifecycle, artifacts, retries | Stateless, immediate |
-| **Examples** | bugfix, feature, refactor | /commit, /clean, /speckit.specify |
-
-Use **templates** for structured workflows with validation, git operations, and human checkpoints. Use **slash commands** for quick actions in AI-assisted development environments.
-
 ---
 
 ## Template Architecture
@@ -120,15 +106,15 @@ Pauses workflow for human review/approval.
 
 ### SDD Step
 
-Invokes Speckit framework commands.
+Integrates with the Speckit framework for specification-driven development.
 
 **Speckit Commands:**
-- `/speckit.constitution` — Set up project constitution
-- `/speckit.specify` — Create specification
-- `/speckit.plan` — Generate implementation plan
-- `/speckit.tasks` — Break into tasks
-- `/speckit.implement` — Execute implementation
-- `/speckit.checklist` — Generate completion checklist
+- `constitution` — Set up project constitution
+- `specify` — Create specification
+- `plan` — Generate implementation plan
+- `tasks` — Break into tasks
+- `implement` — Execute implementation
+- `checklist` — Generate completion checklist
 
 ### Gather Step
 
@@ -365,41 +351,6 @@ Update an existing PR description based on new changes.
 - Analyzes commits since PR creation
 - Regenerates PR description
 - Updates via `gh pr edit`
-
----
-
-## Slash Commands
-
-Slash commands are **separate from templates**. They are prompt-based quick actions invoked in AI conversations, not multi-step workflows.
-
-| Concept | Templates | Slash Commands |
-|---------|-----------|----------------|
-| **What** | Multi-step workflow orchestration | Prompt-based quick actions |
-| **Invocation** | `atlas start --template X` | `/command` in AI context |
-| **Implementation** | Go code compiled into ATLAS | Prompt definitions |
-| **Example** | bugfix, feature, refactor | `/commit`, `/speckit.specify` |
-
-### ATLAS-Native Slash Commands
-
-| Command | Purpose |
-|---------|---------|
-| `/commit` | Smart commit prompt (garbage detection, message generation) |
-| `/clean` | Garbage detection and removal prompt |
-| `/pr-describe` | Generate PR description from changes |
-
-### External Slash Commands (Speckit)
-
-Pass-through to Speckit framework:
-
-| Command | Purpose |
-|---------|---------|
-| `/speckit.specify` | Create specification |
-| `/speckit.plan` | Generate implementation plan |
-| `/speckit.tasks` | Break into actionable tasks |
-| `/speckit.implement` | Execute implementation |
-| `/speckit.checklist` | Generate completion checklist |
-
-**Note:** Slash commands are designed for use in AI-assisted development environments (IDE extensions, chat interfaces). Templates are for CLI-driven automation.
 
 ---
 
