@@ -28,7 +28,7 @@ Templates are structured as ordered sequences of steps, where each step has a sp
 ```
 Template
 ├── Metadata (name, version, description)
-├── Defaults (model, timeout, retry count)
+├── Defaults (model, timeout, max_turns)
 └── Steps[]
     ├── Step 1: AI analysis
     ├── Step 2: Implementation
@@ -41,7 +41,7 @@ Template
 - Steps execute in order, with dependency tracking
 - Each step type has specific behavior (AI invocation, command execution, git operations, etc.)
 - Steps can reference outputs from previous steps
-- Validation failures trigger retry loops with AI-assisted fixes
+- Validation failures pause for human decision (retry, fix manually, or abandon)
 
 ---
 
@@ -64,13 +64,12 @@ Invokes an AI model with a prompt. Supports variable interpolation for dynamic c
 
 ### Validation Step
 
-Runs commands and checks for success. Supports automatic retry on failure.
+Runs commands and checks for success. Failures pause for human decision.
 
 **Capabilities:**
 - Sequential command execution
-- Configurable retry count
 - Pass/fail determination
-- Integration with AI for fix suggestions on failure
+- On failure: human chooses to retry (AI tries again), fix manually, or abandon
 
 **Common commands:**
 - `magex format:fix` — Auto-format code
@@ -422,7 +421,7 @@ Update an existing PR description based on new changes.
 
 | Provider | Model | Model ID | Use Case |
 |----------|-------|----------|----------|
-| Claude | Opus 4.5 | `claude-opus-4-5-20251124` | Deep thinking + ultrathink |
+| Claude | Opus 4.5 | `claude-opus-4-5-20251101` | Deep thinking + ultrathink |
 | Claude | Sonnet 4.5 | `claude-sonnet-4-5-20250916` | Default, best coding |
 | Claude | Haiku 4.5 | `claude-haiku-4-5-20251015` | Fast, cheap |
 | Gemini | 3 Pro | `gemini-3-pro-preview` | Complex reasoning fallback |
