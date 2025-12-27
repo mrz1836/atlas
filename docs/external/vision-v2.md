@@ -1,7 +1,7 @@
 # ATLAS: AI Task Lifecycle Automation System
 
-- **Version:** 2.1.0-DRAFT
-- **Tag:** v2.1-refined
+- **Version:** 2.2.0-DRAFT
+- **Tag:** v2.2-technical-details
 - **Status:** Vision Document
 
 ---
@@ -259,10 +259,12 @@ echo '{"description": "fix null check"}' | atlas start --output json
 
 #### Installation
 
+**Module path:** `github.com/mrz1836/atlas`
+
 ATLAS is installed globally via Go's package manager:
 
 ```bash
-go install github.com/owner/atlas@latest
+go install github.com/mrz1836/atlas@latest
 ```
 
 Then run the setup wizard:
@@ -618,6 +620,48 @@ claude -p --output-format json --model sonnet --max-turns 10 "<Prompt>"
 # Mode "plan" adds --permission-mode plan to restrict edits
 ```
 
+**Claude CLI response schema** (confirmed via testing):
+
+```json
+{
+  "type": "result",
+  "subtype": "success",
+  "is_error": false,
+  "result": "<output text>",
+  "session_id": "b4070e9d-da85-4524-8c13-fa3c78712185",
+  "duration_ms": 2551,
+  "num_turns": 1,
+  "total_cost_usd": 0.04,
+  "usage": {
+    "input_tokens": 3,
+    "output_tokens": 4,
+    "cache_read_input_tokens": 12787,
+    "cache_creation_input_tokens": 5244
+  }
+}
+```
+
+**Key response fields:**
+| Field | Purpose |
+|-------|---------|
+| `type` | Always `"result"` for completed invocations |
+| `subtype` | `"success"` or `"error"` |
+| `is_error` | Boolean for error detection |
+| `result` | The actual output text |
+| `session_id` | UUID for logging and debugging |
+| `duration_ms` | Execution time |
+| `num_turns` | Agentic turns used |
+| `total_cost_usd` | API cost for the invocation |
+
+**Useful CLI flags:**
+| Flag | Purpose |
+|------|---------|
+| `--permission-mode plan` | Restrict to read-only analysis (no file edits) |
+| `--max-budget-usd <amount>` | Cap spending per invocation |
+| `--append-system-prompt <prompt>` | Inject context without replacing system prompt |
+| `--tools <list>` | Restrict available tools (e.g., `"Read,Edit,Write,Bash,Glob,Grep"`) |
+| `--model <alias>` | Model selection: `sonnet`, `opus`, or full model ID |
+
 **Execution model:**
 
 Each AI step is a single, atomic CLI invocation. No multi-turn conversations within a step.
@@ -639,16 +683,21 @@ Each AI step is a single, atomic CLI invocation. No multi-turn conversations wit
 **Future runners:** Interface supports other AI CLI tools (Cursor, Aider, etc.) by implementing the same interface with tool-specific flag/session mappings.
 
 **Configuration:**
+
+The default model is configurable—not hardcoded. Users set their preference in config:
+
 ```yaml
 # ~/.atlas/config.yaml
 ai:
   runner: claude-code
-  default_model: claude-sonnet-4-5-20250916
+  default_model: sonnet           # Alias: sonnet, opus, or full model ID
   timeout: 30m
   max_turns: 10                   # Max agentic turns per step
   flags:                          # Default flags passed to CLI
     tools: "Read,Edit,Write,Bash,Glob,Grep"
 ```
+
+Model aliases: `sonnet` → `claude-sonnet-4-5-20250916`, `opus` → `claude-opus-4-5-20251101`
 
 **Per-template model override:**
 ```yaml
@@ -1241,8 +1290,11 @@ $ atlas workspace destroy payment
 
 ## 8. What's Deferred
 
+### Post-MVP Features
+
 | Feature | Why Deferred | Revisit When |
 |---------|--------------|--------------|
+| **`atlas resume`** | Simplifies MVP; if task dies, re-run | Core workflow proven stable |
 | **`refactor` template** | Core templates must prove value first | Bugfix/feature patterns established |
 | **`test-coverage` template** | Analyze gaps, implement tests | Test workflow patterns established |
 | **`pr-update` template** | Update existing PR descriptions | PR workflow refinement needed |
