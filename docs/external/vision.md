@@ -82,7 +82,7 @@ ATLAS exists to multiply developer output while maintaining quality. The ideal w
 
 The result: more work shipped, more accurately, with less cognitive drain.
 
-### External Resources
+### External Resources (MVP)
 
 | Tool | Purpose | Links |
 |------|---------|-------|
@@ -90,6 +90,17 @@ The result: more work shipped, more accurately, with less cognitive drain.
 | Speckit | SDD framework | [GitHub](https://github.com/github/spec-kit) |
 | mage-x | Build automation | [GitHub](https://github.com/mrz1836/mage-x) |
 | go-pre-commit | Git hooks | [GitHub](https://github.com/mrz1836/go-pre-commit) |
+| Go | Programming language | [Website](https://golang.org/) · [Docs](https://go.dev/doc/go1.24) |
+| Claude Models | AI models | [Docs](https://platform.claude.com/docs/en/about-claude/models/overview) |
+| Gemini Models | AI models | [Docs](https://ai.google.dev/gemini-api/docs/models) |
+
+### External Resources (Future)
+
+| Tool | Purpose | Links |
+|------|---------|-------|
+| Genkit | AI abstraction | [Docs](https://genkit.dev/docs/get-started/?lang=go) |
+| ADK | AI development kit | [GitHub](https://github.com/google/adk-go) · [Docs](https://google.github.io/adk-docs/) |
+| Temporal | Workflow orchestration | [Docs](https://temporal.io/docs) |
 
 ---
 
@@ -220,7 +231,7 @@ ATLAS is a pure Go application targeting Go 1.24+.
 
 ### 6.1 CLI Interface
 
-Seven commands cover 95% of usage:
+Eight commands cover 95% of usage:
 
 ```bash
 atlas init                              # Initialize ATLAS configuration
@@ -1006,7 +1017,7 @@ Key ideas preserved for future implementation:
 {"ts":"2025-12-26T10:00:00Z","level":"info","event":"task_start","task_id":"task-20251226-100000"}
 {"ts":"2025-12-26T10:00:05Z","level":"info","event":"model_invoke","provider":"claude","tokens_in":15000}
 {"ts":"2025-12-26T10:00:45Z","level":"info","event":"model_complete","tokens_out":2500,"duration_ms":40000}
-{"ts":"2025-12-26T10:00:46Z","level":"info","event":"validation_start","command":"golangci-lint run"}
+{"ts":"2025-12-26T10:00:46Z","level":"info","event":"validation_start","command":"magex lint"}
 {"ts":"2025-12-26T10:00:52Z","level":"info","event":"validation_complete","passed":true}
 ```
 
@@ -1038,8 +1049,8 @@ ATLAS prioritizes clear, actionable feedback at every step. The CLI is designed 
 │  ATLAS Status                                                        │
 ├──────────────────────────────────────────────────────────────────────┤
 │  WORKSPACE   BRANCH         STATUS              STEP    ACTION       │
-│  auth        feat/auth      running             3/7     —            │
-│  payment     fix/payment    ⚠ awaiting_approval 6/7     approve      │
+│  auth        feat/auth      running             3/8     —            │
+│  payment     fix/payment    ⚠ awaiting_approval 7/8     approve      │
 └──────────────────────────────────────────────────────────────────────┘
 
 ⚠ 1 task needs your attention. Run: atlas approve payment
@@ -1267,8 +1278,8 @@ $ atlas status
 │  ATLAS Status                                               │
 ├─────────────────────────────────────────────────────────────┤
 │  WORKSPACE   BRANCH         STATUS              STEP        │
-│  auth        feat/auth      running             3/7         │
-│  payment     fix/payment    awaiting_approval   6/7         │
+│  auth        feat/auth      running             3/8         │
+│  payment     fix/payment    awaiting_approval   7/8         │
 └─────────────────────────────────────────────────────────────┘
 
 # Approve and cleanup
