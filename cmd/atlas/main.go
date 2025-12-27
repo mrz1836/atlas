@@ -1,8 +1,5 @@
-package atlas
-
-import "log"
+// Package main provides the entry point for the atlas CLI.
+package main
 
 func main() {
-	// Entry point for the atlas command-line tool
-	log.Println("Replace this with actual implementation")
 }
