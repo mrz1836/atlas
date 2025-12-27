@@ -1,0 +1,135 @@
+# generated: 2025-12-27
+# project: atlas
+# project_key: atlas
+# tracking_system: file-system
+# story_location: /Users/mrz/projects/atlas/_bmad-output/implementation-artifacts
+
+# STATUS DEFINITIONS:
+# ==================
+# Epic Status:
+#   - backlog: Epic not yet started
+#   - in-progress: Epic actively being worked on
+#   - done: All stories in epic completed
+#
+# Epic Status Transitions:
+#   - backlog → in-progress: Automatically when first story is created (via create-story)
+#   - in-progress → done: Manually when all stories reach 'done' status
+#
+# Story Status:
+#   - backlog: Story only exists in epic file
+#   - ready-for-dev: Story file created in stories folder
+#   - in-progress: Developer actively working on implementation
+#   - review: Ready for code review (via Dev's code-review workflow)
+#   - done: Story completed
+#
+# Retrospective Status:
+#   - optional: Can be completed but not required
+#   - done: Retrospective has been completed
+#
+# WORKFLOW NOTES:
+# ===============
+# - Epic transitions to 'in-progress' automatically when first story is created
+# - Stories can be worked in parallel if team capacity allows
+# - SM typically creates next story after previous one is 'done' to incorporate learnings
+# - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
+
+generated: 2025-12-27
+project: atlas
+project_key: atlas
+tracking_system: file-system
+story_location: /Users/mrz/projects/atlas/_bmad-output/implementation-artifacts
+
+development_status:
+  # Epic 1: Project Foundation
+  epic-1: backlog
+  1-1-initialize-go-module-and-project-structure: backlog
+  1-2-create-constants-package: backlog
+  1-3-create-errors-package: backlog
+  1-4-create-domain-types-package: backlog
+  1-5-create-configuration-framework: backlog
+  1-6-create-cli-root-command: backlog
+  epic-1-retrospective: optional
+
+  # Epic 2: CLI Framework & Configuration
+  epic-2: backlog
+  2-1-implement-tool-detection-system: backlog
+  2-2-implement-atlas-init-setup-wizard: backlog
+  2-3-ai-provider-configuration: backlog
+  2-4-validation-commands-configuration: backlog
+  2-5-notification-preferences-configuration: backlog
+  2-6-configuration-override-system: backlog
+  2-7-implement-atlas-upgrade-command: backlog
+  epic-2-retrospective: optional
+
+  # Epic 3: Workspace Management
+  epic-3: backlog
+  3-1-workspace-data-model-and-store: backlog
+  3-2-git-worktree-operations: backlog
+  3-3-workspace-manager-service: backlog
+  3-4-implement-atlas-workspace-list-command: backlog
+  3-5-implement-atlas-workspace-destroy-command: backlog
+  3-6-implement-atlas-workspace-retire-command: backlog
+  3-7-implement-atlas-workspace-logs-command: backlog
+  epic-3-retrospective: optional
+
+  # Epic 4: Task Engine & AI Execution
+  epic-4: backlog
+  4-1-task-data-model-and-store: backlog
+  4-2-task-state-machine: backlog
+  4-3-airunner-interface-and-claudecoderunner: backlog
+  4-4-template-registry-and-definitions: backlog
+  4-5-step-executor-framework: backlog
+  4-6-task-engine-orchestrator: backlog
+  4-7-implement-atlas-start-command: backlog
+  4-8-implement-utility-commands: backlog
+  4-9-speckit-sdd-integration: backlog
+  epic-4-retrospective: optional
+
+  # Epic 5: Validation Pipeline
+  epic-5: backlog
+  5-1-validation-command-executor: backlog
+  5-2-parallel-validation-runner: backlog
+  5-3-validation-result-handling: backlog
+  5-4-validation-retry-with-ai-context: backlog
+  5-5-manual-fix-and-resume-flow: backlog
+  5-6-task-abandonment-flow: backlog
+  5-7-pre-commit-hook-integration: backlog
+  5-8-validation-progress-and-feedback: backlog
+  epic-5-retrospective: optional
+
+  # Epic 6: Git & PR Automation
+  epic-6: backlog
+  6-1-gitrunner-implementation: backlog
+  6-2-branch-creation-and-naming: backlog
+  6-3-smart-commit-system: backlog
+  6-4-push-to-remote: backlog
+  6-5-githubrunner-and-pr-creation: backlog
+  6-6-ci-status-monitoring: backlog
+  6-7-ci-failure-handling: backlog
+  epic-6-retrospective: optional
+
+  # Epic 7: Status Dashboard & Monitoring
+  epic-7: backlog
+  7-1-tui-style-system: backlog
+  7-2-output-interface: backlog
+  7-3-status-table-component: backlog
+  7-4-implement-atlas-status-command: backlog
+  7-5-watch-mode-with-live-updates: backlog
+  7-6-terminal-bell-notifications: backlog
+  7-7-atlas-header-component: backlog
+  7-8-progress-dashboard-component: backlog
+  7-9-action-indicators: backlog
+  epic-7-retrospective: optional
+
+  # Epic 8: Interactive Review & Approval
+  epic-8: backlog
+  8-1-interactive-menu-system: backlog
+  8-2-approval-summary-component: backlog
+  8-3-implement-atlas-approve-command: backlog
+  8-4-implement-atlas-reject-command: backlog
+  8-5-error-recovery-menus: backlog
+  8-6-progress-spinners: backlog
+  8-7-non-interactive-mode: backlog
+  8-8-structured-logging-system: backlog
+  8-9-styled-output-system: backlog
+  epic-8-retrospective: optional
