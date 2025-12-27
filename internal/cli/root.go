@@ -4,6 +4,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
@@ -25,13 +26,19 @@ type BuildInfo struct {
 // globalLogger stores the initialized logger for use by subcommands.
 // This is set during PersistentPreRunE and should be accessed via GetLogger.
 // This is a necessary global for CLI logger access across command handlers.
-var globalLogger zerolog.Logger //nolint:gochecknoglobals // CLI logger requires global access
+// Access is protected by globalLoggerMu for thread safety.
+var (
+	globalLogger   zerolog.Logger //nolint:gochecknoglobals // CLI logger requires global access
+	globalLoggerMu sync.RWMutex   //nolint:gochecknoglobals // Protects globalLogger
+)
 
 // GetLogger returns the initialized logger for use by subcommands.
 //
 // IMPORTANT: This function MUST only be called after the root command's
 // PersistentPreRunE has executed. Calling it before initialization will
 // return a zero-value logger that discards all log output.
+//
+// This function is safe for concurrent use.
 //
 // Typical usage is within a subcommand's Run/RunE function:
 //
@@ -41,6 +48,8 @@ var globalLogger zerolog.Logger //nolint:gochecknoglobals // CLI logger requires
 //	    ...
 //	}
 func GetLogger() zerolog.Logger {
+	globalLoggerMu.RLock()
+	defer globalLoggerMu.RUnlock()
 	return globalLogger
 }
 
@@ -79,8 +88,10 @@ Features:
 				return fmt.Errorf("%w: %q must be one of %v", errors.ErrInvalidOutputFormat, flags.Output, ValidOutputFormats())
 			}
 
-			// Initialize logger based on flags
+			// Initialize logger based on flags (protected by mutex for thread safety)
+			globalLoggerMu.Lock()
 			globalLogger = InitLogger(flags.Verbose, flags.Quiet)
+			globalLoggerMu.Unlock()
 
 			return nil
 		},
