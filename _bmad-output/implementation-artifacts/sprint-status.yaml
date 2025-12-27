@@ -51,8 +51,8 @@ development_status:
   epic-1-retrospective: done
 
   # Epic 2: CLI Framework & Configuration
-  epic-2: backlog
-  2-1-implement-tool-detection-system: backlog
+  epic-2: in-progress
+  2-1-implement-tool-detection-system: done
   2-2-implement-atlas-init-setup-wizard: backlog
   2-3-ai-provider-configuration: backlog
   2-4-validation-commands-configuration: backlog
