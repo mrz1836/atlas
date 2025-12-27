@@ -38,6 +38,12 @@
         }
     },
     "issues": {
+        "exclude-rules": [
+            {
+                "path": "internal/errors",
+                "text": "avoid package names"
+            }
+        ],
         "uniq-by-line": true
     },
     "linters": {
@@ -191,7 +197,71 @@
                 "simple": true
             },
             "revive": {
-                "config": ".revive.toml"
+                "confidence": 0.8,
+                "enable-all-rules": false,
+                "ignore-generated-header": false,
+                "rules": [
+                    {
+                        "name": "context-as-argument",
+                        "severity": "error"
+                    },
+                    {
+                        "arguments": [
+                            "checkPrivateReceivers",
+                            "sayRepetitiveInsteadOfStutters"
+                        ],
+                        "name": "exported",
+                        "severity": "warning"
+                    },
+                    {
+                        "name": "error-return",
+                        "severity": "warning"
+                    },
+                    {
+                        "name": "error-naming",
+                        "severity": "warning"
+                    },
+                    {
+                        "name": "error-strings",
+                        "severity": "warning"
+                    },
+                    {
+                        "name": "receiver-naming",
+                        "severity": "warning"
+                    },
+                    {
+                        "name": "increment-decrement",
+                        "severity": "warning"
+                    },
+                    {
+                        "name": "indent-error-flow",
+                        "severity": "warning"
+                    },
+                    {
+                        "name": "superfluous-else",
+                        "severity": "warning"
+                    },
+                    {
+                        "name": "unreachable-code",
+                        "severity": "warning"
+                    },
+                    {
+                        "name": "redefines-builtin-id",
+                        "severity": "warning"
+                    },
+                    {
+                        "exclude": [
+                            "**/deps/deps.go"
+                        ],
+                        "name": "blank-imports",
+                        "severity": "warning"
+                    },
+                    {
+                        "name": "unused-parameter",
+                        "severity": "warning"
+                    }
+                ],
+                "severity": "warning"
             },
             "unparam": {
                 "check-exported": false
