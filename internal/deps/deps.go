@@ -26,21 +26,16 @@
 package deps
 
 import (
-	// Config management - will be used by internal/config
-	_ "github.com/spf13/viper"
-
-	// Structured JSON logging - will be used throughout the application
-	_ "github.com/rs/zerolog"
-
-	// TUI interactive forms - will be used by internal/tui
-	_ "github.com/charmbracelet/huh"
-
-	// Terminal styling - will be used by internal/tui
-	_ "github.com/charmbracelet/lipgloss"
-
 	// TUI widgets (spinner, textinput, etc.) - will be used by internal/tui
 	_ "github.com/charmbracelet/bubbles/spinner"
-
+	// TUI interactive forms - will be used by internal/tui
+	_ "github.com/charmbracelet/huh"
+	// Terminal styling - will be used by internal/tui
+	_ "github.com/charmbracelet/lipgloss"
+	// Structured JSON logging - will be used throughout the application
+	_ "github.com/rs/zerolog"
+	// Config management - will be used by internal/config
+	_ "github.com/spf13/viper"
 	// Testing assertions - will be used in test files
 	_ "github.com/stretchr/testify/assert"
 )
