@@ -193,7 +193,7 @@ ATLAS is a pure Go application targeting Go 1.24+.
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                              ATLAS CLI                                  │
 │                                                                         │
-│  atlas init | start | status | approve | reject | resume |  workspace   │
+│  atlas init | start | status | approve | reject | workspace | upgrade   │
 ├─────────────────────────────────────────────────────────────────────────┤
 │                                                                         │
 │  ┌─────────────────────────────┐  ┌─────────────────────────┐           │
@@ -231,18 +231,21 @@ ATLAS is a pure Go application targeting Go 1.24+.
 
 ### 6.1 CLI Interface
 
-Eight commands cover 95% of usage:
+Seven commands cover 95% of usage:
 
 ```bash
-atlas init                              # Initialize ATLAS configuration
-atlas start "description" [--workspace] # Start task in workspace
-atlas status                            # Show all workspaces and tasks
-atlas approve [workspace]               # Approve pending work
-atlas reject [workspace]                # Reject with interactive feedback
-atlas resume [task-id]                  # Resume interrupted task
-atlas workspace <list|retire|destroy|logs>  # Manage workspaces
-atlas upgrade [--check] [tool]              # Upgrade ATLAS and managed tools
+atlas init                                    # Initialize ATLAS configuration
+atlas start "description" [--template] [--workspace]  # Start task in workspace
+atlas status                                  # Show all workspaces and tasks
+atlas approve [workspace]                     # Approve pending work
+atlas reject [workspace]                      # Reject with interactive feedback
+atlas workspace <list|retire|destroy|logs>   # Manage workspaces
+atlas upgrade [--check] [tool]               # Upgrade ATLAS and managed tools
 ```
+
+**Template selection:**
+- `--template bugfix|feature|commit` — Explicitly select template
+- If `--template` omitted, ATLAS presents an interactive menu listing available templates
 
 **Workspace-aware behavior:**
 - `atlas start "desc"` — Auto-generates workspace name from description
@@ -571,14 +574,18 @@ Utility templates (lightweight, single-purpose):
 # .atlas/config.yaml
 templates:
   bugfix:
+    branch_prefix: "fix"        # Branch naming: fix/<workspace-name>
     auto_proceed_git: true      # Git operations don't pause for approval
     model: claude-sonnet-4-5-20250916
   feature:
+    branch_prefix: "feat"       # Branch naming: feat/<workspace-name>
     auto_proceed_git: false     # Pause before PR creation
     model: claude-opus-4-5-20251101
+  commit:
+    branch_prefix: "chore"      # Branch naming: chore/<workspace-name>
 ```
 
-Users customize validation commands, model selection, and auto-proceed behavior via configuration files. Templates themselves are immutable Go code.
+Users customize validation commands, model selection, branch naming, and auto-proceed behavior via configuration files. Templates themselves are immutable Go code.
 
 ### 6.3 AI Runner Layer
 
@@ -1052,8 +1059,8 @@ ATLAS prioritizes clear, actionable feedback at every step. The CLI is designed 
 │  ATLAS Status                                                        │
 ├──────────────────────────────────────────────────────────────────────┤
 │  WORKSPACE   BRANCH         STATUS              STEP    ACTION       │
-│  auth        feat/auth      running             3/8     —            │
-│  payment     fix/payment    ⚠ awaiting_approval 7/8     approve      │
+│  auth        feat/auth      running             3/7     —            │
+│  payment     fix/payment    ⚠ awaiting_approval 6/7     approve      │
 └──────────────────────────────────────────────────────────────────────┘
 
 ⚠ 1 task needs your attention. Run: atlas approve payment
@@ -1204,16 +1211,13 @@ User: atlas start "fix null pointer panic in parseConfig when options is nil"
   ├─► Step 4: git_commit (Auto)
   │   └─► Creates branch, commits with trailers
   │
-  ├─► Step 5: git_push (Auto)
-  │   └─► Pushes to remote
+  ├─► Step 5: git_pr (Auto)
+  │   └─► Pushes to remote, creates PR via `gh pr create`
   │
-  ├─► Step 6: git_pr (Auto)
-  │   └─► gh pr create
-  │
-  ├─► Step 7: ci_wait (Auto)
+  ├─► Step 6: ci_wait (Auto)
   │   └─► Polls GitHub Actions on PR until CI passes ✓
   │
-  └─► Step 8: review (Human)
+  └─► Step 7: review (Human)
       └─► atlas approve OR atlas reject "reason"
 ```
 
@@ -1281,8 +1285,8 @@ $ atlas status
 │  ATLAS Status                                               │
 ├─────────────────────────────────────────────────────────────┤
 │  WORKSPACE   BRANCH         STATUS              STEP        │
-│  auth        feat/auth      running             3/8         │
-│  payment     fix/payment    awaiting_approval   7/8         │
+│  auth        feat/auth      running             3/7         │
+│  payment     fix/payment    awaiting_approval   6/7         │
 └─────────────────────────────────────────────────────────────┘
 
 # Approve and cleanup
