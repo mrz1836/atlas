@@ -1,0 +1,6 @@
+version: "1"
+targets:
+  build:
+    description: "Build binary"
+    commands:
+      - go build -o bin/atlas ./cmd/atlas

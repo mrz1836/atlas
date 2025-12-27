@@ -42,7 +42,7 @@ story_location: /Users/mrz/projects/atlas/_bmad-output/implementation-artifacts
 development_status:
   # Epic 1: Project Foundation
   epic-1: in-progress
-  1-1-initialize-go-module-and-project-structure: ready-for-dev
+  1-1-initialize-go-module-and-project-structure: done
   1-2-create-constants-package: backlog
   1-3-create-errors-package: backlog
   1-4-create-domain-types-package: backlog

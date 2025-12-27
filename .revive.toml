@@ -1,0 +1,53 @@
+# Revive linter configuration for ATLAS
+# Referenced by .golangci.json
+
+ignoreGeneratedHeader = false
+severity = "warning"
+confidence = 0.8
+
+# Enable default rules with project-specific settings
+[rule.context-as-argument]
+  severity = "error"
+
+[rule.var-naming]
+  severity = "warning"
+  arguments = [["ID", "URL", "API", "HTTP", "JSON", "XML", "TUI", "CLI", "AI"], []]
+
+[rule.exported]
+  severity = "warning"
+  arguments = ["checkPrivateReceivers", "sayRepetitiveInsteadOfStutters"]
+
+[rule.error-return]
+  severity = "warning"
+
+[rule.error-naming]
+  severity = "warning"
+
+[rule.error-strings]
+  severity = "warning"
+
+[rule.receiver-naming]
+  severity = "warning"
+
+[rule.increment-decrement]
+  severity = "warning"
+
+[rule.indent-error-flow]
+  severity = "warning"
+
+[rule.superfluous-else]
+  severity = "warning"
+
+[rule.unreachable-code]
+  severity = "warning"
+
+[rule.redefines-builtin-id]
+  severity = "warning"
+
+[rule.blank-imports]
+  severity = "warning"
+  # Allow blank imports in deps.go for dependency preservation
+  exclude = ["**/deps/deps.go"]
+
+[rule.unused-parameter]
+  severity = "warning"
