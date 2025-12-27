@@ -162,10 +162,10 @@ ATLAS is a pure Go application targeting Go 1.24+.
 ├─────────────────────────────────────────────────┤
 │  AIRunner Interface                             │
 │  └─ ClaudeCodeRunner (claude CLI)               │
-│      └─ [Claude Code](https://docs.anthropic.com/en/docs/claude-code) handles file ops, search    │
+│      └─ Claude Code handles file ops, search    │
 ├─────────────────────────────────────────────────┤
 │  SDD Framework Integration                      │
-│  └─ [Speckit](https://github.com/github/spec-kit) (.speckit/ repo + CLI)              │
+│  └─ Speckit (.speckit/ repo + CLI)              │
 └─────────────────────────────────────────────────┘
 ```
 
