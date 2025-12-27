@@ -43,12 +43,6 @@ node_modules/
 # Pulumi
 .pulumi/
 
-# Pulumi Stack Configs - Safe to commit when using Pulumi ESC
-# These files should only contain environment references, not encrypted secrets
-# Review before committing to ensure no 'secure:' values are present
-# If you see 'secure:' values, you may have accidentally used pulumi config set --secret
-# instead of storing in Pulumi ESC. Remove the secret and add to ESC instead.
-
 # Environment files (legacy - now using Pulumi ESC)
 .env
 .env.*
@@ -56,18 +50,12 @@ node_modules/
 !.github/.env.base
 !.github/.env.custom
 
-# Deployment files
-infrastructure/bin
-
 # Local tooling binaries
 bin/
 
-# Lambda deployment artifacts
-*.zip
-/api-authorizer
-/cmd/atlas-loader/atlas-loader
-/playboro-api
-functions/*/bootstrap
-functions/*/deployment.zip
-functions/api-authorizer/api-authorizer
-functions/playboro-api/playboro-api
+# AI / SDD files
+# Revisit these entries if you are intentionally committing files for these tools
+_bmad/
+_bmad-*
+.agent/
+.claude/
