@@ -241,6 +241,7 @@ atlas approve [workspace]               # Approve pending work
 atlas reject [workspace]                # Reject with interactive feedback
 atlas resume [task-id]                  # Resume interrupted task
 atlas workspace <list|retire|destroy|logs>  # Manage workspaces
+atlas upgrade [--check] [tool]              # Upgrade ATLAS and managed tools
 ```
 
 **Workspace-aware behavior:**
@@ -418,6 +419,8 @@ Tasks are the atomic units of work. State lives in `~/.atlas/workspaces/<name>/t
    │ completed │        └──────┤ rejected │└───────────┘
    └───────────┘               └──────────┘
 ```
+
+Additional states for external failures: `gh_failed`, `ci_failed`, `ci_timeout` (see transitions table below).
 
 **State transitions:**
 | From | To | Trigger |
