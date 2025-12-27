@@ -148,11 +148,10 @@ ATLAS is a pure Go application targeting Go 1.24+.
 | Progress/Spinners | `charmbracelet/bubbles` | Animated feedback |
 | Configuration | `spf13/viper` | Multi-source config, pairs with Cobra |
 | Structured Logging | `rs/zerolog` | Zero-allocation, JSON-native |
-| GitHub API | `google/go-github` | Official GitHub v3/v4 client |
 
 **External tools (not Go dependencies):**
 - `claude` CLI — AI execution via Claude Code
-- `gh` CLI — GitHub PR/issue operations
+- `gh` CLI — GitHub operations (auth, PRs, issues)
 - `git` — Version control operations
 
 ### AI Architecture
@@ -1363,9 +1362,10 @@ The execution environment has access to:
 - **Model API keys**: Can incur costs, potential for prompt injection
 - **Git push credentials**: Can push code to any branch (except protected)
 - **Local filesystem**: Full access to worktree directory
+- **Shell Access**: The AI agent (via `Bash` tool) has shell access to the host. While `git worktree` provides a level of isolation, a malicious or confused agent could theoretically execute commands outside the worktree.
 
 **v1 security stance:**
-Human approval is the security boundary. All code is reviewed before merge.
+Human approval is the security boundary. All code is reviewed before merge. We accept the risk of shell access for v1 to maximize agent capability, relying on the user's supervision.
 
 **Recommendations:**
 - Use branch protection rules
