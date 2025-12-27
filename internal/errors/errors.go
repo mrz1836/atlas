@@ -62,4 +62,10 @@ var (
 
 	// ErrInvalidOutputFormat indicates an invalid output format was specified.
 	ErrInvalidOutputFormat = errors.New("invalid output format")
+
+	// ErrCommandNotConfigured indicates that a mock command was not configured in tests.
+	ErrCommandNotConfigured = errors.New("command not configured")
+
+	// ErrCommandFailed indicates that a command execution failed.
+	ErrCommandFailed = errors.New("command failed")
 )
