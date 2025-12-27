@@ -53,6 +53,8 @@ node_modules/
 .env
 .env.*
 !.env.example
+!.github/.env.base
+!.github/.env.custom
 
 # Deployment files
 infrastructure/bin
