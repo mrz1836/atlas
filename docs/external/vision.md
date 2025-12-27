@@ -238,8 +238,8 @@ atlas start "description" [--template] [--workspace]  # Start task in workspace
 atlas status                                  # Show all workspaces and tasks
 atlas approve [workspace]                     # Approve pending work
 atlas reject [workspace]                      # Reject with interactive feedback
-atlas workspace <list|retire|destroy|logs>   # Manage workspaces
-atlas upgrade [--check] [tool]               # Upgrade ATLAS and managed tools
+atlas workspace <list|retire|destroy|logs>    # Manage workspaces
+atlas upgrade [--check] [tool]                # Upgrade ATLAS and managed tools
 ```
 
 **Template selection:**
@@ -1303,20 +1303,22 @@ $ atlas workspace destroy payment
 
 | Feature | Why Deferred | Revisit When |
 |---------|--------------|--------------|
+| **[Research Agent](../internal/research-agent.md)** | Manual monitoring is fine for now | Tracking 5+ frameworks |
+| **`atlas config`** | Manual config files are fine for v1 | User feedback indicates need |
 | **`atlas resume`** | Simplifies MVP; if task dies, re-run | Core workflow proven stable |
+| **`pr-update` template** | Update existing PR descriptions | PR workflow refinement needed |
 | **`refactor` template** | Core templates must prove value first | Bugfix/feature patterns established |
 | **`test-coverage` template** | Analyze gaps, implement tests | Test workflow patterns established |
-| **`pr-update` template** | Update existing PR descriptions | PR workflow refinement needed |
-| **Learn/Rules Update** | Core workflow must be solid first | v1 is stable and useful |
-| **[Research Agent](../internal/research-agent.md)** | Manual monitoring is fine for now | Tracking 5+ frameworks |
-| **Multi-Repo** | Enterprise complexity | Users demonstrate concrete need |
-| **Trust Levels** | Need rejection data first | 100+ task completions |
-| **Cloud Execution** | Local first | Need scale-out |
-| **Other Languages** | Go-first simplifies validation | Go version is stable |
-| **ADK/Genkit** | Direct SDK is simpler for v1 | Multi-agent workflows needed |
 | **Additional PM Tools** | GitHub covers target users | Enterprise customers require |
-| **Token/Cost Tracking** | Timeout is sufficient guard | Budget concerns arise |
+| **ADK/Genkit** | Direct SDK is simpler for v1 | Multi-agent workflows needed |
 | **Advanced Resume** | Basic checkpoint resume sufficient for v1 | Complex failure scenarios arise |
+| **Cloud Execution** | Local first | Need scale-out |
+| **Learn/Rules Update** | Core workflow must be solid first | v1 is stable and useful |
+| **Multi-Repo** | Enterprise complexity | Users demonstrate concrete need |
+| **Other Languages** | Go-first simplifies validation | Go version is stable |
+| **Token/Cost Tracking** | Timeout is sufficient guard | Budget concerns arise |
+| **Trust Levels** | Need rejection data first | 100+ task completions |
+| **UI Dashboard** | CLI is sufficient for v1 | User feedback indicates need |
 
 ---
 
