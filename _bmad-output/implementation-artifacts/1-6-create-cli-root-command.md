@@ -498,4 +498,5 @@ N/A - No debugging required, implementation proceeded smoothly.
 
 - 2025-12-27: Implemented CLI root command with global flags (--output, --verbose, --quiet), version flag, and zerolog initialization. All acceptance criteria satisfied.
 - 2025-12-27: **Code Review Fixes** - Added ExitCodeForError() to properly return exit code 2 for invalid input (AC #1 compliance). Added comprehensive tests for exit codes, NO_COLOR environment variable handling. Improved GetLogger() documentation. Test coverage increased to 92.1%.
+- 2025-12-27: **Epic 1 Retrospective Fix** - Added sync.RWMutex protection for globalLogger to fix race condition detected in CI. Tests now pass with `-race` flag. See `epic-1-retro-2025-12-27.md` for details.
 
