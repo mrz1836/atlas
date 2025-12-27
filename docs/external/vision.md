@@ -486,7 +486,6 @@ ATLAS polls the GitHub Actions API for the PR's check runs every 2 minutes (conf
 ? CI workflow "CI" failed. What would you like to do?
   ❯ View workflow logs — Open GitHub Actions in browser
     Retry from implement — AI tries to fix based on CI output
-    Fix manually and resume — You fix, then 'atlas resume'
     Abandon task — End task, keep branch for manual work
 ```
 
@@ -1218,7 +1217,7 @@ User: atlas start "fix null pointer panic in parseConfig when options is nil"
   │   └─► Polls GitHub Actions on PR until CI passes ✓
   │
   └─► Step 7: review (Human)
-      └─► atlas approve OR atlas reject "reason"
+      └─► atlas approve OR atlas reject
 ```
 
 ### Feature Workflow (Speckit SDD)
@@ -1290,7 +1289,7 @@ $ atlas status
 └─────────────────────────────────────────────────────────────┘
 
 # Approve and cleanup
-$ atlas approve payment-task-xyz
+$ atlas approve payment
 $ atlas workspace destroy payment
 ```
 
