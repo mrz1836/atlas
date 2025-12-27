@@ -44,4 +44,19 @@ var (
 	// ErrUserAbandoned indicates that the user chose to abandon the task
 	// entirely rather than retry or provide feedback.
 	ErrUserAbandoned = errors.New("user abandoned task")
+
+	// ErrConfigNil indicates that a nil config was passed to validation.
+	ErrConfigNil = errors.New("config is nil")
+
+	// ErrConfigInvalidAI indicates an invalid AI configuration value.
+	ErrConfigInvalidAI = errors.New("invalid AI configuration")
+
+	// ErrConfigInvalidGit indicates an invalid Git configuration value.
+	ErrConfigInvalidGit = errors.New("invalid Git configuration")
+
+	// ErrConfigInvalidCI indicates an invalid CI configuration value.
+	ErrConfigInvalidCI = errors.New("invalid CI configuration")
+
+	// ErrConfigInvalidValidation indicates an invalid Validation configuration value.
+	ErrConfigInvalidValidation = errors.New("invalid Validation configuration")
 )
