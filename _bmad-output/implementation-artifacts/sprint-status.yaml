@@ -47,7 +47,7 @@ development_status:
   1-3-create-errors-package: done
   1-4-create-domain-types-package: done
   1-5-create-configuration-framework: done
-  1-6-create-cli-root-command: backlog
+  1-6-create-cli-root-command: done
   epic-1-retrospective: optional
 
   # Epic 2: CLI Framework & Configuration

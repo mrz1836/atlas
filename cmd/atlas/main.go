@@ -8,9 +8,24 @@ import (
 	"github.com/mrz1836/atlas/internal/cli"
 )
 
+// Build info variables set via ldflags during build.
+// Example: go build -ldflags "-X main.version=1.0.0 -X main.commit=$(git rev-parse HEAD)"
+//
+//nolint:gochecknoglobals // Required for ldflags injection at build time
+var (
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
+)
+
 func main() {
 	ctx := context.Background()
-	if err := cli.Execute(ctx); err != nil {
-		os.Exit(1)
+	err := cli.Execute(ctx, cli.BuildInfo{
+		Version: version,
+		Commit:  commit,
+		Date:    date,
+	})
+	if err != nil {
+		os.Exit(cli.ExitCodeForError(err))
 	}
 }
