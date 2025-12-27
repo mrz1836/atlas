@@ -1,7 +1,7 @@
 # ATLAS: AI Task Lifecycle Automation System
 
-- **Version:** 1.1.0-DRAFT
-- **Tag:** v1.1-refined
+- **Version:** 2.1.0-DRAFT
+- **Tag:** v2.1-refined
 - **Status:** Vision Document
 
 ---
@@ -44,7 +44,57 @@ ATLAS is a CLI tool that orchestrates AI-assisted development workflows for Go p
 
 ---
 
-## 2. Core Principles
+## 2. Project Context
+
+### Who This Is For
+
+This project is built by a senior Go engineer who works across:
+- **CLI tools** — Command-line applications like ATLAS itself
+- **Backend services** — Serverless functions, microservices, REST/GraphQL APIs
+- **Libraries** — Reusable Go modules published for community use
+
+### Development Standards
+
+All code follows the conventions documented in [`.github/AGENTS.md`](../../.github/AGENTS.md), which defines:
+- Go idioms and patterns
+- Testing standards
+- Commit and PR conventions
+- CI/CD workflows
+
+These standards apply equally to human contributors and AI agents.
+
+### Project Status: MVP
+
+This is an MVP — not production software. Breaking changes are expected and welcome. The goal is rapid iteration toward a tool that actually works, not premature stability.
+
+**What this means:**
+- Interfaces may change without deprecation periods
+- Features may be added, removed, or completely reimagined
+- Feedback drives direction more than roadmaps
+
+### The "Super Powers" Goal
+
+ATLAS exists to multiply developer output while maintaining quality. The ideal workflow:
+
+1. **Stay in planning mode** — Focus on specifications, architecture, and design decisions
+2. **Parallel execution** — Run multiple implementations simultaneously across workspaces
+3. **Reduced context switching** — ATLAS handles the tedium (lint, test, commit, PR) so you can think strategically
+4. **Human authority** — Every decision point pauses for approval; nothing merges unsupervised
+
+The result: more work shipped, more accurately, with less cognitive drain.
+
+### External Resources
+
+| Tool | Purpose | Links |
+|------|---------|-------|
+| Claude Code | AI execution engine | [GitHub](https://github.com/anthropics/claude-code) · [Docs](https://docs.anthropic.com/en/docs/claude-code/overview) |
+| Speckit | SDD framework | [GitHub](https://github.com/github/spec-kit) |
+| mage-x | Build automation | [GitHub](https://github.com/mrz1836/mage-x) |
+| go-pre-commit | Git hooks | [GitHub](https://github.com/mrz1836/go-pre-commit) |
+
+---
+
+## 3. Core Principles
 
 ### Git is the Backbone
 
@@ -68,7 +118,7 @@ Every file ATLAS creates is inspectable. No hidden state, no opaque databases. D
 
 ---
 
-## 3. Implementation Stack
+## 4. Implementation Stack
 
 ATLAS is a pure Go application targeting Go 1.24+.
 
@@ -103,7 +153,7 @@ ATLAS is a pure Go application targeting Go 1.24+.
 ├─────────────────────────────────────────────────┤
 │  AIRunner Interface                             │
 │  └─ ClaudeCodeRunner (claude CLI)               │
-│      └─ [Claude Code](https://code.claude.com/docs/en/cli-reference) handles file ops, search    │
+│      └─ [Claude Code](https://docs.anthropic.com/en/docs/claude-code) handles file ops, search    │
 ├─────────────────────────────────────────────────┤
 │  SDD Framework Integration                      │
 │  └─ [Speckit](https://github.com/github/spec-kit) (.speckit/ repo + CLI)              │
@@ -127,7 +177,7 @@ ATLAS is a pure Go application targeting Go 1.24+.
 
 ---
 
-## 4. Architecture Overview
+## 5. Architecture Overview
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
@@ -167,9 +217,9 @@ ATLAS is a pure Go application targeting Go 1.24+.
 
 ---
 
-## 5. Components
+## 6. Components
 
-### 5.1 CLI Interface
+### 6.1 CLI Interface
 
 Seven commands cover 95% of usage:
 
@@ -235,7 +285,7 @@ ATLAS checks for required tools and manages a small set of ATLAS-owned dependenc
 | Git | Version control | 2.20+ | No (detect only) |
 | GitHub CLI (`gh`) | PR operations | 2.20+ | No (detect only) |
 | uv | Python tool runner | 0.5.x | No (detect only) |
-| [Claude CLI (`claude`)](https://code.claude.com/docs/en/cli-reference) | AI execution | 2.0.76+ | No (detect only) |
+| [Claude CLI (`claude`)](https://docs.anthropic.com/en/docs/claude-code) | AI execution | 2.0.76+ | No (detect only) |
 | [mage-x](https://github.com/mrz1836/mage-x) (`magex` command) | Build automation | v0.3.0 | Yes (install/upgrade) |
 | [go-pre-commit](https://github.com/mrz1836/go-pre-commit) | Pre-commit hooks | v0.1.0 | Yes (install/upgrade) |
 | [Speckit](https://github.com/github/spec-kit) | SDD framework | 1.0.0 | Yes (install/upgrade) |
@@ -321,7 +371,7 @@ Configuration stored in `~/.atlas/config.yaml`.
 3. Global config (`~/.atlas/config.yaml`)
 4. Template defaults (compiled into binary)
 
-### 5.2 Task Engine
+### 6.2 Task Engine
 
 Tasks are the atomic units of work. State lives in `~/.atlas/workspaces/<name>/tasks/` as JSON files.
 
@@ -523,7 +573,7 @@ templates:
 
 Users customize validation commands, model selection, and auto-proceed behavior via configuration files. Templates themselves are immutable Go code.
 
-### 5.3 AI Runner Layer
+### 6.3 AI Runner Layer
 
 ATLAS orchestrates **when** to invoke AI; the AI CLI handles **how** (file reading, editing, search, context management).
 
@@ -623,7 +673,7 @@ AI steps produce artifacts stored in `~/.atlas/workspaces/<ws>/tasks/<task-id>/a
 
 Artifacts from previous steps are passed as context to subsequent steps.
 
-### 5.4 SDD Framework Integration
+### 6.4 SDD Framework Integration
 
 ATLAS integrates with SDD frameworks as external tools, not abstractions. The frameworks do the specification work; ATLAS orchestrates when to invoke them.
 
@@ -658,7 +708,7 @@ ATLAS manages both installations. The CLI provides upgrade/management commands; 
 | Small features | Speckit | Lightweight, focused specs |
 | Large features | Speckit | Full specification + planning |
 
-### 5.5 Workspaces and Git Worktrees
+### 6.5 Workspaces and Git Worktrees
 
 ATLAS uses two related concepts (see Glossary for definitions):
 - **Workspace**: ATLAS state (`~/.atlas/workspaces/<name>/`) — tasks, artifacts, logs
@@ -778,7 +828,7 @@ atlas workspace destroy payment  # After merge
 - **Branch conflict**: If branch `<type>/<name>` already exists, ATLAS appends a timestamp suffix (e.g., `fix/auth-20251226`)
 - Both cases display a clear warning message explaining the renamed path/branch
 
-### 5.6 Validation
+### 6.6 Validation
 
 Validation commands are configurable per-project.
 
@@ -843,7 +893,7 @@ Code Generated
 └─────────────────────┘
 ```
 
-### 5.7 Git Operations
+### 6.7 Git Operations
 
 All code delivery happens through Git. ATLAS never modifies files without creating commits.
 
@@ -884,7 +934,7 @@ gh pr create \
   --head fix/null-pointer-parseconfig
 ```
 
-### 5.8 Project Rules Update (Post-MVP)
+### 6.8 Project Rules Update (Post-MVP)
 
 ATLAS can learn from completed work by suggesting updates to project rules files (AGENTS.md, constitution.md, etc.).
 
@@ -896,7 +946,7 @@ Key ideas preserved for future implementation:
 - AI proposes minimal, targeted updates
 - Human reviews diff before applying
 
-### 5.9 Observability
+### 6.9 Observability
 
 **Log locations:**
 ```
@@ -936,7 +986,7 @@ atlas workspace logs auth --follow
 cat ~/.atlas/workspaces/*/tasks/*/task.log | jq 'select(.event=="model_complete")'
 ```
 
-### 5.10 User Experience
+### 6.10 User Experience
 
 ATLAS prioritizes clear, actionable feedback at every step. The CLI is designed so you always know what's happening, when action is needed, and how to respond.
 
@@ -1078,7 +1128,7 @@ The task ends. Branch and code remain for manual intervention. Feedback is store
 
 ---
 
-## 6. Workflow Examples
+## 7. Workflow Examples
 
 ### Bugfix Workflow
 
@@ -1189,7 +1239,7 @@ $ atlas workspace destroy payment
 
 ---
 
-## 7. What's Deferred
+## 8. What's Deferred
 
 | Feature | Why Deferred | Revisit When |
 |---------|--------------|--------------|
@@ -1209,7 +1259,7 @@ $ atlas workspace destroy payment
 
 ---
 
-## 8. Failure Modes
+## 9. Failure Modes
 
 | Failure | Symptom | Mitigation |
 |---------|---------|------------|
@@ -1225,9 +1275,9 @@ $ atlas workspace destroy payment
 
 ---
 
-## 9. Known Obstacles & Risks
+## 10. Known Obstacles & Risks
 
-### 9.1 Implementation Obstacles
+### 10.1 Implementation Obstacles
 
 | Obstacle | Impact | Notes |
 |----------|--------|-------|
@@ -1236,7 +1286,7 @@ $ atlas workspace destroy payment
 | **Worktree branch conflicts** | Medium | Handle existing branches gracefully. |
 | **Large repo context** | Medium | File selection heuristics need iteration. |
 
-### 9.2 Accepted Risks (v1)
+### 10.2 Accepted Risks (v1)
 
 | Risk | Mitigation | Revisit When |
 |------|------------|--------------|
@@ -1245,7 +1295,7 @@ $ atlas workspace destroy payment
 | API cost runaway | Timeout per task (30m) | Budget exceeded |
 | SDD framework breaking changes | Pin versions, test updates | Framework update breaks ATLAS |
 
-### 9.3 Security Acknowledgment
+### 10.3 Security Acknowledgment
 
 The execution environment has access to:
 - **Model API keys**: Can incur costs, potential for prompt injection
@@ -1372,4 +1422,4 @@ ATLAS state is completely separated from your repository. The worktree contains 
 
 ---
 
-*This document describes ATLAS v1.1. See [templates.md](templates.md) for comprehensive template documentation.*
+*This document describes ATLAS v2.1. See [templates.md](templates.md) for comprehensive template documentation.*
