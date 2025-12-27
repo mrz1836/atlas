@@ -44,7 +44,7 @@ development_status:
   epic-1: in-progress
   1-1-initialize-go-module-and-project-structure: done
   1-2-create-constants-package: done
-  1-3-create-errors-package: backlog
+  1-3-create-errors-package: done
   1-4-create-domain-types-package: backlog
   1-5-create-configuration-framework: backlog
   1-6-create-cli-root-command: backlog
