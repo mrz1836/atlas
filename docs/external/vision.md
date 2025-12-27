@@ -1210,13 +1210,16 @@ User: atlas start "fix null pointer panic in parseConfig when options is nil"
   ├─► Step 4: git_commit (Auto)
   │   └─► Creates branch, commits with trailers
   │
-  ├─► Step 5: git_pr (Auto)
-  │   └─► Pushes to remote, creates PR via `gh pr create`
+  ├─► Step 5: git_push (Auto)
+  │   └─► Pushes to remote
   │
-  ├─► Step 6: ci_wait (Auto)
+  ├─► Step 6: git_pr (Auto)
+  │   └─► Creates PR via `gh pr create`
+  │
+  ├─► Step 7: ci_wait (Auto)
   │   └─► Polls GitHub Actions on PR until CI passes ✓
   │
-  └─► Step 7: review (Human)
+  └─► Step 8: review (Human)
       └─► atlas approve OR atlas reject
 ```
 
