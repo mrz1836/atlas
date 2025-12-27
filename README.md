@@ -22,4 +22,4 @@ At every checkpoint that matters, ATLAS stops and waits.
 
 ---
 
-→ [Read the full vision](docs/external/vision-v2.md)
+→ [Read the full vision](docs/external/vision.md)

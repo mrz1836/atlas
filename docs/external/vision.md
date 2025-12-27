@@ -1,8 +1,7 @@
 # ATLAS: AI Task Lifecycle Automation System
 
-- **Version:** 2.2.0-DRAFT
-- **Tag:** v2.2-technical-details
 - **Status:** Vision Document
+- **Version:** (MVP)
 
 ---
 
@@ -321,7 +320,7 @@ Checking dependencies...
   Git             ✓ installed 2.43.0      2.20+       —
   gh              ✓ installed 2.45.0      2.20+       —
   uv              ✓ installed 0.5.12      0.5.x       —
-  claude          ✓ installed 0.10.0      0.10.x      —
+  claude          ✓ installed 2.1.0       2.0.76+     —
   mage-x          ⚠ outdated  0.2.1       0.3.0       ATLAS
   go-pre-commit   ✓ installed 0.1.0       0.1.0       ATLAS
   Speckit         ✗ missing   —           1.0.0       ATLAS
@@ -473,14 +472,6 @@ ATLAS polls the GitHub Actions API for the PR's check runs every 2 minutes (conf
     Fix manually and resume — You fix, then 'atlas resume'
     Abandon task — End task, keep branch for manual work
 ```
-
-**Resume capability:**
-```bash
-atlas resume <task-id>     # Continue interrupted task
-atlas resume               # Resume most recent task in workspace
-```
-
-Tasks checkpoint after each step, enabling resume after crashes or interruptions.
 
 **Step types:**
 | Type | Executor | Auto-proceeds? |
@@ -796,7 +787,6 @@ git worktree remove ../myrepo-auth          # Cleanup
 
 This separation means:
 - Task state survives accidental worktree deletion
-- Resume works after crashes
 - No `.atlas/` pollution in your repo
 
 **Workspace lifecycle:**
@@ -1474,4 +1464,4 @@ ATLAS state is completely separated from your repository. The worktree contains 
 
 ---
 
-*This document describes ATLAS v2.1. See [templates.md](templates.md) for comprehensive template documentation.*
+*This document describes ATLAS (MVP). See [templates.md](templates.md) for comprehensive template documentation.*
