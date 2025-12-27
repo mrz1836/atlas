@@ -1,5 +1,5 @@
 <div align="center">
-    <img src=".github/images/header.png" alt="ATLAS, AI Task Lifecycle Automation System" title="ATLAS, AI Task Lifecycle Automation System" width=800/>
+    <img src=".github/images/header.png?v=1" alt="ATLAS, AI Task Lifecycle Automation System" title="ATLAS, AI Task Lifecycle Automation System" width=800/>
 </div>
 
 <br>
