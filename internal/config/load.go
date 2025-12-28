@@ -236,9 +236,14 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("templates.custom_templates", map[string]string{})
 
 	// Validation defaults
-	v.SetDefault("validation.commands", []string{})
+	v.SetDefault("validation.commands.format", []string{})
+	v.SetDefault("validation.commands.lint", []string{})
+	v.SetDefault("validation.commands.test", []string{})
+	v.SetDefault("validation.commands.pre_commit", []string{})
+	v.SetDefault("validation.commands.custom_pre_pr", []string{})
 	v.SetDefault("validation.timeout", 5*time.Minute)
 	v.SetDefault("validation.parallel_execution", true)
+	v.SetDefault("validation.template_overrides", map[string]interface{}{})
 
 	// Notifications defaults
 	v.SetDefault("notifications.bell", true)
@@ -314,18 +319,44 @@ func applyOverrides(cfg, overrides *Config) {
 		}
 	}
 
-	// Validation overrides
-	if len(overrides.Validation.Commands) > 0 {
-		cfg.Validation.Commands = overrides.Validation.Commands
-	}
-	if overrides.Validation.Timeout != 0 {
-		cfg.Validation.Timeout = overrides.Validation.Timeout
-	}
+	// Validation overrides (extracted to reduce complexity)
+	applyValidationOverrides(cfg, overrides)
 	// ParallelExecution is a bool - same caveat as AutoProceedGit
 
 	// Notifications overrides (Bell is a bool - same caveat)
 	if len(overrides.Notifications.Events) > 0 {
 		cfg.Notifications.Events = overrides.Notifications.Events
+	}
+}
+
+// applyValidationOverrides applies validation-related overrides to the config.
+// This is extracted from applyOverrides to reduce cognitive complexity.
+func applyValidationOverrides(cfg, overrides *Config) {
+	if len(overrides.Validation.Commands.Format) > 0 {
+		cfg.Validation.Commands.Format = overrides.Validation.Commands.Format
+	}
+	if len(overrides.Validation.Commands.Lint) > 0 {
+		cfg.Validation.Commands.Lint = overrides.Validation.Commands.Lint
+	}
+	if len(overrides.Validation.Commands.Test) > 0 {
+		cfg.Validation.Commands.Test = overrides.Validation.Commands.Test
+	}
+	if len(overrides.Validation.Commands.PreCommit) > 0 {
+		cfg.Validation.Commands.PreCommit = overrides.Validation.Commands.PreCommit
+	}
+	if len(overrides.Validation.Commands.CustomPrePR) > 0 {
+		cfg.Validation.Commands.CustomPrePR = overrides.Validation.Commands.CustomPrePR
+	}
+	if overrides.Validation.Timeout != 0 {
+		cfg.Validation.Timeout = overrides.Validation.Timeout
+	}
+	if len(overrides.Validation.TemplateOverrides) > 0 {
+		if cfg.Validation.TemplateOverrides == nil {
+			cfg.Validation.TemplateOverrides = make(map[string]TemplateOverrideConfig)
+		}
+		for k, v := range overrides.Validation.TemplateOverrides {
+			cfg.Validation.TemplateOverrides[k] = v
+		}
 	}
 }
 

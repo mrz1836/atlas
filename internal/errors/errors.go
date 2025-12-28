@@ -62,4 +62,46 @@ var (
 
 	// ErrInvalidOutputFormat indicates an invalid output format was specified.
 	ErrInvalidOutputFormat = errors.New("invalid output format")
+
+	// ErrCommandNotConfigured indicates that a mock command was not configured in tests.
+	ErrCommandNotConfigured = errors.New("command not configured")
+
+	// ErrCommandFailed indicates that a command execution failed.
+	ErrCommandFailed = errors.New("command failed")
+
+	// ErrConfigNotFound indicates that the configuration file was not found.
+	ErrConfigNotFound = errors.New("config file not found")
+
+	// ErrEmptyValue indicates that a required value was empty.
+	ErrEmptyValue = errors.New("value cannot be empty")
+
+	// ErrInvalidEnvVarName indicates that an environment variable name is invalid.
+	ErrInvalidEnvVarName = errors.New("invalid environment variable name")
+
+	// ErrInvalidDuration indicates that a duration format is invalid.
+	ErrInvalidDuration = errors.New("invalid duration format")
+
+	// ErrValueOutOfRange indicates that a value is outside the allowed range.
+	ErrValueOutOfRange = errors.New("value out of range")
+
+	// ErrInvalidModel indicates that an AI model name is invalid.
+	ErrInvalidModel = errors.New("invalid model")
+
+	// ErrUnknownTool indicates that an unknown tool name was specified.
+	ErrUnknownTool = errors.New("unknown tool")
+
+	// ErrInvalidToolName indicates that an invalid tool name was specified.
+	ErrInvalidToolName = errors.New("invalid tool name")
+
+	// ErrMissingRequiredTools indicates that required tools are missing or outdated.
+	ErrMissingRequiredTools = errors.New("required tools are missing or outdated")
+
+	// ErrNotInProjectDir indicates that --project flag was used but not in a project directory.
+	ErrNotInProjectDir = errors.New("not in a project directory")
+
+	// ErrNotInGitRepo indicates that a git repository is required but not found.
+	ErrNotInGitRepo = errors.New("not in a git repository")
+
+	// ErrUnsupportedOutputFormat indicates that an unsupported output format was specified.
+	ErrUnsupportedOutputFormat = errors.New("unsupported output format")
 )

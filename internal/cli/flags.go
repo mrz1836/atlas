@@ -52,13 +52,17 @@ func AddGlobalFlags(cmd *cobra.Command, flags *GlobalFlags) {
 // environment variable support. The ATLAS_ prefix is used for environment
 // variables (e.g., ATLAS_OUTPUT, ATLAS_VERBOSE).
 func BindGlobalFlags(v *viper.Viper, cmd *cobra.Command) error {
-	if err := v.BindPFlag("output", cmd.PersistentFlags().Lookup("output")); err != nil {
+	// Use Root().PersistentFlags() to find flags defined on the root command,
+	// even when called from a subcommand's PersistentPreRunE.
+	rootFlags := cmd.Root().PersistentFlags()
+
+	if err := v.BindPFlag("output", rootFlags.Lookup("output")); err != nil {
 		return err
 	}
-	if err := v.BindPFlag("verbose", cmd.PersistentFlags().Lookup("verbose")); err != nil {
+	if err := v.BindPFlag("verbose", rootFlags.Lookup("verbose")); err != nil {
 		return err
 	}
-	if err := v.BindPFlag("quiet", cmd.PersistentFlags().Lookup("quiet")); err != nil {
+	if err := v.BindPFlag("quiet", rootFlags.Lookup("quiet")); err != nil {
 		return err
 	}
 

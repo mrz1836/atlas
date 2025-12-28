@@ -103,6 +103,11 @@ Features:
 	// Add global flags
 	AddGlobalFlags(cmd, flags)
 
+	// Add subcommands
+	AddInitCommand(cmd)
+	AddConfigCommand(cmd)
+	AddUpgradeCommand(cmd)
+
 	return cmd
 }
 
@@ -123,6 +128,7 @@ func formatVersion(info BuildInfo) string {
 // Execute runs the root command with the provided context and build info.
 func Execute(ctx context.Context, info BuildInfo) error {
 	flags := &GlobalFlags{}
+	//nolint:contextcheck // Cobra command pattern uses cmd.Context() internally
 	cmd := newRootCmd(flags, info)
 	return cmd.ExecuteContext(ctx)
 }
