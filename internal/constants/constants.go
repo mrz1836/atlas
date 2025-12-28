@@ -56,3 +56,10 @@ const (
 	// Subsequent retries may use exponential backoff based on this value.
 	InitialBackoff = 1 * time.Second
 )
+
+// Schema version constants for data migration support.
+const (
+	// TaskSchemaVersion is the current version of the task JSON schema.
+	// This enables forward-compatible schema migrations.
+	TaskSchemaVersion = "1.0"
+)

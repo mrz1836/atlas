@@ -57,6 +57,12 @@ type Task struct {
 	// Steps is the ordered list of execution steps for this task.
 	Steps []Step `json:"steps"`
 
+	// StepResults stores the outcome of each completed step.
+	StepResults []StepResult `json:"step_results,omitempty"`
+
+	// Transitions records the history of status changes for audit trail.
+	Transitions []Transition `json:"transitions,omitempty"`
+
 	// CreatedAt is when the task was created.
 	CreatedAt time.Time `json:"created_at"`
 
@@ -74,7 +80,8 @@ type Task struct {
 
 	// SchemaVersion indicates the version of the Task struct schema.
 	// This enables forward-compatible schema migrations.
-	SchemaVersion int `json:"schema_version"`
+	// Uses string format (e.g., "1.0") for semantic versioning compatibility.
+	SchemaVersion string `json:"schema_version"`
 }
 
 // TaskConfig holds configuration options for task execution.
@@ -141,31 +148,68 @@ type Step struct {
 // Example JSON representation:
 //
 //	{
+//	    "step_index": 1,
 //	    "step_name": "implement",
-//	    "success": true,
-//	    "output": "Created 3 files...",
+//	    "status": "success",
+//	    "started_at": "2025-12-27T10:00:00Z",
+//	    "completed_at": "2025-12-27T10:05:00Z",
 //	    "duration_ms": 45000,
+//	    "output": "Created 3 files...",
 //	    "files_changed": ["cmd/main.go", "internal/service.go"]
 //	}
 type StepResult struct {
+	// StepIndex is the zero-based index of the step in the task's steps array.
+	StepIndex int `json:"step_index"`
+
 	// StepName identifies which step produced this result.
 	StepName string `json:"step_name"`
 
-	// Success indicates whether the step completed without errors.
-	Success bool `json:"success"`
+	// Status is the outcome of the step execution (success, failed, skipped).
+	Status string `json:"status"`
+
+	// StartedAt is when step execution began.
+	StartedAt time.Time `json:"started_at"`
+
+	// CompletedAt is when step execution finished.
+	CompletedAt time.Time `json:"completed_at"`
+
+	// DurationMs is how long the step took to execute in milliseconds.
+	DurationMs int64 `json:"duration_ms"`
 
 	// Output contains any text output from the step execution.
 	Output string `json:"output,omitempty"`
 
-	// Error contains the error message if Success is false.
+	// Error contains the error message if status is "failed".
 	Error string `json:"error,omitempty"`
-
-	// Duration is how long the step took to execute.
-	Duration time.Duration `json:"duration"`
 
 	// FilesChanged lists paths of files that were created or modified.
 	FilesChanged []string `json:"files_changed,omitempty"`
 
 	// ArtifactPath points to any output artifacts (logs, reports, etc.).
 	ArtifactPath string `json:"artifact_path,omitempty"`
+}
+
+// Transition records a state change for audit trail.
+// This enables tracking of task lifecycle and debugging issues.
+//
+// Example JSON representation:
+//
+//	{
+//	    "from_status": "running",
+//	    "to_status": "validating",
+//	    "timestamp": "2025-12-27T10:05:00Z",
+//	    "reason": "step completed successfully"
+//	}
+type Transition struct {
+	// FromStatus is the status before the transition.
+	FromStatus constants.TaskStatus `json:"from_status"`
+
+	// ToStatus is the status after the transition.
+	ToStatus constants.TaskStatus `json:"to_status"`
+
+	// Timestamp is when the transition occurred.
+	Timestamp time.Time `json:"timestamp"`
+
+	// Reason optionally describes why the transition happened.
+	Reason string `json:"reason,omitempty"`
 }

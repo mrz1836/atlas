@@ -73,8 +73,8 @@ development_status:
   epic-3-retrospective: done
 
   # Epic 4: Task Engine & AI Execution
-  epic-4: backlog
-  4-1-task-data-model-and-store: backlog
+  epic-4: in-progress
+  4-1-task-data-model-and-store: done
   4-2-task-state-machine: backlog
   4-3-airunner-interface-and-claudecoderunner: backlog
   4-4-template-registry-and-definitions: backlog

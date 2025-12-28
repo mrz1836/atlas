@@ -149,4 +149,16 @@ var (
 
 	// ErrTaskNotFound indicates that a specific task was not found in a workspace.
 	ErrTaskNotFound = errors.New("task not found")
+
+	// ErrTaskExists indicates an attempt to create a task that already exists.
+	ErrTaskExists = errors.New("task already exists")
+
+	// ErrPathTraversal indicates an attempt to use path traversal in a filename.
+	ErrPathTraversal = errors.New("path traversal detected")
+
+	// ErrTooManyVersions indicates too many versioned artifacts exist.
+	ErrTooManyVersions = errors.New("too many versions")
+
+	// ErrArtifactNotFound indicates the requested artifact file was not found.
+	ErrArtifactNotFound = errors.New("artifact not found")
 )
