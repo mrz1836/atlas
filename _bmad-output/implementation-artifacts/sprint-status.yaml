@@ -62,15 +62,15 @@ development_status:
   epic-2-retrospective: done
 
   # Epic 3: Workspace Management
-  epic-3: in-progress
+  epic-3: done
   3-1-workspace-data-model-and-store: done
   3-2-git-worktree-operations: done
   3-3-workspace-manager-service: done
   3-4-implement-atlas-workspace-list-command: done
   3-5-implement-atlas-workspace-destroy-command: done
   3-6-implement-atlas-workspace-retire-command: done
-  3-7-implement-atlas-workspace-logs-command: backlog
-  epic-3-retrospective: optional
+  3-7-implement-atlas-workspace-logs-command: done
+  epic-3-retrospective: done
 
   # Epic 4: Task Engine & AI Execution
   epic-4: backlog
