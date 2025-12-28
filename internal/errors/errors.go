@@ -116,4 +116,19 @@ var (
 
 	// ErrLockTimeout indicates a file lock could not be acquired within the timeout period.
 	ErrLockTimeout = errors.New("lock acquisition timeout")
+
+	// ErrWorktreeExists indicates the worktree path already exists.
+	ErrWorktreeExists = errors.New("worktree already exists")
+
+	// ErrNotAWorktree indicates the path is not a valid git worktree.
+	ErrNotAWorktree = errors.New("not a git worktree")
+
+	// ErrWorktreeDirty indicates the worktree has uncommitted changes.
+	ErrWorktreeDirty = errors.New("worktree has uncommitted changes")
+
+	// ErrBranchExists indicates the branch already exists.
+	ErrBranchExists = errors.New("branch already exists")
+
+	// ErrNotGitRepo indicates the path is not a git repository.
+	ErrNotGitRepo = errors.New("not a git repository")
 )

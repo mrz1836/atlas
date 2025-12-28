@@ -64,7 +64,7 @@ development_status:
   # Epic 3: Workspace Management
   epic-3: in-progress
   3-1-workspace-data-model-and-store: done
-  3-2-git-worktree-operations: backlog
+  3-2-git-worktree-operations: done
   3-3-workspace-manager-service: backlog
   3-4-implement-atlas-workspace-list-command: backlog
   3-5-implement-atlas-workspace-destroy-command: backlog

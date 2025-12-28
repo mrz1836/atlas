@@ -903,7 +903,7 @@ func TestFileStore_ContextCancellationDuringLock(t *testing.T) {
 }
 
 // syscallFlock wraps syscall.Flock for testing
-func syscallFlock(fd int, how int) error {
+func syscallFlock(fd, how int) error {
 	return syscall.Flock(fd, how)
 }
 
