@@ -161,4 +161,7 @@ var (
 
 	// ErrArtifactNotFound indicates the requested artifact file was not found.
 	ErrArtifactNotFound = errors.New("artifact not found")
+
+	// ErrInvalidTransition indicates an attempt to make an invalid state transition.
+	ErrInvalidTransition = errors.New("invalid state transition")
 )
