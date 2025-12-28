@@ -54,7 +54,7 @@ development_status:
   epic-2: in-progress
   2-1-implement-tool-detection-system: done
   2-2-implement-atlas-init-setup-wizard: done
-  2-3-ai-provider-configuration: backlog
+  2-3-ai-provider-configuration: done
   2-4-validation-commands-configuration: backlog
   2-5-notification-preferences-configuration: backlog
   2-6-configuration-override-system: backlog
