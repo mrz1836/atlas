@@ -57,12 +57,14 @@ func newConfigCmd() *cobra.Command {
 		Long: `Manage ATLAS configuration settings.
 
 Subcommands:
-  ai          Configure AI provider settings
-  validation  Configure validation command settings
+  ai            Configure AI provider settings
+  validation    Configure validation command settings
+  notifications Configure notification settings
 
 Example:
-  atlas config ai          # Configure AI settings interactively
-  atlas config validation  # Configure validation commands interactively`,
+  atlas config ai            # Configure AI settings interactively
+  atlas config validation    # Configure validation commands interactively
+  atlas config notifications # Configure notification settings interactively`,
 	}
 
 	// Add subcommands
@@ -71,6 +73,9 @@ Example:
 
 	// Add validation subcommand
 	AddConfigValidationCommand(cmd)
+
+	// Add notifications subcommand
+	AddConfigNotificationCommand(cmd)
 
 	return cmd
 }

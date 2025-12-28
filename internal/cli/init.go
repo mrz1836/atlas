@@ -72,9 +72,11 @@ type TemplateOverrideConfig struct {
 }
 
 // NotificationConfig holds notification preferences.
+// YAML field names match internal/config/config.go NotificationsConfig struct.
 type NotificationConfig struct {
 	// BellEnabled enables terminal bell notifications.
-	BellEnabled bool `yaml:"bell_enabled"`
+	// Uses "bell" YAML tag to match internal/config/config.go for config.Load() compatibility.
+	BellEnabled bool `yaml:"bell"`
 	// Events is the list of events to notify on.
 	Events []string `yaml:"events"`
 }
@@ -141,13 +143,8 @@ func (d *defaultToolDetector) Detect(ctx context.Context) (*config.ToolDetection
 	return config.NewToolDetector().Detect(ctx)
 }
 
-// Notification event types.
-const (
-	eventAwaitingApproval = "awaiting_approval"
-	eventValidationFailed = "validation_failed"
-	eventCIFailed         = "ci_failed"
-	eventGitHubFailed     = "github_failed"
-)
+// Notification event types are defined in notification_config.go as exported constants:
+// NotifyEventAwaitingApproval, NotifyEventValidationFailed, NotifyEventCIFailed, NotifyEventGitHubFailed
 
 // newInitCmd creates the init command for setting up ATLAS.
 func newInitCmd(flags *InitFlags) *cobra.Command {
@@ -479,43 +476,20 @@ func runInteractiveWizard(ctx context.Context, w io.Writer, toolResult *config.T
 
 	cfg.Validation = valCfg.ToValidationConfig()
 
-	// Notification Preferences
+	// Notification Preferences using reusable functions from notification_config.go
 	_, _ = fmt.Fprintln(w)
 	_, _ = fmt.Fprintln(w, styles.info.Render("Notification Preferences"))
 	_, _ = fmt.Fprintln(w, styles.dim.Render(strings.Repeat("─", 25)))
 
-	bellEnabled := defaultBell
-	events := []string{eventAwaitingApproval, eventValidationFailed, eventCIFailed, eventGitHubFailed}
-
-	notifyForm := huh.NewForm(
-		huh.NewGroup(
-			huh.NewConfirm().
-				Title("Enable Terminal Bell").
-				Description("Play a sound when ATLAS needs your attention").
-				Affirmative("Yes").
-				Negative("No").
-				Value(&bellEnabled),
-			huh.NewMultiSelect[string]().
-				Title("Notification Events").
-				Description("Select events that should trigger notifications").
-				Options(
-					huh.NewOption("Task awaiting approval", eventAwaitingApproval).Selected(true),
-					huh.NewOption("Validation failed", eventValidationFailed).Selected(true),
-					huh.NewOption("CI failed", eventCIFailed).Selected(true),
-					huh.NewOption("GitHub operation failed", eventGitHubFailed).Selected(true),
-				).
-				Value(&events),
-		),
-	).WithTheme(huh.ThemeCharm())
-
-	if err := notifyForm.Run(); err != nil {
+	notifyCfg := &NotificationProviderConfig{
+		BellEnabled: defaultBell,
+		Events:      AllNotificationEvents(),
+	}
+	if err := CollectNotificationConfigInteractive(ctx, notifyCfg); err != nil {
 		return AtlasConfig{}, fmt.Errorf("notification configuration failed: %w", err)
 	}
 
-	cfg.Notifications = NotificationConfig{
-		BellEnabled: bellEnabled,
-		Events:      events,
-	}
+	cfg.Notifications = notifyCfg.ToNotificationConfig()
 
 	return cfg, nil
 }
@@ -535,15 +509,8 @@ func buildDefaultConfig(toolResult *config.ToolDetectionResult) AtlasConfig {
 		Validation: ValidationConfig{
 			Commands: defaultCommands,
 		},
-		Notifications: NotificationConfig{
-			BellEnabled: defaultBell,
-			Events: []string{
-				eventAwaitingApproval,
-				eventValidationFailed,
-				eventCIFailed,
-				eventGitHubFailed,
-			},
-		},
+		// Use reusable DefaultNotificationConfig from notification_config.go
+		Notifications: DefaultNotificationConfig(),
 	}
 }
 

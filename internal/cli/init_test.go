@@ -377,6 +377,42 @@ func TestSaveConfig(t *testing.T) {
 	assert.Equal(t, cfg.Notifications.BellEnabled, parsedCfg.Notifications.BellEnabled)
 }
 
+func TestNotificationConfig_YAMLFieldNames_MatchConfigPackage(t *testing.T) {
+	// This test verifies that the CLI's NotificationConfig YAML field names
+	// match the internal/config package's NotificationsConfig for compatibility
+	// with config.Load().
+	//
+	// The CLI uses "bell" (not "bell_enabled") to match internal/config/config.go.
+	cfg := NotificationConfig{
+		BellEnabled: true,
+		Events:      []string{"awaiting_approval", "ci_failed"},
+	}
+
+	data, err := yaml.Marshal(cfg)
+	require.NoError(t, err)
+
+	yamlStr := string(data)
+
+	// Verify correct field name is used (matches internal/config/config.go)
+	assert.Contains(t, yamlStr, "bell:", "YAML should use 'bell' field name for config.Load() compatibility")
+	assert.NotContains(t, yamlStr, "bell_enabled:", "YAML should NOT use 'bell_enabled' - use 'bell' to match config package")
+	assert.Contains(t, yamlStr, "events:")
+
+	// Verify the YAML can be parsed by a struct with matching field names
+	// This simulates what config.Load() would do
+	type ConfigPackageNotifications struct {
+		Bell   bool     `yaml:"bell"`
+		Events []string `yaml:"events"`
+	}
+
+	var parsed ConfigPackageNotifications
+	err = yaml.Unmarshal(data, &parsed)
+	require.NoError(t, err)
+
+	assert.True(t, parsed.Bell, "Bell field should be parsed correctly")
+	assert.Equal(t, cfg.Events, parsed.Events, "Events should be parsed correctly")
+}
+
 func TestSaveConfig_CreatesDirectory(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("HOME", tmpDir)
