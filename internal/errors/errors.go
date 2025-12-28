@@ -131,4 +131,7 @@ var (
 
 	// ErrNotGitRepo indicates the path is not a git repository.
 	ErrNotGitRepo = errors.New("not a git repository")
+
+	// ErrWorkspaceHasRunningTasks indicates the workspace has tasks still running.
+	ErrWorkspaceHasRunningTasks = errors.New("workspace has running tasks")
 )
