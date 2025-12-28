@@ -104,4 +104,49 @@ var (
 
 	// ErrUnsupportedOutputFormat indicates that an unsupported output format was specified.
 	ErrUnsupportedOutputFormat = errors.New("unsupported output format")
+
+	// ErrWorkspaceExists indicates an attempt to create a workspace that already exists.
+	ErrWorkspaceExists = errors.New("workspace already exists")
+
+	// ErrWorkspaceNotFound indicates the requested workspace does not exist.
+	ErrWorkspaceNotFound = errors.New("workspace not found")
+
+	// ErrWorkspaceCorrupted indicates the workspace state file is corrupted or unreadable.
+	ErrWorkspaceCorrupted = errors.New("workspace state corrupted")
+
+	// ErrLockTimeout indicates a file lock could not be acquired within the timeout period.
+	ErrLockTimeout = errors.New("lock acquisition timeout")
+
+	// ErrWorktreeExists indicates the worktree path already exists.
+	ErrWorktreeExists = errors.New("worktree already exists")
+
+	// ErrNotAWorktree indicates the path is not a valid git worktree.
+	ErrNotAWorktree = errors.New("not a git worktree")
+
+	// ErrWorktreeDirty indicates the worktree has uncommitted changes.
+	ErrWorktreeDirty = errors.New("worktree has uncommitted changes")
+
+	// ErrBranchExists indicates the branch already exists.
+	ErrBranchExists = errors.New("branch already exists")
+
+	// ErrNotGitRepo indicates the path is not a git repository.
+	ErrNotGitRepo = errors.New("not a git repository")
+
+	// ErrWorkspaceHasRunningTasks indicates the workspace has tasks still running.
+	ErrWorkspaceHasRunningTasks = errors.New("workspace has running tasks")
+
+	// ErrNonInteractiveMode indicates that an operation requiring confirmation
+	// was attempted in non-interactive mode without the force flag.
+	ErrNonInteractiveMode = errors.New("use --force in non-interactive mode")
+
+	// ErrJSONErrorOutput indicates that an error has already been output as JSON.
+	// This ensures a non-zero exit code while preventing duplicate error messages.
+	// Commands should silence cobra's error printing when this is returned.
+	ErrJSONErrorOutput = errors.New("error output as JSON")
+
+	// ErrNoTasksFound indicates that no tasks exist for a workspace.
+	ErrNoTasksFound = errors.New("no tasks found")
+
+	// ErrTaskNotFound indicates that a specific task was not found in a workspace.
+	ErrTaskNotFound = errors.New("task not found")
 )
