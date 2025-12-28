@@ -134,4 +134,13 @@ var (
 
 	// ErrWorkspaceHasRunningTasks indicates the workspace has tasks still running.
 	ErrWorkspaceHasRunningTasks = errors.New("workspace has running tasks")
+
+	// ErrNonInteractiveMode indicates that an operation requiring confirmation
+	// was attempted in non-interactive mode without the force flag.
+	ErrNonInteractiveMode = errors.New("use --force in non-interactive mode")
+
+	// ErrJSONErrorOutput indicates that an error has already been output as JSON.
+	// This ensures a non-zero exit code while preventing duplicate error messages.
+	// Commands should silence cobra's error printing when this is returned.
+	ErrJSONErrorOutput = errors.New("error output as JSON")
 )

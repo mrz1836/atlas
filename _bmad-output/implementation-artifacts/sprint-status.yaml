@@ -67,7 +67,7 @@ development_status:
   3-2-git-worktree-operations: done
   3-3-workspace-manager-service: done
   3-4-implement-atlas-workspace-list-command: done
-  3-5-implement-atlas-workspace-destroy-command: backlog
+  3-5-implement-atlas-workspace-destroy-command: done
   3-6-implement-atlas-workspace-retire-command: backlog
   3-7-implement-atlas-workspace-logs-command: backlog
   epic-3-retrospective: optional
