@@ -57,7 +57,7 @@ development_status:
   2-3-ai-provider-configuration: done
   2-4-validation-commands-configuration: done
   2-5-notification-preferences-configuration: done
-  2-6-configuration-override-system: backlog
+  2-6-configuration-override-system: done
   2-7-implement-atlas-upgrade-command: backlog
   epic-2-retrospective: optional
 
