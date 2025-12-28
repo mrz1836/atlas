@@ -73,7 +73,12 @@ func TestConfig_YAMLSerialization(t *testing.T) {
 			},
 		},
 		Validation: ValidationConfig{
-			Commands:          []string{"magex lint", "magex test"},
+			Commands: ValidationCommands{
+				Format:    []string{"magex format:fix"},
+				Lint:      []string{"magex lint"},
+				Test:      []string{"magex test"},
+				PreCommit: []string{"go-pre-commit run --all-files"},
+			},
 			Timeout:           10 * time.Minute,
 			ParallelExecution: false,
 		},

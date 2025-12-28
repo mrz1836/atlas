@@ -19,6 +19,7 @@ import (
 
 	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/constants"
+	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 )
 
 // InitFlags holds flags specific to the init command.
@@ -130,15 +131,6 @@ const (
 	defaultAPIKeyEnv = "ANTHROPIC_API_KEY" //nolint:gosec // Not a credential, just env var name
 )
 
-// ErrMissingRequiredTools is returned when required tools are missing or outdated.
-var ErrMissingRequiredTools = fmt.Errorf("required tools are missing or outdated")
-
-// ErrNotInProjectDir is returned when --project flag is used but not in a project directory.
-var ErrNotInProjectDir = fmt.Errorf("not in a project directory (no .git found)")
-
-// ErrNotInGitRepo is returned when a git repository is required but not found.
-var ErrNotInGitRepo = fmt.Errorf("not in a git repository")
-
 // ToolDetector is an interface for detecting tools.
 // This allows for mocking in tests.
 type ToolDetector interface {
@@ -182,7 +174,7 @@ Use --global to save only to global config (skip project config prompt).
 Use --project to save only to project config (requires being in a project directory).`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			err := runInit(cmd.Context(), cmd.OutOrStdout(), flags)
-			if errors.Is(err, ErrMissingRequiredTools) {
+			if errors.Is(err, atlaserrors.ErrMissingRequiredTools) {
 				// Exit with error code but don't print error again (already displayed)
 				os.Exit(ExitError)
 			}
@@ -228,7 +220,7 @@ func runInitWithDetector(ctx context.Context, w io.Writer, flags *InitFlags, det
 		_, _ = fmt.Fprintln(w, styles.err.Render("Error: --project flag requires being in a git repository."))
 		_, _ = fmt.Fprintln(w, styles.dim.Render("  Project config is stored at .atlas/config.yaml relative to the git root."))
 		_, _ = fmt.Fprintln(w, styles.dim.Render("  Use --global to save to ~/.atlas/config.yaml instead."))
-		return ErrNotInProjectDir
+		return atlaserrors.ErrNotInProjectDir
 	}
 
 	// Display ATLAS header
@@ -255,7 +247,7 @@ func runInitWithDetector(ctx context.Context, w io.Writer, flags *InitFlags, det
 		_, _ = fmt.Fprint(w, config.FormatMissingToolsError(missing))
 		_, _ = fmt.Fprintln(w)
 		_, _ = fmt.Fprintln(w, styles.err.Render("Please install the required tools and run 'atlas init' again."))
-		return ErrMissingRequiredTools
+		return atlaserrors.ErrMissingRequiredTools
 	}
 
 	// Step 2: Handle managed tools
@@ -770,7 +762,7 @@ func promptProjectConfigCreation(w io.Writer, styles *initStyles) (bool, error) 
 func saveProjectConfig(cfg AtlasConfig) error {
 	gitRoot := findGitRoot()
 	if gitRoot == "" {
-		return ErrNotInGitRepo
+		return atlaserrors.ErrNotInGitRepo
 	}
 
 	// Create .atlas directory with restrictive permissions (0700)

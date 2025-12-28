@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/mrz1836/atlas/internal/constants"
+	"github.com/mrz1836/atlas/internal/errors"
 )
 
 func TestNewConfigShowCmd(t *testing.T) {
@@ -89,7 +90,7 @@ func TestRunConfigShow_UnsupportedFormat(t *testing.T) {
 
 	err := runConfigShow(context.Background(), &buf, flags)
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrUnsupportedOutputFormat)
+	assert.ErrorIs(t, err, errors.ErrUnsupportedOutputFormat)
 }
 
 func TestRunConfigShow_ContextCancellation(t *testing.T) {

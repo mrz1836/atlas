@@ -117,12 +117,26 @@ type TemplatesConfig struct {
 	CustomTemplates map[string]string `yaml:"custom_templates" mapstructure:"custom_templates"`
 }
 
+// ValidationCommands holds validation commands organized by category.
+// This structure allows for clear organization of different validation types.
+type ValidationCommands struct {
+	// Format contains commands that format code (e.g., "magex format:fix").
+	Format []string `yaml:"format" mapstructure:"format"`
+	// Lint contains commands that lint code (e.g., "magex lint").
+	Lint []string `yaml:"lint" mapstructure:"lint"`
+	// Test contains commands that run tests (e.g., "magex test").
+	Test []string `yaml:"test" mapstructure:"test"`
+	// PreCommit contains commands run before committing (e.g., "go-pre-commit run --all-files").
+	PreCommit []string `yaml:"pre_commit" mapstructure:"pre_commit"`
+	// CustomPrePR contains custom commands to run before creating a PR.
+	CustomPrePR []string `yaml:"custom_pre_pr,omitempty" mapstructure:"custom_pre_pr"`
+}
+
 // ValidationConfig contains settings for validation command execution.
 // Validation commands are run to verify code quality before proceeding.
 type ValidationConfig struct {
-	// Commands is the list of validation commands to run.
-	// Example: ["magex format:fix", "magex lint", "magex test"]
-	Commands []string `yaml:"commands" mapstructure:"commands"`
+	// Commands holds all validation commands organized by category.
+	Commands ValidationCommands `yaml:"commands" mapstructure:"commands"`
 
 	// Timeout is the maximum duration for each validation command.
 	// Default: 5 minutes
@@ -131,6 +145,17 @@ type ValidationConfig struct {
 	// ParallelExecution enables running validation commands in parallel.
 	// Default: true
 	ParallelExecution bool `yaml:"parallel_execution" mapstructure:"parallel_execution"`
+
+	// TemplateOverrides allows per-template validation settings.
+	TemplateOverrides map[string]TemplateOverrideConfig `yaml:"template_overrides,omitempty" mapstructure:"template_overrides"`
+}
+
+// TemplateOverrideConfig holds per-template validation overrides.
+type TemplateOverrideConfig struct {
+	// SkipTest indicates whether to skip tests for this template type.
+	SkipTest bool `yaml:"skip_test" mapstructure:"skip_test"`
+	// SkipLint indicates whether to skip linting for this template type.
+	SkipLint bool `yaml:"skip_lint,omitempty" mapstructure:"skip_lint"`
 }
 
 // NotificationsConfig contains settings for user notifications.

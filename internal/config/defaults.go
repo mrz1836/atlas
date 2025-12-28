@@ -75,7 +75,7 @@ func DefaultConfig() *Config {
 		Validation: ValidationConfig{
 			// Commands: empty means no validation commands by default.
 			// Projects should set these in their .atlas/config.yaml.
-			Commands: nil,
+			Commands: ValidationCommands{},
 
 			// Timeout: 5 minutes is reasonable for individual validation commands.
 			// Adjust based on test suite complexity.
@@ -84,6 +84,9 @@ func DefaultConfig() *Config {
 			// ParallelExecution: true for performance.
 			// Commands run concurrently when possible.
 			ParallelExecution: true,
+
+			// TemplateOverrides: empty by default.
+			TemplateOverrides: nil,
 		},
 		Notifications: NotificationsConfig{
 			// Bell: true enables audio notifications for important events.

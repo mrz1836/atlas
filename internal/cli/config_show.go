@@ -15,6 +15,7 @@ import (
 
 	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/constants"
+	"github.com/mrz1836/atlas/internal/errors"
 )
 
 // ConfigShowFlags holds flags specific to the config show command.
@@ -71,9 +72,6 @@ const (
 	// SourceEnv indicates the value came from an environment variable.
 	SourceEnv ConfigSource = "env"
 )
-
-// ErrUnsupportedOutputFormat is returned when an unsupported output format is specified.
-var ErrUnsupportedOutputFormat = fmt.Errorf("unsupported output format")
 
 // ConfigValueWithSource represents a configuration value with its source.
 type ConfigValueWithSource struct {
@@ -160,7 +158,7 @@ func runConfigShow(ctx context.Context, w io.Writer, flags *ConfigShowFlags) err
 	case "yaml":
 		return outputYAML(w, cfg, annotated)
 	default:
-		return fmt.Errorf("%w: %s (use yaml or json)", ErrUnsupportedOutputFormat, flags.OutputFormat)
+		return fmt.Errorf("%w: %s (use yaml or json)", errors.ErrUnsupportedOutputFormat, flags.OutputFormat)
 	}
 }
 
@@ -346,8 +344,18 @@ func outputYAML(w io.Writer, cfg *config.Config, annotated *AnnotatedConfig) err
 	_, _ = fmt.Fprintln(w, styles.section.Render("validation:"))
 	printConfigValue(w, styles, "  timeout", ConfigValueWithSource{Value: cfg.Validation.Timeout.String(), Source: SourceDefault})
 	printConfigValue(w, styles, "  parallel_execution", ConfigValueWithSource{Value: cfg.Validation.ParallelExecution, Source: SourceDefault})
-	if len(cfg.Validation.Commands) > 0 {
-		_, _ = fmt.Fprintf(w, "  %s: %s\n", styles.key.Render("commands"), styles.dim.Render(fmt.Sprintf("[%d commands]", len(cfg.Validation.Commands))))
+	_, _ = fmt.Fprintln(w, styles.key.Render("  commands:"))
+	if len(cfg.Validation.Commands.Format) > 0 {
+		_, _ = fmt.Fprintf(w, "    %s: %v\n", styles.key.Render("format"), cfg.Validation.Commands.Format)
+	}
+	if len(cfg.Validation.Commands.Lint) > 0 {
+		_, _ = fmt.Fprintf(w, "    %s: %v\n", styles.key.Render("lint"), cfg.Validation.Commands.Lint)
+	}
+	if len(cfg.Validation.Commands.Test) > 0 {
+		_, _ = fmt.Fprintf(w, "    %s: %v\n", styles.key.Render("test"), cfg.Validation.Commands.Test)
+	}
+	if len(cfg.Validation.Commands.PreCommit) > 0 {
+		_, _ = fmt.Fprintf(w, "    %s: %v\n", styles.key.Render("pre_commit"), cfg.Validation.Commands.PreCommit)
 	}
 	_, _ = fmt.Fprintln(w)
 

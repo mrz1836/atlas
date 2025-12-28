@@ -15,6 +15,7 @@ import (
 
 	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/constants"
+	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 )
 
 func TestNewInitCmd(t *testing.T) {
@@ -647,7 +648,7 @@ func TestRunInitWithDetector_MissingRequiredTools(t *testing.T) {
 	err := runInitWithDetector(context.Background(), &buf, flags, detector)
 
 	// Should return ErrMissingRequiredTools
-	require.ErrorIs(t, err, ErrMissingRequiredTools)
+	require.ErrorIs(t, err, atlaserrors.ErrMissingRequiredTools)
 
 	output := buf.String()
 
@@ -880,7 +881,7 @@ func TestSaveProjectConfig_NotInGitRepo(t *testing.T) {
 	}
 
 	err = saveProjectConfig(cfg)
-	require.ErrorIs(t, err, ErrNotInGitRepo)
+	require.ErrorIs(t, err, atlaserrors.ErrNotInGitRepo)
 }
 
 func TestSaveProjectConfig_CreatesBackup(t *testing.T) {
@@ -990,7 +991,7 @@ func TestRunInitWithDetector_ProjectFlag_NotInGitRepo(t *testing.T) {
 
 	err = runInitWithDetector(context.Background(), &buf, flags, detector)
 
-	require.ErrorIs(t, err, ErrNotInProjectDir)
+	require.ErrorIs(t, err, atlaserrors.ErrNotInProjectDir)
 	assert.Contains(t, buf.String(), "--project flag requires being in a git repository")
 }
 

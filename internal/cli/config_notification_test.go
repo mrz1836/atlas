@@ -10,6 +10,10 @@ import (
 )
 
 func TestConfigNotificationCmd_NoInteractive_NoConfig(t *testing.T) {
+	// Use temp HOME to isolate from real config
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+
 	var buf bytes.Buffer
 	flags := &ConfigNotificationFlags{NoInteractive: true}
 

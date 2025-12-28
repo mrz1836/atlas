@@ -42,6 +42,10 @@ func TestRunConfigValidation_CancelledContext(t *testing.T) {
 }
 
 func TestRunConfigValidation_NonInteractive_NoConfig(t *testing.T) {
+	// Use temp HOME to isolate from real config
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+
 	ctx := context.Background()
 	var buf bytes.Buffer
 	flags := &ConfigValidationFlags{NoInteractive: true}
