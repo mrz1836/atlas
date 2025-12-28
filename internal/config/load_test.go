@@ -412,3 +412,232 @@ func TestPaths(t *testing.T) {
 	require.NoError(t, err, "GlobalConfigPath should succeed")
 	assert.Equal(t, filepath.Join(home, ".atlas", "config.yaml"), globalPath, "global config path")
 }
+
+// TestConfig_Precedence_FullChain tests the complete precedence order:
+// CLI > env > project > global > defaults
+func TestConfig_Precedence_FullChain(t *testing.T) {
+	ctx := context.Background()
+
+	// Create temp directories for configs
+	globalDir := t.TempDir()
+	projectDir := t.TempDir()
+
+	// Write global config - lowest precedence file
+	globalConfig := filepath.Join(globalDir, "config.yaml")
+	err := os.WriteFile(globalConfig, []byte(`
+ai:
+  model: global-model
+  max_turns: 100
+  timeout: 1h
+git:
+  base_branch: global-branch
+  remote: global-remote
+`), 0o600)
+	require.NoError(t, err)
+
+	// Write project config - overrides global
+	projectConfig := filepath.Join(projectDir, "config.yaml")
+	err = os.WriteFile(projectConfig, []byte(`
+ai:
+  model: project-model
+  max_turns: 50
+git:
+  base_branch: project-branch
+`), 0o600)
+	require.NoError(t, err)
+
+	// Set env var - overrides project config
+	t.Setenv("ATLAS_AI_MODEL", "env-model")
+
+	// Load config - project should override global, env should override project
+	cfg, err := LoadFromPaths(ctx, projectConfig, globalConfig)
+	require.NoError(t, err, "LoadFromPaths should succeed")
+
+	// Verify precedence:
+	// - ai.model: env-model (from env var, highest precedence)
+	assert.Equal(t, "env-model", cfg.AI.Model, "env var should override project config")
+
+	// - ai.max_turns: 50 (from project, project > global)
+	assert.Equal(t, 50, cfg.AI.MaxTurns, "project config should override global")
+
+	// - ai.timeout: 1h (from global, not overridden)
+	assert.Equal(t, 1*time.Hour, cfg.AI.Timeout, "global config should be preserved when not overridden")
+
+	// - git.base_branch: project-branch (from project, project > global)
+	assert.Equal(t, "project-branch", cfg.Git.BaseBranch, "project config should override global")
+
+	// - git.remote: global-remote (from global, not overridden in project)
+	assert.Equal(t, "global-remote", cfg.Git.Remote, "global config should be preserved when not overridden")
+}
+
+// TestConfig_Precedence_EnvVarOverridesAllConfigFiles tests that env vars override both
+// project and global config files.
+func TestConfig_Precedence_EnvVarOverridesAllConfigFiles(t *testing.T) {
+	ctx := context.Background()
+
+	// Create temp directories for configs
+	globalDir := t.TempDir()
+	projectDir := t.TempDir()
+
+	// Write global config
+	globalConfig := filepath.Join(globalDir, "config.yaml")
+	err := os.WriteFile(globalConfig, []byte(`
+ai:
+  model: global-model
+`), 0o600)
+	require.NoError(t, err)
+
+	// Write project config
+	projectConfig := filepath.Join(projectDir, "config.yaml")
+	err = os.WriteFile(projectConfig, []byte(`
+ai:
+  model: project-model
+`), 0o600)
+	require.NoError(t, err)
+
+	// Set env var to override
+	t.Setenv("ATLAS_AI_MODEL", "env-model")
+
+	// Load config
+	cfg, err := LoadFromPaths(ctx, projectConfig, globalConfig)
+	require.NoError(t, err, "LoadFromPaths should succeed")
+
+	// Env var should win over both project and global
+	assert.Equal(t, "env-model", cfg.AI.Model, "env var should override both project and global config")
+}
+
+// TestConfig_Precedence_CLIOverridesAll tests that CLI overrides (via LoadWithOverrides)
+// override environment variables, project config, and global config.
+func TestConfig_Precedence_CLIOverridesAll(t *testing.T) {
+	ctx := context.Background()
+
+	// Create temp directory with project config
+	tempDir := t.TempDir()
+	atlasDir := filepath.Join(tempDir, ".atlas")
+	err := os.MkdirAll(atlasDir, 0o750)
+	require.NoError(t, err)
+
+	configPath := filepath.Join(atlasDir, "config.yaml")
+	err = os.WriteFile(configPath, []byte(`
+ai:
+  model: config-model
+`), 0o600)
+	require.NoError(t, err)
+
+	// Change to the temp directory
+	oldWd, err := os.Getwd()
+	require.NoError(t, err)
+	err = os.Chdir(tempDir)
+	require.NoError(t, err)
+	defer func() {
+		_ = os.Chdir(oldWd)
+	}()
+
+	// Set env var
+	t.Setenv("ATLAS_AI_MODEL", "env-model")
+
+	// Apply CLI override (highest precedence)
+	overrides := &Config{
+		AI: AIConfig{
+			Model: "cli-model",
+		},
+	}
+
+	cfg, err := LoadWithOverrides(ctx, overrides)
+	require.NoError(t, err, "LoadWithOverrides should succeed")
+
+	// CLI override should win over env var
+	assert.Equal(t, "cli-model", cfg.AI.Model, "CLI override should have highest precedence")
+}
+
+// TestConfig_Precedence_NestedKeyMerging tests that nested keys are properly merged.
+// For example: global has ai.model and ai.timeout, project has only ai.model.
+// Result should have project's ai.model and global's ai.timeout.
+func TestConfig_Precedence_NestedKeyMerging(t *testing.T) {
+	ctx := context.Background()
+
+	// Create temp directories for configs
+	globalDir := t.TempDir()
+	projectDir := t.TempDir()
+
+	// Write global config with multiple nested keys
+	globalConfig := filepath.Join(globalDir, "config.yaml")
+	err := os.WriteFile(globalConfig, []byte(`
+ai:
+  model: opus
+  timeout: 1h
+  max_turns: 20
+git:
+  base_branch: main
+  remote: origin
+ci:
+  timeout: 30m
+  poll_interval: 2m
+`), 0o600)
+	require.NoError(t, err)
+
+	// Write project config that overrides only some keys
+	projectConfig := filepath.Join(projectDir, "config.yaml")
+	err = os.WriteFile(projectConfig, []byte(`
+ai:
+  model: sonnet
+git:
+  base_branch: develop
+`), 0o600)
+	require.NoError(t, err)
+
+	// Load config
+	cfg, err := LoadFromPaths(ctx, projectConfig, globalConfig)
+	require.NoError(t, err, "LoadFromPaths should succeed")
+
+	// Verify project values override
+	assert.Equal(t, "sonnet", cfg.AI.Model, "project should override ai.model")
+	assert.Equal(t, "develop", cfg.Git.BaseBranch, "project should override git.base_branch")
+
+	// Verify global values are preserved when not overridden
+	assert.Equal(t, 1*time.Hour, cfg.AI.Timeout, "global ai.timeout should be preserved")
+	assert.Equal(t, 20, cfg.AI.MaxTurns, "global ai.max_turns should be preserved")
+	assert.Equal(t, "origin", cfg.Git.Remote, "global git.remote should be preserved")
+	assert.Equal(t, 30*time.Minute, cfg.CI.Timeout, "global ci.timeout should be preserved")
+	assert.Equal(t, 2*time.Minute, cfg.CI.PollInterval, "global ci.poll_interval should be preserved")
+}
+
+// TestConfig_Precedence_Documentation validates that the precedence order
+// documented in Load() is correct.
+func TestConfig_Precedence_Documentation(t *testing.T) {
+	// This test documents the expected precedence order as stated in load.go:
+	// 1. CLI flags (via LoadWithOverrides) - highest precedence
+	// 2. Environment variables (ATLAS_* prefix)
+	// 3. Project config (.atlas/config.yaml)
+	// 4. Global config (~/.atlas/config.yaml)
+	// 5. Built-in defaults - lowest precedence
+	//
+	// Each level is tested independently in other tests.
+	// This test serves as documentation and a sanity check.
+
+	ctx := context.Background()
+
+	// Create temp directory with no config
+	tempDir := t.TempDir()
+	oldWd, err := os.Getwd()
+	require.NoError(t, err)
+	err = os.Chdir(tempDir)
+	require.NoError(t, err)
+	defer func() {
+		_ = os.Chdir(oldWd)
+	}()
+
+	// Load with defaults only
+	cfg, err := Load(ctx)
+	require.NoError(t, err)
+
+	// Verify defaults are applied (level 5)
+	assert.Equal(t, "sonnet", cfg.AI.Model, "default model should be sonnet")
+	assert.Equal(t, "ANTHROPIC_API_KEY", cfg.AI.APIKeyEnvVar, "default API key env var")
+	assert.Equal(t, constants.DefaultAITimeout, cfg.AI.Timeout, "default AI timeout")
+	assert.Equal(t, 10, cfg.AI.MaxTurns, "default max turns")
+	assert.Equal(t, "main", cfg.Git.BaseBranch, "default base branch")
+	assert.True(t, cfg.Git.AutoProceedGit, "default auto proceed git")
+	assert.Equal(t, "origin", cfg.Git.Remote, "default remote")
+	assert.True(t, cfg.Notifications.Bell, "default bell enabled")
+}

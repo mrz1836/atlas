@@ -25,6 +25,10 @@ import (
 type InitFlags struct {
 	// NoInteractive skips all prompts and uses default values.
 	NoInteractive bool
+	// Global forces configuration to be saved to global config only.
+	Global bool
+	// Project forces configuration to be saved to project config only.
+	Project bool
 }
 
 // AtlasConfig represents the user's ATLAS configuration.
@@ -129,6 +133,12 @@ const (
 // ErrMissingRequiredTools is returned when required tools are missing or outdated.
 var ErrMissingRequiredTools = fmt.Errorf("required tools are missing or outdated")
 
+// ErrNotInProjectDir is returned when --project flag is used but not in a project directory.
+var ErrNotInProjectDir = fmt.Errorf("not in a project directory (no .git found)")
+
+// ErrNotInGitRepo is returned when a git repository is required but not found.
+var ErrNotInGitRepo = fmt.Errorf("not in a git repository")
+
 // ToolDetector is an interface for detecting tools.
 // This allows for mocking in tests.
 type ToolDetector interface {
@@ -160,7 +170,16 @@ including:
   - Validation commands (format, lint, test)
   - Notification preferences
 
-Use --no-interactive for automated setups with sensible defaults.`,
+Configuration can be saved to:
+  - Global: ~/.atlas/config.yaml (applies to all projects)
+  - Project: .atlas/config.yaml (project-specific overrides)
+
+In a git repository, you'll be asked whether to create project-specific config.
+Project config is recommended for shared projects with team settings.
+
+Use --no-interactive for automated setups with sensible defaults.
+Use --global to save only to global config (skip project config prompt).
+Use --project to save only to project config (requires being in a project directory).`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			err := runInit(cmd.Context(), cmd.OutOrStdout(), flags)
 			if errors.Is(err, ErrMissingRequiredTools) {
@@ -174,6 +193,9 @@ Use --no-interactive for automated setups with sensible defaults.`,
 
 	// Add init-specific flags
 	cmd.Flags().BoolVar(&flags.NoInteractive, "no-interactive", false, "skip all prompts and use default values")
+	cmd.Flags().BoolVar(&flags.Global, "global", false, "save to global config only (~/.atlas/config.yaml)")
+	cmd.Flags().BoolVar(&flags.Project, "project", false, "save to project config only (.atlas/config.yaml)")
+	cmd.MarkFlagsMutuallyExclusive("global", "project")
 
 	return cmd
 }
@@ -200,6 +222,14 @@ func runInitWithDetector(ctx context.Context, w io.Writer, flags *InitFlags, det
 	}
 
 	styles := newInitStyles()
+
+	// Validate --project flag requires being in a git repo
+	if flags.Project && !isInGitRepo() {
+		_, _ = fmt.Fprintln(w, styles.err.Render("Error: --project flag requires being in a git repository."))
+		_, _ = fmt.Fprintln(w, styles.dim.Render("  Project config is stored at .atlas/config.yaml relative to the git root."))
+		_, _ = fmt.Fprintln(w, styles.dim.Render("  Use --global to save to ~/.atlas/config.yaml instead."))
+		return ErrNotInProjectDir
+	}
 
 	// Display ATLAS header
 	displayHeader(w, styles)
@@ -259,13 +289,14 @@ func runInitWithDetector(ctx context.Context, w io.Writer, flags *InitFlags, det
 		}
 	}
 
-	// Save configuration
-	if err = saveConfig(cfg); err != nil {
-		return fmt.Errorf("failed to save configuration: %w", err)
+	// Determine and execute config save strategy
+	saveResult, err := determineAndSaveConfig(w, flags, cfg, styles)
+	if err != nil {
+		return err
 	}
 
-	// Display success message
-	displaySuccessMessage(w, flags.NoInteractive, styles)
+	// Display success message with config paths
+	displaySuccessMessageWithPaths(w, flags.NoInteractive, saveResult.projectConfigCreated, saveResult.configPaths, styles)
 
 	return nil
 }
@@ -591,7 +622,237 @@ func copyFile(src, dst string) error {
 	return os.WriteFile(dst, data, 0o600)
 }
 
+// isInGitRepo checks if the current directory is inside a git repository.
+// It looks for a .git directory in the current directory or any parent.
+func isInGitRepo() bool {
+	dir, err := os.Getwd()
+	if err != nil {
+		return false
+	}
+
+	for {
+		gitPath := filepath.Join(dir, ".git")
+		if info, err := os.Stat(gitPath); err == nil && info.IsDir() {
+			return true
+		}
+
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			// Reached filesystem root
+			return false
+		}
+		dir = parent
+	}
+}
+
+// findGitRoot returns the root directory of the current git repository.
+// Returns empty string if not in a git repository.
+func findGitRoot() string {
+	dir, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+
+	for {
+		gitPath := filepath.Join(dir, ".git")
+		if info, err := os.Stat(gitPath); err == nil && info.IsDir() {
+			return dir
+		}
+
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			// Reached filesystem root
+			return ""
+		}
+		dir = parent
+	}
+}
+
+// configSaveResult contains the result of saving configuration.
+type configSaveResult struct {
+	configPaths          []string
+	projectConfigCreated bool
+}
+
+// determineAndSaveConfig determines where to save config and performs the save.
+// This function handles the logic for deciding between project and global config.
+func determineAndSaveConfig(w io.Writer, flags *InitFlags, cfg AtlasConfig, styles *initStyles) (*configSaveResult, error) {
+	result := &configSaveResult{
+		configPaths: []string{},
+	}
+
+	saveToProject := flags.Project
+	saveToGlobal := flags.Global
+
+	// If neither flag is set, determine based on context
+	if !saveToProject && !saveToGlobal {
+		saveToProject, saveToGlobal = determineConfigLocations(w, flags, styles)
+	}
+
+	// Save to project config if requested
+	if saveToProject {
+		if err := saveProjectConfig(cfg); err != nil {
+			return nil, fmt.Errorf("failed to save project configuration: %w", err)
+		}
+		gitRoot := findGitRoot()
+		projectPath := filepath.Join(gitRoot, constants.AtlasHome, constants.GlobalConfigName)
+		result.configPaths = append(result.configPaths, projectPath)
+		result.projectConfigCreated = true
+	}
+
+	// Save to global config if requested
+	if saveToGlobal {
+		if err := saveGlobalConfig(cfg); err != nil {
+			return nil, fmt.Errorf("failed to save global configuration: %w", err)
+		}
+		home, _ := os.UserHomeDir()
+		globalPath := filepath.Join(home, constants.AtlasHome, constants.GlobalConfigName)
+		result.configPaths = append(result.configPaths, globalPath)
+	}
+
+	return result, nil
+}
+
+// determineConfigLocations decides whether to save to project and/or global config.
+// Returns (saveToProject, saveToGlobal).
+func determineConfigLocations(w io.Writer, flags *InitFlags, styles *initStyles) (bool, bool) {
+	inGitRepo := isInGitRepo()
+
+	// Non-interactive or not in git repo: save to global only
+	if flags.NoInteractive || !inGitRepo {
+		return false, true
+	}
+
+	// Interactive and in git repo: ask user
+	saveToProject, promptErr := promptProjectConfigCreation(w, styles)
+	if promptErr != nil {
+		// On error, fall back to global only
+		return false, true
+	}
+
+	// If not project, save to global
+	if !saveToProject {
+		return false, true
+	}
+
+	return true, false
+}
+
+// promptProjectConfigCreation prompts the user to create project-specific config.
+func promptProjectConfigCreation(w io.Writer, styles *initStyles) (bool, error) {
+	_, _ = fmt.Fprintln(w)
+	_, _ = fmt.Fprintln(w, styles.info.Render("Git repository detected"))
+	_, _ = fmt.Fprintln(w, styles.dim.Render("  You can create a project-specific configuration that overrides global settings."))
+	_, _ = fmt.Fprintln(w, styles.dim.Render("  This is recommended for shared projects with team-specific settings."))
+	_, _ = fmt.Fprintln(w)
+
+	var createProjectConfig bool
+	form := huh.NewForm(
+		huh.NewGroup(
+			huh.NewConfirm().
+				Title("Create project-specific configuration?").
+				Description("Creates .atlas/config.yaml in the project root").
+				Affirmative("Yes (recommended for teams)").
+				Negative("No (use global config only)").
+				Value(&createProjectConfig),
+		),
+	).WithTheme(huh.ThemeCharm())
+
+	if err := form.Run(); err != nil {
+		return false, err
+	}
+
+	return createProjectConfig, nil
+}
+
+// saveProjectConfig writes the configuration to .atlas/config.yaml in the git root.
+// If a config file already exists, it creates a backup before overwriting.
+func saveProjectConfig(cfg AtlasConfig) error {
+	gitRoot := findGitRoot()
+	if gitRoot == "" {
+		return ErrNotInGitRepo
+	}
+
+	// Create .atlas directory with restrictive permissions (0700)
+	// This is a config directory that may contain sensitive data
+	atlasDir := filepath.Join(gitRoot, constants.AtlasHome)
+	if err := os.MkdirAll(atlasDir, 0o700); err != nil {
+		return fmt.Errorf("failed to create project config directory: %w", err)
+	}
+
+	configPath := filepath.Join(atlasDir, constants.GlobalConfigName)
+
+	// Check if config file already exists and create backup
+	if _, statErr := os.Stat(configPath); statErr == nil {
+		backupPath := configPath + ".backup"
+		if copyErr := copyFile(configPath, backupPath); copyErr != nil {
+			// Log warning but continue - backup is best effort
+			logger := GetLogger()
+			logger.Warn().
+				Err(copyErr).
+				Str("backup_path", backupPath).
+				Msg("failed to create config backup")
+		}
+	}
+
+	// Marshal config to YAML
+	data, err := yaml.Marshal(cfg)
+	if err != nil {
+		return fmt.Errorf("failed to marshal config: %w", err)
+	}
+
+	// Add header comment
+	header := fmt.Sprintf("# ATLAS Project Configuration\n# Generated by atlas init on %s\n# This file overrides ~/.atlas/config.yaml for this project.\n# Consider adding .atlas/config.yaml to .gitignore if it contains sensitive data.\n\n",
+		time.Now().Format("2006-01-02 15:04:05"))
+	content := header + string(data)
+
+	// Write config file with restrictive permissions (0600)
+	if err = os.WriteFile(configPath, []byte(content), 0o600); err != nil {
+		return fmt.Errorf("failed to write project config file: %w", err)
+	}
+
+	return nil
+}
+
+// saveGlobalConfig writes the configuration to ~/.atlas/config.yaml.
+// If a config file already exists, it creates a backup before overwriting.
+func saveGlobalConfig(cfg AtlasConfig) error {
+	return saveAtlasConfig(cfg, "Generated by atlas init")
+}
+
+// displaySuccessMessageWithPaths shows the success message after configuration with specific paths.
+func displaySuccessMessageWithPaths(w io.Writer, nonInteractive, projectConfigCreated bool, configPaths []string, styles *initStyles) {
+	_, _ = fmt.Fprintln(w)
+	_, _ = fmt.Fprintln(w, styles.success.Render("✓ ATLAS configuration saved successfully!"))
+	_, _ = fmt.Fprintln(w)
+
+	_, _ = fmt.Fprintln(w, styles.info.Render("Configuration saved to:"))
+	for _, path := range configPaths {
+		_, _ = fmt.Fprintln(w, styles.dim.Render("  "+path))
+	}
+	_, _ = fmt.Fprintln(w)
+
+	// Show gitignore suggestion if project config was created
+	if projectConfigCreated {
+		_, _ = fmt.Fprintln(w, styles.outdated.Render("Tip: Consider adding to .gitignore if config contains sensitive data:"))
+		_, _ = fmt.Fprintln(w, styles.dim.Render("  .atlas/config.yaml"))
+		_, _ = fmt.Fprintln(w)
+	}
+
+	_, _ = fmt.Fprintln(w, styles.info.Render("Suggested next commands:"))
+	_, _ = fmt.Fprintln(w, styles.dim.Render("  atlas status       - View current project status"))
+	_, _ = fmt.Fprintln(w, styles.dim.Render("  atlas start        - Start a new task"))
+	_, _ = fmt.Fprintln(w, styles.dim.Render("  atlas config show  - View effective configuration"))
+	_, _ = fmt.Fprintln(w)
+
+	if nonInteractive {
+		_, _ = fmt.Fprintln(w, styles.dim.Render("Note: Non-interactive mode used default values."))
+		_, _ = fmt.Fprintln(w, styles.dim.Render("Edit the config file or run 'atlas init' interactively to customize."))
+	}
+}
+
 // displaySuccessMessage shows the success message after configuration.
+// Deprecated: Use displaySuccessMessageWithPaths for new code.
 func displaySuccessMessage(w io.Writer, nonInteractive bool, styles *initStyles) {
 	_, _ = fmt.Fprintln(w)
 	_, _ = fmt.Fprintln(w, styles.success.Render("✓ ATLAS configuration saved successfully!"))

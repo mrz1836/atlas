@@ -799,3 +799,338 @@ func TestCopyFile_SourceNotFound(t *testing.T) {
 	err := copyFile(filepath.Join(tmpDir, "nonexistent"), filepath.Join(tmpDir, "dest"))
 	require.Error(t, err)
 }
+
+func TestIsInGitRepo(t *testing.T) {
+	// This test runs in the atlas repo, so it should return true
+	result := isInGitRepo()
+	assert.True(t, result, "Should detect we're in the atlas git repository")
+}
+
+func TestFindGitRoot(t *testing.T) {
+	// This test runs in the atlas repo, so it should find the root
+	gitRoot := findGitRoot()
+	assert.NotEmpty(t, gitRoot, "Should find git root")
+
+	// Verify .git directory exists at the returned path
+	gitPath := filepath.Join(gitRoot, ".git")
+	info, err := os.Stat(gitPath)
+	require.NoError(t, err)
+	assert.True(t, info.IsDir(), ".git should be a directory")
+}
+
+func TestSaveProjectConfig(t *testing.T) {
+	// Create a fake git repo in temp directory
+	tmpDir := t.TempDir()
+	gitDir := filepath.Join(tmpDir, ".git")
+	err := os.MkdirAll(gitDir, 0o750)
+	require.NoError(t, err)
+
+	// Change to temp directory
+	origDir, err := os.Getwd()
+	require.NoError(t, err)
+	defer func() {
+		_ = os.Chdir(origDir)
+	}()
+	err = os.Chdir(tmpDir)
+	require.NoError(t, err)
+
+	cfg := AtlasConfig{
+		AI: AIConfig{
+			Model:        "opus",
+			APIKeyEnvVar: "ANTHROPIC_API_KEY",
+			Timeout:      "30m",
+			MaxTurns:     10,
+		},
+	}
+
+	err = saveProjectConfig(cfg)
+	require.NoError(t, err)
+
+	// Verify the config file was created
+	configPath := filepath.Join(tmpDir, constants.AtlasHome, constants.GlobalConfigName)
+	assert.FileExists(t, configPath)
+
+	// Verify the content
+	content, err := os.ReadFile(configPath) //nolint:gosec // Test file
+	require.NoError(t, err)
+
+	// Verify header comment
+	assert.Contains(t, string(content), "# ATLAS Project Configuration")
+	assert.Contains(t, string(content), "overrides ~/.atlas/config.yaml")
+
+	// Verify config values
+	assert.Contains(t, string(content), "model: opus")
+}
+
+func TestSaveProjectConfig_NotInGitRepo(t *testing.T) {
+	// Create temp directory without .git
+	tmpDir := t.TempDir()
+
+	// Change to temp directory
+	origDir, err := os.Getwd()
+	require.NoError(t, err)
+	defer func() {
+		_ = os.Chdir(origDir)
+	}()
+	err = os.Chdir(tmpDir)
+	require.NoError(t, err)
+
+	cfg := AtlasConfig{
+		AI: AIConfig{Model: "sonnet"},
+	}
+
+	err = saveProjectConfig(cfg)
+	require.ErrorIs(t, err, ErrNotInGitRepo)
+}
+
+func TestSaveProjectConfig_CreatesBackup(t *testing.T) {
+	// Create a fake git repo in temp directory
+	tmpDir := t.TempDir()
+	gitDir := filepath.Join(tmpDir, ".git")
+	err := os.MkdirAll(gitDir, 0o750)
+	require.NoError(t, err)
+
+	// Create initial config
+	atlasDir := filepath.Join(tmpDir, constants.AtlasHome)
+	err = os.MkdirAll(atlasDir, 0o700)
+	require.NoError(t, err)
+
+	configPath := filepath.Join(atlasDir, constants.GlobalConfigName)
+	err = os.WriteFile(configPath, []byte("# Original config\nai:\n  model: haiku\n"), 0o600)
+	require.NoError(t, err)
+
+	// Change to temp directory
+	origDir, err := os.Getwd()
+	require.NoError(t, err)
+	defer func() {
+		_ = os.Chdir(origDir)
+	}()
+	err = os.Chdir(tmpDir)
+	require.NoError(t, err)
+
+	cfg := AtlasConfig{
+		AI: AIConfig{Model: "opus"},
+	}
+
+	err = saveProjectConfig(cfg)
+	require.NoError(t, err)
+
+	// Verify new config
+	content, err := os.ReadFile(configPath) //nolint:gosec // Test file
+	require.NoError(t, err)
+	assert.Contains(t, string(content), "model: opus")
+
+	// Verify backup was created
+	backupPath := configPath + ".backup"
+	assert.FileExists(t, backupPath)
+	backupContent, err := os.ReadFile(backupPath) //nolint:gosec // Test file
+	require.NoError(t, err)
+	assert.Contains(t, string(backupContent), "model: haiku")
+}
+
+func TestDetermineConfigLocations_NonInteractive(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	styles := newInitStyles()
+	flags := &InitFlags{NoInteractive: true}
+
+	saveToProject, saveToGlobal := determineConfigLocations(&buf, flags, styles)
+
+	assert.False(t, saveToProject, "Non-interactive should not save to project")
+	assert.True(t, saveToGlobal, "Non-interactive should save to global")
+}
+
+func TestNewInitCmd_Flags(t *testing.T) {
+	t.Parallel()
+
+	flags := &InitFlags{}
+	cmd := newInitCmd(flags)
+
+	// Verify --global flag exists
+	globalFlag := cmd.Flags().Lookup("global")
+	require.NotNil(t, globalFlag)
+	assert.Equal(t, "false", globalFlag.DefValue)
+
+	// Verify --project flag exists
+	projectFlag := cmd.Flags().Lookup("project")
+	require.NotNil(t, projectFlag)
+	assert.Equal(t, "false", projectFlag.DefValue)
+
+	// Test mutual exclusivity: setting both should error
+	err := cmd.Flags().Set("global", "true")
+	require.NoError(t, err)
+	err = cmd.Flags().Set("project", "true")
+	require.NoError(t, err)
+	// The mutual exclusivity is checked at runtime by cobra, not parse time
+}
+
+func TestRunInitWithDetector_ProjectFlag_NotInGitRepo(t *testing.T) {
+	// Create temp directory without .git
+	tmpDir := t.TempDir()
+
+	// Change to temp directory
+	origDir, err := os.Getwd()
+	require.NoError(t, err)
+	defer func() {
+		_ = os.Chdir(origDir)
+	}()
+	err = os.Chdir(tmpDir)
+	require.NoError(t, err)
+
+	detector := &mockToolDetector{
+		result: &config.ToolDetectionResult{
+			HasMissingRequired: false,
+			Tools:              []config.Tool{},
+		},
+	}
+
+	var buf bytes.Buffer
+	flags := &InitFlags{Project: true}
+
+	err = runInitWithDetector(context.Background(), &buf, flags, detector)
+
+	require.ErrorIs(t, err, ErrNotInProjectDir)
+	assert.Contains(t, buf.String(), "--project flag requires being in a git repository")
+}
+
+func TestRunInitWithDetector_GlobalFlag_Success(t *testing.T) {
+	// Use temp HOME directory
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+
+	// Create mock detector with all tools installed
+	detector := &mockToolDetector{
+		result: &config.ToolDetectionResult{
+			HasMissingRequired: false,
+			Tools: []config.Tool{
+				{Name: "go", Required: true, Status: config.ToolStatusInstalled, CurrentVersion: "1.24.0"},
+				{Name: "git", Required: true, Status: config.ToolStatusInstalled, CurrentVersion: "2.39.0"},
+				{Name: "gh", Required: true, Status: config.ToolStatusInstalled, CurrentVersion: "2.62.0"},
+				{Name: "uv", Required: true, Status: config.ToolStatusInstalled, CurrentVersion: "0.5.14"},
+				{Name: "claude", Required: true, Status: config.ToolStatusInstalled, CurrentVersion: "2.0.76"},
+			},
+		},
+	}
+
+	var buf bytes.Buffer
+	flags := &InitFlags{NoInteractive: true, Global: true}
+
+	err := runInitWithDetector(context.Background(), &buf, flags, detector)
+	require.NoError(t, err)
+
+	output := buf.String()
+	assert.Contains(t, output, "ATLAS configuration saved successfully")
+
+	// Verify global config was created
+	configPath := filepath.Join(tmpDir, constants.AtlasHome, constants.GlobalConfigName)
+	assert.FileExists(t, configPath)
+}
+
+func TestRunInitWithDetector_ProjectFlag_Success(t *testing.T) {
+	// Create a fake git repo in temp directory
+	tmpDir := t.TempDir()
+	gitDir := filepath.Join(tmpDir, ".git")
+	err := os.MkdirAll(gitDir, 0o750)
+	require.NoError(t, err)
+
+	// Change to temp directory
+	origDir, err := os.Getwd()
+	require.NoError(t, err)
+	defer func() {
+		_ = os.Chdir(origDir)
+	}()
+	err = os.Chdir(tmpDir)
+	require.NoError(t, err)
+
+	// Create mock detector with all tools installed
+	detector := &mockToolDetector{
+		result: &config.ToolDetectionResult{
+			HasMissingRequired: false,
+			Tools: []config.Tool{
+				{Name: "go", Required: true, Status: config.ToolStatusInstalled, CurrentVersion: "1.24.0"},
+				{Name: "git", Required: true, Status: config.ToolStatusInstalled, CurrentVersion: "2.39.0"},
+				{Name: "gh", Required: true, Status: config.ToolStatusInstalled, CurrentVersion: "2.62.0"},
+				{Name: "uv", Required: true, Status: config.ToolStatusInstalled, CurrentVersion: "0.5.14"},
+				{Name: "claude", Required: true, Status: config.ToolStatusInstalled, CurrentVersion: "2.0.76"},
+			},
+		},
+	}
+
+	var buf bytes.Buffer
+	flags := &InitFlags{NoInteractive: true, Project: true}
+
+	err = runInitWithDetector(context.Background(), &buf, flags, detector)
+	require.NoError(t, err)
+
+	output := buf.String()
+	assert.Contains(t, output, "ATLAS configuration saved successfully")
+
+	// Verify project config was created
+	configPath := filepath.Join(tmpDir, constants.AtlasHome, constants.GlobalConfigName)
+	assert.FileExists(t, configPath)
+
+	// Verify gitignore tip is shown
+	assert.Contains(t, output, "Consider adding to .gitignore")
+}
+
+func TestDisplaySuccessMessageWithPaths(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name                 string
+		nonInteractive       bool
+		projectConfigCreated bool
+		configPaths          []string
+		expectedOutput       []string
+	}{
+		{
+			name:                 "global config only",
+			nonInteractive:       false,
+			projectConfigCreated: false,
+			configPaths:          []string{"~/.atlas/config.yaml"},
+			expectedOutput: []string{
+				"ATLAS configuration saved successfully",
+				"~/.atlas/config.yaml",
+				"atlas config show",
+			},
+		},
+		{
+			name:                 "project config created",
+			nonInteractive:       false,
+			projectConfigCreated: true,
+			configPaths:          []string{"/project/.atlas/config.yaml"},
+			expectedOutput: []string{
+				"ATLAS configuration saved successfully",
+				"/project/.atlas/config.yaml",
+				"Consider adding to .gitignore",
+				".atlas/config.yaml",
+			},
+		},
+		{
+			name:                 "non-interactive with project config",
+			nonInteractive:       true,
+			projectConfigCreated: true,
+			configPaths:          []string{"/project/.atlas/config.yaml"},
+			expectedOutput: []string{
+				"Non-interactive mode used default values",
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			var buf bytes.Buffer
+			styles := newInitStyles()
+
+			displaySuccessMessageWithPaths(&buf, tc.nonInteractive, tc.projectConfigCreated, tc.configPaths, styles)
+
+			output := buf.String()
+			for _, expected := range tc.expectedOutput {
+				assert.Contains(t, output, expected)
+			}
+		})
+	}
+}
