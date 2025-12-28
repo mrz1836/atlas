@@ -64,3 +64,12 @@ const (
 	// VersionFlagStandard is the standard version flag used by most tools.
 	VersionFlagStandard = "--version"
 )
+
+// Managed tool install paths for go install command.
+const (
+	// InstallPathMageX is the go install path for mage-x.
+	InstallPathMageX = "github.com/mage-x/magex@latest"
+
+	// InstallPathGoPreCommit is the go install path for go-pre-commit.
+	InstallPathGoPreCommit = "github.com/mrz1836/go-pre-commit@latest"
+)
