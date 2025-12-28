@@ -346,7 +346,6 @@ So that **I have a consistent foundation for implementing all ATLAS subsystems**
 - `internal/domain/`
 - `internal/testutil/`
 **And** core dependencies are added (cobra, viper, zerolog, charm libs)
-**And** `.mage.yaml` is configured for MAGE-X
 **And** `.golangci.yml` is configured with project linting rules
 **And** `go mod tidy` runs without errors
 

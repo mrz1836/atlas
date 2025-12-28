@@ -144,7 +144,6 @@ atlas/
 │   ├── template/             # Template system
 │   └── tui/                  # Charm TUI components
 ├── pkg/                      # Public utilities (if any)
-├── .mage.yaml                # MAGE-X configuration
 ├── .golangci.yml             # Linter configuration
 └── go.mod
 ```
@@ -775,7 +774,6 @@ atlas/
 ├── .atlas/                          # Project-level config (gitignored)
 │   └── config.yaml                  # Project config overrides
 │
-├── .mage.yaml                       # MAGE-X configuration
 ├── .golangci.yml                    # Linter configuration
 ├── .goreleaser.yml                  # Release configuration
 ├── .gitignore
@@ -873,7 +871,7 @@ User Input (CLI)
 **Configuration Files:**
 - Global: `~/.atlas/config.yaml`
 - Project: `.atlas/config.yaml`
-- Build: `.mage.yaml`, `.golangci.yml`, `.goreleaser.yml`
+- Build: `.golangci.yml`, `.goreleaser.yml`
 
 **Test Organization:**
 - Co-located with source: `*_test.go` in same directory

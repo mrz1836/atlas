@@ -51,15 +51,15 @@ development_status:
   epic-1-retrospective: done
 
   # Epic 2: CLI Framework & Configuration
-  epic-2: in-progress
+  epic-2: done
   2-1-implement-tool-detection-system: done
   2-2-implement-atlas-init-setup-wizard: done
   2-3-ai-provider-configuration: done
   2-4-validation-commands-configuration: done
   2-5-notification-preferences-configuration: done
   2-6-configuration-override-system: done
-  2-7-implement-atlas-upgrade-command: backlog
-  epic-2-retrospective: optional
+  2-7-implement-atlas-upgrade-command: done
+  epic-2-retrospective: done
 
   # Epic 3: Workspace Management
   epic-3: backlog
