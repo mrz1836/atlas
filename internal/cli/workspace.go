@@ -24,7 +24,7 @@ git worktree and task history.`,
 	// Add subcommands
 	addWorkspaceListCmd(cmd)
 	addWorkspaceDestroyCmd(cmd)
-	// Future: addWorkspaceRetireCmd(cmd)
+	addWorkspaceRetireCmd(cmd)
 	// Future: addWorkspaceLogsCmd(cmd)
 
 	return cmd
