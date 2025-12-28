@@ -67,9 +67,18 @@ const (
 
 // Managed tool install paths for go install command.
 const (
+	// InstallPathAtlas is the go install path for atlas.
+	InstallPathAtlas = "github.com/mrz1836/atlas@latest"
+
 	// InstallPathMageX is the go install path for mage-x.
 	InstallPathMageX = "github.com/mage-x/magex@latest"
 
 	// InstallPathGoPreCommit is the go install path for go-pre-commit.
 	InstallPathGoPreCommit = "github.com/mrz1836/go-pre-commit@latest"
+
+	// InstallPathSpeckit is the go install path for speckit.
+	InstallPathSpeckit = "github.com/speckit/speckit@latest"
 )
+
+// ToolAtlas is the ATLAS CLI tool name (for upgrade command).
+const ToolAtlas = "atlas"

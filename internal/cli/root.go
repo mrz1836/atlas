@@ -106,6 +106,7 @@ Features:
 	// Add subcommands
 	AddInitCommand(cmd)
 	AddConfigCommand(cmd)
+	AddUpgradeCommand(cmd)
 
 	return cmd
 }

@@ -86,4 +86,22 @@ var (
 
 	// ErrInvalidModel indicates that an AI model name is invalid.
 	ErrInvalidModel = errors.New("invalid model")
+
+	// ErrUnknownTool indicates that an unknown tool name was specified.
+	ErrUnknownTool = errors.New("unknown tool")
+
+	// ErrInvalidToolName indicates that an invalid tool name was specified.
+	ErrInvalidToolName = errors.New("invalid tool name")
+
+	// ErrMissingRequiredTools indicates that required tools are missing or outdated.
+	ErrMissingRequiredTools = errors.New("required tools are missing or outdated")
+
+	// ErrNotInProjectDir indicates that --project flag was used but not in a project directory.
+	ErrNotInProjectDir = errors.New("not in a project directory")
+
+	// ErrNotInGitRepo indicates that a git repository is required but not found.
+	ErrNotInGitRepo = errors.New("not in a git repository")
+
+	// ErrUnsupportedOutputFormat indicates that an unsupported output format was specified.
+	ErrUnsupportedOutputFormat = errors.New("unsupported output format")
 )
