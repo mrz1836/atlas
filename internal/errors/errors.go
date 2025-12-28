@@ -143,4 +143,10 @@ var (
 	// This ensures a non-zero exit code while preventing duplicate error messages.
 	// Commands should silence cobra's error printing when this is returned.
 	ErrJSONErrorOutput = errors.New("error output as JSON")
+
+	// ErrNoTasksFound indicates that no tasks exist for a workspace.
+	ErrNoTasksFound = errors.New("no tasks found")
+
+	// ErrTaskNotFound indicates that a specific task was not found in a workspace.
+	ErrTaskNotFound = errors.New("task not found")
 )
