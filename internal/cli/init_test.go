@@ -181,10 +181,10 @@ func TestBuildDefaultConfig(t *testing.T) {
 
 	cfg := buildDefaultConfig(result)
 
-	// AI configuration
-	assert.Equal(t, "sonnet", cfg.AI.DefaultModel)
-	assert.Equal(t, "ANTHROPIC_API_KEY", cfg.AI.APIKeyEnv)
-	assert.Equal(t, "30m", cfg.AI.DefaultTimeout)
+	// AI configuration (field names match config.AIConfig)
+	assert.Equal(t, "sonnet", cfg.AI.Model)
+	assert.Equal(t, "ANTHROPIC_API_KEY", cfg.AI.APIKeyEnvVar)
+	assert.Equal(t, "30m", cfg.AI.Timeout)
 	assert.Equal(t, 10, cfg.AI.MaxTurns)
 
 	// Validation commands - with mage-x installed
@@ -316,67 +316,6 @@ func TestParseMultilineInput(t *testing.T) {
 	}
 }
 
-func TestParseIntWithDefault(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name        string
-		input       string
-		defaultVal  int
-		expected    int
-		expectError bool
-	}{
-		{
-			name:        "valid integer",
-			input:       "42",
-			defaultVal:  10,
-			expected:    42,
-			expectError: false,
-		},
-		{
-			name:        "empty string",
-			input:       "",
-			defaultVal:  10,
-			expected:    10,
-			expectError: false,
-		},
-		{
-			name:        "whitespace only",
-			input:       "   ",
-			defaultVal:  10,
-			expected:    10,
-			expectError: false,
-		},
-		{
-			name:        "invalid integer",
-			input:       "not-a-number",
-			defaultVal:  10,
-			expected:    10,
-			expectError: true,
-		},
-		{
-			name:        "with whitespace",
-			input:       "  42  ",
-			defaultVal:  10,
-			expected:    42,
-			expectError: false,
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			result, err := parseIntWithDefault(tc.input, tc.defaultVal)
-			if tc.expectError {
-				require.Error(t, err)
-			} else {
-				require.NoError(t, err)
-			}
-			assert.Equal(t, tc.expected, result)
-		})
-	}
-}
-
 func TestSaveConfig(t *testing.T) {
 	// Create a temp directory to use as HOME
 	tmpDir := t.TempDir()
@@ -384,10 +323,10 @@ func TestSaveConfig(t *testing.T) {
 
 	cfg := AtlasConfig{
 		AI: AIConfig{
-			DefaultModel:   "sonnet",
-			APIKeyEnv:      "ANTHROPIC_API_KEY",
-			DefaultTimeout: "30m",
-			MaxTurns:       10,
+			Model:        "sonnet",
+			APIKeyEnvVar: "ANTHROPIC_API_KEY",
+			Timeout:      "30m",
+			MaxTurns:     10,
 		},
 		Validation: ValidationConfig{
 			Commands: ValidationCommands{
@@ -432,8 +371,8 @@ func TestSaveConfig(t *testing.T) {
 	err = yaml.Unmarshal([]byte(yamlContent), &parsedCfg)
 	require.NoError(t, err)
 
-	assert.Equal(t, cfg.AI.DefaultModel, parsedCfg.AI.DefaultModel)
-	assert.Equal(t, cfg.AI.APIKeyEnv, parsedCfg.AI.APIKeyEnv)
+	assert.Equal(t, cfg.AI.Model, parsedCfg.AI.Model)
+	assert.Equal(t, cfg.AI.APIKeyEnvVar, parsedCfg.AI.APIKeyEnvVar)
 	assert.Equal(t, cfg.AI.MaxTurns, parsedCfg.AI.MaxTurns)
 	assert.Equal(t, cfg.Notifications.BellEnabled, parsedCfg.Notifications.BellEnabled)
 }
@@ -443,7 +382,7 @@ func TestSaveConfig_CreatesDirectory(t *testing.T) {
 	t.Setenv("HOME", tmpDir)
 
 	cfg := AtlasConfig{
-		AI: AIConfig{DefaultModel: "sonnet"},
+		AI: AIConfig{Model: "sonnet"},
 	}
 
 	// Verify directory doesn't exist
@@ -545,10 +484,10 @@ func TestAtlasConfig_YAML_Marshaling(t *testing.T) {
 
 	cfg := AtlasConfig{
 		AI: AIConfig{
-			DefaultModel:   "opus",
-			APIKeyEnv:      "MY_API_KEY",
-			DefaultTimeout: "1h",
-			MaxTurns:       20,
+			Model:        "opus",
+			APIKeyEnvVar: "MY_API_KEY",
+			Timeout:      "1h",
+			MaxTurns:     20,
 		},
 		Validation: ValidationConfig{
 			Commands: ValidationCommands{
@@ -645,11 +584,11 @@ func TestRunInitWithDetector_NonInteractive_Success(t *testing.T) {
 	configPath := filepath.Join(tmpDir, constants.AtlasHome, constants.GlobalConfigName)
 	assert.FileExists(t, configPath)
 
-	// Verify config content
+	// Verify config content - field names match config.AIConfig
 	content, err := os.ReadFile(configPath) //nolint:gosec // Test file
 	require.NoError(t, err)
-	assert.Contains(t, string(content), "default_model: sonnet")
-	assert.Contains(t, string(content), "api_key_env: ANTHROPIC_API_KEY")
+	assert.Contains(t, string(content), "model: sonnet")
+	assert.Contains(t, string(content), "api_key_env_var: ANTHROPIC_API_KEY")
 }
 
 func TestRunInitWithDetector_MissingRequiredTools(t *testing.T) {
@@ -764,7 +703,7 @@ func TestSaveConfig_CreatesBackup(t *testing.T) {
 
 	// Create initial config
 	initialCfg := AtlasConfig{
-		AI: AIConfig{DefaultModel: "opus"},
+		AI: AIConfig{Model: "opus"},
 	}
 	err := saveConfig(initialCfg)
 	require.NoError(t, err)
@@ -773,11 +712,11 @@ func TestSaveConfig_CreatesBackup(t *testing.T) {
 	configPath := filepath.Join(tmpDir, constants.AtlasHome, constants.GlobalConfigName)
 	content, err := os.ReadFile(configPath) //nolint:gosec // Test file
 	require.NoError(t, err)
-	assert.Contains(t, string(content), "default_model: opus")
+	assert.Contains(t, string(content), "model: opus")
 
 	// Save a new config (should create backup)
 	newCfg := AtlasConfig{
-		AI: AIConfig{DefaultModel: "sonnet"},
+		AI: AIConfig{Model: "sonnet"},
 	}
 	err = saveConfig(newCfg)
 	require.NoError(t, err)
@@ -785,14 +724,14 @@ func TestSaveConfig_CreatesBackup(t *testing.T) {
 	// Verify new config
 	content, err = os.ReadFile(configPath) //nolint:gosec // Test file
 	require.NoError(t, err)
-	assert.Contains(t, string(content), "default_model: sonnet")
+	assert.Contains(t, string(content), "model: sonnet")
 
 	// Verify backup was created with original content
 	backupPath := configPath + ".backup"
 	assert.FileExists(t, backupPath)
 	backupContent, err := os.ReadFile(backupPath) //nolint:gosec // Test file
 	require.NoError(t, err)
-	assert.Contains(t, string(backupContent), "default_model: opus")
+	assert.Contains(t, string(backupContent), "model: opus")
 }
 
 func TestCopyFile(t *testing.T) {

@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
@@ -37,13 +36,14 @@ type AtlasConfig struct {
 }
 
 // AIConfig holds AI provider configuration.
+// YAML field names match internal/config/config.go AIConfig struct.
 type AIConfig struct {
-	// DefaultModel is the default Claude model to use (sonnet|opus).
-	DefaultModel string `yaml:"default_model"`
-	// APIKeyEnv is the name of the environment variable containing the API key.
-	APIKeyEnv string `yaml:"api_key_env"`
-	// DefaultTimeout is the default timeout for AI operations.
-	DefaultTimeout string `yaml:"default_timeout"`
+	// Model is the default Claude model to use (sonnet|opus|haiku).
+	Model string `yaml:"model"`
+	// APIKeyEnvVar is the name of the environment variable containing the API key.
+	APIKeyEnvVar string `yaml:"api_key_env_var"`
+	// Timeout is the default timeout for AI operations.
+	Timeout string `yaml:"timeout"`
 	// MaxTurns is the maximum number of turns per AI step.
 	MaxTurns int `yaml:"max_turns"`
 }
@@ -420,73 +420,28 @@ func runInteractiveWizard(ctx context.Context, w io.Writer, toolResult *config.T
 
 	var cfg AtlasConfig
 
-	// AI Provider Configuration
+	// AI Provider Configuration using reusable functions from ai_config.go
 	_, _ = fmt.Fprintln(w)
 	_, _ = fmt.Fprintln(w, styles.info.Render("AI Provider Configuration"))
 	_, _ = fmt.Fprintln(w, styles.dim.Render(strings.Repeat("─", 30)))
 
-	model := defaultModel
-	apiKeyEnv := defaultAPIKeyEnv
-	timeout := defaultTimeout
-	maxTurnsStr := strconv.Itoa(defaultMaxTurns)
-
-	aiForm := huh.NewForm(
-		huh.NewGroup(
-			huh.NewSelect[string]().
-				Title("Default AI Model").
-				Description("Select the default Claude model for AI operations").
-				Options(
-					huh.NewOption("Claude Sonnet (faster)", "sonnet"),
-					huh.NewOption("Claude Opus (more capable)", "opus"),
-				).
-				Value(&model),
-			huh.NewInput().
-				Title("API Key Environment Variable").
-				Description("Name of the environment variable containing your Anthropic API key").
-				Value(&apiKeyEnv).
-				Placeholder("ANTHROPIC_API_KEY"),
-			huh.NewInput().
-				Title("Default Timeout").
-				Description("Maximum duration for AI operations (e.g., 30m, 1h)").
-				Value(&timeout).
-				Placeholder("30m"),
-			huh.NewInput().
-				Title("Max Turns per Step").
-				Description("Maximum number of AI turns per step").
-				Value(&maxTurnsStr).
-				Placeholder("10"),
-		),
-	).WithTheme(huh.ThemeCharm())
-
-	if err := aiForm.Run(); err != nil {
-		return AtlasConfig{}, fmt.Errorf("AI configuration failed: %w", err)
+	aiCfg := &AIProviderConfig{}
+	if err := CollectAIConfigInteractive(ctx, aiCfg); err != nil {
+		return AtlasConfig{}, err
 	}
 
-	// Parse max turns
-	maxTurns := defaultMaxTurns
-	if parsed, parseErr := parseIntWithDefault(maxTurnsStr, defaultMaxTurns); parseErr == nil {
-		maxTurns = parsed
-	}
-
-	// Validate timeout format
-	if _, parseErr := time.ParseDuration(timeout); parseErr != nil {
+	// Check if API key environment variable is set and warn if not
+	if exists, warning := CheckAPIKeyExists(aiCfg.APIKeyEnvVar); !exists {
 		_, _ = fmt.Fprintln(w)
-		_, _ = fmt.Fprintln(w, styles.outdated.Render("⚠ Warning: Invalid timeout format '"+timeout+"', using default: "+defaultTimeout))
-		timeout = defaultTimeout
-	}
-
-	// Warn if API key environment variable is not set
-	if os.Getenv(apiKeyEnv) == "" {
-		_, _ = fmt.Fprintln(w)
-		_, _ = fmt.Fprintln(w, styles.outdated.Render("⚠ Warning: Environment variable "+apiKeyEnv+" is not set"))
+		_, _ = fmt.Fprintln(w, styles.outdated.Render("⚠ "+warning))
 		_, _ = fmt.Fprintln(w, styles.dim.Render("  Make sure to set it before running ATLAS tasks"))
 	}
 
 	cfg.AI = AIConfig{
-		DefaultModel:   model,
-		APIKeyEnv:      apiKeyEnv,
-		DefaultTimeout: timeout,
-		MaxTurns:       maxTurns,
+		Model:        aiCfg.Model,
+		APIKeyEnvVar: aiCfg.APIKeyEnvVar,
+		Timeout:      aiCfg.Timeout,
+		MaxTurns:     aiCfg.MaxTurns,
 	}
 
 	// Validation Commands Configuration
@@ -587,10 +542,10 @@ func buildDefaultConfig(toolResult *config.ToolDetectionResult) AtlasConfig {
 
 	return AtlasConfig{
 		AI: AIConfig{
-			DefaultModel:   defaultModel,
-			APIKeyEnv:      defaultAPIKeyEnv,
-			DefaultTimeout: defaultTimeout,
-			MaxTurns:       defaultMaxTurns,
+			Model:        defaultModel,
+			APIKeyEnvVar: defaultAPIKeyEnv,
+			Timeout:      defaultTimeout,
+			MaxTurns:     defaultMaxTurns,
 		},
 		Validation: ValidationConfig{
 			Commands: defaultCommands,
@@ -657,22 +612,16 @@ func parseMultilineInput(input string) []string {
 	return result
 }
 
-// parseIntWithDefault parses a string to int, returning a default on error.
-func parseIntWithDefault(s string, defaultVal int) (int, error) {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return defaultVal, nil
-	}
-	val, err := strconv.Atoi(s)
-	if err != nil {
-		return defaultVal, err
-	}
-	return val, nil
-}
-
 // saveConfig writes the configuration to ~/.atlas/config.yaml.
 // If a config file already exists, it creates a backup before overwriting.
 func saveConfig(cfg AtlasConfig) error {
+	return saveAtlasConfig(cfg, "Generated by atlas init")
+}
+
+// saveAtlasConfig writes the configuration to ~/.atlas/config.yaml with a custom header source.
+// This is the shared implementation used by saveConfig and saveConfigAI.
+// If a config file already exists, it creates a backup before overwriting.
+func saveAtlasConfig(cfg AtlasConfig, headerSource string) error {
 	// Get home directory
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -692,7 +641,11 @@ func saveConfig(cfg AtlasConfig) error {
 		backupPath := configPath + ".backup"
 		if copyErr := copyFile(configPath, backupPath); copyErr != nil {
 			// Log warning but continue - backup is best effort
-			_ = copyErr
+			logger := GetLogger()
+			logger.Warn().
+				Err(copyErr).
+				Str("backup_path", backupPath).
+				Msg("failed to create config backup")
 		}
 	}
 
@@ -703,8 +656,8 @@ func saveConfig(cfg AtlasConfig) error {
 	}
 
 	// Add header comment
-	header := fmt.Sprintf("# ATLAS Configuration\n# Generated by atlas init on %s\n\n",
-		time.Now().Format("2006-01-02 15:04:05"))
+	header := fmt.Sprintf("# ATLAS Configuration\n# %s on %s\n\n",
+		headerSource, time.Now().Format("2006-01-02 15:04:05"))
 	content := header + string(data)
 
 	// Write config file with restrictive permissions

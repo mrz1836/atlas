@@ -68,4 +68,22 @@ var (
 
 	// ErrCommandFailed indicates that a command execution failed.
 	ErrCommandFailed = errors.New("command failed")
+
+	// ErrConfigNotFound indicates that the configuration file was not found.
+	ErrConfigNotFound = errors.New("config file not found")
+
+	// ErrEmptyValue indicates that a required value was empty.
+	ErrEmptyValue = errors.New("value cannot be empty")
+
+	// ErrInvalidEnvVarName indicates that an environment variable name is invalid.
+	ErrInvalidEnvVarName = errors.New("invalid environment variable name")
+
+	// ErrInvalidDuration indicates that a duration format is invalid.
+	ErrInvalidDuration = errors.New("invalid duration format")
+
+	// ErrValueOutOfRange indicates that a value is outside the allowed range.
+	ErrValueOutOfRange = errors.New("value out of range")
+
+	// ErrInvalidModel indicates that an AI model name is invalid.
+	ErrInvalidModel = errors.New("invalid model")
 )
