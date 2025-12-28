@@ -50,15 +50,25 @@ type AIConfig struct {
 
 // ValidationConfig holds validation command configuration.
 type ValidationConfig struct {
-	Commands ValidationCommands `yaml:"commands"`
+	Commands          ValidationCommands                `yaml:"commands"`
+	TemplateOverrides map[string]TemplateOverrideConfig `yaml:"template_overrides,omitempty"`
 }
 
 // ValidationCommands holds the validation commands by category.
 type ValidationCommands struct {
-	Format    []string `yaml:"format"`
-	Lint      []string `yaml:"lint"`
-	Test      []string `yaml:"test"`
-	PreCommit []string `yaml:"pre_commit"`
+	Format      []string `yaml:"format"`
+	Lint        []string `yaml:"lint"`
+	Test        []string `yaml:"test"`
+	PreCommit   []string `yaml:"pre_commit"`
+	CustomPrePR []string `yaml:"custom_pre_pr,omitempty"`
+}
+
+// TemplateOverrideConfig holds per-template validation overrides.
+type TemplateOverrideConfig struct {
+	// SkipTest indicates whether to skip tests for this template type.
+	SkipTest bool `yaml:"skip_test"`
+	// SkipLint indicates whether to skip linting for this template type.
+	SkipLint bool `yaml:"skip_lint,omitempty"`
 }
 
 // NotificationConfig holds notification preferences.
@@ -444,56 +454,30 @@ func runInteractiveWizard(ctx context.Context, w io.Writer, toolResult *config.T
 		MaxTurns:     aiCfg.MaxTurns,
 	}
 
-	// Validation Commands Configuration
+	// Validation Commands Configuration using reusable functions from validation_config.go
 	_, _ = fmt.Fprintln(w)
 	_, _ = fmt.Fprintln(w, styles.info.Render("Validation Commands Configuration"))
 	_, _ = fmt.Fprintln(w, styles.dim.Render(strings.Repeat("─", 35)))
 
-	// Suggest defaults based on detected tools
-	defaultCommands := suggestValidationCommands(toolResult)
-
-	formatCmds := strings.Join(defaultCommands.Format, "\n")
-	lintCmds := strings.Join(defaultCommands.Lint, "\n")
-	testCmds := strings.Join(defaultCommands.Test, "\n")
-	preCommitCmds := strings.Join(defaultCommands.PreCommit, "\n")
-
-	valForm := huh.NewForm(
-		huh.NewGroup(
-			huh.NewText().
-				Title("Format Commands").
-				Description("Commands to run for code formatting (one per line)").
-				Value(&formatCmds).
-				Placeholder("magex format:fix"),
-			huh.NewText().
-				Title("Lint Commands").
-				Description("Commands to run for linting (one per line)").
-				Value(&lintCmds).
-				Placeholder("magex lint"),
-			huh.NewText().
-				Title("Test Commands").
-				Description("Commands to run for testing (one per line)").
-				Value(&testCmds).
-				Placeholder("magex test"),
-			huh.NewText().
-				Title("Pre-commit Commands").
-				Description("Commands to run before commits (one per line)").
-				Value(&preCommitCmds).
-				Placeholder("go-pre-commit run --all-files"),
-		),
-	).WithTheme(huh.ThemeCharm())
-
-	if err := valForm.Run(); err != nil {
+	valCfg := &ValidationProviderConfig{}
+	if err := CollectValidationConfigInteractive(ctx, valCfg, toolResult); err != nil {
 		return AtlasConfig{}, fmt.Errorf("validation configuration failed: %w", err)
 	}
 
-	cfg.Validation = ValidationConfig{
-		Commands: ValidationCommands{
-			Format:    parseMultilineInput(formatCmds),
-			Lint:      parseMultilineInput(lintCmds),
-			Test:      parseMultilineInput(testCmds),
-			PreCommit: parseMultilineInput(preCommitCmds),
-		},
+	// Validate commands and show warnings (AC5: command validation)
+	warnings := ValidateAllConfigCommands(valCfg)
+	if len(warnings) > 0 {
+		_, _ = fmt.Fprintln(w)
+		_, _ = fmt.Fprintln(w, styles.outdated.Render("⚠ Command validation warnings:"))
+		for category, categoryWarnings := range warnings {
+			for _, warning := range categoryWarnings {
+				_, _ = fmt.Fprintf(w, "  %s: %s\n", styles.info.Render(category), styles.dim.Render(warning))
+			}
+		}
+		_, _ = fmt.Fprintln(w, styles.dim.Render("  (These commands may fail when run. You can continue anyway.)"))
 	}
+
+	cfg.Validation = valCfg.ToValidationConfig()
 
 	// Notification Preferences
 	_, _ = fmt.Fprintln(w)
@@ -538,7 +522,8 @@ func runInteractiveWizard(ctx context.Context, w io.Writer, toolResult *config.T
 
 // buildDefaultConfig creates a configuration with sensible defaults.
 func buildDefaultConfig(toolResult *config.ToolDetectionResult) AtlasConfig {
-	defaultCommands := suggestValidationCommands(toolResult)
+	// Use reusable SuggestValidationDefaults from validation_config.go
+	defaultCommands := SuggestValidationDefaults(toolResult)
 
 	return AtlasConfig{
 		AI: AIConfig{
@@ -563,53 +548,15 @@ func buildDefaultConfig(toolResult *config.ToolDetectionResult) AtlasConfig {
 }
 
 // suggestValidationCommands suggests validation commands based on detected tools.
+// Deprecated: Use SuggestValidationDefaults instead for new code.
 func suggestValidationCommands(result *config.ToolDetectionResult) ValidationCommands {
-	cmds := ValidationCommands{}
-
-	hasMageX := false
-	hasGoPreCommit := false
-
-	for _, tool := range result.Tools {
-		if tool.Status == config.ToolStatusInstalled {
-			switch tool.Name {
-			case constants.ToolMageX:
-				hasMageX = true
-			case constants.ToolGoPreCommit:
-				hasGoPreCommit = true
-			}
-		}
-	}
-
-	// Set commands based on available tools
-	if hasMageX {
-		cmds.Format = []string{"magex format:fix"}
-		cmds.Lint = []string{"magex lint"}
-		cmds.Test = []string{"magex test"}
-	} else {
-		// Fallback to basic go commands
-		cmds.Format = []string{"gofmt -w ."}
-		cmds.Lint = []string{"go vet ./..."}
-		cmds.Test = []string{"go test ./..."}
-	}
-
-	if hasGoPreCommit {
-		cmds.PreCommit = []string{"go-pre-commit run --all-files"}
-	}
-
-	return cmds
+	return SuggestValidationDefaults(result)
 }
 
 // parseMultilineInput splits multiline input into a slice of strings.
+// Deprecated: Use ParseMultilineInput instead for new code.
 func parseMultilineInput(input string) []string {
-	var result []string
-	lines := strings.Split(input, "\n")
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line != "" {
-			result = append(result, line)
-		}
-	}
-	return result
+	return ParseMultilineInput(input)
 }
 
 // saveConfig writes the configuration to ~/.atlas/config.yaml.
