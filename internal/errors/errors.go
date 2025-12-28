@@ -104,4 +104,16 @@ var (
 
 	// ErrUnsupportedOutputFormat indicates that an unsupported output format was specified.
 	ErrUnsupportedOutputFormat = errors.New("unsupported output format")
+
+	// ErrWorkspaceExists indicates an attempt to create a workspace that already exists.
+	ErrWorkspaceExists = errors.New("workspace already exists")
+
+	// ErrWorkspaceNotFound indicates the requested workspace does not exist.
+	ErrWorkspaceNotFound = errors.New("workspace not found")
+
+	// ErrWorkspaceCorrupted indicates the workspace state file is corrupted or unreadable.
+	ErrWorkspaceCorrupted = errors.New("workspace state corrupted")
+
+	// ErrLockTimeout indicates a file lock could not be acquired within the timeout period.
+	ErrLockTimeout = errors.New("lock acquisition timeout")
 )
