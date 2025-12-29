@@ -99,7 +99,7 @@ development_status:
   5-6-task-abandonment-flow: done
   5-7-pre-commit-hook-integration: done
   5-8-validation-progress-and-feedback: done
-  5-9-quality-test-coverage-expansion: backlog # NEW: Comprehensive tests for Epics 1-5
+  5-9-quality-test-coverage-expansion: review # Comprehensive tests for Epics 1-5
   epic-5-retrospective: optional
 
   # Epic 6: Git & PR Automation

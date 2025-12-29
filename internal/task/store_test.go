@@ -717,3 +717,162 @@ func TestFileStore_SchemaVersion(t *testing.T) {
 		assert.Equal(t, constants.TaskSchemaVersion, retrieved.SchemaVersion)
 	})
 }
+
+// TestFileStore_releaseLock_NilFile tests that releaseLock handles nil file gracefully.
+func TestFileStore_releaseLock_NilFile(t *testing.T) {
+	store, _ := setupTestStore(t)
+
+	// Should not panic or error with nil file
+	err := store.releaseLock(nil)
+	assert.NoError(t, err)
+}
+
+// TestFileStore_atomicWrite_Success tests successful atomic write.
+func TestFileStore_atomicWrite_Success(t *testing.T) {
+	tmpDir := t.TempDir()
+	filePath := filepath.Join(tmpDir, "test-file.json")
+	data := []byte(`{"test": "data"}`)
+
+	err := atomicWrite(filePath, data)
+	require.NoError(t, err)
+
+	// Verify file exists and has correct content
+	content, err := os.ReadFile(filePath) //#nosec G304 -- test file path
+	require.NoError(t, err)
+	assert.Equal(t, data, content)
+
+	// Verify temp file is cleaned up
+	_, err = os.Stat(filePath + ".tmp")
+	assert.True(t, os.IsNotExist(err), "temp file should not exist after successful write")
+}
+
+// TestFileStore_atomicWrite_InvalidPath tests atomic write to an invalid path.
+func TestFileStore_atomicWrite_InvalidPath(t *testing.T) {
+	// Use a path that doesn't exist
+	filePath := "/nonexistent/directory/test-file.json"
+	data := []byte(`{"test": "data"}`)
+
+	err := atomicWrite(filePath, data)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to create temp file")
+}
+
+// TestFileStore_List_EmptyWorkspace tests listing tasks from an empty workspace.
+func TestFileStore_List_EmptyWorkspace(t *testing.T) {
+	store, tmpDir := setupTestStore(t)
+
+	// Create workspace tasks directory but don't add any tasks
+	wsTaskDir := filepath.Join(tmpDir, constants.WorkspacesDir, "empty-ws", constants.TasksDir)
+	require.NoError(t, os.MkdirAll(wsTaskDir, 0o750))
+
+	tasks, err := store.List(context.Background(), "empty-ws")
+	require.NoError(t, err)
+	assert.Empty(t, tasks)
+}
+
+// TestFileStore_GetArtifact_NotFound tests getting a non-existent artifact.
+func TestFileStore_GetArtifact_NotFound(t *testing.T) {
+	store, _ := setupTestStore(t)
+
+	_, err := store.GetArtifact(context.Background(), "test-ws", "nonexistent-task", "artifact.txt")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not found")
+}
+
+// TestFileStore_ListArtifacts_NoArtifacts tests listing artifacts when none exist.
+func TestFileStore_ListArtifacts_NoArtifacts(t *testing.T) {
+	store, _ := setupTestStore(t)
+
+	task := createTestTask("task-20251228-110000")
+	err := store.Create(context.Background(), "test-ws", task)
+	require.NoError(t, err)
+
+	artifacts, err := store.ListArtifacts(context.Background(), "test-ws", task.ID)
+	require.NoError(t, err)
+	assert.Empty(t, artifacts)
+}
+
+// TestFileStore_SaveArtifact_AndList tests saving and listing artifacts.
+func TestFileStore_SaveArtifact_AndList(t *testing.T) {
+	store, _ := setupTestStore(t)
+
+	task := createTestTask("task-20251228-110001")
+	err := store.Create(context.Background(), "test-ws", task)
+	require.NoError(t, err)
+
+	// Save an artifact
+	err = store.SaveArtifact(context.Background(), "test-ws", task.ID, "output.txt", []byte("test content"))
+	require.NoError(t, err)
+
+	// List artifacts
+	artifacts, err := store.ListArtifacts(context.Background(), "test-ws", task.ID)
+	require.NoError(t, err)
+	assert.Len(t, artifacts, 1)
+	assert.Equal(t, "output.txt", artifacts[0])
+
+	// Get the artifact
+	content, err := store.GetArtifact(context.Background(), "test-ws", task.ID, "output.txt")
+	require.NoError(t, err)
+	assert.Equal(t, []byte("test content"), content)
+}
+
+// TestFileStore_SaveVersionedArtifact_MultipleVersions tests saving multiple versioned artifacts.
+func TestFileStore_SaveVersionedArtifact_MultipleVersions(t *testing.T) {
+	store, _ := setupTestStore(t)
+
+	task := createTestTask("task-20251228-110002")
+	err := store.Create(context.Background(), "test-ws", task)
+	require.NoError(t, err)
+
+	// Save first version
+	path1, err := store.SaveVersionedArtifact(context.Background(), "test-ws", task.ID, "result.json", []byte("v1"))
+	require.NoError(t, err)
+	assert.Contains(t, path1, "result") // Path contains result
+
+	// Save second version - should create a new file with version suffix
+	path2, err := store.SaveVersionedArtifact(context.Background(), "test-ws", task.ID, "result.json", []byte("v2"))
+	require.NoError(t, err)
+	assert.NotEqual(t, path1, path2) // Different paths
+}
+
+// TestFileStore_AppendLog_MultipleEntries tests appending multiple entries to task logs.
+func TestFileStore_AppendLog_MultipleEntries(t *testing.T) {
+	store, tmpDir := setupTestStore(t)
+
+	task := createTestTask("task-20251228-110003")
+	err := store.Create(context.Background(), "test-ws", task)
+	require.NoError(t, err)
+
+	// Append log entries
+	err = store.AppendLog(context.Background(), "test-ws", task.ID, []byte("First entry\n"))
+	require.NoError(t, err)
+
+	err = store.AppendLog(context.Background(), "test-ws", task.ID, []byte("Second entry\n"))
+	require.NoError(t, err)
+
+	// Read the log file and verify content - log file is directly in task directory
+	logPath := filepath.Join(tmpDir, constants.WorkspacesDir, "test-ws", constants.TasksDir, task.ID, constants.TaskLogFileName)
+	content, err := os.ReadFile(logPath) //#nosec G304 -- test file path
+	require.NoError(t, err)
+	assert.Contains(t, string(content), "First entry")
+	assert.Contains(t, string(content), "Second entry")
+}
+
+// TestFileStore_Delete_NotFound tests deleting a non-existent task.
+func TestFileStore_Delete_NotFound(t *testing.T) {
+	store, _ := setupTestStore(t)
+
+	err := store.Delete(context.Background(), "test-ws", "nonexistent-task")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, atlaserrors.ErrTaskNotFound)
+}
+
+// TestFileStore_Update_NotFound tests updating a non-existent task.
+func TestFileStore_Update_NotFound(t *testing.T) {
+	store, _ := setupTestStore(t)
+
+	task := createTestTask("nonexistent-task")
+	err := store.Update(context.Background(), "test-ws", task)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, atlaserrors.ErrTaskNotFound)
+}
