@@ -15,8 +15,8 @@ import (
 	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/errors"
-	"github.com/mrz1836/atlas/internal/template/steps"
 	"github.com/mrz1836/atlas/internal/tui"
+	"github.com/mrz1836/atlas/internal/validation"
 )
 
 // AddValidateCommand adds the validate command to the root command.
@@ -80,7 +80,7 @@ func runValidate(ctx context.Context, cmd *cobra.Command, w io.Writer) error {
 		return fmt.Errorf("failed to get working directory: %w", err)
 	}
 
-	runner := &steps.DefaultCommandRunner{}
+	runner := &validation.DefaultCommandRunner{}
 	results := make([]CommandResult, 0)
 
 	// 1. Run format commands first (sequential)
@@ -133,7 +133,7 @@ func runSequentialCommands(
 	commands []string,
 	defaultCmd string,
 	workDir string,
-	runner steps.CommandRunner,
+	runner validation.CommandRunner,
 	logger zerolog.Logger,
 	out tui.Output,
 	opts UtilityOptions,
@@ -180,7 +180,7 @@ func runParallelLintAndTest(
 	ctx context.Context,
 	cfg *config.Config,
 	workDir string,
-	runner steps.CommandRunner,
+	runner validation.CommandRunner,
 	logger zerolog.Logger,
 	out tui.Output,
 	opts UtilityOptions,
@@ -225,7 +225,7 @@ func runParallelCommands(
 	cmds []string,
 	category string,
 	workDir string,
-	runner steps.CommandRunner,
+	runner validation.CommandRunner,
 	logger zerolog.Logger,
 	out tui.Output,
 	opts UtilityOptions,
