@@ -96,6 +96,11 @@ func ExitCodeForError(err error) int {
 		return ExitSuccess
 	}
 
+	// Check for our custom exit code 2 error wrapper
+	if errors.IsExitCode2Error(err) {
+		return ExitInvalidInput
+	}
+
 	// Check for our custom invalid input error
 	if stderrors.Is(err, errors.ErrInvalidOutputFormat) {
 		return ExitInvalidInput

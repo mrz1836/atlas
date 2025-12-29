@@ -185,4 +185,43 @@ var (
 
 	// ErrUnknownStepResultStatus indicates an unknown step result status was returned.
 	ErrUnknownStepResultStatus = errors.New("unknown step result status")
+
+	// ErrTemplateRequired indicates a template flag is required in non-interactive mode.
+	ErrTemplateRequired = errors.New("template flag required in non-interactive mode")
+
+	// ErrOperationCanceled indicates the user canceled an operation.
+	ErrOperationCanceled = errors.New("operation canceled by user")
+
+	// ErrResumeNotImplemented indicates the resume feature is not yet implemented.
+	ErrResumeNotImplemented = errors.New("resume not yet implemented")
+
+	// ErrUserInputRequired indicates user input is required but not provided.
+	// Commands should exit with code 2 when this error is returned.
+	ErrUserInputRequired = errors.New("user input required")
 )
+
+// ExitCode2Error wraps an error to indicate exit code 2 should be used.
+type ExitCode2Error struct {
+	Err error
+}
+
+// NewExitCode2Error wraps an error to indicate exit code 2.
+func NewExitCode2Error(err error) *ExitCode2Error {
+	return &ExitCode2Error{Err: err}
+}
+
+// Error implements the error interface.
+func (e *ExitCode2Error) Error() string {
+	return e.Err.Error()
+}
+
+// Unwrap returns the underlying error.
+func (e *ExitCode2Error) Unwrap() error {
+	return e.Err
+}
+
+// IsExitCode2Error checks if an error should result in exit code 2.
+func IsExitCode2Error(err error) bool {
+	var e *ExitCode2Error
+	return errors.As(err, &e)
+}

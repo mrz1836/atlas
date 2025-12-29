@@ -79,8 +79,8 @@ development_status:
   4-3-airunner-interface-and-claudecoderunner: done
   4-4-template-registry-and-definitions: done
   4-5-step-executor-framework: done
-  4-6-task-engine-orchestrator: review
-  4-7-implement-atlas-start-command: backlog
+  4-6-task-engine-orchestrator: done
+  4-7-implement-atlas-start-command: done
   4-8-implement-utility-commands: backlog
   4-9-speckit-sdd-integration: backlog
   epic-4-retrospective: optional

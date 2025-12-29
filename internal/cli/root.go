@@ -108,6 +108,7 @@ Features:
 	AddConfigCommand(cmd)
 	AddUpgradeCommand(cmd)
 	AddWorkspaceCommand(cmd)
+	AddStartCommand(cmd)
 
 	return cmd
 }
