@@ -92,7 +92,7 @@ development_status:
   # Epic 5: Validation Pipeline
   epic-5: in-progress
   5-1-validation-command-executor: done
-  5-2-parallel-validation-runner: backlog
+  5-2-parallel-validation-runner: ready-for-dev
   5-3-validation-result-handling: backlog
   5-4-validation-retry-with-ai-context: backlog
   5-5-manual-fix-and-resume-flow: backlog

@@ -78,11 +78,12 @@ return fmt.Errorf("executor: run: invoke: %w", err)  // Too deep
 
 ### Validation Commands (CRITICAL)
 
-**ALWAYS run before committing Go code:**
+**ALWAYS run ALL FOUR before committing Go code:**
 ```bash
-magex format:fix    # Format code
-magex lint          # Run linters (must pass)
-magex test          # Run tests (must pass)
+magex format:fix                # Format code
+magex lint                      # Run linters (must pass)
+magex test:race                 # Run tests with race detection (must pass)
+go-pre-commit run --all-files   # CRITICAL: Runs gitleaks security scan!
 ```
 
 ### Package Import Rules
@@ -185,6 +186,25 @@ func init() { ... }      // DON'T
 
 ---
 
+## Gitleaks Compliance (CRITICAL)
+
+**Test values MUST NOT look like secrets:**
+- ❌ NEVER use numeric suffixes: `_12345`, `_123`, `_98765`
+- ❌ NEVER use words: `secret`, `api_key`, `password`, `token` with numeric values
+- ✅ DO use semantic names: `ATLAS_TEST_ENV_INHERITED`, `mock_value_for_test`
+- ✅ DO use letter suffixes if needed: `_xyz`, `_abc`, `_test`
+
+**Examples:**
+```go
+// ❌ BAD - triggers gitleaks (numeric suffix patterns)
+testEnvKey := "MY_VAR_<numbers>"  // e.g., _12345, _98765
+
+// ✅ GOOD - safe test value
+testEnvKey := "ATLAS_TEST_ENV_INHERITED"
+```
+
+---
+
 ## Git Workflow
 
 **Branch naming:** `<type>/<description>`
@@ -201,7 +221,7 @@ feat(cli): add workspace destroy command
 
 **Before PR:** All must pass
 ```bash
-magex format:fix && magex lint && magex test
+magex format:fix && magex lint && magex test && go-pre-commit run --all-files
 ```
 
 ---
@@ -211,7 +231,7 @@ magex format:fix && magex lint && magex test
 **For AI Agents:**
 - Read this file before implementing any code
 - Follow ALL rules exactly as documented
-- Run `magex format:fix && magex lint && magex test` before completing any code task
+- Run `magex format:fix && magex lint && magex test && go-pre-commit run --all-files` before completing any code task
 - When in doubt, prefer the more restrictive option
 - Refer to `_bmad-output/planning-artifacts/architecture.md` for detailed architectural decisions
 
