@@ -1,6 +1,6 @@
 # Story 5.2: Parallel Validation Runner
 
-Status: ready-for-dev
+Status: done
 
 ## Story
 
@@ -43,53 +43,53 @@ So that **validation completes as quickly as possible**.
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Create `internal/validation/parallel.go` (AC: #1, #2)
-  - [ ] 1.1: Define `Runner` struct with `Executor` and config dependencies
-  - [ ] 1.2: Define `RunnerConfig` struct with command lists for format, lint, test, pre-commit
-  - [ ] 1.3: Create `NewRunner(executor *Executor, config *RunnerConfig) *Runner`
-  - [ ] 1.4: Define `PipelineResult` struct aggregating step results
+- [x] Task 1: Create `internal/validation/parallel.go` (AC: #1, #2)
+  - [x] 1.1: Define `Runner` struct with `Executor` and config dependencies
+  - [x] 1.2: Define `RunnerConfig` struct with command lists for format, lint, test, pre-commit
+  - [x] 1.3: Create `NewRunner(executor *Executor, config *RunnerConfig) *Runner`
+  - [x] 1.4: Define `PipelineResult` struct aggregating step results
 
-- [ ] Task 2: Implement `Runner.Run()` method (AC: #1, #3, #4, #5)
-  - [ ] 2.1: Accept `ctx context.Context, workDir string` parameters
-  - [ ] 2.2: Implement sequential format step first with early exit on failure
-  - [ ] 2.3: Implement parallel lint + test using `errgroup` and `sync.WaitGroup`
-  - [ ] 2.4: Implement sequential pre-commit step last
-  - [ ] 2.5: Collect all results into `PipelineResult` regardless of success/failure
-  - [ ] 2.6: Check context cancellation between major phases
+- [x] Task 2: Implement `Runner.Run()` method (AC: #1, #3, #4, #5)
+  - [x] 2.1: Accept `ctx context.Context, workDir string` parameters
+  - [x] 2.2: Implement sequential format step first with early exit on failure
+  - [x] 2.3: Implement parallel lint + test using `errgroup` and `sync.WaitGroup`
+  - [x] 2.4: Implement sequential pre-commit step last
+  - [x] 2.5: Collect all results into `PipelineResult` regardless of success/failure
+  - [x] 2.6: Check context cancellation between major phases
 
-- [ ] Task 3: Implement step execution helpers (AC: #1, #3, #4)
-  - [ ] 3.1: Create `runSequential(ctx, commands, workDir) ([]Result, error)` helper
-  - [ ] 3.2: Create `runParallel(ctx, lintCmds, testCmds, workDir) ([]Result, []Result, error)` helper
-  - [ ] 3.3: Ensure parallel runner collects all results even when one fails
+- [x] Task 3: Implement step execution helpers (AC: #1, #3, #4)
+  - [x] 3.1: Create `runSequential(ctx, commands, workDir) ([]Result, error)` helper
+  - [x] 3.2: Create `runParallel(ctx, lintCmds, testCmds, workDir) ([]Result, []Result, error)` helper
+  - [x] 3.3: Ensure parallel runner collects all results even when one fails
 
-- [ ] Task 4: Implement progress reporting (AC: #6, #7)
-  - [ ] 4.1: Add `ProgressCallback func(step string, status string)` to `RunnerConfig`
-  - [ ] 4.2: Report "starting" for each step before execution
-  - [ ] 4.3: Report "completed" or "failed" for each step after execution
-  - [ ] 4.4: Log step transitions using zerolog with structured fields
+- [x] Task 4: Implement progress reporting (AC: #6, #7)
+  - [x] 4.1: Add `ProgressCallback func(step string, status string)` to `RunnerConfig`
+  - [x] 4.2: Report "starting" for each step before execution
+  - [x] 4.3: Report "completed" or "failed" for each step after execution
+  - [x] 4.4: Log step transitions using zerolog with structured fields
 
-- [ ] Task 5: Define result types (AC: #5, #7)
-  - [ ] 5.1: Create `PipelineResult` struct in `internal/validation/result.go`
-  - [ ] 5.2: Include: Success, FormatResults, LintResults, TestResults, PreCommitResults, Duration
-  - [ ] 5.3: Add `AllResults() []Result` method for flat result list
-  - [ ] 5.4: Add `FailedStep() string` method returning first failed step name
+- [x] Task 5: Define result types (AC: #5, #7)
+  - [x] 5.1: Create `PipelineResult` struct in `internal/validation/result.go`
+  - [x] 5.2: Include: Success, FormatResults, LintResults, TestResults, PreCommitResults, Duration
+  - [x] 5.3: Add `AllResults() []Result` method for flat result list
+  - [x] 5.4: Add `FailedStep() string` method returning first failed step name
 
-- [ ] Task 6: Write comprehensive tests (AC: all)
-  - [ ] 6.1: Create `internal/validation/parallel_test.go`
-  - [ ] 6.2: Test successful full pipeline (format → lint+test → pre-commit)
-  - [ ] 6.3: Test format failure skips subsequent steps
-  - [ ] 6.4: Test lint failure during parallel phase collects test results
-  - [ ] 6.5: Test test failure during parallel phase collects lint results
-  - [ ] 6.6: Test context cancellation stops pipeline
-  - [ ] 6.7: Test progress callback is invoked for each step
-  - [ ] 6.8: Test empty command lists use defaults
-  - [ ] 6.9: Run all tests with `-race` flag
+- [x] Task 6: Write comprehensive tests (AC: all)
+  - [x] 6.1: Create `internal/validation/parallel_test.go`
+  - [x] 6.2: Test successful full pipeline (format → lint+test → pre-commit)
+  - [x] 6.3: Test format failure skips subsequent steps
+  - [x] 6.4: Test lint failure during parallel phase collects test results
+  - [x] 6.5: Test test failure during parallel phase collects lint results
+  - [x] 6.6: Test context cancellation stops pipeline
+  - [x] 6.7: Test progress callback is invoked for each step
+  - [x] 6.8: Test empty command lists use defaults
+  - [x] 6.9: Run all tests with `-race` flag
 
-- [ ] Task 7: Integrate with CLI validate command (AC: #1)
-  - [ ] 7.1: Update `internal/cli/validate.go` to use `validation.Runner`
-  - [ ] 7.2: Simplify CLI validate to delegate to `Runner.Run()`
-  - [ ] 7.3: Wire progress callback to TUI output
-  - [ ] 7.4: Ensure backward compatibility with existing behavior
+- [x] Task 7: Integrate with CLI validate command (AC: #1)
+  - [x] 7.1: Update `internal/cli/validate.go` to use `validation.Runner`
+  - [x] 7.2: Simplify CLI validate to delegate to `Runner.Run()`
+  - [x] 7.3: Wire progress callback to TUI output
+  - [x] 7.4: Ensure backward compatibility with existing behavior
 
 ## Dev Notes
 
@@ -441,10 +441,43 @@ go-pre-commit run --all-files   # CRITICAL: Runs gitleaks security scan!
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+Claude Opus 4.5 (claude-opus-4-5-20251101)
 
 ### Debug Log References
 
+N/A
+
 ### Completion Notes List
 
+- Created `internal/validation/parallel.go` with `Runner` struct, `RunnerConfig`, and `Run()` method implementing the validation pipeline
+- Pipeline execution order: Format (sequential) -> Lint+Test (parallel via errgroup) -> Pre-commit (sequential)
+- Added `PipelineResult` struct to `internal/validation/result.go` with `AllResults()` and `FailedStep()` methods
+- Implemented progress reporting via `ProgressCallback` function in `RunnerConfig`
+- Default commands automatically applied from `internal/constants/constants.go` when config is empty
+- Refactored `internal/cli/validate.go` to use `validation.Runner`, significantly simplifying the CLI code
+- Created comprehensive test suite in `internal/validation/parallel_test.go` with 22 tests covering all acceptance criteria
+- All tests pass with `-race` flag
+- All linting checks pass
+- All pre-commit hooks pass including gitleaks security scan
+
+**Code Review Fixes Applied (2025-12-29):**
+- Fixed errgroup context cancellation bug: Changed from `errgroup.WithContext` to plain `errgroup.Group` to prevent context cancellation from stopping the other goroutine before results are collected
+- Fixed JSON serialization: Changed `PipelineResult.Duration time.Duration` to `DurationMs int64` for correct millisecond serialization in JSON output
+
+### Change Log
+
+- 2025-12-29: Implemented Story 5.2 - Parallel Validation Runner
+- 2025-12-29: Code Review (AI) - Fixed 3 issues:
+  - CRITICAL: Fixed errgroup context cancellation bug that prevented collecting all parallel results (AC #4)
+  - MEDIUM: Fixed PipelineResult.Duration JSON serialization (time.Duration → int64 DurationMs)
+  - MEDIUM: Updated test assertion for DurationMs
+
 ### File List
+
+**New Files:**
+- internal/validation/parallel.go
+- internal/validation/parallel_test.go
+
+**Modified Files:**
+- internal/validation/result.go (added PipelineResult struct)
+- internal/cli/validate.go (refactored to use validation.Runner)
