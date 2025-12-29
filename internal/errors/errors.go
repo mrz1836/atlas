@@ -164,4 +164,19 @@ var (
 
 	// ErrInvalidTransition indicates an attempt to make an invalid state transition.
 	ErrInvalidTransition = errors.New("invalid state transition")
+
+	// ErrTemplateNotFound indicates the requested template does not exist in the registry.
+	ErrTemplateNotFound = errors.New("template not found")
+
+	// ErrTemplateNil indicates a nil template was provided.
+	ErrTemplateNil = errors.New("template cannot be nil")
+
+	// ErrTemplateNameEmpty indicates a template has an empty name.
+	ErrTemplateNameEmpty = errors.New("template name is required")
+
+	// ErrTemplateDuplicate indicates a template with the same name already exists.
+	ErrTemplateDuplicate = errors.New("template already registered")
+
+	// ErrVariableRequired indicates a required template variable was not provided.
+	ErrVariableRequired = errors.New("required variable not provided")
 )
