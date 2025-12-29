@@ -109,6 +109,10 @@ Features:
 	AddUpgradeCommand(cmd)
 	AddWorkspaceCommand(cmd)
 	AddStartCommand(cmd)
+	AddValidateCommand(cmd)
+	AddFormatCommand(cmd)
+	AddLintCommand(cmd)
+	AddTestCommand(cmd)
 
 	return cmd
 }

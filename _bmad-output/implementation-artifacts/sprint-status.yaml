@@ -81,7 +81,7 @@ development_status:
   4-5-step-executor-framework: done
   4-6-task-engine-orchestrator: done
   4-7-implement-atlas-start-command: done
-  4-8-implement-utility-commands: backlog
+  4-8-implement-utility-commands: done
   4-9-speckit-sdd-integration: backlog
   epic-4-retrospective: optional
 
