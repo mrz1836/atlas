@@ -77,7 +77,7 @@ development_status:
   4-1-task-data-model-and-store: done
   4-2-task-state-machine: done
   4-3-airunner-interface-and-claudecoderunner: done
-  4-4-template-registry-and-definitions: backlog
+  4-4-template-registry-and-definitions: done
   4-5-step-executor-framework: backlog
   4-6-task-engine-orchestrator: backlog
   4-7-implement-atlas-start-command: backlog
