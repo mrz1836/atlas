@@ -268,6 +268,65 @@ func (e *Engine) HandleStepResult(ctx context.Context, task *domain.Task, result
 	}
 }
 
+// Abandon terminates a task that is in an error state.
+// The task is transitioned to Abandoned status, preserving all artifacts
+// and the workspace worktree for manual work.
+//
+// Parameters:
+//   - ctx: Context for cancellation support
+//   - task: The task to abandon (must be in an abandonable state)
+//   - reason: Explanation for the abandonment
+//
+// Returns an error if:
+//   - ctx is canceled
+//   - task is nil
+//   - task is not in an abandonable state
+//   - state persistence fails
+func (e *Engine) Abandon(ctx context.Context, task *domain.Task, reason string) error {
+	// Check for cancellation
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
+	// Validate task is not nil
+	if task == nil {
+		return fmt.Errorf("%w: task is nil", atlaserrors.ErrInvalidTransition)
+	}
+
+	log := e.logger.With().
+		Str("task_id", task.ID).
+		Str("workspace_name", task.WorkspaceID).
+		Str("current_status", task.Status.String()).
+		Logger()
+
+	// Validate task can be abandoned
+	if !CanAbandon(task.Status) {
+		log.Warn().Msg("task not in abandonable state")
+		return fmt.Errorf("%w: task status %s cannot be abandoned",
+			atlaserrors.ErrInvalidTransition, task.Status)
+	}
+
+	// Transition to abandoned
+	if err := Transition(ctx, task, constants.TaskStatusAbandoned, reason); err != nil {
+		log.Error().Err(err).Msg("failed to transition task to abandoned")
+		return err
+	}
+
+	// Save task state (artifacts and logs are preserved by default - we just save, never delete)
+	if err := e.store.Update(ctx, task.WorkspaceID, task); err != nil {
+		log.Error().Err(err).Msg("failed to save abandoned task")
+		return fmt.Errorf("failed to save task: %w", err)
+	}
+
+	log.Info().
+		Str("reason", reason).
+		Msg("task abandoned successfully")
+
+	return nil
+}
+
 // executeStepInternal executes a step without modifying task state.
 // This is safe for concurrent execution in parallel step groups.
 func (e *Engine) executeStepInternal(ctx context.Context, task *domain.Task, step *domain.StepDefinition) (*domain.StepResult, error) {

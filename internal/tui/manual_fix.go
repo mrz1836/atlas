@@ -70,12 +70,14 @@ func DisplayManualFixInstructions(output Output, task *domain.Task, workspace *d
 		sb.WriteString("\n")
 	}
 
-	sb.WriteString("📝 Instructions:\n")
+	sb.WriteString("📝 Next Steps:\n")
 	sb.WriteString("   1. Navigate to the worktree path above\n")
 	sb.WriteString("   2. Fix the validation errors shown\n")
 	sb.WriteString("   3. Run the resume command below\n\n")
 
-	sb.WriteString(fmt.Sprintf("▶ Resume Command:\n   %s\n", info.ResumeCommand))
+	sb.WriteString(fmt.Sprintf("▶ Resume Command:\n   %s\n\n", info.ResumeCommand))
+
+	sb.WriteString(fmt.Sprintf("💡 Alternatively, to abandon the task and preserve the worktree for manual work:\n   atlas abandon %s\n", info.WorkspaceName))
 
 	output.Info(sb.String())
 }

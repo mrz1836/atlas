@@ -110,6 +110,7 @@ Features:
 	AddWorkspaceCommand(cmd)
 	AddStartCommand(cmd)
 	AddResumeCommand(cmd)
+	AddAbandonCommand(cmd)
 	AddValidateCommand(cmd)
 	AddFormatCommand(cmd)
 	AddLintCommand(cmd)

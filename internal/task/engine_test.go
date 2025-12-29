@@ -3364,3 +3364,237 @@ func (s *contextCancellingStore) Update(ctx context.Context, workspaceName strin
 	}
 	return s.mockStore.Update(ctx, workspaceName, task)
 }
+
+// TestEngine_Abandon_Success tests successful task abandonment.
+func TestEngine_Abandon_Success(t *testing.T) {
+	ctx := context.Background()
+
+	store := newMockStore()
+	engine := NewEngine(store, nil, DefaultEngineConfig(), testLogger())
+
+	// Create a task in validation_failed state
+	task := &domain.Task{
+		ID:          "task-abandon-test",
+		WorkspaceID: "test-workspace",
+		Status:      constants.TaskStatusValidationFailed,
+		CurrentStep: 1,
+		Steps: []domain.Step{
+			{Name: "step1", Status: "completed"},
+			{Name: "step2", Status: "failed"},
+		},
+		Metadata: map[string]any{
+			"last_error": "validation failed: some error",
+		},
+		Transitions: []domain.Transition{},
+	}
+	store.tasks[task.ID] = task
+
+	err := engine.Abandon(ctx, task, "User requested abandonment")
+
+	require.NoError(t, err)
+	assert.Equal(t, constants.TaskStatusAbandoned, task.Status)
+	assert.NotNil(t, task.CompletedAt) // Terminal state sets CompletedAt
+	assert.Len(t, task.Transitions, 1)
+	assert.Equal(t, constants.TaskStatusValidationFailed, task.Transitions[0].FromStatus)
+	assert.Equal(t, constants.TaskStatusAbandoned, task.Transitions[0].ToStatus)
+	assert.Equal(t, "User requested abandonment", task.Transitions[0].Reason)
+}
+
+// TestEngine_Abandon_FromGHFailed tests abandonment from gh_failed state.
+func TestEngine_Abandon_FromGHFailed(t *testing.T) {
+	ctx := context.Background()
+
+	store := newMockStore()
+	engine := NewEngine(store, nil, DefaultEngineConfig(), testLogger())
+
+	task := &domain.Task{
+		ID:          "task-gh-fail",
+		WorkspaceID: "test-workspace",
+		Status:      constants.TaskStatusGHFailed,
+		Steps:       []domain.Step{{Name: "git-push", Status: "failed"}},
+		Transitions: []domain.Transition{},
+	}
+	store.tasks[task.ID] = task
+
+	err := engine.Abandon(ctx, task, "PR creation failed")
+
+	require.NoError(t, err)
+	assert.Equal(t, constants.TaskStatusAbandoned, task.Status)
+}
+
+// TestEngine_Abandon_FromCIFailed tests abandonment from ci_failed state.
+func TestEngine_Abandon_FromCIFailed(t *testing.T) {
+	ctx := context.Background()
+
+	store := newMockStore()
+	engine := NewEngine(store, nil, DefaultEngineConfig(), testLogger())
+
+	task := &domain.Task{
+		ID:          "task-ci-fail",
+		WorkspaceID: "test-workspace",
+		Status:      constants.TaskStatusCIFailed,
+		Steps:       []domain.Step{{Name: "ci-check", Status: "failed"}},
+		Transitions: []domain.Transition{},
+	}
+	store.tasks[task.ID] = task
+
+	err := engine.Abandon(ctx, task, "CI tests failed repeatedly")
+
+	require.NoError(t, err)
+	assert.Equal(t, constants.TaskStatusAbandoned, task.Status)
+}
+
+// TestEngine_Abandon_FromCITimeout tests abandonment from ci_timeout state.
+func TestEngine_Abandon_FromCITimeout(t *testing.T) {
+	ctx := context.Background()
+
+	store := newMockStore()
+	engine := NewEngine(store, nil, DefaultEngineConfig(), testLogger())
+
+	task := &domain.Task{
+		ID:          "task-ci-timeout",
+		WorkspaceID: "test-workspace",
+		Status:      constants.TaskStatusCITimeout,
+		Steps:       []domain.Step{{Name: "ci-wait", Status: "failed"}},
+		Transitions: []domain.Transition{},
+	}
+	store.tasks[task.ID] = task
+
+	err := engine.Abandon(ctx, task, "CI timed out")
+
+	require.NoError(t, err)
+	assert.Equal(t, constants.TaskStatusAbandoned, task.Status)
+}
+
+// TestEngine_Abandon_RejectsNonAbandonableState tests that non-abandonable states are rejected.
+func TestEngine_Abandon_RejectsNonAbandonableState(t *testing.T) {
+	tests := []struct {
+		name   string
+		status constants.TaskStatus
+	}{
+		{"running", constants.TaskStatusRunning},
+		{"pending", constants.TaskStatusPending},
+		{"validating", constants.TaskStatusValidating},
+		{"awaiting_approval", constants.TaskStatusAwaitingApproval},
+		{"completed", constants.TaskStatusCompleted},
+		{"rejected", constants.TaskStatusRejected},
+		{"abandoned", constants.TaskStatusAbandoned},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+
+			store := newMockStore()
+			engine := NewEngine(store, nil, DefaultEngineConfig(), testLogger())
+
+			originalStatus := tc.status
+			task := &domain.Task{
+				ID:          "task-test",
+				WorkspaceID: "test-workspace",
+				Status:      tc.status,
+				Transitions: []domain.Transition{},
+			}
+			store.tasks[task.ID] = task
+
+			err := engine.Abandon(ctx, task, "trying to abandon")
+
+			require.Error(t, err)
+			require.ErrorIs(t, err, atlaserrors.ErrInvalidTransition)
+			assert.Equal(t, originalStatus, task.Status) // Status unchanged from original
+		})
+	}
+}
+
+// TestEngine_Abandon_NilTask tests abandonment with nil task.
+func TestEngine_Abandon_NilTask(t *testing.T) {
+	ctx := context.Background()
+
+	store := newMockStore()
+	engine := NewEngine(store, nil, DefaultEngineConfig(), testLogger())
+
+	err := engine.Abandon(ctx, nil, "abandon nil task")
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, atlaserrors.ErrInvalidTransition)
+}
+
+// TestEngine_Abandon_ContextCanceled tests context cancellation during abandon.
+func TestEngine_Abandon_ContextCanceled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately
+
+	store := newMockStore()
+	engine := NewEngine(store, nil, DefaultEngineConfig(), testLogger())
+
+	task := &domain.Task{
+		ID:          "task-cancel-test",
+		WorkspaceID: "test-workspace",
+		Status:      constants.TaskStatusValidationFailed,
+		Transitions: []domain.Transition{},
+	}
+	store.tasks[task.ID] = task
+
+	err := engine.Abandon(ctx, task, "abandoning")
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, context.Canceled)
+}
+
+// TestEngine_Abandon_StoreFails tests when store fails during abandon.
+func TestEngine_Abandon_StoreFails(t *testing.T) {
+	ctx := context.Background()
+
+	store := newMockStore()
+	store.updateErr = atlaserrors.ErrWorkspaceNotFound // Simulate store failure
+	engine := NewEngine(store, nil, DefaultEngineConfig(), testLogger())
+
+	task := &domain.Task{
+		ID:          "task-store-fail",
+		WorkspaceID: "test-workspace",
+		Status:      constants.TaskStatusValidationFailed,
+		Transitions: []domain.Transition{},
+	}
+	store.tasks[task.ID] = task
+
+	err := engine.Abandon(ctx, task, "abandoning")
+
+	require.Error(t, err)
+	require.ErrorIs(t, err, atlaserrors.ErrWorkspaceNotFound)
+	// Task is still transitioned in memory, but save failed
+	assert.Equal(t, constants.TaskStatusAbandoned, task.Status)
+}
+
+// TestEngine_Abandon_PreservesMetadata tests that abandonment preserves task metadata.
+func TestEngine_Abandon_PreservesMetadata(t *testing.T) {
+	ctx := context.Background()
+
+	store := newMockStore()
+	engine := NewEngine(store, nil, DefaultEngineConfig(), testLogger())
+
+	task := &domain.Task{
+		ID:          "task-metadata-test",
+		WorkspaceID: "test-workspace",
+		Status:      constants.TaskStatusValidationFailed,
+		Steps: []domain.Step{
+			{Name: "step1", Status: "completed", Attempts: 1},
+			{Name: "step2", Status: "failed", Attempts: 3},
+		},
+		Metadata: map[string]any{
+			"last_error":    "validation failed: lint errors",
+			"retry_context": "Previous attempts: 3",
+		},
+		Transitions: []domain.Transition{},
+	}
+	store.tasks[task.ID] = task
+
+	err := engine.Abandon(ctx, task, "giving up after 3 retries")
+
+	require.NoError(t, err)
+	// Metadata should be preserved
+	assert.Equal(t, "validation failed: lint errors", task.Metadata["last_error"])
+	assert.Equal(t, "Previous attempts: 3", task.Metadata["retry_context"])
+	// Steps should be preserved
+	assert.Len(t, task.Steps, 2)
+	assert.Equal(t, 3, task.Steps[1].Attempts)
+}
