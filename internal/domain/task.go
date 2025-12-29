@@ -187,6 +187,12 @@ type StepResult struct {
 
 	// ArtifactPath points to any output artifacts (logs, reports, etc.).
 	ArtifactPath string `json:"artifact_path,omitempty"`
+
+	// SessionID identifies the AI session for debugging (AI steps only).
+	SessionID string `json:"session_id,omitempty"`
+
+	// NumTurns is how many conversation turns occurred (AI steps only).
+	NumTurns int `json:"num_turns,omitempty"`
 }
 
 // Transition records a state change for audit trail.

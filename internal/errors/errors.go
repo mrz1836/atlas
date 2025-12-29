@@ -179,4 +179,7 @@ var (
 
 	// ErrVariableRequired indicates a required template variable was not provided.
 	ErrVariableRequired = errors.New("required variable not provided")
+
+	// ErrExecutorNotFound indicates no executor is registered for the given step type.
+	ErrExecutorNotFound = errors.New("executor not found for step type")
 )
