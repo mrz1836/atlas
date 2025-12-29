@@ -4,7 +4,6 @@ package steps
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -22,10 +21,13 @@ type CommandRunner = validation.CommandRunner
 type DefaultCommandRunner = validation.DefaultCommandRunner
 
 // ValidationExecutor handles validation steps.
-// It runs configured validation commands in order and captures their output.
+// It runs configured validation commands using the parallel pipeline runner
+// and captures their output. Results can optionally be saved as artifacts.
 type ValidationExecutor struct {
-	workDir string
-	runner  validation.CommandRunner
+	workDir       string
+	runner        validation.CommandRunner
+	artifactSaver ArtifactSaver
+	notifier      Notifier
 }
 
 // NewValidationExecutor creates a new validation executor.
@@ -45,10 +47,39 @@ func NewValidationExecutorWithRunner(workDir string, runner validation.CommandRu
 	}
 }
 
-// Execute runs validation commands.
+// NewValidationExecutorWithDeps creates a validation executor with full dependencies.
+// The artifactSaver and notifier may be nil if those features are not needed.
+func NewValidationExecutorWithDeps(workDir string, artifactSaver ArtifactSaver, notifier Notifier) *ValidationExecutor {
+	return &ValidationExecutor{
+		workDir:       workDir,
+		runner:        &validation.DefaultCommandRunner{},
+		artifactSaver: artifactSaver,
+		notifier:      notifier,
+	}
+}
+
+// NewValidationExecutorWithAll creates a validation executor with all dependencies including custom runner.
+// This is primarily used for testing.
+func NewValidationExecutorWithAll(workDir string, runner validation.CommandRunner, artifactSaver ArtifactSaver, notifier Notifier) *ValidationExecutor {
+	return &ValidationExecutor{
+		workDir:       workDir,
+		runner:        runner,
+		artifactSaver: artifactSaver,
+		notifier:      notifier,
+	}
+}
+
+// Execute runs validation commands using the parallel pipeline runner.
 // Commands are retrieved from task.Config.ValidationCommands.
 // If no commands are configured, default commands are used.
-// Execution stops on the first failure.
+//
+// The execution order is:
+// 1. Format (sequential, first)
+// 2. Lint + Test (parallel)
+// 3. Pre-commit (sequential, last)
+//
+// Results are saved as versioned artifacts if an ArtifactSaver is configured.
+// Bell notifications are emitted on failure if a Notifier is configured.
 func (e *ValidationExecutor) Execute(ctx context.Context, task *domain.Task, step *domain.StepDefinition) (*domain.StepResult, error) {
 	// Check for cancellation
 	select {
@@ -66,35 +97,43 @@ func (e *ValidationExecutor) Execute(ctx context.Context, task *domain.Task, ste
 
 	startTime := time.Now()
 
-	// Get validation commands from task config or use defaults
-	commands := task.Config.ValidationCommands
-	if len(commands) == 0 {
-		commands = []string{"magex format:fix", "magex lint", "magex test"}
-	}
+	// Build runner config from task config
+	config := e.buildRunnerConfig(task)
 
 	log.Debug().
-		Strs("commands", commands).
+		Strs("format_commands", config.FormatCommands).
+		Strs("lint_commands", config.LintCommands).
+		Strs("test_commands", config.TestCommands).
+		Strs("pre_commit_commands", config.PreCommitCommands).
 		Str("work_dir", e.workDir).
-		Msg("running validation commands")
+		Msg("running validation pipeline")
 
-	// Use validation.Executor to run commands with proper timeout handling
+	// Create executor and runner for parallel pipeline execution
 	executor := validation.NewExecutorWithRunner(validation.DefaultTimeout, e.runner)
-	results, execErr := executor.Run(ctx, commands, e.workDir)
+	runner := validation.NewRunner(executor, config)
 
-	// Build output from results
+	// Execute the pipeline
+	pipelineResult, pipelineErr := runner.Run(ctx, e.workDir)
+
+	// Build output from pipeline results
 	var output bytes.Buffer
-	for _, result := range results {
-		writeResultOutput(&output, result, log)
-	}
+	output.WriteString(validation.FormatResult(pipelineResult))
 
 	elapsed := time.Since(startTime)
 
+	// Handle result (save artifact, emit notification)
+	if err := e.handlePipelineResult(ctx, task, pipelineResult, log); err != nil {
+		log.Warn().Err(err).Msg("failed to handle pipeline result (artifact/notification)")
+		// Don't fail the step for artifact save failures
+	}
+
 	// Handle execution error (validation failed or context canceled)
-	if execErr != nil {
+	if pipelineErr != nil {
 		log.Error().
 			Str("task_id", task.ID).
 			Str("step_name", step.Name).
-			Err(execErr).
+			Str("failed_step", pipelineResult.FailedStepName).
+			Err(pipelineErr).
 			Dur("duration_ms", elapsed).
 			Msg("validation step failed")
 
@@ -106,14 +145,14 @@ func (e *ValidationExecutor) Execute(ctx context.Context, task *domain.Task, ste
 			CompletedAt: time.Now(),
 			DurationMs:  elapsed.Milliseconds(),
 			Output:      output.String(),
-			Error:       execErr.Error(),
-		}, execErr
+			Error:       pipelineErr.Error(),
+		}, pipelineErr
 	}
 
 	log.Info().
 		Str("task_id", task.ID).
 		Str("step_name", step.Name).
-		Int("commands_run", len(commands)).
+		Int64("pipeline_duration_ms", pipelineResult.DurationMs).
 		Dur("duration_ms", elapsed).
 		Msg("validation step completed")
 
@@ -133,24 +172,58 @@ func (e *ValidationExecutor) Type() domain.StepType {
 	return domain.StepTypeValidation
 }
 
-// writeResultOutput formats a single validation result and writes it to the output buffer.
-func writeResultOutput(output *bytes.Buffer, result validation.Result, log *zerolog.Logger) {
-	if result.Success {
-		fmt.Fprintf(output, "✓ %s\n", result.Command)
-		if result.Stdout != "" {
-			log.Debug().
-				Str("command", result.Command).
-				Str("output", result.Stdout).
-				Msg("command output")
-		}
-		return
+// buildRunnerConfig creates a RunnerConfig from task config.
+func (e *ValidationExecutor) buildRunnerConfig(task *domain.Task) *validation.RunnerConfig {
+	config := &validation.RunnerConfig{}
+
+	// If task has explicit validation commands, use them for lint step
+	// (maintaining backward compatibility with older task configs)
+	if len(task.Config.ValidationCommands) > 0 {
+		config.LintCommands = task.Config.ValidationCommands
 	}
 
-	fmt.Fprintf(output, "✗ Command failed: %s (exit code: %d)\n", result.Command, result.ExitCode)
-	if result.Stdout != "" {
-		fmt.Fprintf(output, "stdout:\n%s\n", result.Stdout)
+	return config
+}
+
+// handlePipelineResult saves the result as an artifact and emits notifications.
+func (e *ValidationExecutor) handlePipelineResult(ctx context.Context, task *domain.Task, result *validation.PipelineResult, log *zerolog.Logger) error {
+	if e.artifactSaver == nil {
+		return nil
 	}
-	if result.Stderr != "" {
-		fmt.Fprintf(output, "stderr:\n%s\n", result.Stderr)
+
+	// Create result handler with our dependencies
+	// The validation.ResultHandler accepts validation.ArtifactSaver and validation.Notifier
+	// Our ArtifactSaver and Notifier interfaces have the same signatures, so we can adapt them
+	handler := validation.NewResultHandler(
+		&artifactSaverAdapter{e.artifactSaver},
+		&notifierAdapter{e.notifier},
+		*log,
+	)
+
+	return handler.HandleResult(ctx, task.WorkspaceID, task.ID, result)
+}
+
+// artifactSaverAdapter adapts steps.ArtifactSaver to validation.ArtifactSaver.
+type artifactSaverAdapter struct {
+	saver ArtifactSaver
+}
+
+// SaveVersionedArtifact implements validation.ArtifactSaver.
+func (a *artifactSaverAdapter) SaveVersionedArtifact(ctx context.Context, workspaceName, taskID, baseName string, data []byte) (string, error) {
+	if a.saver == nil {
+		return "", nil
+	}
+	return a.saver.SaveVersionedArtifact(ctx, workspaceName, taskID, baseName, data)
+}
+
+// notifierAdapter adapts steps.Notifier to validation.Notifier.
+type notifierAdapter struct {
+	notifier Notifier
+}
+
+// Bell implements validation.Notifier.
+func (n *notifierAdapter) Bell() {
+	if n.notifier != nil {
+		n.notifier.Bell()
 	}
 }

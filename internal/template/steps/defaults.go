@@ -2,8 +2,25 @@
 package steps
 
 import (
+	"context"
+
 	"github.com/mrz1836/atlas/internal/ai"
 )
+
+// ArtifactSaver abstracts artifact persistence for validation results.
+// This interface matches task.Store.SaveVersionedArtifact and
+// validation.ArtifactSaver, allowing the validation step executor to
+// save artifacts without direct dependency on the task package.
+type ArtifactSaver interface {
+	SaveVersionedArtifact(ctx context.Context, workspaceName, taskID, baseName string, data []byte) (string, error)
+}
+
+// Notifier abstracts user notifications.
+// This interface matches tui.Notifier, allowing the validation step
+// executor to emit notifications without direct dependency on tui.
+type Notifier interface {
+	Bell()
+}
 
 // ExecutorDeps holds dependencies for creating executors.
 // Use this to inject dependencies when creating the default registry.
@@ -16,6 +33,14 @@ type ExecutorDeps struct {
 
 	// ArtifactsDir is where SDD artifacts are saved.
 	ArtifactsDir string
+
+	// ArtifactSaver is used to save validation result artifacts.
+	// If nil, artifact saving is skipped.
+	ArtifactSaver ArtifactSaver
+
+	// Notifier is used for user notifications (e.g., terminal bell).
+	// If nil, notifications are skipped.
+	Notifier Notifier
 }
 
 // NewDefaultRegistry creates a registry with all built-in executors.
@@ -28,8 +53,8 @@ func NewDefaultRegistry(deps ExecutorDeps) *ExecutorRegistry {
 		r.Register(NewAIExecutor(deps.AIRunner))
 	}
 
-	// Register validation executor
-	r.Register(NewValidationExecutor(deps.WorkDir))
+	// Register validation executor with optional artifact saving and notifications
+	r.Register(NewValidationExecutorWithDeps(deps.WorkDir, deps.ArtifactSaver, deps.Notifier))
 
 	// Register git executor (placeholder for Epic 6)
 	r.Register(NewGitExecutor(deps.WorkDir))
