@@ -6,14 +6,10 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"sync"
 
-	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
-	"golang.org/x/sync/errgroup"
 
 	"github.com/mrz1836/atlas/internal/config"
-	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/errors"
 	"github.com/mrz1836/atlas/internal/tui"
 	"github.com/mrz1836/atlas/internal/validation"
@@ -61,11 +57,6 @@ func runValidate(ctx context.Context, cmd *cobra.Command, w io.Writer) error {
 	tui.CheckNoColor()
 
 	out := tui.NewOutput(w, outputFormat)
-	opts := UtilityOptions{
-		Verbose:      verbose,
-		OutputFormat: outputFormat,
-		Writer:       w,
-	}
 
 	// Load config
 	cfg, err := config.Load(ctx)
@@ -80,180 +71,109 @@ func runValidate(ctx context.Context, cmd *cobra.Command, w io.Writer) error {
 		return fmt.Errorf("failed to get working directory: %w", err)
 	}
 
-	runner := &validation.DefaultCommandRunner{}
-	results := make([]CommandResult, 0)
-
-	// 1. Run format commands first (sequential)
-	formatResults, err := runSequentialCommands(ctx, cfg.Validation.Commands.Format, constants.DefaultFormatCommand, workDir, runner, logger, out, opts, "format")
-	if err != nil {
-		results = append(results, formatResults...)
-		return handleValidationFailure(out, outputFormat, results)
+	// Create executor and runner
+	executor := validation.NewExecutor(cfg.Validation.Timeout)
+	runnerConfig := &validation.RunnerConfig{
+		FormatCommands:    cfg.Validation.Commands.Format,
+		LintCommands:      cfg.Validation.Commands.Lint,
+		TestCommands:      cfg.Validation.Commands.Test,
+		PreCommitCommands: cfg.Validation.Commands.PreCommit,
 	}
-	results = append(results, formatResults...)
-	out.Success("Format passed")
+	runner := validation.NewRunner(executor, runnerConfig)
 
-	// 2. Run lint and test in parallel
-	lintTestResults, err := runParallelLintAndTest(ctx, cfg, workDir, runner, logger, out, opts)
-	if err != nil {
-		results = append(results, lintTestResults...)
-		return handleValidationFailure(out, outputFormat, results)
-	}
-	results = append(results, lintTestResults...)
-	out.Success("Lint passed")
-	out.Success("Test passed")
+	// Set up progress callback for TUI output
+	runner.SetProgressCallback(func(step, status string) {
+		switch status {
+		case "starting":
+			out.Info(fmt.Sprintf("Running %s...", step))
+		case "completed":
+			out.Success(fmt.Sprintf("%s passed", capitalizeStep(step)))
+		case "failed":
+			// Error will be reported later with details
+			if verbose {
+				out.Info(fmt.Sprintf("%s failed", capitalizeStep(step)))
+			}
+		}
+	})
 
-	// 3. Run pre-commit commands (sequential)
-	preCommitCmds := cfg.Validation.Commands.PreCommit
-	if len(preCommitCmds) == 0 {
-		preCommitCmds = []string{constants.DefaultPreCommitCommand}
-	}
-	preCommitResults, err := runSequentialCommands(ctx, preCommitCmds, "", workDir, runner, logger, out, opts, "pre-commit")
-	if err != nil {
-		results = append(results, preCommitResults...)
-		return handleValidationFailure(out, outputFormat, results)
-	}
-	results = append(results, preCommitResults...)
-	out.Success("Pre-commit passed")
+	// Run the validation pipeline
+	result, err := runner.Run(ctx, workDir)
 
-	// All passed
+	// Handle JSON output
 	if outputFormat == OutputJSON {
-		return out.JSON(ValidationResponse{
-			Success: true,
-			Results: results,
-		})
+		return out.JSON(pipelineResultToResponse(result))
+	}
+
+	// Handle error
+	if err != nil {
+		return handlePipelineFailure(out, result)
 	}
 
 	out.Success("All validations passed!")
 	return nil
 }
 
-// runSequentialCommands executes commands sequentially, returning results and error.
-func runSequentialCommands(
-	ctx context.Context,
-	commands []string,
-	defaultCmd string,
-	workDir string,
-	runner validation.CommandRunner,
-	logger zerolog.Logger,
-	out tui.Output,
-	opts UtilityOptions,
-	label string,
-) ([]CommandResult, error) {
-	cmds := commands
-	if len(cmds) == 0 && defaultCmd != "" {
-		cmds = []string{defaultCmd}
+// capitalizeStep formats step names for display.
+func capitalizeStep(step string) string {
+	switch step {
+	case "format":
+		return "Format"
+	case "lint":
+		return "Lint"
+	case "test":
+		return "Test"
+	case "pre-commit":
+		return "Pre-commit"
+	default:
+		return step
 	}
-
-	if len(cmds) == 0 {
-		return nil, nil
-	}
-
-	out.Info(fmt.Sprintf("Running %s...", label))
-	results := make([]CommandResult, 0, len(cmds))
-
-	for _, cmdStr := range cmds {
-		select {
-		case <-ctx.Done():
-			return results, ctx.Err()
-		default:
-		}
-
-		// Show command being executed in verbose mode
-		if opts.Verbose {
-			out.Info(fmt.Sprintf("⏳ Running: %s", cmdStr))
-		}
-
-		result := runSingleCommand(ctx, runner, workDir, cmdStr, logger)
-		results = append(results, result)
-		showVerboseOutput(opts, result)
-
-		if !result.Success {
-			return results, fmt.Errorf("%w: %s command %s", errors.ErrValidationFailed, label, cmdStr)
-		}
-	}
-
-	return results, nil
 }
 
-// runParallelLintAndTest runs lint and test commands in parallel.
-func runParallelLintAndTest(
-	ctx context.Context,
-	cfg *config.Config,
-	workDir string,
-	runner validation.CommandRunner,
-	logger zerolog.Logger,
-	out tui.Output,
-	opts UtilityOptions,
-) ([]CommandResult, error) {
-	lintCmds := cfg.Validation.Commands.Lint
-	if len(lintCmds) == 0 {
-		lintCmds = []string{constants.DefaultLintCommand}
+// pipelineResultToResponse converts PipelineResult to ValidationResponse for JSON output.
+func pipelineResultToResponse(result *validation.PipelineResult) ValidationResponse {
+	if result == nil {
+		return ValidationResponse{Success: false}
 	}
 
-	testCmds := cfg.Validation.Commands.Test
-	if len(testCmds) == 0 {
-		testCmds = []string{constants.DefaultTestCommand}
+	allResults := result.AllResults()
+	cliResults := make([]CommandResult, 0, len(allResults))
+	for _, r := range allResults {
+		cliResults = append(cliResults, CommandResult{
+			Command:    r.Command,
+			Success:    r.Success,
+			ExitCode:   r.ExitCode,
+			Output:     r.Stdout,
+			Error:      r.Error,
+			DurationMs: r.DurationMs,
+		})
 	}
 
-	g, gCtx := errgroup.WithContext(ctx)
-	var lintResults, testResults []CommandResult
-	var lintMu, testMu sync.Mutex
-
-	g.Go(func() error {
-		return runParallelCommands(gCtx, lintCmds, "lint", workDir, runner, logger, out, opts, &lintResults, &lintMu)
-	})
-
-	g.Go(func() error {
-		return runParallelCommands(gCtx, testCmds, "test", workDir, runner, logger, out, opts, &testResults, &testMu)
-	})
-
-	allResults := make([]CommandResult, 0)
-	if err := g.Wait(); err != nil {
-		allResults = append(allResults, lintResults...)
-		allResults = append(allResults, testResults...)
-		return allResults, err
+	return ValidationResponse{
+		Success: result.Success,
+		Results: cliResults,
 	}
-
-	allResults = append(allResults, lintResults...)
-	allResults = append(allResults, testResults...)
-	return allResults, nil
 }
 
-// runParallelCommands runs commands for a category in a goroutine-safe manner.
-func runParallelCommands(
-	ctx context.Context,
-	cmds []string,
-	category string,
-	workDir string,
-	runner validation.CommandRunner,
-	logger zerolog.Logger,
-	out tui.Output,
-	opts UtilityOptions,
-	results *[]CommandResult,
-	mu *sync.Mutex,
-) error {
-	out.Info(fmt.Sprintf("Running %s...", category))
-	for _, cmdStr := range cmds {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
+// handlePipelineFailure handles validation pipeline failure output.
+func handlePipelineFailure(out tui.Output, result *validation.PipelineResult) error {
+	if result == nil {
+		return errors.ErrValidationFailed
+	}
 
-		if opts.Verbose {
-			out.Info(fmt.Sprintf("⏳ Running: %s", cmdStr))
-		}
-
-		result := runSingleCommand(ctx, runner, workDir, cmdStr, logger)
-		mu.Lock()
-		*results = append(*results, result)
-		mu.Unlock()
-
-		showVerboseOutput(opts, result)
-
-		if !result.Success {
-			return fmt.Errorf("%w: %s command %s", errors.ErrValidationFailed, category, cmdStr)
+	// Find the failed result and display error details
+	allResults := result.AllResults()
+	for _, r := range allResults {
+		if !r.Success {
+			out.Error(fmt.Errorf("%w: %s (exit code: %d)", errors.ErrValidationFailed, r.Command, r.ExitCode))
+			if r.Error != "" {
+				out.Info(r.Error)
+			}
+			if r.Stderr != "" && r.Stderr != r.Error {
+				out.Info(r.Stderr)
+			}
+			break
 		}
 	}
-	return nil
+
+	return errors.ErrValidationFailed
 }
