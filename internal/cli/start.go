@@ -18,6 +18,7 @@ import (
 	"golang.org/x/term"
 
 	"github.com/mrz1836/atlas/internal/config"
+	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/domain"
 	"github.com/mrz1836/atlas/internal/errors"
 	"github.com/mrz1836/atlas/internal/task"
@@ -618,6 +619,11 @@ func displayTaskStatus(out tui.Output, format string, ws *domain.Workspace, t *d
 
 	if execErr != nil {
 		out.Warning(fmt.Sprintf("Execution paused: %s", execErr.Error()))
+
+		// Display manual fix instructions for validation failures
+		if t.Status == constants.TaskStatusValidationFailed {
+			tui.DisplayManualFixInstructions(out, t, ws)
+		}
 	}
 
 	return nil

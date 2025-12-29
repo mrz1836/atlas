@@ -16,7 +16,7 @@ type Notifier struct {
 
 // NewNotifier creates a notifier with the given settings.
 // It writes to os.Stdout by default.
-func NewNotifier(bellEnabled bool, quiet bool) *Notifier {
+func NewNotifier(bellEnabled, quiet bool) *Notifier {
 	return &Notifier{
 		bellEnabled: bellEnabled,
 		quiet:       quiet,
@@ -26,7 +26,7 @@ func NewNotifier(bellEnabled bool, quiet bool) *Notifier {
 
 // NewNotifierWithWriter creates a notifier with a custom writer.
 // This is useful for testing.
-func NewNotifierWithWriter(bellEnabled bool, quiet bool, w io.Writer) *Notifier {
+func NewNotifierWithWriter(bellEnabled, quiet bool, w io.Writer) *Notifier {
 	return &Notifier{
 		bellEnabled: bellEnabled,
 		quiet:       quiet,
