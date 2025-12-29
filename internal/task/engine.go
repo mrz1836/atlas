@@ -258,9 +258,7 @@ func (e *Engine) HandleStepResult(ctx context.Context, task *domain.Task, result
 
 	case "failed":
 		// Store error context for retry (FR25)
-		task.Metadata = e.ensureMetadata(task.Metadata)
-		task.Metadata["last_error"] = result.Error
-		task.Metadata["retry_context"] = e.buildRetryContext(task, result)
+		e.setErrorMetadata(task, step.Name, result.Error)
 
 		// Map step type to error status with valid transition path
 		return e.transitionToErrorState(ctx, task, step.Type, result.Error)
@@ -321,55 +319,88 @@ func (e *Engine) executeStepInternal(ctx context.Context, task *domain.Task, ste
 	return result, nil
 }
 
+// executeCurrentStep executes the step at task.CurrentStep and returns the result.
+// It does not modify task state beyond what ExecuteStep does (step status, attempts, timing).
+func (e *Engine) executeCurrentStep(ctx context.Context, task *domain.Task, template *domain.Template) (*domain.StepResult, error) {
+	step := &template.Steps[task.CurrentStep]
+	return e.ExecuteStep(ctx, task, step)
+}
+
+// processStepResult handles the result of a step execution.
+// It delegates to HandleStepResult and saves state on error.
+func (e *Engine) processStepResult(ctx context.Context, task *domain.Task, result *domain.StepResult, step *domain.StepDefinition) error {
+	if err := e.HandleStepResult(ctx, task, result, step); err != nil {
+		// Save state before returning error (best-effort, log if fails)
+		if saveErr := e.store.Update(ctx, task.WorkspaceID, task); saveErr != nil {
+			e.logger.Warn().
+				Err(saveErr).
+				Str("task_id", task.ID).
+				Msg("failed to save task state during error handling")
+		}
+		return err
+	}
+	return nil
+}
+
+// advanceToNextStep increments the step counter, updates timestamp, and saves a checkpoint.
+func (e *Engine) advanceToNextStep(ctx context.Context, task *domain.Task) error {
+	task.CurrentStep++
+	task.UpdatedAt = time.Now().UTC()
+
+	// Save checkpoint
+	if err := e.store.Update(ctx, task.WorkspaceID, task); err != nil {
+		return fmt.Errorf("failed to save checkpoint: %w", err)
+	}
+	return nil
+}
+
+// saveAndPause saves the task state and logs that the task is paused.
+func (e *Engine) saveAndPause(ctx context.Context, task *domain.Task) error {
+	if err := e.store.Update(ctx, task.WorkspaceID, task); err != nil {
+		return fmt.Errorf("failed to save checkpoint: %w", err)
+	}
+	e.logger.Info().
+		Str("task_id", task.ID).
+		Str("status", string(task.Status)).
+		Msg("task paused")
+	return nil
+}
+
 // runSteps executes template steps in order, saving state after each.
 // It checks for context cancellation between steps and pauses on
 // awaiting approval or error states.
+//
+// This is a simple orchestration loop that delegates to focused helpers:
+// - executeCurrentStep: executes the current step
+// - processStepResult: handles the step result
+// - saveAndPause: saves state when pausing
+// - advanceToNextStep: increments step counter and checkpoints
 func (e *Engine) runSteps(ctx context.Context, task *domain.Task, template *domain.Template) error {
 	for task.CurrentStep < len(template.Steps) {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
+		if err := ctx.Err(); err != nil {
+			return err
 		}
 
 		step := &template.Steps[task.CurrentStep]
 
-		result, err := e.ExecuteStep(ctx, task, step)
+		result, err := e.executeCurrentStep(ctx, task, template)
 		if err != nil {
-			// Handle step execution error
 			return e.handleStepError(ctx, task, step, err)
 		}
 
-		if err := e.HandleStepResult(ctx, task, result, step); err != nil {
-			// Save state before returning error
-			_ = e.store.Update(ctx, task.WorkspaceID, task)
+		if err := e.processStepResult(ctx, task, result, step); err != nil {
 			return err
 		}
 
-		// Check if we should pause (human step, error state)
 		if e.shouldPause(task) {
-			// Save state
-			if err := e.store.Update(ctx, task.WorkspaceID, task); err != nil {
-				return fmt.Errorf("failed to save checkpoint: %w", err)
-			}
-			e.logger.Info().
-				Str("task_id", task.ID).
-				Str("status", string(task.Status)).
-				Msg("task paused")
-			return nil
+			return e.saveAndPause(ctx, task)
 		}
 
-		// Advance to next step
-		task.CurrentStep++
-		task.UpdatedAt = time.Now().UTC()
-
-		// Save checkpoint
-		if err := e.store.Update(ctx, task.WorkspaceID, task); err != nil {
-			return fmt.Errorf("failed to save checkpoint: %w", err)
+		if err := e.advanceToNextStep(ctx, task); err != nil {
+			return err
 		}
 	}
 
-	// All steps completed - transition to final state
 	return e.completeTask(ctx, task)
 }
 
@@ -378,6 +409,18 @@ func (e *Engine) runSteps(ctx context.Context, task *domain.Task, template *doma
 func (e *Engine) shouldPause(task *domain.Task) bool {
 	return task.Status == constants.TaskStatusAwaitingApproval ||
 		IsErrorStatus(task.Status)
+}
+
+// setErrorMetadata sets consistent error context in task metadata for retry (FR25).
+// This consolidates error metadata setting that was previously duplicated in
+// handleStepError and HandleStepResult.
+func (e *Engine) setErrorMetadata(task *domain.Task, stepName, errMsg string) {
+	task.Metadata = e.ensureMetadata(task.Metadata)
+	task.Metadata["last_error"] = errMsg
+	task.Metadata["retry_context"] = e.buildRetryContext(task, &domain.StepResult{
+		StepName: stepName,
+		Error:    errMsg,
+	})
 }
 
 // handleStepError handles an error from step execution.
@@ -398,12 +441,7 @@ func (e *Engine) handleStepError(ctx context.Context, task *domain.Task, step *d
 	}
 
 	// Store error context for retry (FR25)
-	task.Metadata = e.ensureMetadata(task.Metadata)
-	task.Metadata["last_error"] = err.Error()
-	task.Metadata["retry_context"] = e.buildRetryContext(task, &domain.StepResult{
-		StepName: step.Name,
-		Error:    err.Error(),
-	})
+	e.setErrorMetadata(task, step.Name, err.Error())
 
 	// Transition to error state following valid path
 	if transErr := e.transitionToErrorState(ctx, task, step.Type, err.Error()); transErr != nil {
@@ -465,46 +503,25 @@ func (e *Engine) mapStepTypeToErrorStatus(stepType domain.StepType) constants.Ta
 	return constants.TaskStatusValidationFailed
 }
 
+// requiresValidatingIntermediate returns true if transitioning to ValidationFailed
+// requires going through Validating first (from Running state).
+func (e *Engine) requiresValidatingIntermediate(currentStatus, targetStatus constants.TaskStatus) bool {
+	return currentStatus == constants.TaskStatusRunning &&
+		targetStatus == constants.TaskStatusValidationFailed
+}
+
 // transitionToErrorState transitions the task to the appropriate error state
 // following valid state machine paths.
 func (e *Engine) transitionToErrorState(ctx context.Context, task *domain.Task, stepType domain.StepType, reason string) error {
 	targetStatus := e.mapStepTypeToErrorStatus(stepType)
 
-	// Handle based on current task status
-	switch task.Status {
-	case constants.TaskStatusRunning:
-		// From Running, we can go directly to GHFailed, CIFailed, CITimeout
-		// but for ValidationFailed we need to go through Validating first
-		if targetStatus == constants.TaskStatusValidationFailed {
-			// Running -> Validating -> ValidationFailed
-			if err := Transition(ctx, task, constants.TaskStatusValidating, "validation step failed"); err != nil {
-				return err
-			}
-			return Transition(ctx, task, constants.TaskStatusValidationFailed, reason)
+	// From Running, ValidationFailed requires intermediate Validating state
+	if e.requiresValidatingIntermediate(task.Status, targetStatus) {
+		if err := Transition(ctx, task, constants.TaskStatusValidating, "step failed"); err != nil {
+			return err
 		}
-		// Direct transition for git/CI errors
-		return Transition(ctx, task, targetStatus, reason)
-
-	case constants.TaskStatusValidating:
-		// From Validating, we can go to ValidationFailed or AwaitingApproval
-		if targetStatus == constants.TaskStatusValidationFailed {
-			return Transition(ctx, task, constants.TaskStatusValidationFailed, reason)
-		}
-		// Fall through to direct attempt
-
-	case constants.TaskStatusPending,
-		constants.TaskStatusValidationFailed,
-		constants.TaskStatusAwaitingApproval,
-		constants.TaskStatusCompleted,
-		constants.TaskStatusRejected,
-		constants.TaskStatusAbandoned,
-		constants.TaskStatusGHFailed,
-		constants.TaskStatusCIFailed,
-		constants.TaskStatusCITimeout:
-		// These states don't have standard error paths - try direct transition
 	}
 
-	// Fallback: try direct transition (will fail if invalid)
 	return Transition(ctx, task, targetStatus, reason)
 }
 

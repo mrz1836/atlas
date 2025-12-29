@@ -1408,6 +1408,364 @@ type callbackExecutor struct {
 	callback func(ctx context.Context) (*domain.StepResult, error)
 }
 
+// ============================================================================
+// Unit Tests for Extracted Helper Functions (Tech Debt Refactoring)
+// ============================================================================
+
+// TestEngine_executeCurrentStep tests the executeCurrentStep helper.
+func TestEngine_executeCurrentStep(t *testing.T) {
+	t.Run("executes_step_at_current_index", func(t *testing.T) {
+		ctx := context.Background()
+
+		store := newMockStore()
+		registry := steps.NewExecutorRegistry()
+		registry.Register(&mockExecutor{
+			stepType: domain.StepTypeAI,
+			result:   &domain.StepResult{Status: "success"},
+		})
+
+		engine := NewEngine(store, registry, DefaultEngineConfig(), testLogger())
+
+		task := &domain.Task{
+			ID:          "task-123",
+			WorkspaceID: "test",
+			CurrentStep: 1,
+			Steps: []domain.Step{
+				{Name: "step0", Type: domain.StepTypeAI},
+				{Name: "step1", Type: domain.StepTypeAI},
+				{Name: "step2", Type: domain.StepTypeAI},
+			},
+		}
+
+		template := &domain.Template{
+			Name: "test",
+			Steps: []domain.StepDefinition{
+				{Name: "step0", Type: domain.StepTypeAI},
+				{Name: "step1", Type: domain.StepTypeAI},
+				{Name: "step2", Type: domain.StepTypeAI},
+			},
+		}
+
+		result, err := engine.executeCurrentStep(ctx, task, template)
+
+		require.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.Equal(t, "step1", result.StepName)
+	})
+
+	t.Run("returns_error_when_executor_fails", func(t *testing.T) {
+		ctx := context.Background()
+
+		store := newMockStore()
+		registry := steps.NewExecutorRegistry()
+		registry.Register(&failingExecutor{
+			stepType: domain.StepTypeAI,
+			err:      atlaserrors.ErrClaudeInvocation,
+		})
+
+		engine := NewEngine(store, registry, DefaultEngineConfig(), testLogger())
+
+		task := &domain.Task{
+			ID:          "task-123",
+			WorkspaceID: "test",
+			CurrentStep: 0,
+			Steps:       []domain.Step{{Name: "step0", Type: domain.StepTypeAI}},
+		}
+
+		template := &domain.Template{
+			Name:  "test",
+			Steps: []domain.StepDefinition{{Name: "step0", Type: domain.StepTypeAI}},
+		}
+
+		result, err := engine.executeCurrentStep(ctx, task, template)
+
+		require.Error(t, err)
+		assert.Nil(t, result)
+		assert.ErrorIs(t, err, atlaserrors.ErrClaudeInvocation)
+	})
+}
+
+// TestEngine_processStepResult tests the processStepResult helper.
+func TestEngine_processStepResult(t *testing.T) {
+	t.Run("success_result_returns_nil", func(t *testing.T) {
+		ctx := context.Background()
+
+		store := newMockStore()
+		registry := steps.NewExecutorRegistry()
+		engine := NewEngine(store, registry, DefaultEngineConfig(), testLogger())
+
+		task := &domain.Task{
+			ID:          "task-123",
+			WorkspaceID: "test",
+			Status:      constants.TaskStatusRunning,
+			CurrentStep: 0,
+			Steps:       []domain.Step{{Name: "step0", Type: domain.StepTypeAI, Status: "running"}},
+			StepResults: []domain.StepResult{},
+		}
+
+		result := &domain.StepResult{
+			StepName:    "step0",
+			Status:      "success",
+			CompletedAt: time.Now().UTC(),
+		}
+		step := &domain.StepDefinition{Name: "step0", Type: domain.StepTypeAI}
+
+		err := engine.processStepResult(ctx, task, result, step)
+
+		require.NoError(t, err)
+		assert.Len(t, task.StepResults, 1)
+	})
+
+	t.Run("failed_result_transitions_to_error_state", func(t *testing.T) {
+		ctx := context.Background()
+
+		store := newMockStore()
+		registry := steps.NewExecutorRegistry()
+		engine := NewEngine(store, registry, DefaultEngineConfig(), testLogger())
+
+		task := &domain.Task{
+			ID:          "task-123",
+			WorkspaceID: "test",
+			Status:      constants.TaskStatusRunning,
+			CurrentStep: 0,
+			Steps:       []domain.Step{{Name: "step0", Type: domain.StepTypeGit, Status: "running"}},
+			StepResults: []domain.StepResult{},
+			Transitions: []domain.Transition{},
+		}
+		store.tasks[task.ID] = task
+
+		result := &domain.StepResult{
+			StepName:    "step0",
+			Status:      "failed",
+			Error:       "git push failed",
+			CompletedAt: time.Now().UTC(),
+		}
+		step := &domain.StepDefinition{Name: "step0", Type: domain.StepTypeGit}
+
+		err := engine.processStepResult(ctx, task, result, step)
+
+		// HandleStepResult returns nil for failed status (successful transition)
+		require.NoError(t, err)
+		// Task should be in error state
+		assert.Equal(t, constants.TaskStatusGHFailed, task.Status)
+		// Result should be appended
+		assert.Len(t, task.StepResults, 1)
+	})
+
+	t.Run("logs_warning_when_store_update_fails", func(t *testing.T) {
+		ctx := context.Background()
+
+		store := newMockStore()
+		store.updateErr = atlaserrors.ErrLockTimeout
+		registry := steps.NewExecutorRegistry()
+		engine := NewEngine(store, registry, DefaultEngineConfig(), testLogger())
+
+		task := &domain.Task{
+			ID:          "task-123",
+			WorkspaceID: "test",
+			Status:      constants.TaskStatusRunning,
+			CurrentStep: 0,
+			Steps:       []domain.Step{{Name: "step0", Type: domain.StepTypeHuman, Status: "running"}},
+			StepResults: []domain.StepResult{},
+			Transitions: []domain.Transition{},
+		}
+
+		result := &domain.StepResult{
+			StepName:    "step0",
+			Status:      "awaiting_approval",
+			CompletedAt: time.Now().UTC(),
+		}
+		step := &domain.StepDefinition{Name: "step0", Type: domain.StepTypeHuman}
+
+		err := engine.processStepResult(ctx, task, result, step)
+
+		// Should still return nil (store error is logged, not returned)
+		require.NoError(t, err)
+	})
+}
+
+// TestEngine_advanceToNextStep tests the advanceToNextStep helper.
+func TestEngine_advanceToNextStep(t *testing.T) {
+	t.Run("increments_step_and_saves_checkpoint", func(t *testing.T) {
+		ctx := context.Background()
+
+		store := newMockStore()
+		registry := steps.NewExecutorRegistry()
+		engine := NewEngine(store, registry, DefaultEngineConfig(), testLogger())
+
+		task := &domain.Task{
+			ID:          "task-123",
+			WorkspaceID: "test",
+			CurrentStep: 0,
+			UpdatedAt:   time.Now().Add(-1 * time.Hour).UTC(),
+		}
+		store.tasks[task.ID] = task
+		oldUpdatedAt := task.UpdatedAt
+
+		err := engine.advanceToNextStep(ctx, task)
+
+		require.NoError(t, err)
+		assert.Equal(t, 1, task.CurrentStep)
+		assert.True(t, task.UpdatedAt.After(oldUpdatedAt))
+		assert.Equal(t, 1, store.updateCalls)
+	})
+
+	t.Run("returns_error_when_store_fails", func(t *testing.T) {
+		ctx := context.Background()
+
+		store := newMockStore()
+		store.updateErr = atlaserrors.ErrLockTimeout
+		registry := steps.NewExecutorRegistry()
+		engine := NewEngine(store, registry, DefaultEngineConfig(), testLogger())
+
+		task := &domain.Task{
+			ID:          "task-123",
+			WorkspaceID: "test",
+			CurrentStep: 0,
+		}
+
+		err := engine.advanceToNextStep(ctx, task)
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to save checkpoint")
+	})
+}
+
+// TestEngine_saveAndPause tests the saveAndPause helper.
+func TestEngine_saveAndPause(t *testing.T) {
+	t.Run("saves_state_and_returns_nil", func(t *testing.T) {
+		ctx := context.Background()
+
+		store := newMockStore()
+		registry := steps.NewExecutorRegistry()
+		engine := NewEngine(store, registry, DefaultEngineConfig(), testLogger())
+
+		task := &domain.Task{
+			ID:          "task-123",
+			WorkspaceID: "test",
+			Status:      constants.TaskStatusAwaitingApproval,
+		}
+		store.tasks[task.ID] = task
+
+		err := engine.saveAndPause(ctx, task)
+
+		require.NoError(t, err)
+		assert.Equal(t, 1, store.updateCalls)
+	})
+
+	t.Run("returns_error_when_store_fails", func(t *testing.T) {
+		ctx := context.Background()
+
+		store := newMockStore()
+		store.updateErr = atlaserrors.ErrLockTimeout
+		registry := steps.NewExecutorRegistry()
+		engine := NewEngine(store, registry, DefaultEngineConfig(), testLogger())
+
+		task := &domain.Task{
+			ID:          "task-123",
+			WorkspaceID: "test",
+			Status:      constants.TaskStatusAwaitingApproval,
+		}
+
+		err := engine.saveAndPause(ctx, task)
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to save checkpoint")
+	})
+}
+
+// TestEngine_setErrorMetadata tests the setErrorMetadata helper.
+func TestEngine_setErrorMetadata(t *testing.T) {
+	t.Run("sets_error_metadata_on_nil_metadata", func(t *testing.T) {
+		store := newMockStore()
+		registry := steps.NewExecutorRegistry()
+		engine := NewEngine(store, registry, DefaultEngineConfig(), testLogger())
+
+		task := &domain.Task{
+			ID:          "task-123",
+			WorkspaceID: "test",
+			CurrentStep: 2,
+			Metadata:    nil,
+		}
+
+		engine.setErrorMetadata(task, "failing-step", "something went wrong")
+
+		require.NotNil(t, task.Metadata)
+		assert.Equal(t, "something went wrong", task.Metadata["last_error"])
+		assert.Contains(t, task.Metadata["retry_context"], "failing-step")
+	})
+
+	t.Run("preserves_existing_metadata", func(t *testing.T) {
+		store := newMockStore()
+		registry := steps.NewExecutorRegistry()
+		engine := NewEngine(store, registry, DefaultEngineConfig(), testLogger())
+
+		task := &domain.Task{
+			ID:          "task-123",
+			WorkspaceID: "test",
+			CurrentStep: 1,
+			Metadata:    map[string]any{"custom_key": "custom_value"},
+		}
+
+		engine.setErrorMetadata(task, "step1", "error message")
+
+		assert.Equal(t, "custom_value", task.Metadata["custom_key"])
+		assert.Equal(t, "error message", task.Metadata["last_error"])
+	})
+}
+
+// TestEngine_requiresValidatingIntermediate tests the requiresValidatingIntermediate helper.
+func TestEngine_requiresValidatingIntermediate(t *testing.T) {
+	store := newMockStore()
+	registry := steps.NewExecutorRegistry()
+	engine := NewEngine(store, registry, DefaultEngineConfig(), testLogger())
+
+	testCases := []struct {
+		name           string
+		currentStatus  constants.TaskStatus
+		targetStatus   constants.TaskStatus
+		expectedResult bool
+	}{
+		{
+			name:           "running_to_validation_failed_requires_intermediate",
+			currentStatus:  constants.TaskStatusRunning,
+			targetStatus:   constants.TaskStatusValidationFailed,
+			expectedResult: true,
+		},
+		{
+			name:           "running_to_gh_failed_no_intermediate",
+			currentStatus:  constants.TaskStatusRunning,
+			targetStatus:   constants.TaskStatusGHFailed,
+			expectedResult: false,
+		},
+		{
+			name:           "running_to_ci_failed_no_intermediate",
+			currentStatus:  constants.TaskStatusRunning,
+			targetStatus:   constants.TaskStatusCIFailed,
+			expectedResult: false,
+		},
+		{
+			name:           "validating_to_validation_failed_no_intermediate",
+			currentStatus:  constants.TaskStatusValidating,
+			targetStatus:   constants.TaskStatusValidationFailed,
+			expectedResult: false,
+		},
+		{
+			name:           "pending_to_validation_failed_no_intermediate",
+			currentStatus:  constants.TaskStatusPending,
+			targetStatus:   constants.TaskStatusValidationFailed,
+			expectedResult: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := engine.requiresValidatingIntermediate(tc.currentStatus, tc.targetStatus)
+			assert.Equal(t, tc.expectedResult, result)
+		})
+	}
+}
+
 func (e *callbackExecutor) Execute(ctx context.Context, _ *domain.Task, step *domain.StepDefinition) (*domain.StepResult, error) {
 	result, err := e.callback(ctx)
 	if err != nil {
