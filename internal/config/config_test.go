@@ -34,6 +34,8 @@ func TestDefaultConfig_ReturnsValidConfig(t *testing.T) {
 	// Verify Validation defaults
 	assert.Equal(t, 5*time.Minute, cfg.Validation.Timeout, "default validation timeout")
 	assert.True(t, cfg.Validation.ParallelExecution, "default parallel execution")
+	assert.True(t, cfg.Validation.AIRetryEnabled, "default AI retry enabled")
+	assert.Equal(t, 3, cfg.Validation.MaxAIRetryAttempts, "default max AI retry attempts")
 
 	// Verify Notifications defaults
 	assert.True(t, cfg.Notifications.Bell, "default bell notification")
@@ -79,8 +81,10 @@ func TestConfig_YAMLSerialization(t *testing.T) {
 				Test:      []string{"magex test"},
 				PreCommit: []string{"go-pre-commit run --all-files"},
 			},
-			Timeout:           10 * time.Minute,
-			ParallelExecution: false,
+			Timeout:            10 * time.Minute,
+			ParallelExecution:  false,
+			AIRetryEnabled:     true,
+			MaxAIRetryAttempts: 5,
 		},
 		Notifications: NotificationsConfig{
 			Bell:   false,
@@ -120,6 +124,8 @@ func TestConfig_YAMLSerialization(t *testing.T) {
 	assert.Equal(t, original.Validation.Commands, restored.Validation.Commands)
 	assert.Equal(t, original.Validation.Timeout, restored.Validation.Timeout)
 	assert.Equal(t, original.Validation.ParallelExecution, restored.Validation.ParallelExecution)
+	assert.Equal(t, original.Validation.AIRetryEnabled, restored.Validation.AIRetryEnabled)
+	assert.Equal(t, original.Validation.MaxAIRetryAttempts, restored.Validation.MaxAIRetryAttempts)
 
 	assert.Equal(t, original.Notifications.Bell, restored.Notifications.Bell)
 	assert.Equal(t, original.Notifications.Events, restored.Notifications.Events)
@@ -199,6 +205,21 @@ func TestValidate_InvalidValues(t *testing.T) {
 			},
 			wantErrMsg: "validation.timeout must be positive",
 		},
+		{
+			name: "negative max AI retry attempts",
+			modify: func(c *Config) {
+				c.Validation.MaxAIRetryAttempts = -1
+			},
+			wantErrMsg: "validation.max_ai_retry_attempts cannot be negative",
+		},
+		{
+			name: "zero max AI retry attempts when enabled",
+			modify: func(c *Config) {
+				c.Validation.AIRetryEnabled = true
+				c.Validation.MaxAIRetryAttempts = 0
+			},
+			wantErrMsg: "validation.max_ai_retry_attempts must be at least 1",
+		},
 	}
 
 	for _, tt := range tests {
@@ -249,6 +270,20 @@ func TestValidate_ValidConfig(t *testing.T) {
 			name: "custom base branch",
 			modify: func(c *Config) {
 				c.Git.BaseBranch = "master"
+			},
+		},
+		{
+			name: "AI retry disabled with zero attempts allowed",
+			modify: func(c *Config) {
+				c.Validation.AIRetryEnabled = false
+				c.Validation.MaxAIRetryAttempts = 0
+			},
+		},
+		{
+			name: "AI retry with custom max attempts",
+			modify: func(c *Config) {
+				c.Validation.AIRetryEnabled = true
+				c.Validation.MaxAIRetryAttempts = 5
 			},
 		},
 	}

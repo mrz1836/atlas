@@ -23,11 +23,13 @@ type DefaultCommandRunner = validation.DefaultCommandRunner
 // ValidationExecutor handles validation steps.
 // It runs configured validation commands using the parallel pipeline runner
 // and captures their output. Results can optionally be saved as artifacts.
+// When retry is configured, failed validation results include retry context.
 type ValidationExecutor struct {
 	workDir       string
 	runner        validation.CommandRunner
 	artifactSaver ArtifactSaver
 	notifier      Notifier
+	retryHandler  RetryHandler
 }
 
 // NewValidationExecutor creates a new validation executor.
@@ -48,24 +50,26 @@ func NewValidationExecutorWithRunner(workDir string, runner validation.CommandRu
 }
 
 // NewValidationExecutorWithDeps creates a validation executor with full dependencies.
-// The artifactSaver and notifier may be nil if those features are not needed.
-func NewValidationExecutorWithDeps(workDir string, artifactSaver ArtifactSaver, notifier Notifier) *ValidationExecutor {
+// The artifactSaver, notifier, and retryHandler may be nil if those features are not needed.
+func NewValidationExecutorWithDeps(workDir string, artifactSaver ArtifactSaver, notifier Notifier, retryHandler RetryHandler) *ValidationExecutor {
 	return &ValidationExecutor{
 		workDir:       workDir,
 		runner:        &validation.DefaultCommandRunner{},
 		artifactSaver: artifactSaver,
 		notifier:      notifier,
+		retryHandler:  retryHandler,
 	}
 }
 
 // NewValidationExecutorWithAll creates a validation executor with all dependencies including custom runner.
 // This is primarily used for testing.
-func NewValidationExecutorWithAll(workDir string, runner validation.CommandRunner, artifactSaver ArtifactSaver, notifier Notifier) *ValidationExecutor {
+func NewValidationExecutorWithAll(workDir string, runner validation.CommandRunner, artifactSaver ArtifactSaver, notifier Notifier, retryHandler RetryHandler) *ValidationExecutor {
 	return &ValidationExecutor{
 		workDir:       workDir,
 		runner:        runner,
 		artifactSaver: artifactSaver,
 		notifier:      notifier,
+		retryHandler:  retryHandler,
 	}
 }
 
@@ -170,6 +174,32 @@ func (e *ValidationExecutor) Execute(ctx context.Context, task *domain.Task, ste
 // Type returns the step type this executor handles.
 func (e *ValidationExecutor) Type() domain.StepType {
 	return domain.StepTypeValidation
+}
+
+// CanRetry checks if the validation executor can perform AI-assisted retry.
+// Returns true if retry is configured and within attempt limits.
+func (e *ValidationExecutor) CanRetry(attemptNum int) bool {
+	if e.retryHandler == nil {
+		return false
+	}
+	return e.retryHandler.CanRetry(attemptNum)
+}
+
+// RetryEnabled returns whether AI retry is enabled for this executor.
+func (e *ValidationExecutor) RetryEnabled() bool {
+	if e.retryHandler == nil {
+		return false
+	}
+	return e.retryHandler.IsEnabled()
+}
+
+// MaxRetryAttempts returns the maximum number of retry attempts allowed.
+// Returns 0 if retry is not configured.
+func (e *ValidationExecutor) MaxRetryAttempts() int {
+	if e.retryHandler == nil {
+		return 0
+	}
+	return e.retryHandler.MaxAttempts()
 }
 
 // buildRunnerConfig creates a RunnerConfig from task config.

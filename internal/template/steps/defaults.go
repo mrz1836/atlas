@@ -22,6 +22,16 @@ type Notifier interface {
 	Bell()
 }
 
+// RetryHandler abstracts retry operations for validation.
+// This interface matches validation.RetryHandler, allowing the validation
+// step executor to perform AI-assisted retries without direct dependency
+// on the validation package's concrete type.
+type RetryHandler interface {
+	CanRetry(attemptNum int) bool
+	MaxAttempts() int
+	IsEnabled() bool
+}
+
 // ExecutorDeps holds dependencies for creating executors.
 // Use this to inject dependencies when creating the default registry.
 type ExecutorDeps struct {
@@ -41,6 +51,10 @@ type ExecutorDeps struct {
 	// Notifier is used for user notifications (e.g., terminal bell).
 	// If nil, notifications are skipped.
 	Notifier Notifier
+
+	// RetryHandler is used for AI-assisted validation retry.
+	// If nil, retry capability is not available.
+	RetryHandler RetryHandler
 }
 
 // NewDefaultRegistry creates a registry with all built-in executors.
@@ -53,8 +67,8 @@ func NewDefaultRegistry(deps ExecutorDeps) *ExecutorRegistry {
 		r.Register(NewAIExecutor(deps.AIRunner))
 	}
 
-	// Register validation executor with optional artifact saving and notifications
-	r.Register(NewValidationExecutorWithDeps(deps.WorkDir, deps.ArtifactSaver, deps.Notifier))
+	// Register validation executor with optional artifact saving, notifications, and retry
+	r.Register(NewValidationExecutorWithDeps(deps.WorkDir, deps.ArtifactSaver, deps.Notifier, deps.RetryHandler))
 
 	// Register git executor (placeholder for Epic 6)
 	r.Register(NewGitExecutor(deps.WorkDir))

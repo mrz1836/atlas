@@ -280,7 +280,7 @@ func TestValidationExecutor_Execute_WithArtifactSaver(t *testing.T) {
 		},
 	}
 
-	executor := NewValidationExecutorWithAll("/tmp/work", runner, mockSaver, nil)
+	executor := NewValidationExecutorWithAll("/tmp/work", runner, mockSaver, nil, nil)
 
 	task := &domain.Task{
 		ID:          "task-123",
@@ -311,7 +311,7 @@ func TestValidationExecutor_Execute_WithNotifier(t *testing.T) {
 	// Need artifact saver for the handler to be created
 	mockSaver := &mockArtifactSaver{}
 
-	executor := NewValidationExecutorWithAll("/tmp/work", runner, mockSaver, mockNotifier)
+	executor := NewValidationExecutorWithAll("/tmp/work", runner, mockSaver, mockNotifier, nil)
 
 	task := &domain.Task{
 		ID:          "task-123",
@@ -346,4 +346,71 @@ type mockStepsNotifier struct {
 
 func (m *mockStepsNotifier) Bell() {
 	m.bellCalled = true
+}
+
+// mockRetryHandler for testing.
+type mockRetryHandler struct {
+	enabled     bool
+	maxAttempts int
+}
+
+func (m *mockRetryHandler) CanRetry(attemptNum int) bool {
+	return m.enabled && attemptNum <= m.maxAttempts
+}
+
+func (m *mockRetryHandler) MaxAttempts() int {
+	return m.maxAttempts
+}
+
+func (m *mockRetryHandler) IsEnabled() bool {
+	return m.enabled
+}
+
+func TestValidationExecutor_CanRetry_WithHandler(t *testing.T) {
+	retryHandler := &mockRetryHandler{enabled: true, maxAttempts: 3}
+	executor := NewValidationExecutorWithAll("/tmp/work", nil, nil, nil, retryHandler)
+
+	assert.True(t, executor.CanRetry(1))
+	assert.True(t, executor.CanRetry(2))
+	assert.True(t, executor.CanRetry(3))
+	assert.False(t, executor.CanRetry(4))
+}
+
+func TestValidationExecutor_CanRetry_WithoutHandler(t *testing.T) {
+	executor := NewValidationExecutor("/tmp/work")
+
+	assert.False(t, executor.CanRetry(1))
+}
+
+func TestValidationExecutor_RetryEnabled_WithHandler(t *testing.T) {
+	retryHandler := &mockRetryHandler{enabled: true, maxAttempts: 3}
+	executor := NewValidationExecutorWithAll("/tmp/work", nil, nil, nil, retryHandler)
+
+	assert.True(t, executor.RetryEnabled())
+}
+
+func TestValidationExecutor_RetryEnabled_Disabled(t *testing.T) {
+	retryHandler := &mockRetryHandler{enabled: false, maxAttempts: 3}
+	executor := NewValidationExecutorWithAll("/tmp/work", nil, nil, nil, retryHandler)
+
+	assert.False(t, executor.RetryEnabled())
+}
+
+func TestValidationExecutor_RetryEnabled_WithoutHandler(t *testing.T) {
+	executor := NewValidationExecutor("/tmp/work")
+
+	assert.False(t, executor.RetryEnabled())
+}
+
+func TestValidationExecutor_MaxRetryAttempts_WithHandler(t *testing.T) {
+	retryHandler := &mockRetryHandler{enabled: true, maxAttempts: 5}
+	executor := NewValidationExecutorWithAll("/tmp/work", nil, nil, nil, retryHandler)
+
+	assert.Equal(t, 5, executor.MaxRetryAttempts())
+}
+
+func TestValidationExecutor_MaxRetryAttempts_WithoutHandler(t *testing.T) {
+	executor := NewValidationExecutor("/tmp/work")
+
+	assert.Equal(t, 0, executor.MaxRetryAttempts())
 }
