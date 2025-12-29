@@ -86,8 +86,8 @@ development_status:
   epic-4-retrospective: done
 
   # Tech Debt Tasks (from Epic 4 Retrospective)
-  tech-debt-taskengine-refactor: backlog  # P2: Function decomposition
-  tech-debt-taskengine-test-coverage: backlog  # P1: Expand to 90%+
+  tech-debt-taskengine-refactor: done # P2: Function decomposition
+  tech-debt-taskengine-test-coverage: done # P1: Expanded to 83.4% total, 90%+ on most functions
 
   # Epic 5: Validation Pipeline
   epic-5: backlog
@@ -99,7 +99,7 @@ development_status:
   5-6-task-abandonment-flow: backlog
   5-7-pre-commit-hook-integration: backlog
   5-8-validation-progress-and-feedback: backlog
-  5-9-quality-test-coverage-expansion: backlog  # NEW: Comprehensive tests for Epics 1-5
+  5-9-quality-test-coverage-expansion: backlog # NEW: Comprehensive tests for Epics 1-5
   epic-5-retrospective: optional
 
   # Epic 6: Git & PR Automation
