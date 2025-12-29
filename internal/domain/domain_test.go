@@ -43,7 +43,7 @@ const (
         "model": "claude-sonnet-4-20250514",
         "max_turns": 10
     },
-    "schema_version": 1
+    "schema_version": "1.0"
 }`
 
 	// exampleWorkspaceJSON shows the expected JSON serialization format for Workspace.
@@ -95,7 +95,7 @@ func TestTask_JSONSerialization(t *testing.T) {
 			Model:    "claude-sonnet-4-20250514",
 			MaxTurns: 10,
 		},
-		SchemaVersion: 1,
+		SchemaVersion: "1.0",
 	}
 
 	data, err := json.Marshal(task)
@@ -349,11 +349,17 @@ func TestAIResult_JSONSerialization(t *testing.T) {
 
 // TestStepResult_JSONSerialization verifies StepResult marshals to JSON with snake_case keys.
 func TestStepResult_JSONSerialization(t *testing.T) {
+	now := time.Date(2025, 12, 27, 10, 0, 0, 0, time.UTC)
+	later := now.Add(45 * time.Second)
+
 	result := StepResult{
+		StepIndex:    1,
 		StepName:     "implement",
-		Success:      true,
+		Status:       "success",
+		StartedAt:    now,
+		CompletedAt:  later,
+		DurationMs:   45000,
 		Output:       "Created 3 files",
-		Duration:     45 * time.Second,
 		FilesChanged: []string{"cmd/main.go", "internal/service.go"},
 		ArtifactPath: "/tmp/logs/step-1.log",
 	}
@@ -364,12 +370,16 @@ func TestStepResult_JSONSerialization(t *testing.T) {
 	jsonStr := string(data)
 
 	// Verify snake_case keys are present
+	assert.Contains(t, jsonStr, `"step_index"`)
 	assert.Contains(t, jsonStr, `"step_name"`)
+	assert.Contains(t, jsonStr, `"duration_ms"`)
 	assert.Contains(t, jsonStr, `"files_changed"`)
 	assert.Contains(t, jsonStr, `"artifact_path"`)
 
 	// Verify camelCase keys are NOT present
+	assert.NotContains(t, jsonStr, `"stepIndex"`)
 	assert.NotContains(t, jsonStr, `"stepName"`)
+	assert.NotContains(t, jsonStr, `"durationMs"`)
 	assert.NotContains(t, jsonStr, `"filesChanged"`)
 	assert.NotContains(t, jsonStr, `"artifactPath"`)
 
@@ -378,8 +388,10 @@ func TestStepResult_JSONSerialization(t *testing.T) {
 	err = json.Unmarshal(data, &decoded)
 	require.NoError(t, err)
 
+	assert.Equal(t, result.StepIndex, decoded.StepIndex)
 	assert.Equal(t, result.StepName, decoded.StepName)
-	assert.Equal(t, result.Success, decoded.Success)
+	assert.Equal(t, result.Status, decoded.Status)
+	assert.Equal(t, result.DurationMs, decoded.DurationMs)
 	assert.Equal(t, result.Output, decoded.Output)
 	require.Len(t, decoded.FilesChanged, 2)
 }
@@ -439,7 +451,7 @@ func TestTask_OmitemptyFields(t *testing.T) {
 		CreatedAt:     time.Now(),
 		UpdatedAt:     time.Now(),
 		Config:        TaskConfig{},
-		SchemaVersion: 1,
+		SchemaVersion: "1.0",
 		// CompletedAt and Metadata are intentionally nil/empty
 	}
 
@@ -549,7 +561,7 @@ func TestDeserializeExampleTaskJSON(t *testing.T) {
 	assert.Equal(t, "Fix null pointer in parseConfig", task.Description)
 	assert.Equal(t, TaskStatusRunning, task.Status)
 	assert.Equal(t, 1, task.CurrentStep)
-	assert.Equal(t, 1, task.SchemaVersion)
+	assert.Equal(t, "1.0", task.SchemaVersion)
 	require.Len(t, task.Steps, 2)
 	assert.Equal(t, "analyze", task.Steps[0].Name)
 	assert.Equal(t, StepTypeAI, task.Steps[0].Type)

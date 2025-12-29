@@ -73,17 +73,21 @@ development_status:
   epic-3-retrospective: done
 
   # Epic 4: Task Engine & AI Execution
-  epic-4: backlog
-  4-1-task-data-model-and-store: backlog
-  4-2-task-state-machine: backlog
-  4-3-airunner-interface-and-claudecoderunner: backlog
-  4-4-template-registry-and-definitions: backlog
-  4-5-step-executor-framework: backlog
-  4-6-task-engine-orchestrator: backlog
-  4-7-implement-atlas-start-command: backlog
-  4-8-implement-utility-commands: backlog
-  4-9-speckit-sdd-integration: backlog
-  epic-4-retrospective: optional
+  epic-4: done
+  4-1-task-data-model-and-store: done
+  4-2-task-state-machine: done
+  4-3-airunner-interface-and-claudecoderunner: done
+  4-4-template-registry-and-definitions: done
+  4-5-step-executor-framework: done
+  4-6-task-engine-orchestrator: done
+  4-7-implement-atlas-start-command: done
+  4-8-implement-utility-commands: done
+  4-9-speckit-sdd-integration: done
+  epic-4-retrospective: done
+
+  # Tech Debt Tasks (from Epic 4 Retrospective)
+  tech-debt-taskengine-refactor: backlog  # P2: Function decomposition
+  tech-debt-taskengine-test-coverage: backlog  # P1: Expand to 90%+
 
   # Epic 5: Validation Pipeline
   epic-5: backlog
@@ -95,6 +99,7 @@ development_status:
   5-6-task-abandonment-flow: backlog
   5-7-pre-commit-hook-integration: backlog
   5-8-validation-progress-and-feedback: backlog
+  5-9-quality-test-coverage-expansion: backlog  # NEW: Comprehensive tests for Epics 1-5
   epic-5-retrospective: optional
 
   # Epic 6: Git & PR Automation

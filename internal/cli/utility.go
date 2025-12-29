@@ -1,0 +1,181 @@
+// Package cli provides the command-line interface for atlas.
+package cli
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"time"
+
+	"github.com/rs/zerolog"
+
+	"github.com/mrz1836/atlas/internal/constants"
+	"github.com/mrz1836/atlas/internal/errors"
+	"github.com/mrz1836/atlas/internal/template/steps"
+	"github.com/mrz1836/atlas/internal/tui"
+)
+
+// CommandResult holds the result of a single command execution.
+type CommandResult struct {
+	Command    string `json:"command"`
+	Success    bool   `json:"success"`
+	ExitCode   int    `json:"exit_code"`
+	Output     string `json:"output,omitempty"`
+	Error      string `json:"error,omitempty"`
+	DurationMs int64  `json:"duration_ms"`
+}
+
+// ValidationResponse is the JSON response for validation commands.
+type ValidationResponse struct {
+	Success bool            `json:"success"`
+	Results []CommandResult `json:"results"`
+}
+
+// UtilityOptions holds options for utility command execution.
+type UtilityOptions struct {
+	Verbose      bool
+	OutputFormat string
+	Writer       io.Writer
+}
+
+// getDefaultCommands returns the default command for a given category.
+func getDefaultCommands(category string) []string {
+	switch category {
+	case "format":
+		return []string{constants.DefaultFormatCommand}
+	case "lint":
+		return []string{constants.DefaultLintCommand}
+	case "test":
+		return []string{constants.DefaultTestCommand}
+	case "pre-commit":
+		return []string{constants.DefaultPreCommitCommand}
+	default:
+		return nil
+	}
+}
+
+// showVerboseOutput displays command output in verbose mode.
+func showVerboseOutput(opts UtilityOptions, result CommandResult) {
+	if !opts.Verbose {
+		return
+	}
+	if result.Output != "" {
+		_, _ = fmt.Fprintln(opts.Writer, result.Output)
+	}
+	if result.Error != "" {
+		_, _ = fmt.Fprintln(opts.Writer, result.Error)
+	}
+}
+
+// runSingleCommand executes a single command and returns the result.
+func runSingleCommand(ctx context.Context, runner steps.CommandRunner, workDir, cmdStr string, logger zerolog.Logger) CommandResult {
+	start := time.Now()
+
+	stdout, stderr, exitCode, err := runner.Run(ctx, workDir, cmdStr)
+
+	result := CommandResult{
+		Command:    cmdStr,
+		Success:    err == nil && exitCode == 0,
+		ExitCode:   exitCode,
+		DurationMs: time.Since(start).Milliseconds(),
+	}
+
+	if stdout != "" {
+		result.Output = stdout
+	}
+	if err != nil || exitCode != 0 {
+		if stderr != "" {
+			result.Error = stderr
+		} else if err != nil {
+			result.Error = err.Error()
+		}
+	}
+
+	logger.Debug().
+		Str("command", cmdStr).
+		Bool("success", result.Success).
+		Int("exit_code", exitCode).
+		Int64("duration_ms", result.DurationMs).
+		Msg("command executed")
+
+	return result
+}
+
+// runCommandsWithOutput executes commands sequentially and handles output.
+func runCommandsWithOutput(
+	ctx context.Context,
+	commands []string,
+	workDir string,
+	category string,
+	out tui.Output,
+	opts UtilityOptions,
+	logger zerolog.Logger,
+) error {
+	runner := &steps.DefaultCommandRunner{}
+	results := make([]CommandResult, 0, len(commands))
+
+	for _, cmdStr := range commands {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		// Show command being executed in verbose mode
+		if opts.Verbose {
+			out.Info(fmt.Sprintf("⏳ Running: %s", cmdStr))
+		}
+
+		result := runSingleCommand(ctx, runner, workDir, cmdStr, logger)
+		results = append(results, result)
+
+		// In verbose mode, show command output
+		showVerboseOutput(opts, result)
+
+		if !result.Success {
+			if opts.OutputFormat == OutputJSON {
+				return out.JSON(ValidationResponse{
+					Success: false,
+					Results: results,
+				})
+			}
+			out.Error(fmt.Errorf("%w: %s in %s", errors.ErrCommandFailed, cmdStr, category))
+			return fmt.Errorf("%w: %s in %s", errors.ErrCommandFailed, cmdStr, category)
+		}
+
+		out.Success(fmt.Sprintf("✓ %s", cmdStr))
+	}
+
+	if opts.OutputFormat == OutputJSON {
+		return out.JSON(ValidationResponse{
+			Success: true,
+			Results: results,
+		})
+	}
+
+	out.Success(fmt.Sprintf("%s completed successfully", category))
+	return nil
+}
+
+// handleValidationFailure handles validation failure output.
+func handleValidationFailure(out tui.Output, outputFormat string, results []CommandResult) error {
+	if outputFormat == OutputJSON {
+		return out.JSON(ValidationResponse{
+			Success: false,
+			Results: results,
+		})
+	}
+
+	// Find the failed command
+	for _, r := range results {
+		if !r.Success {
+			out.Error(fmt.Errorf("%w: %s (exit code: %d)", errors.ErrValidationFailed, r.Command, r.ExitCode))
+			if r.Error != "" {
+				out.Info(r.Error)
+			}
+			break
+		}
+	}
+
+	return errors.ErrValidationFailed
+}

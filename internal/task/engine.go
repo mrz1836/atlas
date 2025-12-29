@@ -1,0 +1,581 @@
+// Package task provides task lifecycle management for ATLAS.
+//
+// This file implements the TaskEngine, which orchestrates step execution
+// through templates. The engine coordinates step executors, state transitions,
+// and checkpointing.
+//
+// Import rules:
+//   - CAN import: internal/constants, internal/domain, internal/errors, internal/template/steps, std lib
+//   - MUST NOT import: internal/workspace, internal/ai, internal/cli
+package task
+
+import (
+	"context"
+	"fmt"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/rs/zerolog"
+	"golang.org/x/sync/errgroup"
+
+	"github.com/mrz1836/atlas/internal/constants"
+	"github.com/mrz1836/atlas/internal/domain"
+	atlaserrors "github.com/mrz1836/atlas/internal/errors"
+	"github.com/mrz1836/atlas/internal/template/steps"
+)
+
+// EngineConfig holds configuration for the TaskEngine.
+type EngineConfig struct {
+	// AutoProceedGit controls whether git steps proceed automatically.
+	// If false, engine pauses after git steps for user confirmation.
+	AutoProceedGit bool
+
+	// AutoProceedValidation controls whether validation steps proceed automatically.
+	// Default is true (auto-proceed on success).
+	AutoProceedValidation bool
+}
+
+// DefaultEngineConfig returns sensible defaults.
+func DefaultEngineConfig() EngineConfig {
+	return EngineConfig{
+		AutoProceedGit:        true,
+		AutoProceedValidation: true,
+	}
+}
+
+// Engine orchestrates task execution through template steps.
+// It coordinates step executors, manages state transitions, and
+// provides checkpointing after each step.
+type Engine struct {
+	store    Store
+	registry *steps.ExecutorRegistry
+	config   EngineConfig
+	logger   zerolog.Logger
+}
+
+// NewEngine creates a new task engine with the given dependencies.
+// The store is used for task persistence, and the registry provides
+// step executors for each step type.
+func NewEngine(store Store, registry *steps.ExecutorRegistry, cfg EngineConfig, logger zerolog.Logger) *Engine {
+	return &Engine{
+		store:    store,
+		registry: registry,
+		config:   cfg,
+		logger:   logger,
+	}
+}
+
+// Start creates and begins execution of a new task.
+// It generates a unique task ID, creates the initial task state,
+// transitions to Running, and begins step execution.
+//
+// The workspaceName identifies which workspace this task belongs to.
+// The template defines the steps to execute.
+// The description provides a human-readable summary of the task.
+//
+// Returns the created task and any error that occurred during execution.
+// Even if execution fails partway through, the task is returned so the
+// caller can inspect its state.
+func (e *Engine) Start(ctx context.Context, workspaceName string, template *domain.Template, description string) (*domain.Task, error) {
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+
+	// Generate unique task ID
+	taskID := GenerateTaskID()
+
+	now := time.Now().UTC()
+
+	// Convert template steps to task steps
+	taskSteps := make([]domain.Step, len(template.Steps))
+	for i, def := range template.Steps {
+		taskSteps[i] = domain.Step{
+			Name:     def.Name,
+			Type:     def.Type,
+			Status:   "pending",
+			Attempts: 0,
+		}
+	}
+
+	task := &domain.Task{
+		ID:            taskID,
+		WorkspaceID:   workspaceName,
+		TemplateID:    template.Name,
+		Description:   description,
+		Status:        constants.TaskStatusPending,
+		CurrentStep:   0,
+		Steps:         taskSteps,
+		StepResults:   make([]domain.StepResult, 0),
+		Transitions:   make([]domain.Transition, 0),
+		CreatedAt:     now,
+		UpdatedAt:     now,
+		Config:        domain.TaskConfig{},
+		SchemaVersion: constants.TaskSchemaVersion,
+	}
+
+	e.logger.Info().
+		Str("task_id", taskID).
+		Str("workspace_name", workspaceName).
+		Str("template_name", template.Name).
+		Msg("creating new task")
+
+	// Transition to Running
+	if err := Transition(ctx, task, constants.TaskStatusRunning, "task started"); err != nil {
+		return nil, fmt.Errorf("failed to start task: %w", err)
+	}
+
+	// Create task in store (initial persistence)
+	if err := e.store.Create(ctx, workspaceName, task); err != nil {
+		return nil, fmt.Errorf("failed to save task: %w", err)
+	}
+
+	// Execute steps - pass template for step definitions
+	if err := e.runSteps(ctx, task, template); err != nil {
+		// Task state is already saved; return error for caller to handle
+		return task, err
+	}
+
+	return task, nil
+}
+
+// Resume continues execution of a paused or failed task.
+// It validates the task is in a resumable state, transitions back to Running
+// if in an error state, and continues from the current step.
+//
+// The template must be provided to access step definitions.
+//
+// Returns an error if the task is in a terminal state (Completed, Rejected, Abandoned).
+func (e *Engine) Resume(ctx context.Context, task *domain.Task, template *domain.Template) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
+	e.logger.Info().
+		Str("task_id", task.ID).
+		Str("status", string(task.Status)).
+		Int("current_step", task.CurrentStep).
+		Msg("resuming task")
+
+	// Validate task is in resumable state
+	if IsTerminalStatus(task.Status) {
+		return fmt.Errorf("%w: cannot resume terminal task with status %s",
+			atlaserrors.ErrInvalidTransition, task.Status)
+	}
+
+	// Transition from error states back to Running
+	if IsErrorStatus(task.Status) {
+		if err := Transition(ctx, task, constants.TaskStatusRunning, "resumed by user"); err != nil {
+			return err
+		}
+		if err := e.store.Update(ctx, task.WorkspaceID, task); err != nil {
+			return fmt.Errorf("failed to save resumed state: %w", err)
+		}
+	}
+
+	// Continue from current step
+	return e.runSteps(ctx, task, template)
+}
+
+// ExecuteStep executes a single step and returns the result.
+// It retrieves the executor for the step type, logs timing information,
+// and handles context cancellation.
+//
+// The step definition comes from the template (not the task's Step array).
+// This method updates task.Steps[CurrentStep] status and is NOT safe for
+// concurrent execution with the same task.
+func (e *Engine) ExecuteStep(ctx context.Context, task *domain.Task, step *domain.StepDefinition) (*domain.StepResult, error) {
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+
+	// Record start time
+	startTime := time.Now()
+
+	// Update task step status (only for sequential execution)
+	if task.CurrentStep < len(task.Steps) {
+		task.Steps[task.CurrentStep].Status = "running"
+		now := startTime
+		task.Steps[task.CurrentStep].StartedAt = &now
+		task.Steps[task.CurrentStep].Attempts++
+	}
+
+	result, err := e.executeStepInternal(ctx, task, step)
+	if err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}
+
+// HandleStepResult processes a step result and updates task state.
+// It appends the result to history, and transitions the task based on
+// the result status.
+//
+// For success: returns nil, allowing the caller to proceed.
+// For awaiting_approval: transitions task to Validating then AwaitingApproval.
+// For failed: transitions to the appropriate error state via valid path.
+func (e *Engine) HandleStepResult(ctx context.Context, task *domain.Task, result *domain.StepResult, step *domain.StepDefinition) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
+	// Append result to history
+	task.StepResults = append(task.StepResults, *result)
+
+	// Update task step status based on result
+	if task.CurrentStep < len(task.Steps) {
+		task.Steps[task.CurrentStep].Status = result.Status
+		now := result.CompletedAt
+		task.Steps[task.CurrentStep].CompletedAt = &now
+		if result.Error != "" {
+			task.Steps[task.CurrentStep].Error = result.Error
+		}
+	}
+
+	switch result.Status {
+	case "success":
+		// Auto-proceed logic handled by caller (runSteps continues)
+		return nil
+
+	case "awaiting_approval":
+		// For human steps, need to transition through Validating first
+		// (Running -> Validating -> AwaitingApproval)
+		if task.Status == constants.TaskStatusRunning {
+			if err := Transition(ctx, task, constants.TaskStatusValidating, "step requires approval"); err != nil {
+				return err
+			}
+		}
+		return Transition(ctx, task, constants.TaskStatusAwaitingApproval, "awaiting user approval")
+
+	case "failed":
+		// Store error context for retry (FR25)
+		task.Metadata = e.ensureMetadata(task.Metadata)
+		task.Metadata["last_error"] = result.Error
+		task.Metadata["retry_context"] = e.buildRetryContext(task, result)
+
+		// Map step type to error status with valid transition path
+		return e.transitionToErrorState(ctx, task, step.Type, result.Error)
+
+	default:
+		return fmt.Errorf("%w: %s", atlaserrors.ErrUnknownStepResultStatus, result.Status)
+	}
+}
+
+// executeStepInternal executes a step without modifying task state.
+// This is safe for concurrent execution in parallel step groups.
+func (e *Engine) executeStepInternal(ctx context.Context, task *domain.Task, step *domain.StepDefinition) (*domain.StepResult, error) {
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+
+	// Get executor from registry
+	executor, err := e.registry.Get(step.Type)
+	if err != nil {
+		return nil, fmt.Errorf("no executor for step type %s: %w", step.Type, err)
+	}
+
+	e.logger.Info().
+		Str("task_id", task.ID).
+		Str("step_name", step.Name).
+		Str("step_type", string(step.Type)).
+		Msg("executing step")
+
+	// Record start time
+	startTime := time.Now()
+
+	// Execute step via executor
+	result, err := executor.Execute(ctx, task, step)
+
+	// Calculate duration
+	duration := time.Since(startTime)
+
+	if err != nil {
+		e.logger.Error().
+			Err(err).
+			Str("task_id", task.ID).
+			Str("step_name", step.Name).
+			Int64("duration_ms", duration.Milliseconds()).
+			Msg("step execution failed")
+		return nil, err
+	}
+
+	// Log completion
+	e.logger.Info().
+		Str("task_id", task.ID).
+		Str("step_name", step.Name).
+		Str("status", result.Status).
+		Int64("duration_ms", duration.Milliseconds()).
+		Msg("step completed")
+
+	return result, nil
+}
+
+// runSteps executes template steps in order, saving state after each.
+// It checks for context cancellation between steps and pauses on
+// awaiting approval or error states.
+func (e *Engine) runSteps(ctx context.Context, task *domain.Task, template *domain.Template) error {
+	for task.CurrentStep < len(template.Steps) {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		step := &template.Steps[task.CurrentStep]
+
+		result, err := e.ExecuteStep(ctx, task, step)
+		if err != nil {
+			// Handle step execution error
+			return e.handleStepError(ctx, task, step, err)
+		}
+
+		if err := e.HandleStepResult(ctx, task, result, step); err != nil {
+			// Save state before returning error
+			_ = e.store.Update(ctx, task.WorkspaceID, task)
+			return err
+		}
+
+		// Check if we should pause (human step, error state)
+		if e.shouldPause(task) {
+			// Save state
+			if err := e.store.Update(ctx, task.WorkspaceID, task); err != nil {
+				return fmt.Errorf("failed to save checkpoint: %w", err)
+			}
+			e.logger.Info().
+				Str("task_id", task.ID).
+				Str("status", string(task.Status)).
+				Msg("task paused")
+			return nil
+		}
+
+		// Advance to next step
+		task.CurrentStep++
+		task.UpdatedAt = time.Now().UTC()
+
+		// Save checkpoint
+		if err := e.store.Update(ctx, task.WorkspaceID, task); err != nil {
+			return fmt.Errorf("failed to save checkpoint: %w", err)
+		}
+	}
+
+	// All steps completed - transition to final state
+	return e.completeTask(ctx, task)
+}
+
+// shouldPause returns true if the task should pause execution.
+// This happens when waiting for user approval or when in an error state.
+func (e *Engine) shouldPause(task *domain.Task) bool {
+	return task.Status == constants.TaskStatusAwaitingApproval ||
+		IsErrorStatus(task.Status)
+}
+
+// handleStepError handles an error from step execution.
+// It transitions the task to the appropriate error state and saves.
+func (e *Engine) handleStepError(ctx context.Context, task *domain.Task, step *domain.StepDefinition, err error) error {
+	e.logger.Error().
+		Err(err).
+		Str("task_id", task.ID).
+		Str("step_name", step.Name).
+		Msg("step execution error")
+
+	// Update task step status
+	if task.CurrentStep < len(task.Steps) {
+		task.Steps[task.CurrentStep].Status = "failed"
+		task.Steps[task.CurrentStep].Error = err.Error()
+		now := time.Now().UTC()
+		task.Steps[task.CurrentStep].CompletedAt = &now
+	}
+
+	// Store error context for retry (FR25)
+	task.Metadata = e.ensureMetadata(task.Metadata)
+	task.Metadata["last_error"] = err.Error()
+	task.Metadata["retry_context"] = e.buildRetryContext(task, &domain.StepResult{
+		StepName: step.Name,
+		Error:    err.Error(),
+	})
+
+	// Transition to error state following valid path
+	if transErr := e.transitionToErrorState(ctx, task, step.Type, err.Error()); transErr != nil {
+		return transErr
+	}
+
+	// Save state before returning
+	if saveErr := e.store.Update(ctx, task.WorkspaceID, task); saveErr != nil {
+		return fmt.Errorf("failed to save error state: %w", saveErr)
+	}
+
+	return err
+}
+
+// completeTask transitions the task to the appropriate final state.
+// For most templates, this transitions through Validating to AwaitingApproval.
+func (e *Engine) completeTask(ctx context.Context, task *domain.Task) error {
+	e.logger.Info().
+		Str("task_id", task.ID).
+		Msg("all steps completed, transitioning to validation")
+
+	// Transition to Validating
+	if err := Transition(ctx, task, constants.TaskStatusValidating, "all steps completed"); err != nil {
+		return err
+	}
+
+	// Then to AwaitingApproval (validation passed)
+	if err := Transition(ctx, task, constants.TaskStatusAwaitingApproval, "validation passed"); err != nil {
+		return err
+	}
+
+	// Save final state
+	if err := e.store.Update(ctx, task.WorkspaceID, task); err != nil {
+		return fmt.Errorf("failed to save completed state: %w", err)
+	}
+
+	e.logger.Info().
+		Str("task_id", task.ID).
+		Str("status", string(task.Status)).
+		Msg("task awaiting approval")
+
+	return nil
+}
+
+// mapStepTypeToErrorStatus maps a step type to the appropriate error status.
+func (e *Engine) mapStepTypeToErrorStatus(stepType domain.StepType) constants.TaskStatus {
+	switch stepType {
+	case domain.StepTypeValidation:
+		return constants.TaskStatusValidationFailed
+	case domain.StepTypeGit:
+		return constants.TaskStatusGHFailed
+	case domain.StepTypeCI:
+		return constants.TaskStatusCIFailed
+	case domain.StepTypeAI, domain.StepTypeHuman, domain.StepTypeSDD:
+		// For AI, human, and SDD failures, use ValidationFailed as general error
+		return constants.TaskStatusValidationFailed
+	}
+	// Unreachable with current step types, but satisfy exhaustive check
+	return constants.TaskStatusValidationFailed
+}
+
+// transitionToErrorState transitions the task to the appropriate error state
+// following valid state machine paths.
+func (e *Engine) transitionToErrorState(ctx context.Context, task *domain.Task, stepType domain.StepType, reason string) error {
+	targetStatus := e.mapStepTypeToErrorStatus(stepType)
+
+	// Handle based on current task status
+	switch task.Status {
+	case constants.TaskStatusRunning:
+		// From Running, we can go directly to GHFailed, CIFailed, CITimeout
+		// but for ValidationFailed we need to go through Validating first
+		if targetStatus == constants.TaskStatusValidationFailed {
+			// Running -> Validating -> ValidationFailed
+			if err := Transition(ctx, task, constants.TaskStatusValidating, "validation step failed"); err != nil {
+				return err
+			}
+			return Transition(ctx, task, constants.TaskStatusValidationFailed, reason)
+		}
+		// Direct transition for git/CI errors
+		return Transition(ctx, task, targetStatus, reason)
+
+	case constants.TaskStatusValidating:
+		// From Validating, we can go to ValidationFailed or AwaitingApproval
+		if targetStatus == constants.TaskStatusValidationFailed {
+			return Transition(ctx, task, constants.TaskStatusValidationFailed, reason)
+		}
+		// Fall through to direct attempt
+
+	case constants.TaskStatusPending,
+		constants.TaskStatusValidationFailed,
+		constants.TaskStatusAwaitingApproval,
+		constants.TaskStatusCompleted,
+		constants.TaskStatusRejected,
+		constants.TaskStatusAbandoned,
+		constants.TaskStatusGHFailed,
+		constants.TaskStatusCIFailed,
+		constants.TaskStatusCITimeout:
+		// These states don't have standard error paths - try direct transition
+	}
+
+	// Fallback: try direct transition (will fail if invalid)
+	return Transition(ctx, task, targetStatus, reason)
+}
+
+// buildRetryContext creates a human-readable error summary for AI retry (FR25).
+func (e *Engine) buildRetryContext(task *domain.Task, lastResult *domain.StepResult) string {
+	var sb strings.Builder
+
+	sb.WriteString("## Retry Context\n\n")
+	sb.WriteString(fmt.Sprintf("**Task ID:** %s\n", task.ID))
+	sb.WriteString(fmt.Sprintf("**Current Step:** %d\n", task.CurrentStep))
+
+	if lastResult != nil {
+		sb.WriteString(fmt.Sprintf("**Failed Step:** %s\n", lastResult.StepName))
+		if lastResult.Error != "" {
+			sb.WriteString(fmt.Sprintf("**Error:** %s\n", lastResult.Error))
+		}
+	}
+
+	sb.WriteString("\n### Previous Attempts\n\n")
+	for i, result := range task.StepResults {
+		if result.Status == "failed" {
+			sb.WriteString(fmt.Sprintf("- Step %d (%s): %s\n", i, result.StepName, result.Error))
+		}
+	}
+
+	return sb.String()
+}
+
+// ensureMetadata ensures the metadata map is initialized.
+func (e *Engine) ensureMetadata(m map[string]any) map[string]any {
+	if m == nil {
+		return make(map[string]any)
+	}
+	return m
+}
+
+// executeParallelGroup runs multiple steps concurrently.
+// It uses errgroup for coordinated cancellation - the first error
+// cancels remaining steps in the group.
+//
+// stepIndices are the indices into template.Steps for the parallel group.
+func (e *Engine) executeParallelGroup(ctx context.Context, task *domain.Task, template *domain.Template, stepIndices []int) ([]*domain.StepResult, error) {
+	e.logger.Info().
+		Str("task_id", task.ID).
+		Int("parallel_count", len(stepIndices)).
+		Msg("executing parallel step group")
+
+	g, gctx := errgroup.WithContext(ctx)
+	results := make([]*domain.StepResult, len(stepIndices))
+	var mu sync.Mutex
+
+	for i, idx := range stepIndices {
+		step := &template.Steps[idx]
+
+		g.Go(func() error {
+			// Use internal method to avoid race on task.Steps
+			result, err := e.executeStepInternal(gctx, task, step)
+			if err != nil {
+				return err
+			}
+
+			mu.Lock()
+			results[i] = result
+			mu.Unlock()
+			return nil
+		})
+	}
+
+	if err := g.Wait(); err != nil {
+		return results, err
+	}
+
+	return results, nil
+}

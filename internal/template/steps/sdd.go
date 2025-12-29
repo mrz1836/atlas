@@ -1,0 +1,381 @@
+// Package steps provides step execution implementations for the ATLAS task engine.
+package steps
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"sync"
+	"time"
+
+	"github.com/rs/zerolog"
+
+	"github.com/mrz1836/atlas/internal/ai"
+	"github.com/mrz1836/atlas/internal/domain"
+	atlaserrors "github.com/mrz1836/atlas/internal/errors"
+)
+
+// SDDCommand defines the supported Speckit SDD commands.
+type SDDCommand string
+
+// SDD command constants.
+const (
+	SDDCmdSpecify   SDDCommand = "specify"
+	SDDCmdPlan      SDDCommand = "plan"
+	SDDCmdTasks     SDDCommand = "tasks"
+	SDDCmdImplement SDDCommand = "implement"
+	SDDCmdChecklist SDDCommand = "checklist"
+)
+
+// speckitInstallInstructions is the install instructions appended to the Speckit not installed error.
+const speckitInstallInstructions = "Install with: uv tool install specify-cli --from git+https://github.com/github/spec-kit.git"
+
+// speckitChecker manages the cached Speckit installation check.
+//
+//nolint:gochecknoglobals // Package-level state for caching Speckit installation status
+var speckitChecker = struct {
+	checked bool
+	mu      sync.Mutex
+}{}
+
+// SDDExecutor handles Speckit SDD steps.
+// It invokes Speckit via the AI runner to generate specification artifacts.
+type SDDExecutor struct {
+	runner       ai.Runner
+	artifactsDir string
+	workingDir   string
+}
+
+// NewSDDExecutor creates a new SDD executor.
+func NewSDDExecutor(runner ai.Runner, artifactsDir string) *SDDExecutor {
+	return &SDDExecutor{
+		runner:       runner,
+		artifactsDir: artifactsDir,
+	}
+}
+
+// NewSDDExecutorWithWorkingDir creates a new SDD executor with a custom working directory.
+func NewSDDExecutorWithWorkingDir(runner ai.Runner, artifactsDir, workingDir string) *SDDExecutor {
+	return &SDDExecutor{
+		runner:       runner,
+		artifactsDir: artifactsDir,
+		workingDir:   workingDir,
+	}
+}
+
+// SetWorkingDir sets the working directory for Speckit execution.
+// This is typically set to the worktree path.
+func (e *SDDExecutor) SetWorkingDir(dir string) {
+	e.workingDir = dir
+}
+
+// Execute runs an SDD command via the AI runner.
+// The sdd_command is read from step.Config["sdd_command"].
+// Supported commands: specify, plan, tasks, implement, checklist
+// Generated artifacts are saved to the task artifacts directory.
+func (e *SDDExecutor) Execute(ctx context.Context, task *domain.Task, step *domain.StepDefinition) (*domain.StepResult, error) {
+	// Check for cancellation
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+
+	log := zerolog.Ctx(ctx)
+	log.Info().
+		Str("task_id", task.ID).
+		Str("step_name", step.Name).
+		Str("step_type", string(step.Type)).
+		Msg("executing sdd step")
+
+	startTime := time.Now()
+
+	// Get SDD command from step config
+	sddCmd := SDDCmdSpecify // default
+	if step.Config != nil {
+		if cmd, ok := step.Config["sdd_command"].(string); ok {
+			sddCmd = SDDCommand(cmd)
+		}
+	}
+
+	// Check if Speckit is installed (cached check)
+	if err := checkSpeckitInstalled(); err != nil {
+		log.Error().
+			Err(err).
+			Str("task_id", task.ID).
+			Str("step_name", step.Name).
+			Msg("speckit not installed")
+
+		return &domain.StepResult{
+			StepIndex:   task.CurrentStep,
+			StepName:    step.Name,
+			Status:      "failed",
+			StartedAt:   startTime,
+			CompletedAt: time.Now(),
+			DurationMs:  time.Since(startTime).Milliseconds(),
+			Error:       err.Error(),
+		}, fmt.Errorf("%w: %w", atlaserrors.ErrClaudeInvocation, err)
+	}
+
+	log.Debug().
+		Str("sdd_command", string(sddCmd)).
+		Str("artifacts_dir", e.artifactsDir).
+		Str("working_dir", e.workingDir).
+		Msg("executing sdd command")
+
+	// Build prompt for Speckit invocation using slash command format
+	prompt := e.buildPrompt(task, sddCmd)
+
+	// Check context again before making AI request
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+
+	// Create AI request with working directory support
+	req := &domain.AIRequest{
+		Prompt:     prompt,
+		Model:      task.Config.Model,
+		MaxTurns:   task.Config.MaxTurns,
+		Timeout:    task.Config.Timeout,
+		WorkingDir: e.workingDir,
+	}
+
+	// Apply step timeout if set
+	execCtx := ctx
+	if step.Timeout > 0 {
+		var cancel context.CancelFunc
+		execCtx, cancel = context.WithTimeout(ctx, step.Timeout)
+		defer cancel()
+	}
+
+	// Execute via AI runner
+	result, err := e.runner.Run(execCtx, req)
+	if err != nil {
+		elapsed := time.Since(startTime)
+		log.Error().
+			Err(err).
+			Str("task_id", task.ID).
+			Str("step_name", step.Name).
+			Str("sdd_command", string(sddCmd)).
+			Dur("duration_ms", elapsed).
+			Msg("sdd step failed")
+
+		// Wrap with ErrClaudeInvocation and include SDD command context
+		wrappedErr := fmt.Errorf("%w: sdd command '%s' failed: %w", atlaserrors.ErrClaudeInvocation, sddCmd, err)
+
+		return &domain.StepResult{
+			StepIndex:   task.CurrentStep,
+			StepName:    step.Name,
+			Status:      "failed",
+			StartedAt:   startTime,
+			CompletedAt: time.Now(),
+			DurationMs:  elapsed.Milliseconds(),
+			Error:       wrappedErr.Error(),
+		}, wrappedErr
+	}
+
+	// Check for empty output - treat as error
+	if result.Output == "" {
+		log.Warn().
+			Str("task_id", task.ID).
+			Str("sdd_command", string(sddCmd)).
+			Msg("speckit returned empty output")
+
+		wrappedErr := fmt.Errorf("%w: sdd command '%s' returned empty output", atlaserrors.ErrClaudeInvocation, sddCmd)
+
+		return &domain.StepResult{
+			StepIndex:   task.CurrentStep,
+			StepName:    step.Name,
+			Status:      "failed",
+			StartedAt:   startTime,
+			CompletedAt: time.Now(),
+			DurationMs:  time.Since(startTime).Milliseconds(),
+			Error:       wrappedErr.Error(),
+		}, wrappedErr
+	}
+
+	// Save artifact to file (implement command doesn't produce a single artifact)
+	var artifactPath string
+	if sddCmd != SDDCmdImplement {
+		artifactPath, err = e.saveArtifact(task.ID, sddCmd, result.Output)
+		if err != nil {
+			log.Warn().
+				Err(err).
+				Str("task_id", task.ID).
+				Str("sdd_command", string(sddCmd)).
+				Msg("failed to save sdd artifact")
+			// Continue even if saving fails - the output is still in the result
+		}
+	}
+
+	elapsed := time.Since(startTime)
+	log.Info().
+		Str("task_id", task.ID).
+		Str("step_name", step.Name).
+		Str("sdd_command", string(sddCmd)).
+		Str("artifact_path", artifactPath).
+		Dur("duration_ms", elapsed).
+		Msg("sdd step completed")
+
+	return &domain.StepResult{
+		StepIndex:    task.CurrentStep,
+		StepName:     step.Name,
+		Status:       "success",
+		StartedAt:    startTime,
+		CompletedAt:  time.Now(),
+		DurationMs:   elapsed.Milliseconds(),
+		Output:       result.Output,
+		ArtifactPath: artifactPath,
+	}, nil
+}
+
+// Type returns the step type this executor handles.
+func (e *SDDExecutor) Type() domain.StepType {
+	return domain.StepTypeSDD
+}
+
+// buildPrompt constructs the prompt for invoking Speckit using slash command format.
+// Uses the /speckit.<command> format as required by Claude Code slash commands.
+func (e *SDDExecutor) buildPrompt(task *domain.Task, cmd SDDCommand) string {
+	switch cmd {
+	case SDDCmdSpecify:
+		// For specify, include the task description as context
+		return fmt.Sprintf("/speckit.specify %s", task.Description)
+	case SDDCmdPlan:
+		// Plan uses existing spec.md
+		return "/speckit.plan"
+	case SDDCmdTasks:
+		// Tasks uses existing spec.md and plan.md
+		return "/speckit.tasks"
+	case SDDCmdImplement:
+		// Implement executes from tasks
+		return "/speckit.implement"
+	case SDDCmdChecklist:
+		// Checklist generates review checklist
+		return "/speckit.checklist"
+	default:
+		// Fallback for any unknown command
+		return fmt.Sprintf("/speckit.%s", cmd)
+	}
+}
+
+// getArtifactFilename returns the semantic filename for an SDD command.
+// Returns the filename and true if a mapping exists, empty string and false otherwise.
+func getArtifactFilename(cmd SDDCommand) (string, bool) {
+	switch cmd {
+	case SDDCmdSpecify:
+		return "spec.md", true
+	case SDDCmdPlan:
+		return "plan.md", true
+	case SDDCmdTasks:
+		return "tasks.md", true
+	case SDDCmdChecklist:
+		return "checklist.md", true
+	case SDDCmdImplement:
+		// Implement doesn't produce a single artifact file
+		return "", false
+	default:
+		return "", false
+	}
+}
+
+// saveArtifact saves the SDD output to a file in the artifacts directory.
+// Uses semantic naming (spec.md, plan.md, etc.) with versioning for retries.
+func (e *SDDExecutor) saveArtifact(taskID string, cmd SDDCommand, content string) (string, error) {
+	if e.artifactsDir == "" {
+		return "", nil
+	}
+
+	// Ensure artifacts directory exists
+	taskDir := filepath.Join(e.artifactsDir, taskID)
+	if err := os.MkdirAll(taskDir, 0o750); err != nil {
+		return "", fmt.Errorf("failed to create artifacts directory: %w", err)
+	}
+
+	// Get semantic filename for this command
+	baseFilename, hasMapping := getArtifactFilename(cmd)
+	if !hasMapping {
+		// Fallback to timestamp-based naming for unknown commands
+		baseFilename = fmt.Sprintf("sdd-%s-%d.md", cmd, time.Now().Unix())
+		artifactPath := filepath.Join(taskDir, baseFilename)
+		if err := os.WriteFile(artifactPath, []byte(content), 0o600); err != nil {
+			return "", fmt.Errorf("failed to write artifact: %w", err)
+		}
+		return artifactPath, nil
+	}
+
+	// Use semantic filename with versioning
+	artifactPath := filepath.Join(taskDir, baseFilename)
+
+	// Check if file exists and determine version
+	if _, err := os.Stat(artifactPath); err == nil {
+		// File exists - find next version number
+		version := 1
+		for {
+			ext := filepath.Ext(baseFilename)
+			nameWithoutExt := baseFilename[:len(baseFilename)-len(ext)]
+			versionedFilename := fmt.Sprintf("%s.%d%s", nameWithoutExt, version, ext)
+			versionedPath := filepath.Join(taskDir, versionedFilename)
+
+			if _, err := os.Stat(versionedPath); os.IsNotExist(err) {
+				artifactPath = versionedPath
+				break
+			}
+			version++
+
+			// Safety limit to prevent infinite loops
+			if version > 100 {
+				return "", fmt.Errorf("%w: exceeded 100 versions for %s", atlaserrors.ErrTooManyVersions, baseFilename)
+			}
+		}
+	}
+
+	// Write content with secure permissions
+	if err := os.WriteFile(artifactPath, []byte(content), 0o600); err != nil {
+		return "", fmt.Errorf("failed to write artifact: %w", err)
+	}
+
+	return artifactPath, nil
+}
+
+// checkSpeckitInstalled verifies that the Speckit CLI (specify) is installed.
+// The result is cached after the first successful check.
+func checkSpeckitInstalled() error {
+	speckitChecker.mu.Lock()
+	defer speckitChecker.mu.Unlock()
+
+	// Return immediately if already verified
+	if speckitChecker.checked {
+		return nil
+	}
+
+	// Check if 'specify' command is available in PATH
+	_, err := exec.LookPath("specify")
+	if err != nil {
+		return fmt.Errorf("%w: Speckit not installed. %s", atlaserrors.ErrUnknownTool, speckitInstallInstructions)
+	}
+
+	// Cache the successful check
+	speckitChecker.checked = true
+	return nil
+}
+
+// ResetSpeckitCheck resets the cached Speckit installation check.
+// This is primarily used for testing.
+func ResetSpeckitCheck() {
+	speckitChecker.mu.Lock()
+	defer speckitChecker.mu.Unlock()
+	speckitChecker.checked = false
+}
+
+// SetSpeckitChecked sets the Speckit installation check result.
+// This is primarily used for testing.
+func SetSpeckitChecked(checked bool) {
+	speckitChecker.mu.Lock()
+	defer speckitChecker.mu.Unlock()
+	speckitChecker.checked = checked
+}

@@ -56,3 +56,25 @@ const (
 	// Subsequent retries may use exponential backoff based on this value.
 	InitialBackoff = 1 * time.Second
 )
+
+// Schema version constants for data migration support.
+const (
+	// TaskSchemaVersion is the current version of the task JSON schema.
+	// This enables forward-compatible schema migrations.
+	TaskSchemaVersion = "1.0"
+)
+
+// Default validation commands used when no configuration is provided.
+const (
+	// DefaultFormatCommand is the default command for code formatting.
+	DefaultFormatCommand = "magex format:fix"
+
+	// DefaultLintCommand is the default command for linting.
+	DefaultLintCommand = "magex lint"
+
+	// DefaultTestCommand is the default command for running tests.
+	DefaultTestCommand = "magex test"
+
+	// DefaultPreCommitCommand is the default command for pre-commit hooks.
+	DefaultPreCommitCommand = "go-pre-commit run --all-files"
+)
