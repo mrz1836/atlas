@@ -14,6 +14,38 @@ import (
 	"github.com/mrz1836/atlas/internal/validation"
 )
 
+// MockToolChecker implements ToolChecker for testing.
+type MockToolChecker struct {
+	Installed bool
+	Version   string
+	Err       error
+}
+
+// IsGoPreCommitInstalled implements validation.ToolChecker.
+func (m *MockToolChecker) IsGoPreCommitInstalled(_ context.Context) (bool, string, error) {
+	return m.Installed, m.Version, m.Err
+}
+
+// Ensure MockToolChecker implements ToolChecker.
+var _ validation.ToolChecker = (*MockToolChecker)(nil)
+
+// MockStager implements Stager for testing.
+type MockStager struct {
+	Called  bool
+	WorkDir string
+	Err     error
+}
+
+// StageModifiedFiles implements validation.Stager.
+func (m *MockStager) StageModifiedFiles(_ context.Context, workDir string) error {
+	m.Called = true
+	m.WorkDir = workDir
+	return m.Err
+}
+
+// Ensure MockStager implements Stager.
+var _ validation.Stager = (*MockStager)(nil)
+
 func TestNewRunner_NilConfig(t *testing.T) {
 	executor := validation.NewExecutor(time.Minute)
 	runner := validation.NewRunner(executor, nil)
@@ -484,4 +516,350 @@ func TestPipelineResult_FailedStep_EmptyOnSuccess(t *testing.T) {
 		Success: true,
 	}
 	assert.Empty(t, result.FailedStep())
+}
+
+func TestRunner_Run_PreCommitSkippedWhenNotInstalled(t *testing.T) {
+	mockRunner := NewMockCommandRunner()
+	mockRunner.SetResponse("fmt", "formatted", "", 0, nil)
+	mockRunner.SetResponse("lint", "lint ok", "", 0, nil)
+	mockRunner.SetResponse("test", "test ok", "", 0, nil)
+
+	executor := validation.NewExecutorWithRunner(time.Minute, mockRunner)
+	config := &validation.RunnerConfig{
+		FormatCommands: []string{"fmt"},
+		LintCommands:   []string{"lint"},
+		TestCommands:   []string{"test"},
+		ToolChecker: &MockToolChecker{
+			Installed: false,
+			Version:   "",
+			Err:       nil,
+		},
+	}
+	runner := validation.NewRunner(executor, config)
+
+	ctx := testContext()
+	result, err := runner.Run(ctx, "/tmp")
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.True(t, result.Success)
+	assert.Empty(t, result.PreCommitResults, "pre-commit should not run when not installed")
+	assert.Contains(t, result.SkippedSteps, "pre-commit")
+	assert.Equal(t, "go-pre-commit not installed", result.SkipReasons["pre-commit"])
+}
+
+func TestRunner_Run_PreCommitRunsWhenInstalled(t *testing.T) {
+	mockRunner := NewMockCommandRunner()
+	mockRunner.SetResponse("fmt", "formatted", "", 0, nil)
+	mockRunner.SetResponse("lint", "lint ok", "", 0, nil)
+	mockRunner.SetResponse("test", "test ok", "", 0, nil)
+	mockRunner.SetResponse("precommit", "precommit ok", "", 0, nil)
+
+	executor := validation.NewExecutorWithRunner(time.Minute, mockRunner)
+	config := &validation.RunnerConfig{
+		FormatCommands:    []string{"fmt"},
+		LintCommands:      []string{"lint"},
+		TestCommands:      []string{"test"},
+		PreCommitCommands: []string{"precommit"},
+		ToolChecker: &MockToolChecker{
+			Installed: true,
+			Version:   "1.0.0",
+			Err:       nil,
+		},
+	}
+	runner := validation.NewRunner(executor, config)
+
+	ctx := testContext()
+	result, err := runner.Run(ctx, "/tmp")
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.True(t, result.Success)
+	assert.Len(t, result.PreCommitResults, 1, "pre-commit should run when installed")
+	assert.Empty(t, result.SkippedSteps)
+}
+
+func TestRunner_Run_PreCommitSkippedOnCheckError(t *testing.T) {
+	mockRunner := NewMockCommandRunner()
+	mockRunner.SetResponse("fmt", "formatted", "", 0, nil)
+	mockRunner.SetResponse("lint", "lint ok", "", 0, nil)
+	mockRunner.SetResponse("test", "test ok", "", 0, nil)
+
+	executor := validation.NewExecutorWithRunner(time.Minute, mockRunner)
+	config := &validation.RunnerConfig{
+		FormatCommands: []string{"fmt"},
+		LintCommands:   []string{"lint"},
+		TestCommands:   []string{"test"},
+		ToolChecker: &MockToolChecker{
+			Installed: false,
+			Version:   "",
+			Err:       atlaserrors.ErrCommandFailed, // Error checking tool
+		},
+	}
+	runner := validation.NewRunner(executor, config)
+
+	ctx := testContext()
+	result, err := runner.Run(ctx, "/tmp")
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.True(t, result.Success)
+	// Should skip pre-commit when check fails (treated as not installed)
+	assert.Contains(t, result.SkippedSteps, "pre-commit")
+}
+
+func TestRunner_Run_ProgressCallbackSkippedStatus(t *testing.T) {
+	mockRunner := NewMockCommandRunner()
+	mockRunner.SetResponse("fmt", "formatted", "", 0, nil)
+	mockRunner.SetResponse("lint", "lint ok", "", 0, nil)
+	mockRunner.SetResponse("test", "test ok", "", 0, nil)
+
+	executor := validation.NewExecutorWithRunner(time.Minute, mockRunner)
+
+	var preCommitStatus string
+	var mu sync.Mutex
+
+	config := &validation.RunnerConfig{
+		FormatCommands: []string{"fmt"},
+		LintCommands:   []string{"lint"},
+		TestCommands:   []string{"test"},
+		ToolChecker: &MockToolChecker{
+			Installed: false,
+		},
+		ProgressCallback: func(step, status string) {
+			mu.Lock()
+			if step == "pre-commit" {
+				preCommitStatus = status
+			}
+			mu.Unlock()
+		},
+	}
+	runner := validation.NewRunner(executor, config)
+
+	ctx := testContext()
+	_, err := runner.Run(ctx, "/tmp")
+
+	require.NoError(t, err)
+
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Equal(t, "skipped", preCommitStatus, "pre-commit should report skipped status")
+}
+
+func TestPipelineResult_SkipFields(t *testing.T) {
+	result := &validation.PipelineResult{
+		Success:      true,
+		SkippedSteps: []string{"pre-commit"},
+		SkipReasons: map[string]string{
+			"pre-commit": "go-pre-commit not installed",
+		},
+	}
+
+	assert.Len(t, result.SkippedSteps, 1)
+	assert.Equal(t, "pre-commit", result.SkippedSteps[0])
+	assert.Equal(t, "go-pre-commit not installed", result.SkipReasons["pre-commit"])
+}
+
+func TestRunner_Run_CustomPreCommitCommandsOverrideDefault(t *testing.T) {
+	mockRunner := NewMockCommandRunner()
+	mockRunner.SetResponse("fmt", "formatted", "", 0, nil)
+	mockRunner.SetResponse("lint", "lint ok", "", 0, nil)
+	mockRunner.SetResponse("test", "test ok", "", 0, nil)
+	mockRunner.SetResponse("custom-precommit-1", "ok", "", 0, nil)
+	mockRunner.SetResponse("custom-precommit-2", "ok", "", 0, nil)
+
+	executor := validation.NewExecutorWithRunner(time.Minute, mockRunner)
+	config := &validation.RunnerConfig{
+		FormatCommands: []string{"fmt"},
+		LintCommands:   []string{"lint"},
+		TestCommands:   []string{"test"},
+		// Custom pre-commit commands (not using default go-pre-commit)
+		PreCommitCommands: []string{"custom-precommit-1", "custom-precommit-2"},
+		ToolChecker: &MockToolChecker{
+			Installed: true,
+			Version:   "1.0.0",
+		},
+	}
+	runner := validation.NewRunner(executor, config)
+
+	ctx := testContext()
+	result, err := runner.Run(ctx, "/tmp")
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.True(t, result.Success)
+	assert.Len(t, result.PreCommitResults, 2, "both custom pre-commit commands should run")
+	assert.Equal(t, "custom-precommit-1", result.PreCommitResults[0].Command)
+	assert.Equal(t, "custom-precommit-2", result.PreCommitResults[1].Command)
+}
+
+func TestRunner_Run_MultipleCustomPreCommitCommandsExecuteInOrder(t *testing.T) {
+	mockRunner := NewMockCommandRunner()
+	mockRunner.SetResponse("fmt", "formatted", "", 0, nil)
+	mockRunner.SetResponse("lint", "lint ok", "", 0, nil)
+	mockRunner.SetResponse("test", "test ok", "", 0, nil)
+	mockRunner.SetResponse("first-hook", "first", "", 0, nil)
+	mockRunner.SetResponse("second-hook", "second", "", 0, nil)
+	mockRunner.SetResponse("third-hook", "third", "", 0, nil)
+
+	executor := validation.NewExecutorWithRunner(time.Minute, mockRunner)
+	config := &validation.RunnerConfig{
+		FormatCommands:    []string{"fmt"},
+		LintCommands:      []string{"lint"},
+		TestCommands:      []string{"test"},
+		PreCommitCommands: []string{"first-hook", "second-hook", "third-hook"},
+		ToolChecker: &MockToolChecker{
+			Installed: true,
+			Version:   "1.0.0",
+		},
+	}
+	runner := validation.NewRunner(executor, config)
+
+	ctx := testContext()
+	result, err := runner.Run(ctx, "/tmp")
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.True(t, result.Success)
+	require.Len(t, result.PreCommitResults, 3)
+
+	// Verify order
+	assert.Equal(t, "first-hook", result.PreCommitResults[0].Command)
+	assert.Equal(t, "second-hook", result.PreCommitResults[1].Command)
+	assert.Equal(t, "third-hook", result.PreCommitResults[2].Command)
+}
+
+func TestRunner_Run_StagerCalledAfterPreCommit(t *testing.T) {
+	mockRunner := NewMockCommandRunner()
+	mockRunner.SetResponse("fmt", "formatted", "", 0, nil)
+	mockRunner.SetResponse("lint", "lint ok", "", 0, nil)
+	mockRunner.SetResponse("test", "test ok", "", 0, nil)
+	mockRunner.SetResponse("precommit", "precommit ok", "", 0, nil)
+
+	mockStager := &MockStager{}
+
+	executor := validation.NewExecutorWithRunner(time.Minute, mockRunner)
+	config := &validation.RunnerConfig{
+		FormatCommands:    []string{"fmt"},
+		LintCommands:      []string{"lint"},
+		TestCommands:      []string{"test"},
+		PreCommitCommands: []string{"precommit"},
+		ToolChecker: &MockToolChecker{
+			Installed: true,
+			Version:   "1.0.0",
+		},
+		Stager: mockStager,
+	}
+	runner := validation.NewRunner(executor, config)
+
+	ctx := testContext()
+	result, err := runner.Run(ctx, "/test/work/dir")
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.True(t, result.Success)
+
+	// Verify stager was called with correct work directory
+	assert.True(t, mockStager.Called, "Stager.StageModifiedFiles should be called after pre-commit")
+	assert.Equal(t, "/test/work/dir", mockStager.WorkDir)
+}
+
+func TestRunner_Run_StagerNotCalledWhenPreCommitSkipped(t *testing.T) {
+	mockRunner := NewMockCommandRunner()
+	mockRunner.SetResponse("fmt", "formatted", "", 0, nil)
+	mockRunner.SetResponse("lint", "lint ok", "", 0, nil)
+	mockRunner.SetResponse("test", "test ok", "", 0, nil)
+
+	mockStager := &MockStager{}
+
+	executor := validation.NewExecutorWithRunner(time.Minute, mockRunner)
+	config := &validation.RunnerConfig{
+		FormatCommands: []string{"fmt"},
+		LintCommands:   []string{"lint"},
+		TestCommands:   []string{"test"},
+		ToolChecker: &MockToolChecker{
+			Installed: false, // Not installed = skip pre-commit
+		},
+		Stager: mockStager,
+	}
+	runner := validation.NewRunner(executor, config)
+
+	ctx := testContext()
+	result, err := runner.Run(ctx, "/tmp")
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.True(t, result.Success)
+
+	// Stager should NOT be called when pre-commit is skipped
+	assert.False(t, mockStager.Called, "Stager should not be called when pre-commit is skipped")
+}
+
+func TestRunner_Run_StagerErrorNonFatal(t *testing.T) {
+	mockRunner := NewMockCommandRunner()
+	mockRunner.SetResponse("fmt", "formatted", "", 0, nil)
+	mockRunner.SetResponse("lint", "lint ok", "", 0, nil)
+	mockRunner.SetResponse("test", "test ok", "", 0, nil)
+	mockRunner.SetResponse("precommit", "precommit ok", "", 0, nil)
+
+	mockStager := &MockStager{
+		Err: atlaserrors.ErrCommandFailed, // Simulate staging error
+	}
+
+	executor := validation.NewExecutorWithRunner(time.Minute, mockRunner)
+	config := &validation.RunnerConfig{
+		FormatCommands:    []string{"fmt"},
+		LintCommands:      []string{"lint"},
+		TestCommands:      []string{"test"},
+		PreCommitCommands: []string{"precommit"},
+		ToolChecker: &MockToolChecker{
+			Installed: true,
+			Version:   "1.0.0",
+		},
+		Stager: mockStager,
+	}
+	runner := validation.NewRunner(executor, config)
+
+	ctx := testContext()
+	result, err := runner.Run(ctx, "/tmp")
+
+	// Staging error should be non-fatal
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.True(t, result.Success, "validation should still succeed despite staging error")
+	assert.True(t, mockStager.Called)
+}
+
+func TestDefaultToolChecker_IsGoPreCommitInstalled(t *testing.T) {
+	t.Parallel()
+	// This test verifies DefaultToolChecker delegates to config package
+	// It's an integration test that may pass or fail depending on system state
+	checker := &validation.DefaultToolChecker{}
+	ctx := testContext()
+
+	// Just verify it doesn't panic and returns valid types
+	installed, version, err := checker.IsGoPreCommitInstalled(ctx)
+
+	// We can't assert specific values since it depends on system state,
+	// but we can verify the return types are valid
+	_ = installed // bool
+	_ = version   // string
+	_ = err       // error or nil
+}
+
+func TestDefaultStager_StageModifiedFiles(t *testing.T) {
+	t.Parallel()
+	// This test verifies DefaultStager delegates to StageModifiedFiles
+	// Using a temp directory without git will cause an error, which is fine
+	stager := &validation.DefaultStager{}
+	ctx := testContext()
+	tmpDir := t.TempDir()
+
+	// Should return an error since tmpDir is not a git repo
+	err := stager.StageModifiedFiles(ctx, tmpDir)
+
+	// We expect an error because tmpDir is not a git repo
+	// This verifies the function is called and returns the expected error type
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to check git status")
 }

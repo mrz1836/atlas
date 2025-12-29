@@ -485,6 +485,52 @@ func parseVersionParts(version string) [3]int {
 	return parts
 }
 
+// IsGoPreCommitInstalled checks if go-pre-commit is installed and returns its version.
+// This is a convenience function for the validation runner to quickly check tool availability
+// without running full tool detection.
+//
+// Returns:
+//   - installed: true if go-pre-commit is found in PATH
+//   - version: the detected version string, or "unknown" if version check fails
+//   - err: only set for unexpected errors (not for "tool not found")
+func IsGoPreCommitInstalled(ctx context.Context) (installed bool, version string, err error) {
+	return IsGoPreCommitInstalledWithExecutor(ctx, &DefaultCommandExecutor{})
+}
+
+// IsGoPreCommitInstalledWithExecutor is the testable version of IsGoPreCommitInstalled.
+func IsGoPreCommitInstalledWithExecutor(ctx context.Context, executor CommandExecutor) (installed bool, version string, err error) {
+	// Check for context cancellation
+	select {
+	case <-ctx.Done():
+		return false, "", ctx.Err()
+	default:
+	}
+
+	// Check if tool exists in PATH
+	_, lookErr := executor.LookPath(constants.ToolGoPreCommit)
+	if lookErr != nil {
+		// Tool not found - not an error condition, just not installed
+		// Return nil error because "not installed" is a valid response state
+		return false, "", nil //nolint:nilerr // intentional: not found is not an error
+	}
+
+	// Get version
+	output, runErr := executor.Run(ctx, constants.ToolGoPreCommit, constants.VersionFlagStandard)
+	if runErr != nil {
+		// Tool exists but version command failed - treat as installed without version info
+		// Return nil error because version detection failure shouldn't fail the overall check
+		return true, "unknown", nil //nolint:nilerr // intentional: version error is non-fatal
+	}
+
+	// Parse version using the same function as full tool detection
+	parsedVersion := parseGenericVersion(output)
+	if parsedVersion == "" {
+		return true, "unknown", nil
+	}
+
+	return true, parsedVersion, nil
+}
+
 // FormatMissingToolsError creates a formatted error message for missing tools.
 func FormatMissingToolsError(missing []Tool) string {
 	if len(missing) == 0 {

@@ -238,3 +238,63 @@ func TestResultHandler_HandleResult_DataMarshaledCorrectly(t *testing.T) {
 	assert.Equal(t, int64(1234), parsed.DurationMs)
 	assert.Len(t, parsed.LintResults, 1)
 }
+
+func TestResultHandler_HandleResult_SkippedStepsLogged(t *testing.T) {
+	t.Parallel()
+
+	var savedData []byte
+	mockSaver := &MockArtifactSaver{
+		SaveVersionedArtifactFn: func(_ context.Context, _, _, _ string, data []byte) (string, error) {
+			savedData = data
+			return "validation.1.json", nil
+		},
+	}
+	logger := zerolog.Nop()
+
+	handler := NewResultHandler(mockSaver, nil, logger)
+
+	result := &PipelineResult{
+		Success:      true,
+		DurationMs:   500,
+		SkippedSteps: []string{"pre-commit"},
+		SkipReasons: map[string]string{
+			"pre-commit": "go-pre-commit not installed",
+		},
+	}
+
+	err := handler.HandleResult(context.Background(), "ws", "task", result)
+	require.NoError(t, err)
+
+	// Verify skipped steps are in saved artifact
+	var parsed PipelineResult
+	err = json.Unmarshal(savedData, &parsed)
+	require.NoError(t, err)
+	assert.True(t, parsed.Success)
+	assert.Contains(t, parsed.SkippedSteps, "pre-commit")
+	assert.Equal(t, "go-pre-commit not installed", parsed.SkipReasons["pre-commit"])
+}
+
+func TestResultHandler_HandleResult_SuccessWithSkippedSteps(t *testing.T) {
+	t.Parallel()
+
+	mockSaver := &MockArtifactSaver{}
+	mockNotifier := &MockNotifier{}
+	logger := zerolog.Nop()
+
+	handler := NewResultHandler(mockSaver, mockNotifier, logger)
+
+	result := &PipelineResult{
+		Success:      true,
+		SkippedSteps: []string{"pre-commit"},
+		SkipReasons: map[string]string{
+			"pre-commit": "go-pre-commit not installed",
+		},
+	}
+
+	err := handler.HandleResult(context.Background(), "test-ws", "task-abc", result)
+
+	// Success with skipped steps should still return no error
+	require.NoError(t, err)
+	// Bell should NOT be called on success (even with skipped steps)
+	assert.False(t, mockNotifier.BellCalled)
+}

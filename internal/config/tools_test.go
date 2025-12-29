@@ -750,6 +750,100 @@ func (m *SlowMockExecutor) Run(ctx context.Context, _ string, _ ...string) (stri
 	}
 }
 
+// TestIsGoPreCommitInstalled tests the convenience function for checking go-pre-commit.
+func TestIsGoPreCommitInstalled(t *testing.T) {
+	tests := []struct {
+		name           string
+		lookPathResult error
+		versionOutput  string
+		versionErr     error
+		wantInstalled  bool
+		wantVersion    string
+		wantErrNil     bool
+		cancelContext  bool
+	}{
+		{
+			name:           "installed with valid version",
+			lookPathResult: nil,
+			versionOutput:  "v1.2.3",
+			versionErr:     nil,
+			wantInstalled:  true,
+			wantVersion:    "1.2.3",
+			wantErrNil:     true,
+		},
+		{
+			name:           "installed version without v prefix",
+			lookPathResult: nil,
+			versionOutput:  "go-pre-commit version 2.0.0",
+			versionErr:     nil,
+			wantInstalled:  true,
+			wantVersion:    "2.0.0",
+			wantErrNil:     true,
+		},
+		{
+			name:           "installed but version command fails",
+			lookPathResult: nil,
+			versionOutput:  "",
+			versionErr:     errors.ErrCommandFailed,
+			wantInstalled:  true,
+			wantVersion:    "unknown",
+			wantErrNil:     true,
+		},
+		{
+			name:           "installed but version parse fails",
+			lookPathResult: nil,
+			versionOutput:  "no version info",
+			versionErr:     nil,
+			wantInstalled:  true,
+			wantVersion:    "unknown",
+			wantErrNil:     true,
+		},
+		{
+			name:           "not installed",
+			lookPathResult: exec.ErrNotFound,
+			wantInstalled:  false,
+			wantVersion:    "",
+			wantErrNil:     true,
+		},
+		{
+			name:          "context canceled",
+			cancelContext: true,
+			wantInstalled: false,
+			wantVersion:   "",
+			wantErrNil:    false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			if tt.cancelContext {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithCancel(ctx)
+				cancel() // Cancel immediately
+			}
+
+			mock := NewMockCommandExecutor()
+			if tt.lookPathResult != nil {
+				mock.SetLookPath(constants.ToolGoPreCommit, "", tt.lookPathResult)
+			} else {
+				mock.SetLookPath(constants.ToolGoPreCommit, "/go/bin/go-pre-commit", nil)
+			}
+			mock.SetRun("go-pre-commit --version", tt.versionOutput, tt.versionErr)
+
+			installed, version, err := IsGoPreCommitInstalledWithExecutor(ctx, mock)
+
+			assert.Equal(t, tt.wantInstalled, installed)
+			assert.Equal(t, tt.wantVersion, version)
+			if tt.wantErrNil {
+				assert.NoError(t, err)
+			} else {
+				assert.Error(t, err)
+			}
+		})
+	}
+}
+
 // TestToolDetector_RequiredToolMissing tests detection when a required tool is missing.
 func TestToolDetector_RequiredToolMissing(t *testing.T) {
 	mock := NewMockCommandExecutor()

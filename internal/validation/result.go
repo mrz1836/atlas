@@ -23,13 +23,15 @@ type Result struct {
 
 // PipelineResult aggregates results from all validation pipeline steps.
 type PipelineResult struct {
-	Success          bool     `json:"success"`
-	FormatResults    []Result `json:"format_results"`
-	LintResults      []Result `json:"lint_results"`
-	TestResults      []Result `json:"test_results"`
-	PreCommitResults []Result `json:"pre_commit_results"`
-	DurationMs       int64    `json:"duration_ms"`
-	FailedStepName   string   `json:"failed_step,omitempty"`
+	Success          bool              `json:"success"`
+	FormatResults    []Result          `json:"format_results"`
+	LintResults      []Result          `json:"lint_results"`
+	TestResults      []Result          `json:"test_results"`
+	PreCommitResults []Result          `json:"pre_commit_results"`
+	DurationMs       int64             `json:"duration_ms"`
+	FailedStepName   string            `json:"failed_step,omitempty"`
+	SkippedSteps     []string          `json:"skipped_steps,omitempty"`
+	SkipReasons      map[string]string `json:"skip_reasons,omitempty"`
 }
 
 // AllResults returns a flat list of all results from all steps.

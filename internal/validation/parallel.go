@@ -8,13 +8,45 @@ import (
 	"github.com/rs/zerolog"
 	"golang.org/x/sync/errgroup"
 
+	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/constants"
 )
 
 // ProgressCallback is called to report progress during validation pipeline execution.
 // The step parameter indicates which step is running (format, lint, test, pre-commit).
-// The status parameter is one of: "starting", "completed", "failed".
+// The status parameter is one of: "starting", "completed", "failed", "skipped".
 type ProgressCallback func(step, status string)
+
+// ToolChecker is an interface for checking tool availability.
+// This allows for dependency injection and testing.
+type ToolChecker interface {
+	// IsGoPreCommitInstalled checks if go-pre-commit is installed.
+	// Returns (installed, version, error).
+	IsGoPreCommitInstalled(ctx context.Context) (bool, string, error)
+}
+
+// DefaultToolChecker implements ToolChecker using the config package.
+type DefaultToolChecker struct{}
+
+// IsGoPreCommitInstalled checks if go-pre-commit is installed using config package.
+func (d *DefaultToolChecker) IsGoPreCommitInstalled(ctx context.Context) (bool, string, error) {
+	return config.IsGoPreCommitInstalled(ctx)
+}
+
+// Stager is an interface for staging modified files after validation.
+// This allows for dependency injection and testing.
+type Stager interface {
+	// StageModifiedFiles stages any files modified during validation.
+	StageModifiedFiles(ctx context.Context, workDir string) error
+}
+
+// DefaultStager implements Stager using the staging package functions.
+type DefaultStager struct{}
+
+// StageModifiedFiles stages modified files using the default implementation.
+func (d *DefaultStager) StageModifiedFiles(ctx context.Context, workDir string) error {
+	return StageModifiedFiles(ctx, workDir)
+}
 
 // RunnerConfig holds configuration for the validation pipeline.
 type RunnerConfig struct {
@@ -23,6 +55,8 @@ type RunnerConfig struct {
 	TestCommands      []string
 	PreCommitCommands []string
 	ProgressCallback  ProgressCallback
+	ToolChecker       ToolChecker // Optional: for checking tool availability. If nil, DefaultToolChecker is used.
+	Stager            Stager      // Optional: for staging modified files. If nil, DefaultStager is used.
 }
 
 // Runner orchestrates the validation pipeline with parallel execution.
@@ -109,20 +143,74 @@ func (r *Runner) Run(ctx context.Context, workDir string) (*PipelineResult, erro
 	}
 
 	// Phase 3: Pre-commit (sequential, last)
+	if preCommitErr := r.runPreCommitPhase(ctx, result, workDir, log); preCommitErr != nil {
+		return r.finalize(result, startTime), preCommitErr
+	}
+
+	result.Success = true
+	log.Info().Dur("duration_ms", time.Since(startTime)).Msg("validation pipeline completed successfully")
+	return r.finalize(result, startTime), nil
+}
+
+// runPreCommitPhase handles the pre-commit phase with tool availability check.
+// It skips pre-commit if go-pre-commit is not installed, otherwise runs the configured commands.
+func (r *Runner) runPreCommitPhase(ctx context.Context, result *PipelineResult, workDir string, log *zerolog.Logger) error {
+	// Check if go-pre-commit is installed before running
+	preCommitInstalled, preCommitVersion, checkErr := r.getToolChecker().IsGoPreCommitInstalled(ctx)
+	if checkErr != nil {
+		log.Warn().Err(checkErr).Msg("failed to check go-pre-commit installation status")
+		// Continue anyway - treat as not installed
+		preCommitInstalled = false
+	}
+
+	// Skip if not installed
+	if !preCommitInstalled {
+		r.handlePreCommitSkipped(result, log)
+		return nil
+	}
+
+	// Run pre-commit
+	return r.executePreCommit(ctx, result, workDir, preCommitVersion, log)
+}
+
+// handlePreCommitSkipped records that pre-commit was skipped due to missing tool.
+func (r *Runner) handlePreCommitSkipped(result *PipelineResult, log *zerolog.Logger) {
+	log.Warn().Msg("go-pre-commit not installed, skipping pre-commit validation")
+	r.reportProgress("pre-commit", "skipped")
+
+	// Track skipped step - initialize both slice and map for consistency
+	if result.SkippedSteps == nil {
+		result.SkippedSteps = make([]string, 0, 1)
+	}
+	if result.SkipReasons == nil {
+		result.SkipReasons = make(map[string]string)
+	}
+	result.SkippedSteps = append(result.SkippedSteps, "pre-commit")
+	result.SkipReasons["pre-commit"] = "go-pre-commit not installed"
+}
+
+// executePreCommit runs the pre-commit commands and stages any modified files.
+func (r *Runner) executePreCommit(ctx context.Context, result *PipelineResult, workDir, version string, log *zerolog.Logger) error {
+	log.Info().Str("version", version).Msg("go-pre-commit detected")
 	r.reportProgress("pre-commit", "starting")
+
 	preCommitResults, err := r.runSequential(ctx, r.getPreCommitCommands(), workDir)
 	result.PreCommitResults = preCommitResults
 	if err != nil {
 		r.reportProgress("pre-commit", "failed")
 		result.FailedStepName = "pre-commit"
 		log.Error().Err(err).Msg("pre-commit step failed")
-		return r.finalize(result, startTime), err
+		return err
 	}
 	r.reportProgress("pre-commit", "completed")
 
-	result.Success = true
-	log.Info().Dur("duration_ms", time.Since(startTime)).Msg("validation pipeline completed successfully")
-	return r.finalize(result, startTime), nil
+	// Stage any files modified by pre-commit hooks (auto-fixes)
+	if stageErr := r.getStager().StageModifiedFiles(ctx, workDir); stageErr != nil {
+		log.Warn().Err(stageErr).Msg("failed to stage pre-commit modified files")
+		// Non-fatal - continue with validation success
+	}
+
+	return nil
 }
 
 // runSequential executes commands in sequence, stopping on first failure.
@@ -222,6 +310,22 @@ func (r *Runner) getTestCommands() []string {
 // getPreCommitCommands returns pre-commit commands with default fallback.
 func (r *Runner) getPreCommitCommands() []string {
 	return applyDefaults(r.config.PreCommitCommands, constants.DefaultPreCommitCommand)
+}
+
+// getToolChecker returns the configured tool checker or the default.
+func (r *Runner) getToolChecker() ToolChecker {
+	if r.config.ToolChecker != nil {
+		return r.config.ToolChecker
+	}
+	return &DefaultToolChecker{}
+}
+
+// getStager returns the configured stager or the default.
+func (r *Runner) getStager() Stager {
+	if r.config.Stager != nil {
+		return r.config.Stager
+	}
+	return &DefaultStager{}
 }
 
 // applyDefaults returns commands or a slice with the default if empty.

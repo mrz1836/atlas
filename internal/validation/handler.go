@@ -66,6 +66,18 @@ func (h *ResultHandler) HandleResult(ctx context.Context, workspaceName, taskID 
 		Int64("duration_ms", result.DurationMs).
 		Msg("saved validation result")
 
+	// Log any skipped steps with warnings
+	if len(result.SkippedSteps) > 0 {
+		for _, step := range result.SkippedSteps {
+			reason := result.SkipReasons[step]
+			h.logger.Warn().
+				Str("task_id", taskID).
+				Str("step", step).
+				Str("reason", reason).
+				Msg("validation step was skipped")
+		}
+	}
+
 	if !result.Success {
 		// Emit bell notification on failure
 		if h.notifier != nil {

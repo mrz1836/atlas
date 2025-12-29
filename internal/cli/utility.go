@@ -27,8 +27,10 @@ type CommandResult struct {
 
 // ValidationResponse is the JSON response for validation commands.
 type ValidationResponse struct {
-	Success bool            `json:"success"`
-	Results []CommandResult `json:"results"`
+	Success      bool              `json:"success"`
+	Results      []CommandResult   `json:"results"`
+	SkippedSteps []string          `json:"skipped_steps,omitempty"`
+	SkipReasons  map[string]string `json:"skip_reasons,omitempty"`
 }
 
 // UtilityOptions holds options for utility command execution.

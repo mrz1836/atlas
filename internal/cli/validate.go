@@ -93,6 +93,8 @@ func runValidate(ctx context.Context, cmd *cobra.Command, w io.Writer) error {
 			if verbose {
 				out.Info(fmt.Sprintf("%s failed", capitalizeStep(step)))
 			}
+		case "skipped":
+			out.Warning(fmt.Sprintf("%s skipped (tool not installed)", capitalizeStep(step)))
 		}
 	})
 
@@ -149,8 +151,10 @@ func pipelineResultToResponse(result *validation.PipelineResult) ValidationRespo
 	}
 
 	return ValidationResponse{
-		Success: result.Success,
-		Results: cliResults,
+		Success:      result.Success,
+		Results:      cliResults,
+		SkippedSteps: result.SkippedSteps,
+		SkipReasons:  result.SkipReasons,
 	}
 }
 
