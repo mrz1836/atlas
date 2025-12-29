@@ -82,7 +82,7 @@ development_status:
   4-6-task-engine-orchestrator: done
   4-7-implement-atlas-start-command: done
   4-8-implement-utility-commands: done
-  4-9-speckit-sdd-integration: backlog
+  4-9-speckit-sdd-integration: done
   epic-4-retrospective: optional
 
   # Epic 5: Validation Pipeline

@@ -59,14 +59,13 @@ func NewFeatureTemplate() *domain.Template {
 			},
 			{
 				Name:        "implement",
-				Type:        domain.StepTypeAI,
-				Description: "Implement the feature according to plan",
+				Type:        domain.StepTypeSDD,
+				Description: "Implement the feature using Speckit",
 				Required:    true,
 				Timeout:     45 * time.Minute,
 				RetryCount:  3,
 				Config: map[string]any{
-					"permission_mode": "default",
-					"prompt_template": "implement_feature",
+					"sdd_command": "implement",
 				},
 			},
 			{

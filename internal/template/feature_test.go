@@ -44,7 +44,7 @@ func TestFeatureTemplate_StepTypes(t *testing.T) {
 		"review_spec": domain.StepTypeHuman,
 		"plan":        domain.StepTypeSDD,
 		"tasks":       domain.StepTypeSDD,
-		"implement":   domain.StepTypeAI,
+		"implement":   domain.StepTypeSDD,
 		"validate":    domain.StepTypeValidation,
 		"checklist":   domain.StepTypeSDD,
 		"git_commit":  domain.StepTypeGit,
@@ -173,7 +173,6 @@ func TestFeatureTemplate_ImplementStep(t *testing.T) {
 
 	implementStep := findStep(tmpl, "implement")
 	require.NotNil(t, implementStep)
-	assert.Equal(t, domain.StepTypeAI, implementStep.Type)
-	assert.Equal(t, "default", implementStep.Config["permission_mode"])
-	assert.Equal(t, "implement_feature", implementStep.Config["prompt_template"])
+	assert.Equal(t, domain.StepTypeSDD, implementStep.Type)
+	assert.Equal(t, "implement", implementStep.Config["sdd_command"])
 }
