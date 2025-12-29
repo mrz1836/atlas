@@ -182,4 +182,7 @@ var (
 
 	// ErrExecutorNotFound indicates no executor is registered for the given step type.
 	ErrExecutorNotFound = errors.New("executor not found for step type")
+
+	// ErrUnknownStepResultStatus indicates an unknown step result status was returned.
+	ErrUnknownStepResultStatus = errors.New("unknown step result status")
 )
