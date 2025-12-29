@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -16,8 +17,9 @@ const DefaultTimeout = 5 * time.Minute
 
 // Executor runs validation commands.
 type Executor struct {
-	runner  CommandRunner
-	timeout time.Duration
+	runner     CommandRunner
+	timeout    time.Duration
+	liveOutput io.Writer // Optional: if set, streams command output in real-time
 }
 
 // NewExecutor creates a validation executor with default command runner.
@@ -40,6 +42,12 @@ func NewExecutorWithRunner(timeout time.Duration, runner CommandRunner) *Executo
 		runner:  runner,
 		timeout: timeout,
 	}
+}
+
+// SetLiveOutput configures the executor to stream command output in real-time.
+// When set, stdout and stderr are written to w as they are produced.
+func (e *Executor) SetLiveOutput(w io.Writer) {
+	e.liveOutput = w
 }
 
 // Run executes commands sequentially, stopping on first failure.
@@ -83,7 +91,20 @@ func (e *Executor) RunSingle(ctx context.Context, command, workDir string) (*Res
 	defer cancel()
 
 	// Execute command with timeout context
-	stdout, stderr, exitCode, runErr := e.runner.Run(cmdCtx, workDir, command)
+	var stdout, stderr string
+	var exitCode int
+	var runErr error
+
+	// Use live output runner if available and liveOutput is configured
+	if e.liveOutput != nil {
+		if liveRunner, ok := e.runner.(LiveOutputRunner); ok {
+			stdout, stderr, exitCode, runErr = liveRunner.RunWithLiveOutput(cmdCtx, workDir, command, e.liveOutput)
+		} else {
+			stdout, stderr, exitCode, runErr = e.runner.Run(cmdCtx, workDir, command)
+		}
+	} else {
+		stdout, stderr, exitCode, runErr = e.runner.Run(cmdCtx, workDir, command)
+	}
 
 	completedAt := time.Now()
 	duration := completedAt.Sub(startTime)

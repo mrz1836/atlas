@@ -1,7 +1,10 @@
 package validation_test
 
 import (
+	"bytes"
 	"context"
+	"io"
+	"sync"
 	"testing"
 	"time"
 
@@ -12,6 +15,26 @@ import (
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 	"github.com/mrz1836/atlas/internal/validation"
 )
+
+// safeBufferExec is a thread-safe bytes.Buffer for testing concurrent writes.
+type safeBufferExec struct {
+	buf bytes.Buffer
+	mu  sync.Mutex
+}
+
+func (sb *safeBufferExec) Write(p []byte) (n int, err error) {
+	sb.mu.Lock()
+	defer sb.mu.Unlock()
+	return sb.buf.Write(p)
+}
+
+func (sb *safeBufferExec) String() string {
+	sb.mu.Lock()
+	defer sb.mu.Unlock()
+	return sb.buf.String()
+}
+
+var _ io.Writer = (*safeBufferExec)(nil)
 
 // MockCommandRunner implements CommandRunner for testing.
 type MockCommandRunner struct {
@@ -331,6 +354,24 @@ func TestExecutor_Run_EnvironmentInherited(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, results, 1)
 	assert.Contains(t, results[0].Stdout, testEnvValue)
+}
+
+func TestExecutor_SetLiveOutput(t *testing.T) {
+	executor := validation.NewExecutor(time.Minute)
+	ctx := testContext()
+	tmpDir := t.TempDir()
+
+	liveOutput := &safeBufferExec{}
+	executor.SetLiveOutput(liveOutput)
+
+	results, err := executor.Run(ctx, []string{"echo live_test_output"}, tmpDir)
+
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.True(t, results[0].Success)
+
+	// Live output should contain the output
+	assert.Contains(t, liveOutput.String(), "live_test_output")
 }
 
 func TestExecutor_Run_SequentialExecutionOrder(t *testing.T) {

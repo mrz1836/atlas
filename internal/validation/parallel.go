@@ -12,10 +12,19 @@ import (
 	"github.com/mrz1836/atlas/internal/constants"
 )
 
+// ProgressInfo provides additional context for progress callbacks.
+type ProgressInfo struct {
+	CurrentStep int   // 1-indexed step number (e.g., 1 for format, 2 for lint)
+	TotalSteps  int   // Total number of steps in pipeline (e.g., 4)
+	DurationMs  int64 // Duration for completed steps in milliseconds
+	ElapsedMs   int64 // Elapsed time for running steps in milliseconds
+}
+
 // ProgressCallback is called to report progress during validation pipeline execution.
 // The step parameter indicates which step is running (format, lint, test, pre-commit).
 // The status parameter is one of: "starting", "completed", "failed", "skipped".
-type ProgressCallback func(step, status string)
+// The info parameter provides additional context like step counts and duration (may be nil for backward compatibility).
+type ProgressCallback func(step, status string, info *ProgressInfo)
 
 // ToolChecker is an interface for checking tool availability.
 // This allows for dependency injection and testing.
@@ -61,8 +70,10 @@ type RunnerConfig struct {
 
 // Runner orchestrates the validation pipeline with parallel execution.
 type Runner struct {
-	executor *Executor
-	config   *RunnerConfig
+	executor   *Executor
+	config     *RunnerConfig
+	totalSteps int      // Total number of steps in the pipeline
+	stepTimes  sync.Map // Tracks start time for each step (step name -> time.Time)
 }
 
 // NewRunner creates a validation pipeline runner.
@@ -93,6 +104,9 @@ func (r *Runner) Run(ctx context.Context, workDir string) (*PipelineResult, erro
 	log := zerolog.Ctx(ctx)
 	result := &PipelineResult{}
 	startTime := time.Now()
+
+	// Calculate total steps (format=1, lint=1, test=1, pre-commit=1)
+	r.totalSteps = 4
 
 	log.Info().Str("work_dir", workDir).Msg("starting validation pipeline")
 
@@ -279,11 +293,51 @@ func (r *Runner) runCommandGroup(ctx context.Context, commands []string, workDir
 	return r.executor.Run(ctx, commands, workDir)
 }
 
-// reportProgress calls the progress callback if configured.
-func (r *Runner) reportProgress(step, status string) {
-	if r.config.ProgressCallback != nil {
-		r.config.ProgressCallback(step, status)
+// stepNumber returns the 1-indexed step number for a given step name.
+func stepNumber(step string) int {
+	switch step {
+	case "format":
+		return 1
+	case "lint":
+		return 2
+	case "test":
+		return 3
+	case "pre-commit":
+		return 4
+	default:
+		return 0
 	}
+}
+
+// reportProgress calls the progress callback if configured.
+// It tracks step start times and calculates durations.
+func (r *Runner) reportProgress(step, status string) {
+	if r.config.ProgressCallback == nil {
+		return
+	}
+
+	info := &ProgressInfo{
+		CurrentStep: stepNumber(step),
+		TotalSteps:  r.totalSteps,
+	}
+
+	switch status {
+	case "starting":
+		r.stepTimes.Store(step, time.Now())
+	case "completed", "failed":
+		if startTime, ok := r.stepTimes.Load(step); ok {
+			info.DurationMs = time.Since(startTime.(time.Time)).Milliseconds()
+			r.stepTimes.Delete(step)
+		}
+	}
+
+	// ElapsedMs is 0 for starting status (step just began)
+	// For completed/failed, DurationMs contains the total time
+	if status == "starting" {
+		info.ElapsedMs = 0
+	}
+
+	r.config.ProgressCallback(step, status, info)
 }
 
 // finalize sets the duration and returns the result.

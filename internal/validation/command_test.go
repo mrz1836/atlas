@@ -1,9 +1,12 @@
 package validation_test
 
 import (
+	"bytes"
 	"context"
+	"io"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -11,6 +14,26 @@ import (
 
 	"github.com/mrz1836/atlas/internal/validation"
 )
+
+// safeBuffer is a thread-safe bytes.Buffer for testing concurrent writes.
+type safeBuffer struct {
+	buf bytes.Buffer
+	mu  sync.Mutex
+}
+
+func (sb *safeBuffer) Write(p []byte) (n int, err error) {
+	sb.mu.Lock()
+	defer sb.mu.Unlock()
+	return sb.buf.Write(p)
+}
+
+func (sb *safeBuffer) String() string {
+	sb.mu.Lock()
+	defer sb.mu.Unlock()
+	return sb.buf.String()
+}
+
+var _ io.Writer = (*safeBuffer)(nil)
 
 func TestDefaultCommandRunner_Run_SuccessfulCommand(t *testing.T) {
 	runner := &validation.DefaultCommandRunner{}
@@ -124,4 +147,39 @@ func TestDefaultCommandRunner_Run_BothStdoutAndStderr(t *testing.T) {
 	assert.Equal(t, 0, exitCode)
 	assert.Equal(t, "out\n", stdout)
 	assert.Equal(t, "err\n", stderr)
+}
+
+func TestDefaultCommandRunner_RunWithLiveOutput(t *testing.T) {
+	runner := &validation.DefaultCommandRunner{}
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+
+	liveOutput := &safeBuffer{}
+
+	stdout, stderr, exitCode, err := runner.RunWithLiveOutput(ctx, tmpDir, "echo live_stdout && echo live_stderr >&2", liveOutput)
+
+	require.NoError(t, err)
+	assert.Equal(t, 0, exitCode)
+
+	// Both captured and live output should contain the output
+	assert.Equal(t, "live_stdout\n", stdout)
+	assert.Equal(t, "live_stderr\n", stderr)
+
+	// Live output should contain both stdout and stderr
+	liveStr := liveOutput.String()
+	assert.Contains(t, liveStr, "live_stdout")
+	assert.Contains(t, liveStr, "live_stderr")
+}
+
+func TestDefaultCommandRunner_RunWithLiveOutput_FailedCommand(t *testing.T) {
+	runner := &validation.DefaultCommandRunner{}
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+
+	liveOutput := &safeBuffer{}
+
+	_, _, exitCode, err := runner.RunWithLiveOutput(ctx, tmpDir, "exit 42", liveOutput)
+
+	require.Error(t, err)
+	assert.Equal(t, 42, exitCode)
 }

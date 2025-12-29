@@ -34,15 +34,19 @@ The validation suite runs in this order:
 Examples:
   atlas validate
   atlas validate --output json
-  atlas validate --verbose`,
+  atlas validate --verbose
+  atlas validate --quiet`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runValidate(cmd.Context(), cmd, os.Stdout)
 		},
 	}
 
+	cmd.Flags().BoolP("quiet", "q", false, "Show only final pass/fail result")
+
 	return cmd
 }
 
+//nolint:gocognit // TODO: Refactor to reduce complexity - extract progress callback setup and result handling
 func runValidate(ctx context.Context, cmd *cobra.Command, w io.Writer) error {
 	// Check context cancellation
 	select {
@@ -54,6 +58,7 @@ func runValidate(ctx context.Context, cmd *cobra.Command, w io.Writer) error {
 	logger := GetLogger()
 	outputFormat := cmd.Flag("output").Value.String()
 	verbose := cmd.Flag("verbose").Value.String() == "true"
+	quiet := cmd.Flag("quiet").Value.String() == "true"
 	tui.CheckNoColor()
 
 	out := tui.NewOutput(w, outputFormat)
@@ -73,6 +78,12 @@ func runValidate(ctx context.Context, cmd *cobra.Command, w io.Writer) error {
 
 	// Create executor and runner
 	executor := validation.NewExecutor(cfg.Validation.Timeout)
+
+	// Enable live output streaming in verbose mode
+	if verbose {
+		executor.SetLiveOutput(w)
+	}
+
 	runnerConfig := &validation.RunnerConfig{
 		FormatCommands:    cfg.Validation.Commands.Format,
 		LintCommands:      cfg.Validation.Commands.Lint,
@@ -81,25 +92,54 @@ func runValidate(ctx context.Context, cmd *cobra.Command, w io.Writer) error {
 	}
 	runner := validation.NewRunner(executor, runnerConfig)
 
+	// Create spinner for progress indication (only for TTY output)
+	spinner := tui.NewSpinner(w)
+
 	// Set up progress callback for TUI output
-	runner.SetProgressCallback(func(step, status string) {
+	runner.SetProgressCallback(func(step, status string, info *validation.ProgressInfo) {
+		// Skip all progress output in quiet mode
+		if quiet {
+			return
+		}
+
+		// For JSON output, skip visual feedback
+		if outputFormat == OutputJSON {
+			return
+		}
+
+		stepInfo := ""
+		if info != nil && info.TotalSteps > 0 {
+			stepInfo = fmt.Sprintf("[%d/%d] ", info.CurrentStep, info.TotalSteps)
+		}
+
 		switch status {
 		case "starting":
-			out.Info(fmt.Sprintf("Running %s...", step))
+			// Use spinner for starting status
+			spinner.Start(ctx, fmt.Sprintf("%sRunning %s...", stepInfo, step))
 		case "completed":
-			out.Success(fmt.Sprintf("%s passed", capitalizeStep(step)))
+			// Stop spinner and show success
+			duration := ""
+			if info != nil && info.DurationMs > 0 {
+				duration = fmt.Sprintf(" (%s)", tui.FormatDuration(info.DurationMs))
+			}
+			spinner.StopWithSuccess(fmt.Sprintf("%s passed%s", capitalizeStep(step), duration))
 		case "failed":
-			// Error will be reported later with details
+			// Stop spinner - error will be reported later with details
 			if verbose {
-				out.Info(fmt.Sprintf("%s failed", capitalizeStep(step)))
+				spinner.StopWithError(fmt.Sprintf("%s failed", capitalizeStep(step)))
+			} else {
+				spinner.Stop()
 			}
 		case "skipped":
-			out.Warning(fmt.Sprintf("%s skipped (tool not installed)", capitalizeStep(step)))
+			spinner.StopWithWarning(fmt.Sprintf("%s skipped (tool not installed)", capitalizeStep(step)))
 		}
 	})
 
 	// Run the validation pipeline
 	result, err := runner.Run(ctx, workDir)
+
+	// Ensure spinner is stopped on exit
+	spinner.Stop()
 
 	// Handle JSON output
 	if outputFormat == OutputJSON {

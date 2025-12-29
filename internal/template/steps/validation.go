@@ -27,6 +27,7 @@ type DefaultCommandRunner = validation.DefaultCommandRunner
 type ValidationExecutor struct {
 	workDir       string
 	runner        validation.CommandRunner
+	toolChecker   validation.ToolChecker
 	artifactSaver ArtifactSaver
 	notifier      Notifier
 	retryHandler  RetryHandler
@@ -63,10 +64,11 @@ func NewValidationExecutorWithDeps(workDir string, artifactSaver ArtifactSaver, 
 
 // NewValidationExecutorWithAll creates a validation executor with all dependencies including custom runner.
 // This is primarily used for testing.
-func NewValidationExecutorWithAll(workDir string, runner validation.CommandRunner, artifactSaver ArtifactSaver, notifier Notifier, retryHandler RetryHandler) *ValidationExecutor {
+func NewValidationExecutorWithAll(workDir string, runner validation.CommandRunner, toolChecker validation.ToolChecker, artifactSaver ArtifactSaver, notifier Notifier, retryHandler RetryHandler) *ValidationExecutor {
 	return &ValidationExecutor{
 		workDir:       workDir,
 		runner:        runner,
+		toolChecker:   toolChecker,
 		artifactSaver: artifactSaver,
 		notifier:      notifier,
 		retryHandler:  retryHandler,
@@ -204,7 +206,9 @@ func (e *ValidationExecutor) MaxRetryAttempts() int {
 
 // buildRunnerConfig creates a RunnerConfig from task config.
 func (e *ValidationExecutor) buildRunnerConfig(task *domain.Task) *validation.RunnerConfig {
-	config := &validation.RunnerConfig{}
+	config := &validation.RunnerConfig{
+		ToolChecker: e.toolChecker,
+	}
 
 	// If task has explicit validation commands, use them for lint step
 	// (maintaining backward compatibility with older task configs)

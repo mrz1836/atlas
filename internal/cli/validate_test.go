@@ -86,3 +86,39 @@ func TestValidateCommand_Examples(t *testing.T) {
 	assert.Contains(t, cmd.Long, "atlas validate")
 	assert.Contains(t, cmd.Long, "atlas validate --output json")
 }
+
+func TestValidateCommand_HasQuietFlag(t *testing.T) {
+	cmd := newValidateCmd()
+
+	// Verify --quiet flag exists
+	quietFlag := cmd.Flags().Lookup("quiet")
+	require.NotNil(t, quietFlag, "--quiet flag should exist")
+	assert.Equal(t, "q", quietFlag.Shorthand)
+	assert.Equal(t, "false", quietFlag.DefValue)
+}
+
+func TestCapitalizeStep(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"format", "Format"},
+		{"lint", "Lint"},
+		{"test", "Test"},
+		{"pre-commit", "Pre-commit"},
+		{"unknown", "unknown"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			result := capitalizeStep(tt.input)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestPipelineResultToResponse_NilResult(t *testing.T) {
+	resp := pipelineResultToResponse(nil)
+	assert.False(t, resp.Success)
+	assert.Empty(t, resp.Results)
+}

@@ -10,7 +10,23 @@ import (
 
 	"github.com/mrz1836/atlas/internal/domain"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
+	"github.com/mrz1836/atlas/internal/validation"
 )
+
+// mockToolChecker implements validation.ToolChecker for testing.
+type mockToolChecker struct {
+	installed bool
+	version   string
+	err       error
+}
+
+// IsGoPreCommitInstalled implements validation.ToolChecker.
+func (m *mockToolChecker) IsGoPreCommitInstalled(_ context.Context) (bool, string, error) {
+	return m.installed, m.version, m.err
+}
+
+// Ensure mockToolChecker implements ToolChecker.
+var _ validation.ToolChecker = (*mockToolChecker)(nil)
 
 // mockCommandRunner implements CommandRunner for testing.
 // It is thread-safe to support parallel pipeline execution.
@@ -92,7 +108,8 @@ func TestValidationExecutor_Execute_AllSuccess(t *testing.T) {
 	ctx := context.Background()
 	runner := newMockCommandRunner()
 	runner.SetDefaultSuccess()
-	executor := NewValidationExecutorWithRunner("/tmp/work", runner)
+	toolChecker := &mockToolChecker{installed: true, version: "1.0.0"}
+	executor := NewValidationExecutorWithAll("/tmp/work", runner, toolChecker, nil, nil, nil)
 
 	task := &domain.Task{
 		ID:          "task-123",
@@ -146,7 +163,8 @@ func TestValidationExecutor_Execute_DefaultCommands(t *testing.T) {
 	ctx := context.Background()
 	runner := newMockCommandRunner()
 	runner.SetDefaultSuccess()
-	executor := NewValidationExecutorWithRunner("/tmp/work", runner)
+	toolChecker := &mockToolChecker{installed: true, version: "1.0.0"}
+	executor := NewValidationExecutorWithAll("/tmp/work", runner, toolChecker, nil, nil, nil)
 
 	task := &domain.Task{
 		ID:          "task-123",
@@ -224,7 +242,8 @@ func TestValidationExecutor_Execute_EmptyCommands(t *testing.T) {
 	ctx := context.Background()
 	runner := newMockCommandRunner()
 	runner.SetDefaultSuccess()
-	executor := NewValidationExecutorWithRunner("/tmp/work", runner)
+	toolChecker := &mockToolChecker{installed: true, version: "1.0.0"}
+	executor := NewValidationExecutorWithAll("/tmp/work", runner, toolChecker, nil, nil, nil)
 
 	task := &domain.Task{
 		ID:          "task-123",
@@ -280,7 +299,7 @@ func TestValidationExecutor_Execute_WithArtifactSaver(t *testing.T) {
 		},
 	}
 
-	executor := NewValidationExecutorWithAll("/tmp/work", runner, mockSaver, nil, nil)
+	executor := NewValidationExecutorWithAll("/tmp/work", runner, nil, mockSaver, nil, nil)
 
 	task := &domain.Task{
 		ID:          "task-123",
@@ -311,7 +330,7 @@ func TestValidationExecutor_Execute_WithNotifier(t *testing.T) {
 	// Need artifact saver for the handler to be created
 	mockSaver := &mockArtifactSaver{}
 
-	executor := NewValidationExecutorWithAll("/tmp/work", runner, mockSaver, mockNotifier, nil)
+	executor := NewValidationExecutorWithAll("/tmp/work", runner, nil, mockSaver, mockNotifier, nil)
 
 	task := &domain.Task{
 		ID:          "task-123",
@@ -368,7 +387,7 @@ func (m *mockRetryHandler) IsEnabled() bool {
 
 func TestValidationExecutor_CanRetry_WithHandler(t *testing.T) {
 	retryHandler := &mockRetryHandler{enabled: true, maxAttempts: 3}
-	executor := NewValidationExecutorWithAll("/tmp/work", nil, nil, nil, retryHandler)
+	executor := NewValidationExecutorWithAll("/tmp/work", nil, nil, nil, nil, retryHandler)
 
 	assert.True(t, executor.CanRetry(1))
 	assert.True(t, executor.CanRetry(2))
@@ -384,14 +403,14 @@ func TestValidationExecutor_CanRetry_WithoutHandler(t *testing.T) {
 
 func TestValidationExecutor_RetryEnabled_WithHandler(t *testing.T) {
 	retryHandler := &mockRetryHandler{enabled: true, maxAttempts: 3}
-	executor := NewValidationExecutorWithAll("/tmp/work", nil, nil, nil, retryHandler)
+	executor := NewValidationExecutorWithAll("/tmp/work", nil, nil, nil, nil, retryHandler)
 
 	assert.True(t, executor.RetryEnabled())
 }
 
 func TestValidationExecutor_RetryEnabled_Disabled(t *testing.T) {
 	retryHandler := &mockRetryHandler{enabled: false, maxAttempts: 3}
-	executor := NewValidationExecutorWithAll("/tmp/work", nil, nil, nil, retryHandler)
+	executor := NewValidationExecutorWithAll("/tmp/work", nil, nil, nil, nil, retryHandler)
 
 	assert.False(t, executor.RetryEnabled())
 }
@@ -404,7 +423,7 @@ func TestValidationExecutor_RetryEnabled_WithoutHandler(t *testing.T) {
 
 func TestValidationExecutor_MaxRetryAttempts_WithHandler(t *testing.T) {
 	retryHandler := &mockRetryHandler{enabled: true, maxAttempts: 5}
-	executor := NewValidationExecutorWithAll("/tmp/work", nil, nil, nil, retryHandler)
+	executor := NewValidationExecutorWithAll("/tmp/work", nil, nil, nil, nil, retryHandler)
 
 	assert.Equal(t, 5, executor.MaxRetryAttempts())
 }

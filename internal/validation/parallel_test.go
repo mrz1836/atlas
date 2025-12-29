@@ -76,6 +76,10 @@ func TestRunner_Run_FullPipelineSuccess(t *testing.T) {
 		LintCommands:      []string{"lint"},
 		TestCommands:      []string{"test"},
 		PreCommitCommands: []string{"precommit"},
+		ToolChecker: &MockToolChecker{
+			Installed: true,
+			Version:   "1.0.0",
+		},
 	}
 	runner := validation.NewRunner(executor, config)
 
@@ -195,6 +199,10 @@ func TestRunner_Run_PreCommitFailure(t *testing.T) {
 		LintCommands:      []string{"lint"},
 		TestCommands:      []string{"test"},
 		PreCommitCommands: []string{"precommit"},
+		ToolChecker: &MockToolChecker{
+			Installed: true,
+			Version:   "1.0.0",
+		},
 	}
 	runner := validation.NewRunner(executor, config)
 
@@ -267,6 +275,7 @@ func TestRunner_Run_ProgressCallbackInvoked(t *testing.T) {
 	var progressCalls []struct {
 		step   string
 		status string
+		info   *validation.ProgressInfo
 	}
 	var mu sync.Mutex
 
@@ -275,12 +284,17 @@ func TestRunner_Run_ProgressCallbackInvoked(t *testing.T) {
 		LintCommands:      []string{"lint"},
 		TestCommands:      []string{"test"},
 		PreCommitCommands: []string{"precommit"},
-		ProgressCallback: func(step, status string) {
+		ToolChecker: &MockToolChecker{
+			Installed: true,
+			Version:   "1.0.0",
+		},
+		ProgressCallback: func(step, status string, info *validation.ProgressInfo) {
 			mu.Lock()
 			progressCalls = append(progressCalls, struct {
 				step   string
 				status string
-			}{step: step, status: status})
+				info   *validation.ProgressInfo
+			}{step: step, status: status, info: info})
 			mu.Unlock()
 		},
 	}
@@ -306,6 +320,147 @@ func TestRunner_Run_ProgressCallbackInvoked(t *testing.T) {
 	assert.Equal(t, "starting", progressCalls[0].status)
 }
 
+func TestRunner_Run_ProgressCallbackIncludesStepCounts(t *testing.T) {
+	mockRunner := NewMockCommandRunner()
+	mockRunner.SetResponse("fmt", "formatted", "", 0, nil)
+	mockRunner.SetResponse("lint", "lint ok", "", 0, nil)
+	mockRunner.SetResponse("test", "test ok", "", 0, nil)
+	mockRunner.SetResponse("precommit", "precommit ok", "", 0, nil)
+
+	executor := validation.NewExecutorWithRunner(time.Minute, mockRunner)
+
+	var progressCalls []struct {
+		step   string
+		status string
+		info   *validation.ProgressInfo
+	}
+	var mu sync.Mutex
+
+	config := &validation.RunnerConfig{
+		FormatCommands:    []string{"fmt"},
+		LintCommands:      []string{"lint"},
+		TestCommands:      []string{"test"},
+		PreCommitCommands: []string{"precommit"},
+		ProgressCallback: func(step, status string, info *validation.ProgressInfo) {
+			mu.Lock()
+			progressCalls = append(progressCalls, struct {
+				step   string
+				status string
+				info   *validation.ProgressInfo
+			}{step: step, status: status, info: info})
+			mu.Unlock()
+		},
+	}
+	runner := validation.NewRunner(executor, config)
+
+	ctx := testContext()
+	result, err := runner.Run(ctx, "/tmp")
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.True(t, result.Success)
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	// Verify step counts are correct
+	// First call should be format starting with step 1/4
+	assert.Equal(t, "format", progressCalls[0].step)
+	assert.Equal(t, "starting", progressCalls[0].status)
+	require.NotNil(t, progressCalls[0].info)
+	assert.Equal(t, 1, progressCalls[0].info.CurrentStep)
+	assert.Equal(t, 4, progressCalls[0].info.TotalSteps)
+
+	// Find format completed call and verify it has duration
+	for _, call := range progressCalls {
+		if call.step == "format" && call.status == "completed" {
+			require.NotNil(t, call.info)
+			assert.Equal(t, 1, call.info.CurrentStep)
+			assert.Equal(t, 4, call.info.TotalSteps)
+			// Duration should be >= 0 (may be very small in tests)
+			assert.GreaterOrEqual(t, call.info.DurationMs, int64(0))
+			break
+		}
+	}
+
+	// Find lint starting call and verify step number
+	for _, call := range progressCalls {
+		if call.step == "lint" && call.status == "starting" {
+			require.NotNil(t, call.info)
+			assert.Equal(t, 2, call.info.CurrentStep)
+			assert.Equal(t, 4, call.info.TotalSteps)
+			break
+		}
+	}
+
+	// Find test starting call and verify step number
+	for _, call := range progressCalls {
+		if call.step == "test" && call.status == "starting" {
+			require.NotNil(t, call.info)
+			assert.Equal(t, 3, call.info.CurrentStep)
+			assert.Equal(t, 4, call.info.TotalSteps)
+			break
+		}
+	}
+
+	// Find pre-commit starting call and verify step number
+	for _, call := range progressCalls {
+		if call.step == "pre-commit" && call.status == "starting" {
+			require.NotNil(t, call.info)
+			assert.Equal(t, 4, call.info.CurrentStep)
+			assert.Equal(t, 4, call.info.TotalSteps)
+			break
+		}
+	}
+}
+
+func TestRunner_Run_ProgressCallbackIncludesDuration(t *testing.T) {
+	mockRunner := NewMockCommandRunner()
+	// Add small delay to ensure measurable duration
+	mockRunner.SetResponseWithDelay("fmt", "formatted", "", 0, nil, 10*time.Millisecond)
+	mockRunner.SetResponse("lint", "lint ok", "", 0, nil)
+	mockRunner.SetResponse("test", "test ok", "", 0, nil)
+	mockRunner.SetResponse("precommit", "precommit ok", "", 0, nil)
+
+	executor := validation.NewExecutorWithRunner(time.Minute, mockRunner)
+
+	var formatCompletedInfo *validation.ProgressInfo
+	var mu sync.Mutex
+
+	config := &validation.RunnerConfig{
+		FormatCommands:    []string{"fmt"},
+		LintCommands:      []string{"lint"},
+		TestCommands:      []string{"test"},
+		PreCommitCommands: []string{"precommit"},
+		ProgressCallback: func(step, status string, info *validation.ProgressInfo) {
+			mu.Lock()
+			if step == "format" && status == "completed" {
+				// Make a copy of the info
+				if info != nil {
+					copyInfo := *info
+					formatCompletedInfo = &copyInfo
+				}
+			}
+			mu.Unlock()
+		},
+	}
+	runner := validation.NewRunner(executor, config)
+
+	ctx := testContext()
+	result, err := runner.Run(ctx, "/tmp")
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.True(t, result.Success)
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	// Format should have duration >= 10ms due to the delay
+	require.NotNil(t, formatCompletedInfo)
+	assert.GreaterOrEqual(t, formatCompletedInfo.DurationMs, int64(10))
+}
+
 func TestRunner_Run_ProgressCallbackOnFailure(t *testing.T) {
 	mockRunner := NewMockCommandRunner()
 	mockRunner.SetResponse("fmt", "", "error", 1, atlaserrors.ErrCommandFailed)
@@ -317,7 +472,7 @@ func TestRunner_Run_ProgressCallbackOnFailure(t *testing.T) {
 
 	config := &validation.RunnerConfig{
 		FormatCommands: []string{"fmt"},
-		ProgressCallback: func(step, status string) {
+		ProgressCallback: func(step, status string, _ *validation.ProgressInfo) {
 			mu.Lock()
 			if status == "failed" {
 				failedStep = step
@@ -380,6 +535,10 @@ func TestRunner_Run_MultipleCommandsPerStep(t *testing.T) {
 		LintCommands:      []string{"lint1", "lint2"},
 		TestCommands:      []string{"test1", "test2"},
 		PreCommitCommands: []string{"precommit"},
+		ToolChecker: &MockToolChecker{
+			Installed: true,
+			Version:   "1.0.0",
+		},
 	}
 	runner := validation.NewRunner(executor, config)
 
@@ -471,7 +630,7 @@ func TestRunner_SetProgressCallback(t *testing.T) {
 	runner := validation.NewRunner(executor, config)
 
 	var callCount int32
-	runner.SetProgressCallback(func(_, _ string) {
+	runner.SetProgressCallback(func(_, _ string, _ *validation.ProgressInfo) {
 		atomic.AddInt32(&callCount, 1)
 	})
 
@@ -626,7 +785,7 @@ func TestRunner_Run_ProgressCallbackSkippedStatus(t *testing.T) {
 		ToolChecker: &MockToolChecker{
 			Installed: false,
 		},
-		ProgressCallback: func(step, status string) {
+		ProgressCallback: func(step, status string, _ *validation.ProgressInfo) {
 			mu.Lock()
 			if step == "pre-commit" {
 				preCommitStatus = status
