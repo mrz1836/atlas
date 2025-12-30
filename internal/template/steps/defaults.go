@@ -2,8 +2,35 @@
 package steps
 
 import (
+	"context"
+
 	"github.com/mrz1836/atlas/internal/ai"
 )
+
+// ArtifactSaver abstracts artifact persistence for validation results.
+// This interface matches task.Store.SaveVersionedArtifact and
+// validation.ArtifactSaver, allowing the validation step executor to
+// save artifacts without direct dependency on the task package.
+type ArtifactSaver interface {
+	SaveVersionedArtifact(ctx context.Context, workspaceName, taskID, baseName string, data []byte) (string, error)
+}
+
+// Notifier abstracts user notifications.
+// This interface matches tui.Notifier, allowing the validation step
+// executor to emit notifications without direct dependency on tui.
+type Notifier interface {
+	Bell()
+}
+
+// RetryHandler abstracts retry operations for validation.
+// This interface matches validation.RetryHandler, allowing the validation
+// step executor to perform AI-assisted retries without direct dependency
+// on the validation package's concrete type.
+type RetryHandler interface {
+	CanRetry(attemptNum int) bool
+	MaxAttempts() int
+	IsEnabled() bool
+}
 
 // ExecutorDeps holds dependencies for creating executors.
 // Use this to inject dependencies when creating the default registry.
@@ -16,6 +43,18 @@ type ExecutorDeps struct {
 
 	// ArtifactsDir is where SDD artifacts are saved.
 	ArtifactsDir string
+
+	// ArtifactSaver is used to save validation result artifacts.
+	// If nil, artifact saving is skipped.
+	ArtifactSaver ArtifactSaver
+
+	// Notifier is used for user notifications (e.g., terminal bell).
+	// If nil, notifications are skipped.
+	Notifier Notifier
+
+	// RetryHandler is used for AI-assisted validation retry.
+	// If nil, retry capability is not available.
+	RetryHandler RetryHandler
 }
 
 // NewDefaultRegistry creates a registry with all built-in executors.
@@ -28,8 +67,8 @@ func NewDefaultRegistry(deps ExecutorDeps) *ExecutorRegistry {
 		r.Register(NewAIExecutor(deps.AIRunner))
 	}
 
-	// Register validation executor
-	r.Register(NewValidationExecutor(deps.WorkDir))
+	// Register validation executor with optional artifact saving, notifications, and retry
+	r.Register(NewValidationExecutorWithDeps(deps.WorkDir, deps.ArtifactSaver, deps.Notifier, deps.RetryHandler))
 
 	// Register git executor (placeholder for Epic 6)
 	r.Register(NewGitExecutor(deps.WorkDir))

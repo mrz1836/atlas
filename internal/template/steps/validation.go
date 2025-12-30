@@ -4,80 +4,88 @@ package steps
 import (
 	"bytes"
 	"context"
-	"errors"
-	"fmt"
-	"os/exec"
 	"time"
 
 	"github.com/rs/zerolog"
 
 	"github.com/mrz1836/atlas/internal/domain"
-	atlaserrors "github.com/mrz1836/atlas/internal/errors"
+	"github.com/mrz1836/atlas/internal/validation"
 )
 
-// CommandRunner defines the interface for executing shell commands.
-// This allows for testing by injecting mock implementations.
-type CommandRunner interface {
-	// Run executes a shell command and returns its output.
-	Run(ctx context.Context, workDir, command string) (stdout, stderr string, exitCode int, err error)
-}
+// CommandRunner is an alias to validation.CommandRunner for backward compatibility.
+// Deprecated: Use validation.CommandRunner directly. Will be removed in Epic 7+.
+type CommandRunner = validation.CommandRunner
 
-// DefaultCommandRunner implements CommandRunner using os/exec.
-type DefaultCommandRunner struct{}
-
-// Run executes a shell command using sh -c.
-func (r *DefaultCommandRunner) Run(ctx context.Context, workDir, command string) (stdout, stderr string, exitCode int, err error) {
-	cmd := exec.CommandContext(ctx, "sh", "-c", command)
-	cmd.Dir = workDir
-
-	var outBuf, errBuf bytes.Buffer
-	cmd.Stdout = &outBuf
-	cmd.Stderr = &errBuf
-
-	err = cmd.Run()
-	stdout = outBuf.String()
-	stderr = errBuf.String()
-
-	if err != nil {
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
-			exitCode = exitErr.ExitCode()
-		} else {
-			exitCode = 1
-		}
-	}
-
-	return stdout, stderr, exitCode, err
-}
+// DefaultCommandRunner is an alias to validation.DefaultCommandRunner for backward compatibility.
+// Deprecated: Use validation.DefaultCommandRunner directly. Will be removed in Epic 7+.
+type DefaultCommandRunner = validation.DefaultCommandRunner
 
 // ValidationExecutor handles validation steps.
-// It runs configured validation commands in order and captures their output.
+// It runs configured validation commands using the parallel pipeline runner
+// and captures their output. Results can optionally be saved as artifacts.
+// When retry is configured, failed validation results include retry context.
 type ValidationExecutor struct {
-	workDir string
-	runner  CommandRunner
+	workDir       string
+	runner        validation.CommandRunner
+	toolChecker   validation.ToolChecker
+	artifactSaver ArtifactSaver
+	notifier      Notifier
+	retryHandler  RetryHandler
 }
 
 // NewValidationExecutor creates a new validation executor.
 func NewValidationExecutor(workDir string) *ValidationExecutor {
 	return &ValidationExecutor{
 		workDir: workDir,
-		runner:  &DefaultCommandRunner{},
+		runner:  &validation.DefaultCommandRunner{},
 	}
 }
 
 // NewValidationExecutorWithRunner creates a validation executor with a custom command runner.
 // This is primarily used for testing.
-func NewValidationExecutorWithRunner(workDir string, runner CommandRunner) *ValidationExecutor {
+func NewValidationExecutorWithRunner(workDir string, runner validation.CommandRunner) *ValidationExecutor {
 	return &ValidationExecutor{
 		workDir: workDir,
 		runner:  runner,
 	}
 }
 
-// Execute runs validation commands.
+// NewValidationExecutorWithDeps creates a validation executor with full dependencies.
+// The artifactSaver, notifier, and retryHandler may be nil if those features are not needed.
+func NewValidationExecutorWithDeps(workDir string, artifactSaver ArtifactSaver, notifier Notifier, retryHandler RetryHandler) *ValidationExecutor {
+	return &ValidationExecutor{
+		workDir:       workDir,
+		runner:        &validation.DefaultCommandRunner{},
+		artifactSaver: artifactSaver,
+		notifier:      notifier,
+		retryHandler:  retryHandler,
+	}
+}
+
+// NewValidationExecutorWithAll creates a validation executor with all dependencies including custom runner.
+// This is primarily used for testing.
+func NewValidationExecutorWithAll(workDir string, runner validation.CommandRunner, toolChecker validation.ToolChecker, artifactSaver ArtifactSaver, notifier Notifier, retryHandler RetryHandler) *ValidationExecutor {
+	return &ValidationExecutor{
+		workDir:       workDir,
+		runner:        runner,
+		toolChecker:   toolChecker,
+		artifactSaver: artifactSaver,
+		notifier:      notifier,
+		retryHandler:  retryHandler,
+	}
+}
+
+// Execute runs validation commands using the parallel pipeline runner.
 // Commands are retrieved from task.Config.ValidationCommands.
 // If no commands are configured, default commands are used.
-// Execution stops on the first failure.
+//
+// The execution order is:
+// 1. Format (sequential, first)
+// 2. Lint + Test (parallel)
+// 3. Pre-commit (sequential, last)
+//
+// Results are saved as versioned artifacts if an ArtifactSaver is configured.
+// Bell notifications are emitted on failure if a Notifier is configured.
 func (e *ValidationExecutor) Execute(ctx context.Context, task *domain.Task, step *domain.StepDefinition) (*domain.StepResult, error) {
 	// Check for cancellation
 	select {
@@ -94,79 +102,63 @@ func (e *ValidationExecutor) Execute(ctx context.Context, task *domain.Task, ste
 		Msg("executing validation step")
 
 	startTime := time.Now()
-	var output bytes.Buffer
 
-	// Get validation commands from task config or use defaults
-	commands := task.Config.ValidationCommands
-	if len(commands) == 0 {
-		commands = []string{"magex format:fix", "magex lint", "magex test"}
-	}
+	// Build runner config from task config
+	config := e.buildRunnerConfig(task)
 
 	log.Debug().
-		Strs("commands", commands).
+		Strs("format_commands", config.FormatCommands).
+		Strs("lint_commands", config.LintCommands).
+		Strs("test_commands", config.TestCommands).
+		Strs("pre_commit_commands", config.PreCommitCommands).
 		Str("work_dir", e.workDir).
-		Msg("running validation commands")
+		Msg("running validation pipeline")
 
-	// Execute each command in order
-	for i, cmdStr := range commands {
-		// Check for cancellation between commands
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		default:
-		}
+	// Create executor and runner for parallel pipeline execution
+	executor := validation.NewExecutorWithRunner(validation.DefaultTimeout, e.runner)
+	runner := validation.NewRunner(executor, config)
 
-		log.Debug().
-			Int("index", i).
-			Str("command", cmdStr).
-			Msg("running validation command")
+	// Execute the pipeline
+	pipelineResult, pipelineErr := runner.Run(ctx, e.workDir)
 
-		stdout, stderr, exitCode, err := e.runner.Run(ctx, e.workDir, cmdStr)
-
-		if err != nil || exitCode != 0 {
-			output.WriteString(fmt.Sprintf("✗ Command failed: %s (exit code: %d)\n", cmdStr, exitCode))
-			if stdout != "" {
-				output.WriteString(fmt.Sprintf("stdout:\n%s\n", stdout))
-			}
-			if stderr != "" {
-				output.WriteString(fmt.Sprintf("stderr:\n%s\n", stderr))
-			}
-
-			elapsed := time.Since(startTime)
-			log.Error().
-				Str("task_id", task.ID).
-				Str("step_name", step.Name).
-				Str("command", cmdStr).
-				Int("exit_code", exitCode).
-				Dur("duration_ms", elapsed).
-				Msg("validation command failed")
-
-			return &domain.StepResult{
-				StepIndex:   task.CurrentStep,
-				StepName:    step.Name,
-				Status:      "failed",
-				StartedAt:   startTime,
-				CompletedAt: time.Now(),
-				DurationMs:  elapsed.Milliseconds(),
-				Output:      output.String(),
-				Error:       fmt.Sprintf("validation command failed: %s", cmdStr),
-			}, fmt.Errorf("%w: %s", atlaserrors.ErrValidationFailed, cmdStr)
-		}
-
-		output.WriteString(fmt.Sprintf("✓ %s\n", cmdStr))
-		if stdout != "" {
-			log.Debug().
-				Str("command", cmdStr).
-				Str("output", stdout).
-				Msg("command output")
-		}
-	}
+	// Build output from pipeline results
+	var output bytes.Buffer
+	output.WriteString(validation.FormatResult(pipelineResult))
 
 	elapsed := time.Since(startTime)
+
+	// Handle result (save artifact, emit notification)
+	if err := e.handlePipelineResult(ctx, task, pipelineResult, log); err != nil {
+		log.Warn().Err(err).Msg("failed to handle pipeline result (artifact/notification)")
+		// Don't fail the step for artifact save failures
+	}
+
+	// Handle execution error (validation failed or context canceled)
+	if pipelineErr != nil {
+		log.Error().
+			Str("task_id", task.ID).
+			Str("step_name", step.Name).
+			Str("failed_step", pipelineResult.FailedStepName).
+			Err(pipelineErr).
+			Dur("duration_ms", elapsed).
+			Msg("validation step failed")
+
+		return &domain.StepResult{
+			StepIndex:   task.CurrentStep,
+			StepName:    step.Name,
+			Status:      "failed",
+			StartedAt:   startTime,
+			CompletedAt: time.Now(),
+			DurationMs:  elapsed.Milliseconds(),
+			Output:      output.String(),
+			Error:       pipelineErr.Error(),
+		}, pipelineErr
+	}
+
 	log.Info().
 		Str("task_id", task.ID).
 		Str("step_name", step.Name).
-		Int("commands_run", len(commands)).
+		Int64("pipeline_duration_ms", pipelineResult.DurationMs).
 		Dur("duration_ms", elapsed).
 		Msg("validation step completed")
 
@@ -184,4 +176,88 @@ func (e *ValidationExecutor) Execute(ctx context.Context, task *domain.Task, ste
 // Type returns the step type this executor handles.
 func (e *ValidationExecutor) Type() domain.StepType {
 	return domain.StepTypeValidation
+}
+
+// CanRetry checks if the validation executor can perform AI-assisted retry.
+// Returns true if retry is configured and within attempt limits.
+func (e *ValidationExecutor) CanRetry(attemptNum int) bool {
+	if e.retryHandler == nil {
+		return false
+	}
+	return e.retryHandler.CanRetry(attemptNum)
+}
+
+// RetryEnabled returns whether AI retry is enabled for this executor.
+func (e *ValidationExecutor) RetryEnabled() bool {
+	if e.retryHandler == nil {
+		return false
+	}
+	return e.retryHandler.IsEnabled()
+}
+
+// MaxRetryAttempts returns the maximum number of retry attempts allowed.
+// Returns 0 if retry is not configured.
+func (e *ValidationExecutor) MaxRetryAttempts() int {
+	if e.retryHandler == nil {
+		return 0
+	}
+	return e.retryHandler.MaxAttempts()
+}
+
+// buildRunnerConfig creates a RunnerConfig from task config.
+func (e *ValidationExecutor) buildRunnerConfig(task *domain.Task) *validation.RunnerConfig {
+	config := &validation.RunnerConfig{
+		ToolChecker: e.toolChecker,
+	}
+
+	// If task has explicit validation commands, use them for lint step
+	// (maintaining backward compatibility with older task configs)
+	if len(task.Config.ValidationCommands) > 0 {
+		config.LintCommands = task.Config.ValidationCommands
+	}
+
+	return config
+}
+
+// handlePipelineResult saves the result as an artifact and emits notifications.
+func (e *ValidationExecutor) handlePipelineResult(ctx context.Context, task *domain.Task, result *validation.PipelineResult, log *zerolog.Logger) error {
+	if e.artifactSaver == nil {
+		return nil
+	}
+
+	// Create result handler with our dependencies
+	// The validation.ResultHandler accepts validation.ArtifactSaver and validation.Notifier
+	// Our ArtifactSaver and Notifier interfaces have the same signatures, so we can adapt them
+	handler := validation.NewResultHandler(
+		&artifactSaverAdapter{e.artifactSaver},
+		&notifierAdapter{e.notifier},
+		*log,
+	)
+
+	return handler.HandleResult(ctx, task.WorkspaceID, task.ID, result)
+}
+
+// artifactSaverAdapter adapts steps.ArtifactSaver to validation.ArtifactSaver.
+type artifactSaverAdapter struct {
+	saver ArtifactSaver
+}
+
+// SaveVersionedArtifact implements validation.ArtifactSaver.
+func (a *artifactSaverAdapter) SaveVersionedArtifact(ctx context.Context, workspaceName, taskID, baseName string, data []byte) (string, error) {
+	if a.saver == nil {
+		return "", nil
+	}
+	return a.saver.SaveVersionedArtifact(ctx, workspaceName, taskID, baseName, data)
+}
+
+// notifierAdapter adapts steps.Notifier to validation.Notifier.
+type notifierAdapter struct {
+	notifier Notifier
+}
+
+// Bell implements validation.Notifier.
+func (n *notifierAdapter) Bell() {
+	if n.notifier != nil {
+		n.notifier.Bell()
+	}
 }

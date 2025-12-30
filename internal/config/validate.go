@@ -94,5 +94,17 @@ func validateValidationConfig(cfg *ValidationConfig) error {
 			"validation.timeout must be positive, got %s", cfg.Timeout)
 	}
 
+	// Validate AI retry settings
+	if cfg.MaxAIRetryAttempts < 0 {
+		return errors.Wrapf(errors.ErrConfigInvalidValidation,
+			"validation.max_ai_retry_attempts cannot be negative, got %d", cfg.MaxAIRetryAttempts)
+	}
+
+	// If AI retry is enabled, ensure at least 1 attempt is allowed
+	if cfg.AIRetryEnabled && cfg.MaxAIRetryAttempts == 0 {
+		return errors.Wrapf(errors.ErrConfigInvalidValidation,
+			"validation.max_ai_retry_attempts must be at least 1 when ai_retry_enabled is true")
+	}
+
 	return nil
 }

@@ -198,6 +198,15 @@ var (
 	// ErrUserInputRequired indicates user input is required but not provided.
 	// Commands should exit with code 2 when this error is returned.
 	ErrUserInputRequired = errors.New("user input required")
+
+	// ErrCommandTimeout indicates a command exceeded its timeout duration.
+	ErrCommandTimeout = errors.New("command timeout exceeded")
+
+	// ErrMaxRetriesExceeded indicates the maximum retry attempts have been reached.
+	ErrMaxRetriesExceeded = errors.New("maximum retry attempts exceeded")
+
+	// ErrRetryDisabled indicates that AI retry is disabled in configuration.
+	ErrRetryDisabled = errors.New("AI retry is disabled")
 )
 
 // ExitCode2Error wraps an error to indicate exit code 2 should be used.

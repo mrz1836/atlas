@@ -641,3 +641,219 @@ func TestConfig_Precedence_Documentation(t *testing.T) {
 	assert.Equal(t, "origin", cfg.Git.Remote, "default remote")
 	assert.True(t, cfg.Notifications.Bell, "default bell enabled")
 }
+
+// TestApplyOverrides_AllFields tests that all override fields are properly applied.
+func TestApplyOverrides_AllFields(t *testing.T) {
+	ctx := context.Background()
+
+	// Create temp directory with no config files
+	tempDir := t.TempDir()
+	oldWd, err := os.Getwd()
+	require.NoError(t, err)
+	err = os.Chdir(tempDir)
+	require.NoError(t, err)
+	defer func() {
+		_ = os.Chdir(oldWd)
+	}()
+
+	overrides := &Config{
+		AI: AIConfig{
+			Model:        "opus",
+			APIKeyEnvVar: "MY_API_KEY",
+			Timeout:      45 * time.Minute,
+			MaxTurns:     25,
+		},
+		Git: GitConfig{
+			BaseBranch: "develop",
+			Remote:     "upstream",
+		},
+		Worktree: WorktreeConfig{
+			BaseDir:      "/custom/worktree",
+			NamingSuffix: "-custom",
+		},
+		CI: CIConfig{
+			Timeout:           2 * time.Hour,
+			PollInterval:      5 * time.Minute,
+			RequiredWorkflows: []string{"ci", "lint"},
+		},
+		Templates: TemplatesConfig{
+			DefaultTemplate: "feature",
+			CustomTemplates: map[string]string{"custom": "path/to/template"},
+		},
+		Validation: ValidationConfig{
+			Commands: ValidationCommands{
+				Format:      []string{"gofmt -w ."},
+				Lint:        []string{"golangci-lint run"},
+				Test:        []string{"go test ./..."},
+				PreCommit:   []string{"pre-commit run"},
+				CustomPrePR: []string{"custom-check"},
+			},
+			Timeout: 10 * time.Minute,
+			TemplateOverrides: map[string]TemplateOverrideConfig{
+				"docs": {SkipTest: true, SkipLint: true},
+			},
+		},
+		Notifications: NotificationsConfig{
+			Events: []string{"completed", "failed"},
+		},
+	}
+
+	cfg, err := LoadWithOverrides(ctx, overrides)
+	require.NoError(t, err, "LoadWithOverrides should succeed")
+
+	// Verify all AI overrides
+	assert.Equal(t, "opus", cfg.AI.Model)
+	assert.Equal(t, "MY_API_KEY", cfg.AI.APIKeyEnvVar)
+	assert.Equal(t, 45*time.Minute, cfg.AI.Timeout)
+	assert.Equal(t, 25, cfg.AI.MaxTurns)
+
+	// Verify all Git overrides
+	assert.Equal(t, "develop", cfg.Git.BaseBranch)
+	assert.Equal(t, "upstream", cfg.Git.Remote)
+
+	// Verify all Worktree overrides
+	assert.Equal(t, "/custom/worktree", cfg.Worktree.BaseDir)
+	assert.Equal(t, "-custom", cfg.Worktree.NamingSuffix)
+
+	// Verify all CI overrides
+	assert.Equal(t, 2*time.Hour, cfg.CI.Timeout)
+	assert.Equal(t, 5*time.Minute, cfg.CI.PollInterval)
+	assert.Equal(t, []string{"ci", "lint"}, cfg.CI.RequiredWorkflows)
+
+	// Verify all Templates overrides
+	assert.Equal(t, "feature", cfg.Templates.DefaultTemplate)
+	assert.Equal(t, "path/to/template", cfg.Templates.CustomTemplates["custom"])
+
+	// Verify all Validation overrides
+	assert.Equal(t, []string{"gofmt -w ."}, cfg.Validation.Commands.Format)
+	assert.Equal(t, []string{"golangci-lint run"}, cfg.Validation.Commands.Lint)
+	assert.Equal(t, []string{"go test ./..."}, cfg.Validation.Commands.Test)
+	assert.Equal(t, []string{"pre-commit run"}, cfg.Validation.Commands.PreCommit)
+	assert.Equal(t, []string{"custom-check"}, cfg.Validation.Commands.CustomPrePR)
+	assert.Equal(t, 10*time.Minute, cfg.Validation.Timeout)
+	assert.True(t, cfg.Validation.TemplateOverrides["docs"].SkipTest)
+	assert.True(t, cfg.Validation.TemplateOverrides["docs"].SkipLint)
+
+	// Verify Notifications overrides
+	assert.Equal(t, []string{"completed", "failed"}, cfg.Notifications.Events)
+}
+
+// TestApplyOverrides_PartialOverrides tests that only non-zero values are applied.
+func TestApplyOverrides_PartialOverrides(t *testing.T) {
+	ctx := context.Background()
+
+	// Create temp directory with no config files
+	tempDir := t.TempDir()
+	oldWd, err := os.Getwd()
+	require.NoError(t, err)
+	err = os.Chdir(tempDir)
+	require.NoError(t, err)
+	defer func() {
+		_ = os.Chdir(oldWd)
+	}()
+
+	// Only override AI.Model, leave everything else as zero values
+	overrides := &Config{
+		AI: AIConfig{
+			Model: "opus",
+		},
+	}
+
+	cfg, err := LoadWithOverrides(ctx, overrides)
+	require.NoError(t, err)
+
+	// Only Model should be overridden
+	assert.Equal(t, "opus", cfg.AI.Model)
+
+	// Other values should retain defaults
+	assert.Equal(t, "ANTHROPIC_API_KEY", cfg.AI.APIKeyEnvVar)
+	assert.Equal(t, constants.DefaultAITimeout, cfg.AI.Timeout)
+	assert.Equal(t, 10, cfg.AI.MaxTurns)
+	assert.Equal(t, "main", cfg.Git.BaseBranch)
+	assert.Equal(t, "origin", cfg.Git.Remote)
+}
+
+// TestApplyOverrides_MergesCustomTemplates tests that custom templates are merged, not replaced.
+func TestApplyOverrides_MergesCustomTemplates(t *testing.T) {
+	ctx := context.Background()
+
+	// Create temp directory with config that has custom templates
+	tempDir := t.TempDir()
+	atlasDir := filepath.Join(tempDir, ".atlas")
+	err := os.MkdirAll(atlasDir, 0o750)
+	require.NoError(t, err)
+
+	configPath := filepath.Join(atlasDir, "config.yaml")
+	err = os.WriteFile(configPath, []byte(`
+templates:
+  custom_templates:
+    existing: path/to/existing
+`), 0o600)
+	require.NoError(t, err)
+
+	// Change to the temp directory
+	oldWd, err := os.Getwd()
+	require.NoError(t, err)
+	err = os.Chdir(tempDir)
+	require.NoError(t, err)
+	defer func() {
+		_ = os.Chdir(oldWd)
+	}()
+
+	overrides := &Config{
+		Templates: TemplatesConfig{
+			CustomTemplates: map[string]string{"new": "path/to/new"},
+		},
+	}
+
+	cfg, err := LoadWithOverrides(ctx, overrides)
+	require.NoError(t, err)
+
+	// Both templates should be present (merged)
+	assert.Equal(t, "path/to/existing", cfg.Templates.CustomTemplates["existing"])
+	assert.Equal(t, "path/to/new", cfg.Templates.CustomTemplates["new"])
+}
+
+// TestApplyOverrides_MergesTemplateOverrides tests that template overrides are merged.
+func TestApplyOverrides_MergesTemplateOverrides(t *testing.T) {
+	ctx := context.Background()
+
+	// Create temp directory with config that has template overrides
+	tempDir := t.TempDir()
+	atlasDir := filepath.Join(tempDir, ".atlas")
+	err := os.MkdirAll(atlasDir, 0o750)
+	require.NoError(t, err)
+
+	configPath := filepath.Join(atlasDir, "config.yaml")
+	err = os.WriteFile(configPath, []byte(`
+validation:
+  template_overrides:
+    bugfix:
+      skip_test: true
+`), 0o600)
+	require.NoError(t, err)
+
+	// Change to the temp directory
+	oldWd, err := os.Getwd()
+	require.NoError(t, err)
+	err = os.Chdir(tempDir)
+	require.NoError(t, err)
+	defer func() {
+		_ = os.Chdir(oldWd)
+	}()
+
+	overrides := &Config{
+		Validation: ValidationConfig{
+			TemplateOverrides: map[string]TemplateOverrideConfig{
+				"docs": {SkipLint: true},
+			},
+		},
+	}
+
+	cfg, err := LoadWithOverrides(ctx, overrides)
+	require.NoError(t, err)
+
+	// Both overrides should be present (merged)
+	assert.True(t, cfg.Validation.TemplateOverrides["bugfix"].SkipTest)
+	assert.True(t, cfg.Validation.TemplateOverrides["docs"].SkipLint)
+}

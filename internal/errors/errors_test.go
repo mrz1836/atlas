@@ -279,3 +279,53 @@ func TestActionable_UnknownError(t *testing.T) {
 	assert.Equal(t, "unexpected database connection error", msg)
 	assert.Empty(t, action, "unknown errors should have no suggested action")
 }
+
+func TestExitCode2Error_Creation(t *testing.T) {
+	baseErr := atlaserrors.ErrUserRejected
+	exitErr := atlaserrors.NewExitCode2Error(baseErr)
+
+	require.NotNil(t, exitErr)
+	assert.Equal(t, baseErr.Error(), exitErr.Error())
+}
+
+func TestExitCode2Error_Unwrap(t *testing.T) {
+	baseErr := atlaserrors.ErrValidationFailed
+	exitErr := atlaserrors.NewExitCode2Error(baseErr)
+
+	unwrapped := exitErr.Unwrap()
+	assert.Equal(t, baseErr, unwrapped)
+}
+
+func TestExitCode2Error_ErrorsIs(t *testing.T) {
+	baseErr := atlaserrors.ErrGitOperation
+	exitErr := atlaserrors.NewExitCode2Error(baseErr)
+
+	// Should match the base error through unwrap
+	require.ErrorIs(t, exitErr, baseErr)
+}
+
+func TestIsExitCode2Error_True(t *testing.T) {
+	baseErr := atlaserrors.ErrCIFailed
+	exitErr := atlaserrors.NewExitCode2Error(baseErr)
+
+	assert.True(t, atlaserrors.IsExitCode2Error(exitErr))
+}
+
+func TestIsExitCode2Error_False(t *testing.T) {
+	regularErr := atlaserrors.ErrValidationFailed
+
+	assert.False(t, atlaserrors.IsExitCode2Error(regularErr))
+}
+
+func TestIsExitCode2Error_WrappedExitCode2(t *testing.T) {
+	baseErr := atlaserrors.ErrUserAbandoned
+	exitErr := atlaserrors.NewExitCode2Error(baseErr)
+	wrappedErr := atlaserrors.Wrap(exitErr, "additional context")
+
+	// Should still detect ExitCode2Error through the wrap chain
+	assert.True(t, atlaserrors.IsExitCode2Error(wrappedErr))
+}
+
+func TestIsExitCode2Error_Nil(t *testing.T) {
+	assert.False(t, atlaserrors.IsExitCode2Error(nil))
+}

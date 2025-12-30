@@ -912,3 +912,277 @@ const (
 	flockExclusive = syscall.LOCK_EX
 	flockUnlock    = syscall.LOCK_UN
 )
+
+// TestFileStore_ReleaseLock_NilFile tests that releaseLock handles nil file gracefully.
+func TestFileStore_ReleaseLock_NilFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	store, err := NewFileStore(tmpDir)
+	require.NoError(t, err)
+
+	// Should not panic or error with nil file
+	err = store.releaseLock(nil)
+	assert.NoError(t, err)
+}
+
+// TestAtomicWrite_Success tests successful atomic write.
+func TestAtomicWrite_Success(t *testing.T) {
+	tmpDir := t.TempDir()
+	filePath := filepath.Join(tmpDir, "test-file.json")
+	data := []byte(`{"test": "data"}`)
+
+	err := atomicWrite(filePath, data, filePerm)
+	require.NoError(t, err)
+
+	// Verify file exists and has correct content
+	content, err := os.ReadFile(filePath) //#nosec G304 -- test file path
+	require.NoError(t, err)
+	assert.Equal(t, data, content)
+
+	// Verify temp file is cleaned up
+	_, err = os.Stat(filePath + ".tmp")
+	assert.True(t, os.IsNotExist(err), "temp file should not exist after successful write")
+}
+
+// TestAtomicWrite_InvalidPath tests atomic write to an invalid path.
+func TestAtomicWrite_InvalidPath(t *testing.T) {
+	// Use a path that doesn't exist
+	filePath := "/nonexistent/directory/test-file.json"
+	data := []byte(`{"test": "data"}`)
+
+	err := atomicWrite(filePath, data, filePerm)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to create temp file")
+}
+
+// TestFileStore_Create_InvalidChars tests creating a workspace with invalid characters.
+func TestFileStore_Create_InvalidChars(t *testing.T) {
+	tmpDir := t.TempDir()
+	store, err := NewFileStore(tmpDir)
+	require.NoError(t, err)
+
+	ws := &domain.Workspace{
+		Name:      "../evil",
+		Status:    constants.WorkspaceStatusActive,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+
+	err = store.Create(context.Background(), ws)
+	require.Error(t, err)
+	// Validation rejects invalid characters first
+	require.ErrorIs(t, err, atlaserrors.ErrValueOutOfRange)
+}
+
+// TestFileStore_Get_InvalidChars tests getting a workspace with invalid characters.
+func TestFileStore_Get_InvalidChars(t *testing.T) {
+	tmpDir := t.TempDir()
+	store, err := NewFileStore(tmpDir)
+	require.NoError(t, err)
+
+	_, err = store.Get(context.Background(), "../evil")
+	require.Error(t, err)
+	require.ErrorIs(t, err, atlaserrors.ErrValueOutOfRange)
+}
+
+// TestFileStore_Update_InvalidChars tests updating a workspace with invalid characters.
+func TestFileStore_Update_InvalidChars(t *testing.T) {
+	tmpDir := t.TempDir()
+	store, err := NewFileStore(tmpDir)
+	require.NoError(t, err)
+
+	ws := &domain.Workspace{
+		Name:      "../evil",
+		Status:    constants.WorkspaceStatusActive,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+
+	err = store.Update(context.Background(), ws)
+	require.Error(t, err)
+	require.ErrorIs(t, err, atlaserrors.ErrValueOutOfRange)
+}
+
+// TestFileStore_Delete_InvalidChars tests deleting a workspace with invalid characters.
+func TestFileStore_Delete_InvalidChars(t *testing.T) {
+	tmpDir := t.TempDir()
+	store, err := NewFileStore(tmpDir)
+	require.NoError(t, err)
+
+	err = store.Delete(context.Background(), "../evil")
+	require.Error(t, err)
+	require.ErrorIs(t, err, atlaserrors.ErrValueOutOfRange)
+}
+
+// TestFileStore_Exists_InvalidChars tests checking existence with invalid characters.
+func TestFileStore_Exists_InvalidChars(t *testing.T) {
+	tmpDir := t.TempDir()
+	store, err := NewFileStore(tmpDir)
+	require.NoError(t, err)
+
+	_, err = store.Exists(context.Background(), "../evil")
+	require.Error(t, err)
+	require.ErrorIs(t, err, atlaserrors.ErrValueOutOfRange)
+}
+
+// TestFileStore_List_WithInvalidFiles tests listing workspaces
+// when some workspace directories have invalid JSON files.
+func TestFileStore_List_WithInvalidFiles(t *testing.T) {
+	tmpDir := t.TempDir()
+	store, err := NewFileStore(tmpDir)
+	require.NoError(t, err)
+
+	// Create a valid workspace
+	ws := &domain.Workspace{
+		Name:      "valid-workspace",
+		Status:    constants.WorkspaceStatusActive,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+	err = store.Create(context.Background(), ws)
+	require.NoError(t, err)
+
+	// Create an invalid workspace file
+	invalidDir := filepath.Join(tmpDir, constants.WorkspacesDir, "invalid-workspace")
+	err = os.MkdirAll(invalidDir, dirPerm)
+	require.NoError(t, err)
+
+	invalidPath := filepath.Join(invalidDir, constants.WorkspaceFileName)
+	err = os.WriteFile(invalidPath, []byte("invalid json{"), 0o600)
+	require.NoError(t, err)
+
+	// List should still return the valid workspace
+	workspaces, err := store.List(context.Background())
+	require.NoError(t, err)
+
+	// Should have at least the valid workspace
+	assert.GreaterOrEqual(t, len(workspaces), 1)
+
+	// Verify valid workspace is in the list
+	found := false
+	for _, ws := range workspaces {
+		if ws.Name == "valid-workspace" {
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "valid workspace should be in the list")
+}
+
+// TestFileStore_StressConcurrentCreateDelete tests high-concurrency create/delete operations.
+func TestFileStore_StressConcurrentCreateDelete(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping stress test in short mode")
+	}
+
+	tmpDir := t.TempDir()
+	store, err := NewFileStore(tmpDir)
+	require.NoError(t, err)
+
+	const numGoroutines = 20
+	const opsPerGoroutine = 10
+
+	var wg sync.WaitGroup
+	errChan := make(chan error, numGoroutines*opsPerGoroutine*2)
+
+	for i := 0; i < numGoroutines; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			for j := 0; j < opsPerGoroutine; j++ {
+				name := "stress-ws-" + string(rune('A'+id)) + "-" + string(rune('0'+j))
+				ws := &domain.Workspace{
+					Name:      name,
+					Status:    constants.WorkspaceStatusActive,
+					CreatedAt: time.Now(),
+					UpdatedAt: time.Now(),
+				}
+
+				// Create
+				if err := store.Create(context.Background(), ws); err != nil {
+					errChan <- err
+					continue
+				}
+
+				// Read
+				if _, err := store.Get(context.Background(), name); err != nil {
+					errChan <- err
+				}
+
+				// Delete
+				if err := store.Delete(context.Background(), name); err != nil {
+					errChan <- err
+				}
+			}
+		}(i)
+	}
+
+	wg.Wait()
+	close(errChan)
+
+	// Collect errors
+	errs := make([]error, 0, numGoroutines*opsPerGoroutine)
+	for err := range errChan {
+		errs = append(errs, err)
+	}
+
+	assert.Empty(t, errs, "stress test should complete without errors: %v", errs)
+}
+
+// errDataCorruption is a sentinel error for stress test data integrity checks.
+var errDataCorruption = errors.New("data corruption detected")
+
+// TestFileStore_StressConcurrentReads tests high-concurrency read operations.
+func TestFileStore_StressConcurrentReads(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping stress test in short mode")
+	}
+
+	tmpDir := t.TempDir()
+	store, err := NewFileStore(tmpDir)
+	require.NoError(t, err)
+
+	// Create a workspace to read
+	ws := &domain.Workspace{
+		Name:      "read-stress-test",
+		Status:    constants.WorkspaceStatusActive,
+		Branch:    "main",
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+	err = store.Create(context.Background(), ws)
+	require.NoError(t, err)
+
+	const numGoroutines = 50
+	const readsPerGoroutine = 20
+
+	var wg sync.WaitGroup
+	errChan := make(chan error, numGoroutines*readsPerGoroutine)
+
+	for i := 0; i < numGoroutines; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < readsPerGoroutine; j++ {
+				retrieved, err := store.Get(context.Background(), "read-stress-test")
+				if err != nil {
+					errChan <- err
+					continue
+				}
+				// Verify data integrity
+				if retrieved.Name != "read-stress-test" || retrieved.Branch != "main" {
+					errChan <- errDataCorruption
+				}
+			}
+		}()
+	}
+
+	wg.Wait()
+	close(errChan)
+
+	errs := make([]error, 0, numGoroutines*readsPerGoroutine)
+	for err := range errChan {
+		errs = append(errs, err)
+	}
+
+	assert.Empty(t, errs, "concurrent reads should not produce errors: %v", errs)
+}

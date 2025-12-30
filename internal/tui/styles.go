@@ -75,3 +75,79 @@ func CheckNoColor() {
 		lipgloss.SetColorProfile(termenv.Ascii)
 	}
 }
+
+// TaskStatusColors returns the semantic color definitions for task statuses.
+// Uses AdaptiveColor for light/dark terminal support (UX-6).
+func TaskStatusColors() map[constants.TaskStatus]lipgloss.AdaptiveColor {
+	return map[constants.TaskStatus]lipgloss.AdaptiveColor{
+		// Active states - Blue
+		constants.TaskStatusPending:    {Light: "#0087AF", Dark: "#00D7FF"},
+		constants.TaskStatusRunning:    {Light: "#0087AF", Dark: "#00D7FF"},
+		constants.TaskStatusValidating: {Light: "#0087AF", Dark: "#00D7FF"},
+
+		// Warning states - Yellow/Orange
+		constants.TaskStatusValidationFailed: {Light: "#D7AF00", Dark: "#FFD700"},
+		constants.TaskStatusAwaitingApproval: {Light: "#D7AF00", Dark: "#FFD700"},
+		constants.TaskStatusGHFailed:         {Light: "#D7AF00", Dark: "#FFD700"},
+		constants.TaskStatusCIFailed:         {Light: "#D7AF00", Dark: "#FFD700"},
+		constants.TaskStatusCITimeout:        {Light: "#D7AF00", Dark: "#FFD700"},
+
+		// Success state - Green
+		constants.TaskStatusCompleted: {Light: "#00875F", Dark: "#00FF87"},
+
+		// Terminal states - Gray/Dim
+		constants.TaskStatusRejected:  {Light: "#585858", Dark: "#6C6C6C"},
+		constants.TaskStatusAbandoned: {Light: "#585858", Dark: "#6C6C6C"},
+	}
+}
+
+// TaskStatusIcon returns the icon/symbol for a given task status.
+// Used for visual status indicators in status displays.
+func TaskStatusIcon(status constants.TaskStatus) string {
+	icons := map[constants.TaskStatus]string{
+		constants.TaskStatusPending:          "○", // Empty circle - waiting
+		constants.TaskStatusRunning:          "▶", // Play - active
+		constants.TaskStatusValidating:       "◐", // Half circle - in progress
+		constants.TaskStatusValidationFailed: "⚠", // Warning - needs attention
+		constants.TaskStatusAwaitingApproval: "◉", // Filled circle - ready for user
+		constants.TaskStatusCompleted:        "✓", // Checkmark - success
+		constants.TaskStatusRejected:         "✗", // X mark - rejected
+		constants.TaskStatusAbandoned:        "⊘", // Null - abandoned
+		constants.TaskStatusGHFailed:         "⚠", // Warning - needs attention
+		constants.TaskStatusCIFailed:         "⚠", // Warning - needs attention
+		constants.TaskStatusCITimeout:        "⏱", // Timer - timeout
+	}
+	if icon, ok := icons[status]; ok {
+		return icon
+	}
+	return "?"
+}
+
+// IsAttentionStatus returns true if the task status requires user attention.
+// These statuses should be highlighted and sorted to the top of status lists.
+func IsAttentionStatus(status constants.TaskStatus) bool {
+	attentionStatuses := map[constants.TaskStatus]bool{
+		constants.TaskStatusValidationFailed: true,
+		constants.TaskStatusAwaitingApproval: true,
+		constants.TaskStatusGHFailed:         true,
+		constants.TaskStatusCIFailed:         true,
+		constants.TaskStatusCITimeout:        true,
+	}
+	return attentionStatuses[status]
+}
+
+// SuggestedAction returns the suggested CLI command for a given task status.
+// Returns empty string if no action is needed or available.
+func SuggestedAction(status constants.TaskStatus) string {
+	actions := map[constants.TaskStatus]string{
+		constants.TaskStatusValidationFailed: "atlas resume",
+		constants.TaskStatusAwaitingApproval: "atlas approve",
+		constants.TaskStatusGHFailed:         "atlas retry",
+		constants.TaskStatusCIFailed:         "atlas retry",
+		constants.TaskStatusCITimeout:        "atlas retry",
+	}
+	if action, ok := actions[status]; ok {
+		return action
+	}
+	return ""
+}

@@ -2,6 +2,55 @@
 
 Created during Epic 4 Retrospective (2025-12-28)
 
+---
+
+## User Scenarios - Critical Reference
+
+**IMPORTANT**: Use `epic-6-user-scenarios.md` as the primary validation document for all Epic 6 stories.
+
+```
+_bmad-output/implementation-artifacts/epic-6-user-scenarios.md
+```
+
+### Purpose
+
+This document provides real-world user workflows that validate Epic 6 stories against actual user needs. Each scenario includes:
+- Complete user journeys with terminal output examples
+- State machine diagrams for task flow
+- Validation checkpoints mapped to acceptance criteria
+- Error handling paths and recovery options
+
+### Scenario Coverage
+
+| Scenario | Description | Stories Covered |
+|----------|-------------|-----------------|
+| 1 | Bugfix Workflow | 6.3, 6.4, 6.5, 6.6, 6.7 |
+| 2 | Garbage Detection | 6.3 |
+| 3 | PR Rate Limit Handling | 6.5, 6.7 |
+| 4 | Multi-File Logical Grouping | 6.3 |
+| 5 | Feature Workflow with Speckit SDD | 6.3, 6.4, 6.5, 6.6, 6.7 |
+
+### Usage During Implementation
+
+1. **Reference validation checkpoints** when implementing acceptance criteria
+2. **Follow state machine flows** for error handling and state transitions
+3. **Use terminal output examples** as design specs for TUI components
+4. **Check scenario prerequisites** for integration requirements
+
+### Story Integration
+
+Each story file should reference its validating scenarios:
+
+```markdown
+## User Scenario Validation
+
+This story is validated by the following scenarios from `epic-6-user-scenarios.md`:
+- Scenario 1: Bugfix Workflow (checkpoints 4-12)
+- Scenario 2: Garbage Detection (all checkpoints)
+```
+
+---
+
 ## Story 6.3: Smart Commit System - Key Reference
 
 ### Source Material

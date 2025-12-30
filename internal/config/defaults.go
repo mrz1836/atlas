@@ -87,6 +87,14 @@ func DefaultConfig() *Config {
 
 			// TemplateOverrides: empty by default.
 			TemplateOverrides: nil,
+
+			// AIRetryEnabled: true enables AI-assisted validation retry.
+			// When validation fails, AI can attempt to fix the issues.
+			AIRetryEnabled: true,
+
+			// MaxAIRetryAttempts: 3 is a reasonable default.
+			// Allows AI multiple chances to fix issues before requiring manual intervention.
+			MaxAIRetryAttempts: 3,
 		},
 		Notifications: NotificationsConfig{
 			// Bell: true enables audio notifications for important events.

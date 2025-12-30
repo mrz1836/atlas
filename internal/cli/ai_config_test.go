@@ -360,3 +360,116 @@ func TestModelConstants(t *testing.T) {
 	assert.Equal(t, "opus", ModelOpus)
 	assert.Equal(t, "haiku", ModelHaiku)
 }
+
+func TestValidateMaxTurns(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		wantErr bool
+		errMsg  string
+	}{
+		{"valid value 10", "10", false, ""},
+		{"valid value 1", "1", false, ""},
+		{"valid value 100", "100", false, ""},
+		{"valid value 50", "50", false, ""},
+		{"empty string", "", true, "value cannot be empty"},
+		{"whitespace only", "   ", true, "value cannot be empty"},
+		{"non-numeric", "abc", true, "value out of range"},
+		{"too low zero", "0", true, "value out of range"},
+		{"too low negative", "-5", true, "value out of range"},
+		{"too high 101", "101", true, "value out of range"},
+		{"too high 500", "500", true, "value out of range"},
+		{"float value", "10.5", true, "value out of range"},
+		{"mixed chars", "10abc", true, "value out of range"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateMaxTurns(tc.input)
+			if tc.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.errMsg)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestValidateEnvVarName(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		wantErr bool
+		errMsg  string
+	}{
+		{"valid uppercase", "ANTHROPIC_API_KEY", false, ""},
+		{"valid with underscore prefix", "_MY_KEY", false, ""},
+		{"valid with numbers", "API_KEY_123", false, ""},
+		{"valid simple", "KEY", false, ""},
+		{"empty string", "", true, "value cannot be empty"},
+		{"starts with number", "123_KEY", true, "invalid environment variable name"},
+		{"contains hyphen", "MY-KEY", true, "invalid environment variable name"},
+		{"contains space", "MY KEY", true, "invalid environment variable name"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateEnvVarName(tc.input)
+			if tc.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.errMsg)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestValidateTimeoutFormat(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		wantErr bool
+		errMsg  string
+	}{
+		{"valid 30m", "30m", false, ""},
+		{"valid 1h", "1h", false, ""},
+		{"valid 1h30m", "1h30m", false, ""},
+		{"valid 90s", "90s", false, ""},
+		{"valid 2h", "2h", false, ""},
+		{"empty string", "", true, "value cannot be empty"},
+		{"invalid format", "30", true, "invalid duration format"},
+		{"invalid string", "abc", true, "invalid duration format"},
+		{"negative duration", "-30m", true, "must be positive"},
+		{"zero duration", "0s", true, "must be positive"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateTimeoutFormat(tc.input)
+			if tc.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.errMsg)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestGetModelOptions(t *testing.T) {
+	options := getModelOptions()
+
+	assert.Len(t, options, 3, "should have 3 model options")
+
+	// Verify all model values are present
+	values := make([]string, len(options))
+	for i, opt := range options {
+		values[i] = opt.Value
+	}
+
+	assert.Contains(t, values, ModelSonnet)
+	assert.Contains(t, values, ModelOpus)
+	assert.Contains(t, values, ModelHaiku)
+}

@@ -1,0 +1,83 @@
+// Package tui provides terminal user interface components for ATLAS.
+package tui
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/mrz1836/atlas/internal/domain"
+)
+
+// ManualFixInfo contains information for manual fix display.
+type ManualFixInfo struct {
+	WorkspaceName string
+	WorktreePath  string
+	ErrorSummary  string
+	FailedStep    string
+	ResumeCommand string
+}
+
+// ExtractManualFixInfo extracts manual fix information from task and workspace.
+func ExtractManualFixInfo(task *domain.Task, workspace *domain.Workspace) *ManualFixInfo {
+	worktreePath := workspace.WorktreePath
+	if worktreePath == "" {
+		worktreePath = "(workspace retired - worktree not available)"
+	}
+
+	info := &ManualFixInfo{
+		WorkspaceName: workspace.Name,
+		WorktreePath:  worktreePath,
+		ResumeCommand: fmt.Sprintf("atlas resume %s", workspace.Name),
+	}
+
+	// Extract error info from task metadata
+	if task.Metadata != nil {
+		if lastErr, ok := task.Metadata["last_error"].(string); ok {
+			info.ErrorSummary = lastErr
+		}
+	}
+
+	// Get failed step name from current step
+	if task.CurrentStep < len(task.Steps) {
+		info.FailedStep = task.Steps[task.CurrentStep].Name
+	}
+
+	return info
+}
+
+// DisplayManualFixInstructions shows the user how to fix issues manually.
+func DisplayManualFixInstructions(output Output, task *domain.Task, workspace *domain.Workspace) {
+	info := ExtractManualFixInfo(task, workspace)
+
+	var sb strings.Builder
+
+	sb.WriteString("\n")
+	sb.WriteString("⚠ Validation Failed - Manual Fix Required\n")
+	sb.WriteString("─────────────────────────────────────────\n\n")
+
+	sb.WriteString(fmt.Sprintf("📁 Worktree Path:\n   %s\n\n", info.WorktreePath))
+
+	if info.FailedStep != "" {
+		sb.WriteString(fmt.Sprintf("❌ Failed Step: %s\n\n", info.FailedStep))
+	}
+
+	if info.ErrorSummary != "" {
+		sb.WriteString("📋 Error Details:\n")
+		// Indent error output
+		for _, line := range strings.Split(info.ErrorSummary, "\n") {
+			sb.WriteString(fmt.Sprintf("   %s\n", line))
+		}
+		sb.WriteString("\n")
+	}
+
+	sb.WriteString("📝 Next Steps:\n")
+	sb.WriteString("   1. Navigate to the worktree path above\n")
+	sb.WriteString("   2. Fix the validation errors shown\n")
+	sb.WriteString("   3. Run the resume command below\n\n")
+
+	sb.WriteString(fmt.Sprintf("▶ Resume Command:\n   %s\n\n", info.ResumeCommand))
+
+	sb.WriteString(fmt.Sprintf("💡 Alternatively, to abandon the task and preserve the worktree for manual work:\n   atlas abandon %s\n", info.WorkspaceName))
+
+	output.Info(sb.String())
+}

@@ -17,6 +17,8 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
+	"github.com/mrz1836/atlas/internal/config"
+	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/domain"
 	"github.com/mrz1836/atlas/internal/errors"
 	"github.com/mrz1836/atlas/internal/task"
@@ -243,8 +245,24 @@ func startTaskExecution(ctx context.Context, ws *domain.Workspace, tmpl *domain.
 		return nil, fmt.Errorf("failed to create task store: %w", err)
 	}
 
-	// Create executor registry with minimal dependencies for now
-	execRegistry := steps.NewMinimalRegistry(ws.WorktreePath)
+	// Load config for notification settings
+	cfg, err := config.Load(ctx)
+	if err != nil {
+		// Log warning but continue with defaults - don't fail task start for config issues
+		logger.Warn().Err(err).Msg("failed to load config, using default notification settings")
+		cfg = config.DefaultConfig()
+	}
+
+	// Create notifier from config (bell enabled by config).
+	// The quiet flag is not currently passed through to this function.
+	notifier := tui.NewNotifier(cfg.Notifications.Bell, false)
+
+	// Create executor registry with full dependencies for artifact saving and notifications
+	execRegistry := steps.NewDefaultRegistry(steps.ExecutorDeps{
+		WorkDir:       ws.WorktreePath,
+		ArtifactSaver: taskStore,
+		Notifier:      notifier,
+	})
 
 	engineCfg := task.DefaultEngineConfig()
 	engine := task.NewEngine(taskStore, execRegistry, engineCfg, GetLogger())
@@ -601,6 +619,11 @@ func displayTaskStatus(out tui.Output, format string, ws *domain.Workspace, t *d
 
 	if execErr != nil {
 		out.Warning(fmt.Sprintf("Execution paused: %s", execErr.Error()))
+
+		// Display manual fix instructions for validation failures
+		if t.Status == constants.TaskStatusValidationFailed {
+			tui.DisplayManualFixInstructions(out, t, ws)
+		}
 	}
 
 	return nil

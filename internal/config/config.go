@@ -148,6 +148,16 @@ type ValidationConfig struct {
 
 	// TemplateOverrides allows per-template validation settings.
 	TemplateOverrides map[string]TemplateOverrideConfig `yaml:"template_overrides,omitempty" mapstructure:"template_overrides"`
+
+	// AIRetryEnabled enables AI-assisted retry when validation fails.
+	// When true and validation fails, the system can invoke AI to fix issues.
+	// Default: true
+	AIRetryEnabled bool `yaml:"ai_retry_enabled" mapstructure:"ai_retry_enabled"`
+
+	// MaxAIRetryAttempts is the maximum number of AI retry attempts.
+	// After this many attempts, the task enters a failed state requiring manual intervention.
+	// Default: 3
+	MaxAIRetryAttempts int `yaml:"max_ai_retry_attempts" mapstructure:"max_ai_retry_attempts"`
 }
 
 // TemplateOverrideConfig holds per-template validation overrides.

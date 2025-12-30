@@ -11,8 +11,8 @@ import (
 
 	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/errors"
-	"github.com/mrz1836/atlas/internal/template/steps"
 	"github.com/mrz1836/atlas/internal/tui"
+	"github.com/mrz1836/atlas/internal/validation"
 )
 
 // CommandResult holds the result of a single command execution.
@@ -27,8 +27,10 @@ type CommandResult struct {
 
 // ValidationResponse is the JSON response for validation commands.
 type ValidationResponse struct {
-	Success bool            `json:"success"`
-	Results []CommandResult `json:"results"`
+	Success      bool              `json:"success"`
+	Results      []CommandResult   `json:"results"`
+	SkippedSteps []string          `json:"skipped_steps,omitempty"`
+	SkipReasons  map[string]string `json:"skip_reasons,omitempty"`
 }
 
 // UtilityOptions holds options for utility command execution.
@@ -68,7 +70,7 @@ func showVerboseOutput(opts UtilityOptions, result CommandResult) {
 }
 
 // runSingleCommand executes a single command and returns the result.
-func runSingleCommand(ctx context.Context, runner steps.CommandRunner, workDir, cmdStr string, logger zerolog.Logger) CommandResult {
+func runSingleCommand(ctx context.Context, runner validation.CommandRunner, workDir, cmdStr string, logger zerolog.Logger) CommandResult {
 	start := time.Now()
 
 	stdout, stderr, exitCode, err := runner.Run(ctx, workDir, cmdStr)
@@ -111,7 +113,7 @@ func runCommandsWithOutput(
 	opts UtilityOptions,
 	logger zerolog.Logger,
 ) error {
-	runner := &steps.DefaultCommandRunner{}
+	runner := &validation.DefaultCommandRunner{}
 	results := make([]CommandResult, 0, len(commands))
 
 	for _, cmdStr := range commands {
