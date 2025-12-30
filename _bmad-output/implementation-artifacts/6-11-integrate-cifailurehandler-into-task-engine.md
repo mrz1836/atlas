@@ -1,6 +1,6 @@
 # Story 6.11: Integrate CIFailureHandler into Task Engine
 
-Status: draft
+Status: ready-for-dev
 
 ## Story
 

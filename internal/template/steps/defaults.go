@@ -62,6 +62,26 @@ type ExecutorDeps struct {
 	// Logger is used for structured logging.
 	// If nil, a no-op logger is used.
 	Logger zerolog.Logger
+
+	// SmartCommitter is used for intelligent commit operations.
+	// If nil, commit operations will fail with a configuration error.
+	SmartCommitter git.SmartCommitService
+
+	// Pusher is used for push operations.
+	// If nil, push operations will fail with a configuration error.
+	Pusher git.PushService
+
+	// HubRunner is used for GitHub operations (PR creation).
+	// If nil, GitHub operations will fail with a configuration error.
+	HubRunner git.HubRunner
+
+	// PRDescriptionGenerator generates PR descriptions.
+	// If nil, PR operations will fail with a configuration error.
+	PRDescriptionGenerator git.PRDescriptionGenerator
+
+	// GitRunner is used for basic git operations.
+	// If nil, some git operations may fail.
+	GitRunner git.Runner
 }
 
 // NewDefaultRegistry creates a registry with all built-in executors.
@@ -77,8 +97,27 @@ func NewDefaultRegistry(deps ExecutorDeps) *ExecutorRegistry {
 	// Register validation executor with optional artifact saving, notifications, and retry
 	r.Register(NewValidationExecutorWithDeps(deps.WorkDir, deps.ArtifactSaver, deps.Notifier, deps.RetryHandler))
 
-	// Register git executor (placeholder for Epic 6)
-	r.Register(NewGitExecutor(deps.WorkDir))
+	// Register git executor with dependencies for commit, push, and PR creation
+	gitExecutorOpts := []GitExecutorOption{
+		WithGitLogger(deps.Logger),
+		WithArtifactsDir(deps.ArtifactsDir),
+	}
+	if deps.SmartCommitter != nil {
+		gitExecutorOpts = append(gitExecutorOpts, WithSmartCommitter(deps.SmartCommitter))
+	}
+	if deps.Pusher != nil {
+		gitExecutorOpts = append(gitExecutorOpts, WithPusher(deps.Pusher))
+	}
+	if deps.HubRunner != nil {
+		gitExecutorOpts = append(gitExecutorOpts, WithHubRunner(deps.HubRunner))
+	}
+	if deps.PRDescriptionGenerator != nil {
+		gitExecutorOpts = append(gitExecutorOpts, WithPRDescriptionGenerator(deps.PRDescriptionGenerator))
+	}
+	if deps.GitRunner != nil {
+		gitExecutorOpts = append(gitExecutorOpts, WithGitRunner(deps.GitRunner))
+	}
+	r.Register(NewGitExecutor(deps.WorkDir, gitExecutorOpts...))
 
 	// Register human executor
 	r.Register(NewHumanExecutor())

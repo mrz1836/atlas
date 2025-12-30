@@ -1,6 +1,6 @@
 # Story 6.10: Wire CIExecutor to HubRunner.WatchPRChecks
 
-Status: draft
+Status: ready-for-dev
 
 ## Story
 
