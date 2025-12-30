@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/rs/zerolog"
 
@@ -535,6 +536,22 @@ func scopeFromFiles(files []PRFileChange) string {
 		return ""
 	}
 
+	// Common structural directories to skip when determining scope
+	skipDirs := map[string]bool{
+		"":             true,
+		".":            true,
+		"internal":     true,
+		"pkg":          true,
+		"cmd":          true,
+		"src":          true,
+		"lib":          true,
+		"test":         true,
+		"tests":        true,
+		"spec":         true,
+		"vendor":       true,
+		"node_modules": true,
+	}
+
 	// Find common package/directory
 	dirs := make(map[string]int)
 	for _, f := range files {
@@ -542,7 +559,7 @@ func scopeFromFiles(files []PRFileChange) string {
 		// Get the most specific meaningful directory
 		parts := strings.Split(dir, string(filepath.Separator))
 		for _, part := range parts {
-			if part != "" && part != "." && part != "internal" && part != "pkg" && part != "cmd" {
+			if !skipDirs[part] {
 				dirs[part]++
 				break
 			}
@@ -571,6 +588,7 @@ func formatPRTitle(commitType, scope, description string) string {
 }
 
 // summarizeDescription creates a short summary from description or commits.
+// Returns a lowercase-first summary suitable for conventional commits format.
 func summarizeDescription(taskDesc string, commits []string) string {
 	// Prefer task description
 	if taskDesc != "" {
@@ -582,7 +600,7 @@ func summarizeDescription(taskDesc string, commits []string) string {
 		if len(summary) > 50 {
 			summary = summary[:47] + "..."
 		}
-		return strings.ToLower(strings.TrimSpace(summary))
+		return lowercaseFirst(strings.TrimSpace(summary))
 	}
 
 	// Fall back to first commit message
@@ -595,10 +613,22 @@ func summarizeDescription(taskDesc string, commits []string) string {
 		if len(summary) > 50 {
 			summary = summary[:47] + "..."
 		}
-		return strings.ToLower(strings.TrimSpace(summary))
+		return lowercaseFirst(strings.TrimSpace(summary))
 	}
 
 	return "update code"
+}
+
+// lowercaseFirst lowercases only the first character of a string,
+// preserving the case of the rest (for acronyms, proper nouns, etc.).
+func lowercaseFirst(s string) string {
+	if s == "" {
+		return s
+	}
+	// Handle multi-byte UTF-8 characters properly
+	runes := []rune(s)
+	runes[0] = unicode.ToLower(runes[0])
+	return string(runes)
 }
 
 // Compile-time interface checks.

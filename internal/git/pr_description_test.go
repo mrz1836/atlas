@@ -484,6 +484,41 @@ func TestScopeFromFiles(t *testing.T) {
 			},
 			expected: "git",
 		},
+		{
+			name: "skips src directory",
+			files: []PRFileChange{
+				{Path: "src/components/button.tsx"},
+			},
+			expected: "components",
+		},
+		{
+			name: "skips lib directory",
+			files: []PRFileChange{
+				{Path: "lib/utils/helpers.js"},
+			},
+			expected: "utils",
+		},
+		{
+			name: "skips test directory",
+			files: []PRFileChange{
+				{Path: "test/unit/parser_test.go"},
+			},
+			expected: "unit",
+		},
+		{
+			name: "skips tests directory",
+			files: []PRFileChange{
+				{Path: "tests/integration/api_test.go"},
+			},
+			expected: "integration",
+		},
+		{
+			name: "skips vendor directory",
+			files: []PRFileChange{
+				{Path: "vendor/github.com/pkg/errors/errors.go"},
+			},
+			expected: "github.com",
+		},
 	}
 
 	for _, tt := range tests {
@@ -556,6 +591,60 @@ func TestSummarizeDescription(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			result := summarizeDescription(tt.taskDesc, tt.commits)
 			assert.Contains(t, strings.ToLower(result), strings.ToLower(tt.minContains))
+		})
+	}
+}
+
+func TestSummarizeDescription_PreservesCase(t *testing.T) {
+	// Test that acronyms and proper nouns are preserved (only first char lowercased)
+	tests := []struct {
+		name     string
+		taskDesc string
+		expected string
+	}{
+		{
+			name:     "preserves API acronym",
+			taskDesc: "Update API endpoint",
+			expected: "update API endpoint",
+		},
+		{
+			name:     "preserves HTTP acronym",
+			taskDesc: "Add HTTP client support",
+			expected: "add HTTP client support",
+		},
+		{
+			name:     "preserves mixed case",
+			taskDesc: "Fix OAuth2 token refresh",
+			expected: "fix OAuth2 token refresh",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := summarizeDescription(tt.taskDesc, nil)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestLowercaseFirst(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"Hello", "hello"},
+		{"HELLO", "hELLO"},
+		{"API endpoint", "aPI endpoint"},
+		{"a", "a"},
+		{"A", "a"},
+		{"", ""},
+		{"123abc", "123abc"},
+		{"Über", "über"}, // UTF-8 support
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			assert.Equal(t, tt.expected, lowercaseFirst(tt.input))
 		})
 	}
 }
@@ -673,4 +762,137 @@ func TestNewTemplateDescriptionGenerator_Options(t *testing.T) {
 	)
 
 	assert.NotNil(t, gen)
+}
+
+func TestBuildPrompt_AllFields(t *testing.T) {
+	mockRunner := &prMockAIRunner{
+		runFunc: func(_ context.Context, req *domain.AIRequest) (*domain.AIResult, error) {
+			// Verify all fields are in the prompt
+			prompt := req.Prompt
+			assert.Contains(t, prompt, "## Task Description")
+			assert.Contains(t, prompt, "Test task description")
+			assert.Contains(t, prompt, "## Commits")
+			assert.Contains(t, prompt, "feat: first commit")
+			assert.Contains(t, prompt, "## Files Changed")
+			assert.Contains(t, prompt, "file.go")
+			assert.Contains(t, prompt, "## Diff Summary")
+			assert.Contains(t, prompt, "Added 10 lines")
+			assert.Contains(t, prompt, "## Validation Results")
+			assert.Contains(t, prompt, "All tests pass")
+			assert.Contains(t, prompt, "## Template Type")
+			assert.Contains(t, prompt, "feature")
+			assert.Contains(t, prompt, "## Task ID")
+			assert.Contains(t, prompt, "task-test-id")
+			assert.Contains(t, prompt, "## Workspace")
+			assert.Contains(t, prompt, "feat/test-ws")
+
+			return &domain.AIResult{
+				Success: true,
+				Output: `TITLE: feat(test): add feature
+BODY:
+## Summary
+Test summary.
+
+## Changes
+- file.go
+
+## Test Plan
+Tests pass.`,
+			}, nil
+		},
+	}
+
+	gen := NewAIDescriptionGenerator(mockRunner)
+
+	_, err := gen.Generate(context.Background(), PRDescOptions{
+		TaskDescription:   "Test task description",
+		CommitMessages:    []string{"feat: first commit", "fix: second commit"},
+		FilesChanged:      []PRFileChange{{Path: "file.go", Insertions: 10, Deletions: 5}},
+		DiffSummary:       "Added 10 lines, removed 5 lines",
+		ValidationResults: "All tests pass",
+		TemplateName:      "feature",
+		TaskID:            "task-test-id",
+		WorkspaceName:     "feat/test-ws",
+	})
+
+	require.NoError(t, err)
+}
+
+func TestBuildPrompt_MinimalFields(t *testing.T) {
+	mockRunner := &prMockAIRunner{
+		runFunc: func(_ context.Context, req *domain.AIRequest) (*domain.AIResult, error) {
+			prompt := req.Prompt
+			// Verify fallback text for empty fields (task description is empty)
+			assert.Contains(t, prompt, "(Not provided)")
+			// We ARE providing commits, so this should NOT appear
+			assert.NotContains(t, prompt, "(No commit messages provided)")
+			// We are NOT providing files
+			assert.Contains(t, prompt, "(No file changes provided)")
+			// Should NOT contain optional sections
+			assert.NotContains(t, prompt, "## Diff Summary")
+			assert.NotContains(t, prompt, "## Validation Results")
+			assert.NotContains(t, prompt, "## Task ID")
+			assert.NotContains(t, prompt, "## Workspace")
+
+			return &domain.AIResult{
+				Success: true,
+				Output: `TITLE: feat: update code
+BODY:
+## Summary
+Update.
+
+## Changes
+- code
+
+## Test Plan
+Ok.`,
+			}, nil
+		},
+	}
+
+	gen := NewAIDescriptionGenerator(mockRunner)
+
+	// Use commits instead of task description to satisfy validation
+	_, err := gen.Generate(context.Background(), PRDescOptions{
+		CommitMessages: []string{"feat: minimal"},
+		TemplateName:   "feature",
+	})
+
+	// This will work because we have commits
+	require.NoError(t, err)
+}
+
+func TestBuildPrompt_NoCommitsOrFiles(t *testing.T) {
+	mockRunner := &prMockAIRunner{
+		runFunc: func(_ context.Context, req *domain.AIRequest) (*domain.AIResult, error) {
+			prompt := req.Prompt
+			// Verify all fallback text appears when no commits or files
+			assert.Contains(t, prompt, "(No commit messages provided)")
+			assert.Contains(t, prompt, "(No file changes provided)")
+
+			return &domain.AIResult{
+				Success: true,
+				Output: `TITLE: feat: update code
+BODY:
+## Summary
+Update.
+
+## Changes
+- code
+
+## Test Plan
+Ok.`,
+			}, nil
+		},
+	}
+
+	gen := NewAIDescriptionGenerator(mockRunner)
+
+	// Provide task description to satisfy validation, but no commits or files
+	_, err := gen.Generate(context.Background(), PRDescOptions{
+		TaskDescription: "Test task",
+		TemplateName:    "feature",
+	})
+
+	require.NoError(t, err)
 }
