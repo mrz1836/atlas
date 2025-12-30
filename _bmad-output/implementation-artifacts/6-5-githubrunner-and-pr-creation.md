@@ -1,6 +1,6 @@
 # Story 6.5: GitHubRunner and PR Creation
 
-Status: review
+Status: done
 
 ## Story
 
@@ -738,6 +738,13 @@ N/A
 8. **Artifact Saving**: Two implementations - `TaskStoreArtifactSaver` for task store integration, `FileArtifactSaver` for direct file writes
 9. **Template Fallback**: `TemplateDescriptionGenerator` provides fallback when AI is unavailable
 10. **Test Coverage**: Comprehensive tests for all components with 90%+ coverage target achieved
+
+### Code Review Fixes (2025-12-30)
+
+11. **Test Coverage Improvements**: Added tests for `buildPrompt()` all branches, `buildPRFinalError()` PRErrorOther cases, `waitForPRRetry()` max delay cap - coverage increased from 93.1% to 94.2%
+12. **scopeFromFiles Enhancement**: Expanded directory exclusion list to include `src`, `lib`, `test`, `tests`, `spec`, `vendor`, `node_modules` for better scope detection across different project structures
+13. **summarizeDescription Case Preservation**: Changed from `ToLower()` to `lowercaseFirst()` to preserve acronyms and proper nouns (e.g., "Update API endpoint" → "update API endpoint" instead of "update api endpoint")
+14. **New Helper Function**: Added `lowercaseFirst()` for UTF-8 safe first-character lowercasing
 
 ### File List
 

@@ -128,7 +128,7 @@ development_status:
   6-2-branch-creation-and-naming: done
   6-3-smart-commit-system: done
   6-4-push-to-remote: done
-  6-5-githubrunner-and-pr-creation: review
+  6-5-githubrunner-and-pr-creation: done
   6-6-ci-status-monitoring: backlog
   6-7-ci-failure-handling: backlog
   epic-6-retrospective: optional
