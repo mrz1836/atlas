@@ -82,6 +82,10 @@ type ExecutorDeps struct {
 	// GitRunner is used for basic git operations.
 	// If nil, some git operations may fail.
 	GitRunner git.Runner
+
+	// CIFailureHandler is used for handling CI failures.
+	// If nil, CI failures return simple error without interactive options.
+	CIFailureHandler CIFailureHandlerInterface
 }
 
 // NewDefaultRegistry creates a registry with all built-in executors.
@@ -127,8 +131,17 @@ func NewDefaultRegistry(deps ExecutorDeps) *ExecutorRegistry {
 		r.Register(NewSDDExecutor(deps.AIRunner, deps.ArtifactsDir))
 	}
 
-	// Register CI executor (placeholder for Epic 6)
-	r.Register(NewCIExecutor())
+	// Register CI executor with HubRunner and CIFailureHandler dependencies
+	ciExecutorOpts := []CIExecutorOption{
+		WithCILogger(deps.Logger),
+	}
+	if deps.HubRunner != nil {
+		ciExecutorOpts = append(ciExecutorOpts, WithCIHubRunner(deps.HubRunner))
+	}
+	if deps.CIFailureHandler != nil {
+		ciExecutorOpts = append(ciExecutorOpts, WithCIFailureHandlerInterface(deps.CIFailureHandler))
+	}
+	r.Register(NewCIExecutor(ciExecutorOpts...))
 
 	// Register verify executor (requires AIRunner for AI verification)
 	if deps.AIRunner != nil {

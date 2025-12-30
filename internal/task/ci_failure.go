@@ -152,6 +152,13 @@ func WithBrowserOpener(opener BrowserOpener) CIFailureHandlerOption {
 	}
 }
 
+// HasHandler returns true if the handler is properly configured.
+// This is used by steps.CIFailureHandlerInterface to check if
+// interactive failure handling is available.
+func (h *CIFailureHandler) HasHandler() bool {
+	return h != nil && h.hubRunner != nil
+}
+
 // HandleCIFailure processes the user's chosen action for CI failure.
 // If opts.ArtifactDir is provided and opts.CIResult is available, the CI result
 // is automatically saved to ci-result.json before processing the action.
