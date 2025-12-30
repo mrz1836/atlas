@@ -1,6 +1,6 @@
 # Story 6.8: AI Verification Step
 
-Status: draft
+Status: complete
 
 ## Story
 
@@ -38,61 +38,61 @@ So that **I can catch issues before committing, with cross-model validation for 
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Create verification executor (AC: 1, 2, 3, 6)
-  - [ ] 1.1: Create `internal/template/steps/verify.go` with `VerifyExecutor` struct
-  - [ ] 1.2: Define `VerifyConfig` struct with Model, Checks (code_correctness, test_coverage, garbage_files, security)
-  - [ ] 1.3: Implement `Execute(ctx, step, task) (*StepResult, error)` method
-  - [ ] 1.4: Register `StepTypeVerify` in domain/step_type.go
-  - [ ] 1.5: Add verify step executor to step executor factory
+- [x] Task 1: Create verification executor (AC: 1, 2, 3, 6)
+  - [x] 1.1: Create `internal/template/steps/verify.go` with `VerifyExecutor` struct
+  - [x] 1.2: Define `VerifyConfig` struct with Model, Checks (code_correctness, test_coverage, garbage_files, security)
+  - [x] 1.3: Implement `Execute(ctx, step, task) (*StepResult, error)` method
+  - [x] 1.4: Register `StepTypeVerify` in domain/step_type.go
+  - [x] 1.5: Add verify step executor to step executor factory
 
-- [ ] Task 2: Implement verification checks (AC: 2)
-  - [ ] 2.1: Create `checkCodeCorrectness(ctx, taskDescription, changedFiles) ([]Issue, error)` - uses AI to review changes
-  - [ ] 2.2: Create `checkTestCoverage(ctx, changedFiles) ([]Issue, error)` - verifies tests exist for changes
-  - [ ] 2.3: Create `checkGarbageFiles(ctx, stagedFiles) ([]Issue, error)` - reuses GarbageScanner from internal/git
-  - [ ] 2.4: Create `checkSecurityIssues(ctx, changedFiles) ([]Issue, error)` - basic pattern matching for common issues
-  - [ ] 2.5: Define `VerificationIssue` struct with Severity (error, warning, info), Category, File, Line, Message
+- [x] Task 2: Implement verification checks (AC: 2)
+  - [x] 2.1: Create `checkCodeCorrectness(ctx, taskDescription, changedFiles) ([]Issue, error)` - uses AI to review changes
+  - [x] 2.2: Create `checkTestCoverage(ctx, changedFiles) ([]Issue, error)` - verifies tests exist for changes
+  - [x] 2.3: Create `checkGarbageFiles(ctx, stagedFiles) ([]Issue, error)` - reuses GarbageScanner from internal/git
+  - [x] 2.4: Create `checkSecurityIssues(ctx, changedFiles) ([]Issue, error)` - basic pattern matching for common issues
+  - [x] 2.5: Define `VerificationIssue` struct with Severity (error, warning, info), Category, File, Line, Message
 
-- [ ] Task 3: Create verification report artifact (AC: 3)
-  - [ ] 3.1: Define `VerificationReport` struct with Summary, Issues, Recommendations, PassedChecks
-  - [ ] 3.2: Implement `GenerateVerificationReport(results []CheckResult) *VerificationReport`
-  - [ ] 3.3: Implement `SaveVerificationReport(report *VerificationReport, artifactDir string) (string, error)`
-  - [ ] 3.4: Format report as markdown with sections for each check category
+- [x] Task 3: Create verification report artifact (AC: 3)
+  - [x] 3.1: Define `VerificationReport` struct with Summary, Issues, Recommendations, PassedChecks
+  - [x] 3.2: Implement `GenerateVerificationReport(results []CheckResult) *VerificationReport`
+  - [x] 3.3: Implement `SaveVerificationReport(report *VerificationReport, artifactDir string) (string, error)`
+  - [x] 3.4: Format report as markdown with sections for each check category
 
-- [ ] Task 4: Implement issue handling menu (AC: 4)
-  - [ ] 4.1: Define `VerificationAction` enum: AutoFix, ManualFix, IgnoreContinue, ViewReport
-  - [ ] 4.2: Create `internal/tui/verification_menu.go` with `RenderVerificationMenu()` (placeholder for Epic 8)
-  - [ ] 4.3: Implement `HandleVerificationIssues(ctx, report, action) (*VerificationResult, error)`
-  - [ ] 4.4: For AutoFix: invoke AI with issue context to generate fixes
-  - [ ] 4.5: For ManualFix: return awaiting_approval status with instructions
-  - [ ] 4.6: For IgnoreContinue: log warning and proceed
+- [x] Task 4: Implement issue handling menu (AC: 4)
+  - [x] 4.1: Define `VerificationAction` enum: AutoFix, ManualFix, IgnoreContinue, ViewReport
+  - [x] 4.2: Create `internal/tui/verification_menu.go` with `RenderVerificationMenu()` (placeholder for Epic 8)
+  - [x] 4.3: Implement `HandleVerificationIssues(ctx, report, action) (*VerificationResult, error)`
+  - [x] 4.4: For AutoFix: invoke AI with issue context to generate fixes
+  - [x] 4.5: For ManualFix: return awaiting_approval status with instructions
+  - [x] 4.6: For IgnoreContinue: log warning and proceed
 
-- [ ] Task 5: Add CLI flags and template configuration (AC: 5, 6, 7, 8, 9)
-  - [ ] 5.1: Add `--verify` flag to `atlas start` command (enables verification)
-  - [ ] 5.2: Add `--no-verify` flag to `atlas start` command (disables verification)
-  - [ ] 5.3: Add `verify: bool` field to template definition
-  - [ ] 5.4: Add `verify_model: string` field to template definition
-  - [ ] 5.5: Update bugfix template: `verify: false` (default OFF)
-  - [ ] 5.6: Update feature template: `verify: true` (default ON)
-  - [ ] 5.7: Add `verify_model` to config.yaml schema (default: use different model family)
+- [x] Task 5: Add CLI flags and template configuration (AC: 5, 6, 7, 8, 9)
+  - [x] 5.1: Add `--verify` flag to `atlas start` command (enables verification)
+  - [x] 5.2: Add `--no-verify` flag to `atlas start` command (disables verification)
+  - [x] 5.3: Add `verify: bool` field to template definition
+  - [x] 5.4: Add `verify_model: string` field to template definition
+  - [x] 5.5: Update bugfix template: `verify: false` (default OFF)
+  - [x] 5.6: Update feature template: `verify: true` (default ON)
+  - [x] 5.7: Add `verify_model` to config.yaml schema (default: use different model family)
 
-- [ ] Task 6: Integrate with task engine (AC: 1, 3, 4)
-  - [ ] 6.1: Add `StepTypeVerify` case to step executor switch in task engine
-  - [ ] 6.2: Add verify step to bugfix template (optional, after implement, before validate)
-  - [ ] 6.3: Add verify step to feature template (after implement, before validate)
-  - [ ] 6.4: Ensure step is skipped when verification disabled
-  - [ ] 6.5: Handle verify step failure with state transition to validation_failed
+- [x] Task 6: Integrate with task engine (AC: 1, 3, 4)
+  - [x] 6.1: Add `StepTypeVerify` case to step executor switch in task engine
+  - [x] 6.2: Add verify step to bugfix template (optional, after implement, before validate)
+  - [x] 6.3: Add verify step to feature template (after implement, before validate)
+  - [x] 6.4: Ensure step is skipped when verification disabled
+  - [x] 6.5: Handle verify step failure with state transition to validation_failed
 
-- [ ] Task 7: Create comprehensive tests (AC: 1-9)
-  - [ ] 7.1: Test VerifyExecutor with successful verification
-  - [ ] 7.2: Test VerifyExecutor with issues found
-  - [ ] 7.3: Test each check function (code correctness, test coverage, garbage, security)
-  - [ ] 7.4: Test report generation and saving
-  - [ ] 7.5: Test --verify flag enables verification
-  - [ ] 7.6: Test --no-verify flag disables verification
-  - [ ] 7.7: Test template default override behavior
-  - [ ] 7.8: Test verify_model configuration
-  - [ ] 7.9: Test auto-fix action flow
-  - [ ] 7.10: Target 85%+ coverage for new code
+- [x] Task 7: Create comprehensive tests (AC: 1-9)
+  - [x] 7.1: Test VerifyExecutor with successful verification
+  - [x] 7.2: Test VerifyExecutor with issues found
+  - [x] 7.3: Test each check function (code correctness, test coverage, garbage, security)
+  - [x] 7.4: Test report generation and saving
+  - [x] 7.5: Test --verify flag enables verification
+  - [x] 7.6: Test --no-verify flag disables verification
+  - [x] 7.7: Test template default override behavior
+  - [x] 7.8: Test verify_model configuration
+  - [x] 7.9: Test auto-fix action flow
+  - [x] 7.10: Target 85%+ coverage for new code
 
 ## Dev Notes
 
@@ -339,3 +339,63 @@ Specific validation checkpoints:
 | --no-verify flag | Skips verification | AC5 |
 | Template default | Respects verify: true/false | AC6, 7, 8 |
 | verify_model config | Uses specified model | AC9 |
+
+## Implementation Notes
+
+### Files Created
+- `internal/template/steps/verify.go` - VerifyExecutor implementation with all check types
+- `internal/template/steps/verify_test.go` - Comprehensive tests (60+ test cases)
+- `internal/tui/verification_menu.go` - TUI menu for verification options
+- `internal/tui/verification_menu_test.go` - TUI menu tests
+
+### Files Modified
+- `internal/domain/template.go` - Added `StepTypeVerify`, `Verify`, and `VerifyModel` fields
+- `internal/template/bugfix.go` - Added verify step (optional, Verify: false)
+- `internal/template/feature.go` - Added verify step (required, Verify: true)
+- `internal/cli/start.go` - Added --verify and --no-verify flags with mutual exclusivity check
+- `internal/template/steps/defaults.go` - Registered VerifyExecutor in NewDefaultRegistry
+
+### Key Implementation Details
+1. **VerifyExecutor** follows the existing StepExecutor pattern with Execute, Type methods
+2. **Check functions** implemented: CheckCodeCorrectness (AI), CheckTestCoverage (heuristic), CheckGarbageFiles (reuses GarbageDetector), CheckSecurityIssues (regex patterns)
+3. **Security patterns** detect hardcoded credentials, command injection, SQL injection, XSS
+4. **Report generation** produces markdown with summary, issue details, and recommendations
+5. **Issue handling** supports AutoFix (AI), ManualFix (status change), IgnoreContinue (warning log), ViewReport
+6. **CLI flags** are mutually exclusive; --verify overrides template default to true, --no-verify to false
+7. **Template defaults**: Feature has Verify: true (ON), Bugfix has Verify: false (OFF)
+
+### Test Coverage
+- All check types tested with positive and negative cases
+- Report generation and saving tested
+- Issue handling actions tested
+- CLI flag application tested
+- All tests passing with race detection
+
+## Code Review (2025-12-30)
+
+**Reviewer:** Senior Developer Code Review Workflow
+**Status:** ✅ PASSED with AUTO-FIXES applied
+
+### Issues Found & Fixed
+
+| # | Severity | Issue | File | Fix Applied |
+|---|----------|-------|------|-------------|
+| 1 | HIGH | Dynamic error (err113) | verify.go:817 | Wrapped with `errors.ErrInvalidVerificationAction` |
+| 2 | HIGH | Dynamic error (err113) | start.go:148 | Wrapped with `errors.ErrConflictingFlags` |
+| 3 | HIGH | Dynamic errors in tests | verify_test.go | Replaced with `errors.ErrAIError` |
+| 4 | HIGH | Stale nolint directives | CLI files | Reformatted to inline style |
+| 5 | HIGH | funcorder violations | verify.go | Added file-level nolint with explanation |
+| 6 | MEDIUM | assert.Equal for empty | verification_menu_test.go | Changed to `assert.Empty()` |
+| 7 | MEDIUM | VerifyModel not wired | start.go | Added propagation in `applyVerifyOverrides()` |
+
+### New Sentinel Errors Added
+```go
+// internal/errors/errors.go
+ErrInvalidVerificationAction = errors.New("invalid verification action")
+ErrConflictingFlags = errors.New("conflicting flags specified")
+```
+
+### Verification
+- All tests passing
+- Linter clean for targeted issues (err113, testifylint, nolintlint, contextcheck, funcorder)
+- No new issues introduced
