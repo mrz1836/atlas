@@ -34,81 +34,96 @@ func TestIntegration_TaskLifecycle(t *testing.T) {
 	store, err := NewFileStore(tmpDir)
 	require.NoError(t, err)
 
-	// 1. Create task
-	task := &domain.Task{
-		ID:          "task-20251229-120000",
-		WorkspaceID: "test-ws",
-		TemplateID:  "bugfix",
-		Description: "Integration test task",
-		Status:      domain.TaskStatusPending,
-		CurrentStep: 0,
-		Steps: []domain.Step{
-			{Name: "analyze", Type: domain.StepTypeAI, Status: "pending"},
-			{Name: "implement", Type: domain.StepTypeAI, Status: "pending"},
-			{Name: "validate", Type: domain.StepTypeValidation, Status: "pending"},
-		},
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
-		Config:    domain.TaskConfig{Model: "sonnet"},
-	}
+	var task *domain.Task
+	var artifactContent []byte
 
-	err = store.Create(ctx, "test-ws", task)
-	require.NoError(t, err, "should create task")
+	t.Run("1_create_task", func(t *testing.T) {
+		task = &domain.Task{
+			ID:          "task-20251229-120000",
+			WorkspaceID: "test-ws",
+			TemplateID:  "bugfix",
+			Description: "Integration test task",
+			Status:      domain.TaskStatusPending,
+			CurrentStep: 0,
+			Steps: []domain.Step{
+				{Name: "analyze", Type: domain.StepTypeAI, Status: "pending"},
+				{Name: "implement", Type: domain.StepTypeAI, Status: "pending"},
+				{Name: "validate", Type: domain.StepTypeValidation, Status: "pending"},
+			},
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+			Config:    domain.TaskConfig{Model: "sonnet"},
+		}
 
-	// 2. Get and verify task
-	retrieved, err := store.Get(ctx, "test-ws", task.ID)
-	require.NoError(t, err)
-	assert.Equal(t, task.ID, retrieved.ID)
-	assert.Equal(t, domain.TaskStatusPending, retrieved.Status)
-	assert.Len(t, retrieved.Steps, 3)
+		err = store.Create(ctx, "test-ws", task)
+		require.NoError(t, err, "should create task")
+	})
 
-	// 3. Update task status (simulate step progression)
-	retrieved.Status = domain.TaskStatusRunning
-	retrieved.CurrentStep = 1
-	retrieved.Steps[0].Status = "completed"
-	err = store.Update(ctx, "test-ws", retrieved)
-	require.NoError(t, err)
+	t.Run("2_get_and_verify_task", func(t *testing.T) {
+		retrieved, err := store.Get(ctx, "test-ws", task.ID)
+		require.NoError(t, err)
+		assert.Equal(t, task.ID, retrieved.ID)
+		assert.Equal(t, domain.TaskStatusPending, retrieved.Status)
+		assert.Len(t, retrieved.Steps, 3)
+	})
 
-	// 4. Add log entry
-	logEntry := []byte(`{"step":"analyze","status":"completed","duration":"5s"}` + "\n")
-	err = store.AppendLog(ctx, "test-ws", task.ID, logEntry)
-	require.NoError(t, err)
+	t.Run("3_update_task_status", func(t *testing.T) {
+		retrieved, err := store.Get(ctx, "test-ws", task.ID)
+		require.NoError(t, err)
+		retrieved.Status = domain.TaskStatusRunning
+		retrieved.CurrentStep = 1
+		retrieved.Steps[0].Status = "completed"
+		err = store.Update(ctx, "test-ws", retrieved)
+		require.NoError(t, err)
+	})
 
-	// 5. Save artifact
-	artifactContent := []byte("// Generated code from AI\nfunc Fix() {}")
-	err = store.SaveArtifact(ctx, "test-ws", task.ID, "fix.go", artifactContent)
-	require.NoError(t, err)
+	t.Run("4_add_log_entry", func(t *testing.T) {
+		logEntry := []byte(`{"step":"analyze","status":"completed","duration":"5s"}` + "\n")
+		err = store.AppendLog(ctx, "test-ws", task.ID, logEntry)
+		require.NoError(t, err)
+	})
 
-	// 6. List artifacts
-	artifacts, err := store.ListArtifacts(ctx, "test-ws", task.ID)
-	require.NoError(t, err)
-	assert.Contains(t, artifacts, "fix.go")
+	t.Run("5_save_artifact", func(t *testing.T) {
+		artifactContent = []byte("// Generated code from AI\nfunc Fix() {}")
+		err = store.SaveArtifact(ctx, "test-ws", task.ID, "fix.go", artifactContent)
+		require.NoError(t, err)
+	})
 
-	// 7. Get artifact
-	content, err := store.GetArtifact(ctx, "test-ws", task.ID, "fix.go")
-	require.NoError(t, err)
-	assert.Equal(t, artifactContent, content)
+	t.Run("6_list_artifacts", func(t *testing.T) {
+		artifacts, err := store.ListArtifacts(ctx, "test-ws", task.ID)
+		require.NoError(t, err)
+		assert.Contains(t, artifacts, "fix.go")
+	})
 
-	// 8. Complete task
-	final, err := store.Get(ctx, "test-ws", task.ID)
-	require.NoError(t, err)
-	final.Status = domain.TaskStatusCompleted
-	final.CurrentStep = 3
-	for i := range final.Steps {
-		final.Steps[i].Status = "completed"
-	}
-	err = store.Update(ctx, "test-ws", final)
-	require.NoError(t, err)
+	t.Run("7_get_artifact", func(t *testing.T) {
+		content, err := store.GetArtifact(ctx, "test-ws", task.ID, "fix.go")
+		require.NoError(t, err)
+		assert.Equal(t, artifactContent, content)
+	})
 
-	// 9. Verify final state
-	completed, err := store.Get(ctx, "test-ws", task.ID)
-	require.NoError(t, err)
-	assert.Equal(t, domain.TaskStatusCompleted, completed.Status)
+	t.Run("8_complete_task", func(t *testing.T) {
+		final, err := store.Get(ctx, "test-ws", task.ID)
+		require.NoError(t, err)
+		final.Status = domain.TaskStatusCompleted
+		final.CurrentStep = 3
+		for i := range final.Steps {
+			final.Steps[i].Status = "completed"
+		}
+		err = store.Update(ctx, "test-ws", final)
+		require.NoError(t, err)
+	})
 
-	// 10. List tasks
-	tasks, err := store.List(ctx, "test-ws")
-	require.NoError(t, err)
-	assert.Len(t, tasks, 1)
+	t.Run("9_verify_final_state", func(t *testing.T) {
+		completed, err := store.Get(ctx, "test-ws", task.ID)
+		require.NoError(t, err)
+		assert.Equal(t, domain.TaskStatusCompleted, completed.Status)
+	})
+
+	t.Run("10_list_tasks", func(t *testing.T) {
+		tasks, err := store.List(ctx, "test-ws")
+		require.NoError(t, err)
+		assert.Len(t, tasks, 1)
+	})
 }
 
 // TestIntegration_TaskWithVersionedArtifacts tests saving multiple versions of artifacts.

@@ -472,7 +472,7 @@ func TestDefaultUpgradeExecutor_UpgradeTool_UnknownTool(t *testing.T) {
 }
 
 func TestDefaultUpgradeExecutor_BackupConstitution(t *testing.T) {
-	t.Parallel()
+	// Cannot use t.Parallel() because os.Chdir affects the entire process
 
 	// Create a temp directory with a constitution.md file
 	tmpDir := t.TempDir()
@@ -502,7 +502,7 @@ func TestDefaultUpgradeExecutor_BackupConstitution(t *testing.T) {
 }
 
 func TestDefaultUpgradeExecutor_BackupConstitution_NoFile(t *testing.T) {
-	t.Parallel()
+	// Cannot use t.Parallel() because os.Chdir affects the entire process
 
 	// Create a temp directory without constitution.md
 	tmpDir := t.TempDir()

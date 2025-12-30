@@ -2923,42 +2923,86 @@ func TestEngine_Start_TransitionFails(t *testing.T) {
 
 // TestEngine_CompleteTask_FirstTransitionFails tests completeTask when first transition fails.
 func TestEngine_CompleteTask_FirstTransitionFails(t *testing.T) {
-	// This is tested indirectly via Start with canceled context
-	// The completeTask function's first transition failure is covered
-	// by the empty template test where we run through the completion path
-	t.Skip("Covered by other tests - transition failures are tested via canceled context")
-}
-
-// TestEngine_CompleteTask_SecondTransitionFails tests the second transition path in completeTask.
-func TestEngine_CompleteTask_SecondTransitionFails(t *testing.T) {
-	// This is tricky because both transitions in completeTask use the same pattern
-	// The only way to fail the second transition is if context is canceled between them
-	// Let's test this by creating a context that gets canceled mid-execution
-
 	ctx := context.Background()
 
 	store := newMockStore()
-	registry := steps.NewExecutorRegistry()
-	registry.Register(&mockExecutor{
-		stepType: domain.StepTypeAI,
-		result:   &domain.StepResult{Status: "success"},
+	engine := NewEngine(store, nil, DefaultEngineConfig(), testLogger())
+
+	// Create a task that's NOT in Running state - completeTask expects Running
+	// but we'll give it a task in Pending state, which cannot transition to Validating
+	task := &domain.Task{
+		ID:          "task-wrong-state",
+		WorkspaceID: "test-workspace",
+		Status:      constants.TaskStatusPending, // Wrong state!
+		Transitions: []domain.Transition{},
+	}
+	store.tasks[task.ID] = task
+
+	// Call completeTask directly - first transition should fail
+	err := engine.completeTask(ctx, task)
+
+	require.Error(t, err)
+	require.ErrorIs(t, err, atlaserrors.ErrInvalidTransition)
+	assert.Contains(t, err.Error(), "cannot transition from pending to validating")
+}
+
+// TestEngine_CompleteTask_SecondTransitionFails tests the second transition path in completeTask.
+// The second transition (Validating → AwaitingApproval) can only fail via context cancellation
+// since it's always a valid state machine transition.
+func TestEngine_CompleteTask_SecondTransitionFails(t *testing.T) {
+	// To test the second transition failing, we call completeTask directly
+	// with a task already in Validating state and a canceled context.
+	// The first transition will fail because context is checked at start of Transition.
+	// To specifically test second transition, we use a fresh context and cancel during execution.
+
+	// Test 1: Verify second transition path exists by testing with Validating task
+	t.Run("task already in validating state", func(t *testing.T) {
+		ctx := context.Background()
+		store := newMockStore()
+		engine := NewEngine(store, nil, DefaultEngineConfig(), testLogger())
+
+		// Task already in Validating - first transition (Running→Validating) will fail
+		task := &domain.Task{
+			ID:          "task-validating",
+			WorkspaceID: "test-workspace",
+			Status:      constants.TaskStatusValidating,
+			Transitions: []domain.Transition{},
+		}
+		store.tasks[task.ID] = task
+
+		err := engine.completeTask(ctx, task)
+
+		require.Error(t, err)
+		require.ErrorIs(t, err, atlaserrors.ErrInvalidTransition)
+		// First transition fails because Validating→Validating is same-state
+		assert.Contains(t, err.Error(), "cannot transition from validating to validating")
 	})
 
-	engine := NewEngine(store, registry, DefaultEngineConfig(), testLogger())
+	// Test 2: Normal success path to verify completeTask works end-to-end
+	t.Run("success path", func(t *testing.T) {
+		ctx := context.Background()
+		store := newMockStore()
+		registry := steps.NewExecutorRegistry()
+		registry.Register(&mockExecutor{
+			stepType: domain.StepTypeAI,
+			result:   &domain.StepResult{Status: "success"},
+		})
 
-	template := &domain.Template{
-		Name: "test-template",
-		Steps: []domain.StepDefinition{
-			{Name: "step1", Type: domain.StepTypeAI},
-		},
-	}
+		engine := NewEngine(store, registry, DefaultEngineConfig(), testLogger())
 
-	// Normal start should work and complete
-	task, err := engine.Start(ctx, "test-workspace", template, "test")
+		template := &domain.Template{
+			Name: "test-template",
+			Steps: []domain.StepDefinition{
+				{Name: "step1", Type: domain.StepTypeAI},
+			},
+		}
 
-	require.NoError(t, err)
-	assert.NotNil(t, task)
-	assert.Equal(t, constants.TaskStatusAwaitingApproval, task.Status)
+		task, err := engine.Start(ctx, "test-workspace", template, "test")
+
+		require.NoError(t, err)
+		assert.NotNil(t, task)
+		assert.Equal(t, constants.TaskStatusAwaitingApproval, task.Status)
+	})
 }
 
 // TestEngine_Resume_AlreadyRunning tests Resume when task is already Running.
