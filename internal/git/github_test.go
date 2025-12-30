@@ -682,6 +682,7 @@ func TestBuildPRFinalError(t *testing.T) {
 		name        string
 		result      *PRResult
 		expectedErr error
+		errContains string
 	}{
 		{
 			name:        "no error",
@@ -708,15 +709,28 @@ func TestBuildPRFinalError(t *testing.T) {
 			result:      &PRResult{ErrorType: PRErrorNotFound, Attempts: 1},
 			expectedErr: atlaserrors.ErrPRCreationFailed,
 		},
+		{
+			name:        "other error with FinalErr",
+			result:      &PRResult{ErrorType: PRErrorOther, Attempts: 1, FinalErr: errors.New("custom error")}, //nolint:err113 // test uses dynamic error
+			errContains: "custom error",
+		},
+		{
+			name:        "unknown error type defaults to other",
+			result:      &PRResult{ErrorType: PRErrorType(99), Attempts: 1, FinalErr: errors.New("unknown type error")}, //nolint:err113 // test uses dynamic error
+			errContains: "unknown type error",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := buildPRFinalError(tt.result)
-			if tt.expectedErr == nil {
+			if tt.expectedErr == nil && tt.errContains == "" {
 				assert.NoError(t, err)
-			} else {
+			} else if tt.expectedErr != nil {
 				assert.ErrorIs(t, err, tt.expectedErr)
+			} else if tt.errContains != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errContains)
 			}
 		})
 	}
@@ -746,4 +760,47 @@ func TestValidatePROptions(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "main", opts.BaseBranch)
 	})
+}
+
+func TestCLIGitHubRunner_CreatePR_MaxDelayCapReached(t *testing.T) {
+	// Test that delay is capped at MaxDelay when multiplier would exceed it
+	attempts := 0
+	mock := &mockCommandExecutor{
+		executeFunc: func(_ context.Context, _, _ string, _ ...string) ([]byte, error) {
+			attempts++
+			if attempts < 3 {
+				return nil, fmt.Errorf("rate limit exceeded: %w", atlaserrors.ErrGHRateLimited)
+			}
+			return []byte("https://github.com/owner/repo/pull/42\n"), nil
+		},
+	}
+
+	// Configure so that delay would exceed MaxDelay after first retry
+	// InitialDelay=50ms, Multiplier=100 -> second delay would be 5000ms
+	// But MaxDelay=100ms should cap it
+	runner := NewCLIGitHubRunner("/test/dir",
+		WithGHCommandExecutor(mock),
+		WithGHRetryConfig(RetryConfig{
+			MaxAttempts:  3,
+			InitialDelay: 50 * time.Millisecond,
+			MaxDelay:     100 * time.Millisecond, // Cap at 100ms
+			Multiplier:   100.0,                  // Would make 5000ms without cap
+		}),
+	)
+
+	start := time.Now()
+	result, err := runner.CreatePR(context.Background(), PRCreateOptions{
+		Title:      "title",
+		Body:       "body",
+		BaseBranch: "main",
+		HeadBranch: "feat/test",
+	})
+	elapsed := time.Since(start)
+
+	require.NoError(t, err)
+	assert.Equal(t, 3, result.Attempts)
+
+	// If MaxDelay wasn't applied, this would take >5 seconds
+	// With MaxDelay of 100ms, total should be ~150ms (50ms + 100ms)
+	assert.Less(t, elapsed, 500*time.Millisecond, "delay should be capped by MaxDelay")
 }
