@@ -3,17 +3,16 @@
 package workspace
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
 
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
+	"github.com/mrz1836/atlas/internal/git"
 )
 
 // WorktreeRunner defines operations for Git worktree management.
@@ -117,7 +116,7 @@ func (r *GitWorktreeRunner) Create(ctx context.Context, opts WorktreeCreateOptio
 		args = append(args, opts.BaseBranch)
 	}
 
-	_, err = runGitCommand(ctx, r.repoPath, args...)
+	_, err = git.RunCommand(ctx, r.repoPath, args...)
 	if err != nil {
 		// CRITICAL: Clean up on failure (atomic creation)
 		_ = os.RemoveAll(wtPath)
@@ -140,7 +139,7 @@ func (r *GitWorktreeRunner) List(ctx context.Context) ([]*WorktreeInfo, error) {
 	default:
 	}
 
-	output, err := runGitCommand(ctx, r.repoPath, "worktree", "list", "--porcelain")
+	output, err := git.RunCommand(ctx, r.repoPath, "worktree", "list", "--porcelain")
 	if err != nil {
 		return nil, fmt.Errorf("failed to list worktrees: %w", err)
 	}
@@ -176,7 +175,7 @@ func (r *GitWorktreeRunner) Remove(ctx context.Context, path string, force bool)
 		args = append(args, "--force")
 	}
 
-	_, err = runGitCommand(ctx, r.repoPath, args...)
+	_, err = git.RunCommand(ctx, r.repoPath, args...)
 	if err != nil {
 		// Check for dirty worktree error
 		errStr := err.Error()
@@ -208,7 +207,7 @@ func (r *GitWorktreeRunner) Prune(ctx context.Context) error {
 	default:
 	}
 
-	_, err := runGitCommand(ctx, r.repoPath, "worktree", "prune")
+	_, err := git.RunCommand(ctx, r.repoPath, "worktree", "prune")
 	if err != nil {
 		return fmt.Errorf("failed to prune worktrees: %w", err)
 	}
@@ -225,10 +224,11 @@ func (r *GitWorktreeRunner) BranchExists(ctx context.Context, name string) (bool
 	default:
 	}
 
-	_, err := runGitCommand(ctx, r.repoPath, "show-ref", "--verify", "refs/heads/"+name)
+	_, err := git.RunCommand(ctx, r.repoPath, "show-ref", "--verify", "refs/heads/"+name)
 	if err != nil {
-		// Exit code 1 means ref not found, which is expected
-		if strings.Contains(err.Error(), "exit status 1") {
+		// Exit code 1 or "not a valid ref" means ref not found, which is expected
+		errStr := err.Error()
+		if strings.Contains(errStr, "exit status 1") || strings.Contains(errStr, "not a valid ref") {
 			return false, nil
 		}
 		return false, fmt.Errorf("failed to check branch existence: %w", err)
@@ -251,7 +251,7 @@ func (r *GitWorktreeRunner) DeleteBranch(ctx context.Context, name string, force
 		flag = "-D"
 	}
 
-	_, err := runGitCommand(ctx, r.repoPath, "branch", flag, name)
+	_, err := git.RunCommand(ctx, r.repoPath, "branch", flag, name)
 	if err != nil {
 		return fmt.Errorf("failed to delete branch '%s': %w", name, err)
 	}
@@ -301,7 +301,7 @@ func SiblingPath(repoRoot, workspaceName string) string {
 
 // detectRepoRoot finds the root of the git repository.
 func detectRepoRoot(ctx context.Context, path string) (string, error) {
-	output, err := runGitCommand(ctx, path, "rev-parse", "--show-toplevel")
+	output, err := git.RunCommand(ctx, path, "rev-parse", "--show-toplevel")
 	if err != nil {
 		return "", fmt.Errorf("%w: %w", atlaserrors.ErrNotGitRepo, err)
 	}
@@ -358,31 +358,6 @@ func ensureUniquePath(basePath string) (string, error) {
 
 	// Extremely unlikely: all paths including timestamp exist
 	return "", fmt.Errorf("path '%s' and all variants already exist: %w", basePath, atlaserrors.ErrWorktreeExists)
-}
-
-// runGitCommand executes a git command and returns its output.
-func runGitCommand(ctx context.Context, repoPath string, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, "git", args...) //#nosec G204 -- args are constructed internally, not user input
-	cmd.Dir = repoPath
-
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	err := cmd.Run()
-	if err != nil {
-		// Check for context cancellation
-		if ctx.Err() != nil {
-			return "", ctx.Err()
-		}
-		// Include stderr in error for debugging
-		if stderr.Len() > 0 {
-			return "", fmt.Errorf("git %s failed: %s: %w", args[0], strings.TrimSpace(stderr.String()), err)
-		}
-		return "", fmt.Errorf("git %s failed: %w", args[0], err)
-	}
-
-	return strings.TrimSpace(stdout.String()), nil
 }
 
 // parseWorktreeList parses git worktree list --porcelain output.
