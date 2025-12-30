@@ -216,6 +216,12 @@ var (
 
 	// ErrAIInvalidFormat indicates that the AI response was not in the expected format.
 	ErrAIInvalidFormat = errors.New("AI response not in expected format")
+
+	// ErrPushAuthFailed indicates that git push failed due to authentication.
+	ErrPushAuthFailed = errors.New("push authentication failed")
+
+	// ErrPushNetworkFailed indicates that git push failed due to network issues.
+	ErrPushNetworkFailed = errors.New("push network failed")
 )
 
 // ExitCode2Error wraps an error to indicate exit code 2 should be used.
