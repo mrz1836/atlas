@@ -554,8 +554,8 @@ func (e *Engine) mapStepTypeToErrorStatus(stepType domain.StepType) constants.Ta
 		return constants.TaskStatusGHFailed
 	case domain.StepTypeCI:
 		return constants.TaskStatusCIFailed
-	case domain.StepTypeAI, domain.StepTypeHuman, domain.StepTypeSDD:
-		// For AI, human, and SDD failures, use ValidationFailed as general error
+	case domain.StepTypeAI, domain.StepTypeHuman, domain.StepTypeSDD, domain.StepTypeVerify:
+		// For AI, human, SDD, and verify failures, use ValidationFailed as general error
 		return constants.TaskStatusValidationFailed
 	}
 	// Unreachable with current step types, but satisfy exhaustive check
