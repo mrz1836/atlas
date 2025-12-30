@@ -48,22 +48,38 @@ func DefaultEngineConfig() EngineConfig {
 // It coordinates step executors, manages state transitions, and
 // provides checkpointing after each step.
 type Engine struct {
-	store    Store
-	registry *steps.ExecutorRegistry
-	config   EngineConfig
-	logger   zerolog.Logger
+	store            Store
+	registry         *steps.ExecutorRegistry
+	config           EngineConfig
+	logger           zerolog.Logger
+	ciFailureHandler *CIFailureHandler
+}
+
+// EngineOption configures an Engine.
+type EngineOption func(*Engine)
+
+// WithCIFailureHandler sets the CI failure handler for the engine.
+func WithCIFailureHandler(handler *CIFailureHandler) EngineOption {
+	return func(e *Engine) {
+		e.ciFailureHandler = handler
+	}
 }
 
 // NewEngine creates a new task engine with the given dependencies.
 // The store is used for task persistence, and the registry provides
-// step executors for each step type.
-func NewEngine(store Store, registry *steps.ExecutorRegistry, cfg EngineConfig, logger zerolog.Logger) *Engine {
-	return &Engine{
+// step executors for each step type. Optional EngineOption functions
+// can be passed to configure additional features like CI failure handling.
+func NewEngine(store Store, registry *steps.ExecutorRegistry, cfg EngineConfig, logger zerolog.Logger, opts ...EngineOption) *Engine {
+	e := &Engine{
 		store:    store,
 		registry: registry,
 		config:   cfg,
 		logger:   logger,
 	}
+	for _, opt := range opts {
+		opt(e)
+	}
+	return e
 }
 
 // Start creates and begins execution of a new task.
@@ -259,6 +275,12 @@ func (e *Engine) HandleStepResult(ctx context.Context, task *domain.Task, result
 	case "failed":
 		// Store error context for retry (FR25)
 		e.setErrorMetadata(task, step.Name, result.Error)
+
+		// Check for specialized failure types (ci_failed, gh_failed, ci_timeout)
+		// These have dedicated handlers with user action options
+		if handled, err := e.DispatchFailureByType(ctx, task, result); handled {
+			return err
+		}
 
 		// Map step type to error status with valid transition path
 		return e.transitionToErrorState(ctx, task, step.Type, result.Error)

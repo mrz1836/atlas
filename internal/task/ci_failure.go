@@ -55,6 +55,62 @@ func (a CIFailureAction) String() string {
 	}
 }
 
+// GHFailureAction represents user's choice for handling GitHub operation failure.
+type GHFailureAction int
+
+const (
+	// GHFailureRetry retries the failed GitHub operation.
+	GHFailureRetry GHFailureAction = iota
+	// GHFailureFixAndRetry lets user fix and then retry.
+	GHFailureFixAndRetry
+	// GHFailureAbandon ends task.
+	GHFailureAbandon
+)
+
+// String returns a string representation of the GH failure action.
+func (a GHFailureAction) String() string {
+	switch a {
+	case GHFailureRetry:
+		return "retry"
+	case GHFailureFixAndRetry:
+		return "fix_and_retry"
+	case GHFailureAbandon:
+		return "abandon"
+	default:
+		return "unknown"
+	}
+}
+
+// CITimeoutAction represents user's choice for handling CI timeout.
+type CITimeoutAction int
+
+const (
+	// CITimeoutContinueWaiting continues monitoring with extended timeout.
+	CITimeoutContinueWaiting CITimeoutAction = iota
+	// CITimeoutRetry retries from implement step.
+	CITimeoutRetry
+	// CITimeoutFixManually lets user fix manually.
+	CITimeoutFixManually
+	// CITimeoutAbandon ends task.
+	CITimeoutAbandon
+)
+
+// String returns a string representation of the CI timeout action.
+func (a CITimeoutAction) String() string {
+	switch a {
+	case CITimeoutContinueWaiting:
+		return "continue_waiting"
+	case CITimeoutRetry:
+		return "retry"
+	case CITimeoutFixManually:
+		return "fix_manually"
+	case CITimeoutAbandon:
+		return "abandon"
+	default:
+		return "unknown"
+	}
+}
+
 // CIFailureOptions configures CI failure handling.
 type CIFailureOptions struct {
 	// Action is the user's chosen action.
