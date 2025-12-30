@@ -207,6 +207,15 @@ var (
 
 	// ErrRetryDisabled indicates that AI retry is disabled in configuration.
 	ErrRetryDisabled = errors.New("AI retry is disabled")
+
+	// ErrAIError indicates that the AI returned an error.
+	ErrAIError = errors.New("AI returned error")
+
+	// ErrAIEmptyResponse indicates that the AI returned an empty response.
+	ErrAIEmptyResponse = errors.New("AI returned empty response")
+
+	// ErrAIInvalidFormat indicates that the AI response was not in the expected format.
+	ErrAIInvalidFormat = errors.New("AI response not in expected format")
 )
 
 // ExitCode2Error wraps an error to indicate exit code 2 should be used.
