@@ -234,6 +234,9 @@ var (
 
 	// ErrPRNotFound indicates that the requested PR was not found.
 	ErrPRNotFound = errors.New("PR not found")
+
+	// ErrCICheckNotFound indicates that a required CI check was not found.
+	ErrCICheckNotFound = errors.New("required CI check not found")
 )
 
 // ExitCode2Error wraps an error to indicate exit code 2 should be used.
