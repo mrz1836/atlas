@@ -1632,3 +1632,131 @@ func TestFormatDuration(t *testing.T) {
 		})
 	}
 }
+
+func TestCLIGitHubRunner_ConvertToDraft_Success(t *testing.T) {
+	mock := &mockCommandExecutor{
+		executeFunc: func(_ context.Context, _, name string, args ...string) ([]byte, error) {
+			assert.Equal(t, "gh", name)
+			assert.Equal(t, []string{"pr", "ready", "--undo", "42"}, args)
+			return []byte{}, nil
+		},
+	}
+
+	runner := NewCLIGitHubRunner("/test/dir", WithGHCommandExecutor(mock))
+
+	err := runner.ConvertToDraft(context.Background(), 42)
+
+	require.NoError(t, err)
+	assert.Equal(t, 1, mock.callCount)
+}
+
+func TestCLIGitHubRunner_ConvertToDraft_InvalidPRNumber(t *testing.T) {
+	runner := NewCLIGitHubRunner("/test/dir")
+
+	tests := []int{0, -1, -100}
+	for _, prNum := range tests {
+		t.Run(fmt.Sprintf("PR %d", prNum), func(t *testing.T) {
+			err := runner.ConvertToDraft(context.Background(), prNum)
+			require.Error(t, err)
+			assert.ErrorIs(t, err, atlaserrors.ErrEmptyValue)
+		})
+	}
+}
+
+func TestCLIGitHubRunner_ConvertToDraft_ContextCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately
+
+	runner := NewCLIGitHubRunner("/test/dir")
+
+	err := runner.ConvertToDraft(ctx, 42)
+
+	assert.ErrorIs(t, err, context.Canceled)
+}
+
+func TestCLIGitHubRunner_ConvertToDraft_AlreadyDraft(t *testing.T) {
+	mock := &mockCommandExecutor{
+		executeFunc: func(_ context.Context, _, _ string, _ ...string) ([]byte, error) {
+			return nil, fmt.Errorf("already a draft: %w", atlaserrors.ErrGitHubOperation)
+		},
+	}
+
+	runner := NewCLIGitHubRunner("/test/dir", WithGHCommandExecutor(mock))
+
+	err := runner.ConvertToDraft(context.Background(), 42)
+
+	require.NoError(t, err) // Should succeed silently
+}
+
+func TestCLIGitHubRunner_ConvertToDraft_PRMerged(t *testing.T) {
+	mock := &mockCommandExecutor{
+		executeFunc: func(_ context.Context, _, _ string, _ ...string) ([]byte, error) {
+			return nil, fmt.Errorf("pull request is already merged: %w", atlaserrors.ErrGitHubOperation)
+		},
+	}
+
+	runner := NewCLIGitHubRunner("/test/dir", WithGHCommandExecutor(mock))
+
+	err := runner.ConvertToDraft(context.Background(), 42)
+
+	require.NoError(t, err) // Should succeed silently
+}
+
+func TestCLIGitHubRunner_ConvertToDraft_PRClosed(t *testing.T) {
+	mock := &mockCommandExecutor{
+		executeFunc: func(_ context.Context, _, _ string, _ ...string) ([]byte, error) {
+			return nil, fmt.Errorf("pull request is closed: %w", atlaserrors.ErrGitHubOperation)
+		},
+	}
+
+	runner := NewCLIGitHubRunner("/test/dir", WithGHCommandExecutor(mock))
+
+	err := runner.ConvertToDraft(context.Background(), 42)
+
+	require.NoError(t, err) // Should succeed silently
+}
+
+func TestCLIGitHubRunner_ConvertToDraft_PRNotFound(t *testing.T) {
+	mock := &mockCommandExecutor{
+		executeFunc: func(_ context.Context, _, _ string, _ ...string) ([]byte, error) {
+			return nil, fmt.Errorf("pull request not found: %w", atlaserrors.ErrPRNotFound)
+		},
+	}
+
+	runner := NewCLIGitHubRunner("/test/dir", WithGHCommandExecutor(mock))
+
+	err := runner.ConvertToDraft(context.Background(), 42)
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, atlaserrors.ErrPRNotFound)
+}
+
+func TestCLIGitHubRunner_ConvertToDraft_AuthFailed(t *testing.T) {
+	mock := &mockCommandExecutor{
+		executeFunc: func(_ context.Context, _, _ string, _ ...string) ([]byte, error) {
+			return nil, fmt.Errorf("gh auth login - not logged into any GitHub hosts: %w", atlaserrors.ErrGHAuthFailed)
+		},
+	}
+
+	runner := NewCLIGitHubRunner("/test/dir", WithGHCommandExecutor(mock))
+
+	err := runner.ConvertToDraft(context.Background(), 42)
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, atlaserrors.ErrGHAuthFailed)
+}
+
+func TestCLIGitHubRunner_ConvertToDraft_OtherError(t *testing.T) {
+	mock := &mockCommandExecutor{
+		executeFunc: func(_ context.Context, _, _ string, _ ...string) ([]byte, error) {
+			return nil, fmt.Errorf("some other error: %w", atlaserrors.ErrGitHubOperation)
+		},
+	}
+
+	runner := NewCLIGitHubRunner("/test/dir", WithGHCommandExecutor(mock))
+
+	err := runner.ConvertToDraft(context.Background(), 42)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to convert PR to draft")
+}

@@ -193,6 +193,9 @@ type HubRunner interface {
 
 	// WatchPRChecks monitors CI checks until completion or timeout.
 	WatchPRChecks(ctx context.Context, opts CIWatchOptions) (*CIWatchResult, error)
+
+	// ConvertToDraft converts an open PR to draft status.
+	ConvertToDraft(ctx context.Context, prNumber int) error
 }
 
 // Compile-time interface check.
@@ -682,6 +685,51 @@ func (r *CLIGitHubRunner) WatchPRChecks(ctx context.Context, opts CIWatchOptions
 			return result, nil
 		}
 	}
+}
+
+// ConvertToDraft converts an open PR to draft status.
+func (r *CLIGitHubRunner) ConvertToDraft(ctx context.Context, prNumber int) error {
+	// Check for cancellation at entry
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
+	if prNumber <= 0 {
+		return fmt.Errorf("invalid PR number %d: %w", prNumber, atlaserrors.ErrEmptyValue)
+	}
+
+	args := []string{"pr", "ready", "--undo", strconv.Itoa(prNumber)}
+	_, err := r.cmdExec.Execute(ctx, r.workDir, "gh", args...)
+	if err != nil {
+		errType := classifyGHError(err)
+		switch errType {
+		case PRErrorNotFound:
+			return fmt.Errorf("PR #%d not found: %w", prNumber, atlaserrors.ErrPRNotFound)
+		case PRErrorNone:
+			// Shouldn't happen, but handle for exhaustive switch
+			return nil
+		case PRErrorAuth:
+			return fmt.Errorf("failed to convert PR to draft: %w", atlaserrors.ErrGHAuthFailed)
+		case PRErrorRateLimit, PRErrorNetwork, PRErrorOther:
+			// Check if already draft or merged (not an error for our use case)
+			errStr := strings.ToLower(err.Error())
+			if strings.Contains(errStr, "already a draft") {
+				r.logger.Debug().Int("pr_number", prNumber).Msg("PR already a draft")
+				return nil // Already draft, success
+			}
+			if strings.Contains(errStr, "merged") || strings.Contains(errStr, "closed") {
+				// Can't convert merged/closed PR, but this isn't a failure
+				r.logger.Warn().Int("pr_number", prNumber).Msg("PR already merged/closed, cannot convert to draft")
+				return nil
+			}
+			return fmt.Errorf("failed to convert PR to draft: %w", err)
+		}
+	}
+
+	r.logger.Info().Int("pr_number", prNumber).Msg("converted PR to draft")
+	return nil
 }
 
 // prAttemptResult holds the result of a single PR creation attempt.

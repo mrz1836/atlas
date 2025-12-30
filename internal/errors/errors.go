@@ -237,6 +237,9 @@ var (
 
 	// ErrCICheckNotFound indicates that a required CI check was not found.
 	ErrCICheckNotFound = errors.New("required CI check not found")
+
+	// ErrUnsupportedOS indicates the current operating system is not supported.
+	ErrUnsupportedOS = errors.New("unsupported operating system")
 )
 
 // ExitCode2Error wraps an error to indicate exit code 2 should be used.
