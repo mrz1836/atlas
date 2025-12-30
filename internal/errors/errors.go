@@ -222,6 +222,18 @@ var (
 
 	// ErrPushNetworkFailed indicates that git push failed due to network issues.
 	ErrPushNetworkFailed = errors.New("push network failed")
+
+	// ErrPRCreationFailed indicates that PR creation failed.
+	ErrPRCreationFailed = errors.New("PR creation failed")
+
+	// ErrGHRateLimited indicates that GitHub API rate limit was exceeded.
+	ErrGHRateLimited = errors.New("GitHub API rate limited")
+
+	// ErrGHAuthFailed indicates that GitHub authentication failed.
+	ErrGHAuthFailed = errors.New("GitHub authentication failed")
+
+	// ErrPRNotFound indicates that the requested PR was not found.
+	ErrPRNotFound = errors.New("PR not found")
 )
 
 // ExitCode2Error wraps an error to indicate exit code 2 should be used.
