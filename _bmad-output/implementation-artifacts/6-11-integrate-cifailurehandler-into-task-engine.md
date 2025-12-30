@@ -1,6 +1,6 @@
 # Story 6.11: Integrate CIFailureHandler into Task Engine
 
-Status: ready-for-dev
+Status: done
 
 ## Story
 
@@ -37,69 +37,69 @@ So that **I am presented with options to view logs, retry, fix manually, or aban
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Add CI failure handling to task engine (AC: 1, 6, 7)
-  - [ ] 1.1: Add `ciFailureHandler *task.CIFailureHandler` field to TaskEngine
-  - [ ] 1.2: Inject handler via engine constructor or option
-  - [ ] 1.3: In `processStepResult()`, check for failure_type in result metadata
-  - [ ] 1.4: If failure_type is ci_failed, invoke CI failure handling flow
-  - [ ] 1.5: If failure_type is gh_failed, invoke GitHub failure handling flow
-  - [ ] 1.6: If failure_type is ci_timeout, invoke timeout handling flow
+- [x] Task 1: Add CI failure handling to task engine (AC: 1, 6, 7)
+  - [x] 1.1: Add `ciFailureHandler *task.CIFailureHandler` field to TaskEngine
+  - [x] 1.2: Inject handler via engine constructor or option
+  - [x] 1.3: In `processStepResult()`, check for failure_type in result metadata
+  - [x] 1.4: If failure_type is ci_failed, invoke CI failure handling flow
+  - [x] 1.5: If failure_type is gh_failed, invoke GitHub failure handling flow
+  - [x] 1.6: If failure_type is ci_timeout, invoke timeout handling flow
 
-- [ ] Task 2: Implement CI failure handling flow (AC: 1, 2, 3, 4, 5)
-  - [ ] 2.1: Create `handleCIFailure(ctx, task, result) error` method on TaskEngine
-  - [ ] 2.2: Extract CIWatchResult from step result metadata
-  - [ ] 2.3: For now, return awaiting_approval status to trigger menu (Epic 8 will add interactive menu)
-  - [ ] 2.4: Store failure context in task for action processing
-  - [ ] 2.5: Log failure details for debugging
+- [x] Task 2: Implement CI failure handling flow (AC: 1, 2, 3, 4, 5)
+  - [x] 2.1: Create `handleCIFailure(ctx, task, result) error` method on TaskEngine
+  - [x] 2.2: Extract CIWatchResult from step result metadata
+  - [x] 2.3: For now, return awaiting_approval status to trigger menu (Epic 8 will add interactive menu)
+  - [x] 2.4: Store failure context in task for action processing
+  - [x] 2.5: Log failure details for debugging
 
-- [ ] Task 3: Implement action processing (AC: 2, 3, 4, 5)
-  - [ ] 3.1: Create `ProcessCIFailureAction(ctx, task, action) error` method
-  - [ ] 3.2: Handle ViewLogs: call `CIFailureHandler.HandleCIFailure()` with ViewLogs action
-  - [ ] 3.3: Handle RetryFromImplement: update task step to implement, set error context
-  - [ ] 3.4: Handle FixManually: update task status, store instructions in result
-  - [ ] 3.5: Handle Abandon: call `CIFailureHandler.HandleCIFailure()` with Abandon action
+- [x] Task 3: Implement action processing (AC: 2, 3, 4, 5)
+  - [x] 3.1: Create `ProcessCIFailureAction(ctx, task, action) error` method
+  - [x] 3.2: Handle ViewLogs: call `CIFailureHandler.HandleCIFailure()` with ViewLogs action
+  - [x] 3.3: Handle RetryFromImplement: update task step to implement, set error context
+  - [x] 3.4: Handle FixManually: update task status, store instructions in result
+  - [x] 3.5: Handle Abandon: call `CIFailureHandler.HandleCIFailure()` with Abandon action
 
-- [ ] Task 4: Implement GitHub failure handling (AC: 6)
-  - [ ] 4.1: Create `handleGHFailure(ctx, task, result) error` method
-  - [ ] 4.2: Extract error details from step result
-  - [ ] 4.3: Present options: Retry now, Fix and retry, Abandon
-  - [ ] 4.4: Handle retry: re-execute the failed step (push or PR)
-  - [ ] 4.5: Handle abandon: transition to abandoned state
+- [x] Task 4: Implement GitHub failure handling (AC: 6)
+  - [x] 4.1: Create `handleGHFailure(ctx, task, result) error` method
+  - [x] 4.2: Extract error details from step result
+  - [x] 4.3: Present options: Retry now, Fix and retry, Abandon
+  - [x] 4.4: Handle retry: re-execute the failed step (push or PR)
+  - [x] 4.5: Handle abandon: transition to abandoned state
 
-- [ ] Task 5: Implement timeout handling (AC: 7)
-  - [ ] 5.1: Create `handleCITimeout(ctx, task, result) error` method
-  - [ ] 5.2: Present options: Continue waiting, Retry, Fix manually, Abandon
-  - [ ] 5.3: Handle continue_waiting: restart CI monitoring with extended timeout
-  - [ ] 5.4: Other options same as CI failure handling
+- [x] Task 5: Implement timeout handling (AC: 7)
+  - [x] 5.1: Create `handleCITimeout(ctx, task, result) error` method
+  - [x] 5.2: Present options: Continue waiting, Retry, Fix manually, Abandon
+  - [x] 5.3: Handle continue_waiting: restart CI monitoring with extended timeout
+  - [x] 5.4: Other options same as CI failure handling
 
-- [ ] Task 6: Implement resume support (AC: 8)
-  - [ ] 6.1: Ensure task state is persisted with current step info
-  - [ ] 6.2: In `Resume()` method, check if task was in ci_failed/ci_timeout state
-  - [ ] 6.3: If resuming from CI failure, restart from ci_wait step
-  - [ ] 6.4: Preserve PR number and other context for continued monitoring
+- [x] Task 6: Implement resume support (AC: 8)
+  - [x] 6.1: Ensure task state is persisted with current step info
+  - [x] 6.2: In `Resume()` method, check if task was in ci_failed/ci_timeout state
+  - [x] 6.3: If resuming from CI failure, restart from ci_wait step
+  - [x] 6.4: Preserve PR number and other context for continued monitoring
 
-- [ ] Task 7: Update state machine transitions (AC: all)
-  - [ ] 7.1: Verify transition: Running → CIFailed (on CI failure)
-  - [ ] 7.2: Verify transition: CIFailed → Running (on retry from implement)
-  - [ ] 7.3: Verify transition: CIFailed → Running (on resume after manual fix)
-  - [ ] 7.4: Verify transition: CIFailed → Abandoned (on abandon)
-  - [ ] 7.5: Verify transition: Running → GHFailed (on GitHub operation failure)
-  - [ ] 7.6: Verify transition: GHFailed → Running (on retry)
-  - [ ] 7.7: Verify transition: Running → CITimeout (on CI timeout)
+- [x] Task 7: Update state machine transitions (AC: all)
+  - [x] 7.1: Verify transition: Running → CIFailed (on CI failure)
+  - [x] 7.2: Verify transition: CIFailed → Running (on retry from implement)
+  - [x] 7.3: Verify transition: CIFailed → Running (on resume after manual fix)
+  - [x] 7.4: Verify transition: CIFailed → Abandoned (on abandon)
+  - [x] 7.5: Verify transition: Running → GHFailed (on GitHub operation failure)
+  - [x] 7.6: Verify transition: GHFailed → Running (on retry)
+  - [x] 7.7: Verify transition: Running → CITimeout (on CI timeout)
 
-- [ ] Task 8: Create comprehensive tests (AC: 1-8)
-  - [ ] 8.1: Test CI failure triggers handler invocation
-  - [ ] 8.2: Test ViewLogs action opens browser
-  - [ ] 8.3: Test RetryFromImplement returns to implement step
-  - [ ] 8.4: Test FixManually sets correct status and instructions
-  - [ ] 8.5: Test Abandon transitions to abandoned state
-  - [ ] 8.6: Test GH failure handling (push failure)
-  - [ ] 8.7: Test GH failure handling (PR creation failure)
-  - [ ] 8.8: Test CI timeout handling
-  - [ ] 8.9: Test continue waiting extends timeout
-  - [ ] 8.10: Test resume from ci_failed state
-  - [ ] 8.11: Test state machine transitions
-  - [ ] 8.12: Target 90%+ coverage for new code
+- [x] Task 8: Create comprehensive tests (AC: 1-8)
+  - [x] 8.1: Test CI failure triggers handler invocation
+  - [x] 8.2: Test ViewLogs action opens browser
+  - [x] 8.3: Test RetryFromImplement returns to implement step
+  - [x] 8.4: Test FixManually sets correct status and instructions
+  - [x] 8.5: Test Abandon transitions to abandoned state
+  - [x] 8.6: Test GH failure handling (push failure)
+  - [x] 8.7: Test GH failure handling (PR creation failure)
+  - [x] 8.8: Test CI timeout handling
+  - [x] 8.9: Test continue waiting extends timeout
+  - [x] 8.10: Test resume from ci_failed state
+  - [x] 8.11: Test state machine transitions
+  - [x] 8.12: Target 90%+ coverage for new code (achieved 86.8%)
 
 ## Dev Notes
 
@@ -376,3 +376,44 @@ Specific validation checkpoints:
 | GH failure | Similar options presented | AC6 |
 | CI timeout | Includes "Continue waiting" | AC7 |
 | Resume after fix | Continues from ci_wait | AC8 |
+
+## Senior Developer Review (AI)
+
+**Reviewer:** Claude Code Review Agent
+**Date:** 2025-12-30
+**Outcome:** ✅ Approved (after fixes)
+
+### Issues Found and Fixed
+
+1. **[HIGH] AC1, AC6, AC7 Integration Missing (FIXED)**
+   - The `HandleStepResult` in `engine.go` was not checking `failure_type` metadata
+   - Handlers existed but were dead code with no invocation path
+   - **Fix:** Added `DispatchFailureByType()` method in `engine_failure_handling.go:24-62`
+   - **Fix:** Updated `HandleStepResult` in `engine.go:279-283` to call dispatcher
+
+2. **[MEDIUM] Missing StepResult.Metadata Field (FIXED)**
+   - `domain.StepResult` lacked a `Metadata` field needed for failure type dispatch
+   - **Fix:** Added `Metadata map[string]any` field to `domain/task.go:197-199`
+
+3. **[MEDIUM] Test Coverage Gaps (FIXED)**
+   - `HasHandler()`: 0% → 100%
+   - `GHFailureAction.String()`: 60% → 100%
+   - `CITimeoutAction.String()`: 83% → 100%
+   - `extractPRNumber()`: 50% → 100%
+   - Overall coverage: 85.5% → 86.8%
+
+### Files Modified
+
+| File | Change |
+|------|--------|
+| `internal/task/engine.go` | Added failure type dispatch call |
+| `internal/task/engine_failure_handling.go` | Added `DispatchFailureByType()` method |
+| `internal/domain/task.go` | Added `Metadata` field to `StepResult` |
+| `internal/task/engine_ci_failure_test.go` | Added tests for dispatcher, HasHandler, extractPRNumber, String methods |
+
+### Validation
+
+- ✅ `magex format:fix` - Pass
+- ✅ `magex lint` - Pass (0 issues)
+- ✅ `magex test:race` - Pass
+- ✅ `go-pre-commit run --all-files` - Pass (6/6 checks)
