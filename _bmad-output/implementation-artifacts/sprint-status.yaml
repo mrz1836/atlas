@@ -32,6 +32,23 @@
 # - Stories can be worked in parallel if team capacity allows
 # - SM typically creates next story after previous one is 'done' to incorporate learnings
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
+#
+# CRITICAL WORKFLOW RULES (Enforced):
+# ===================================
+# 1. dev-story workflow MUST set status to 'review' (NOT 'done') after implementation
+# 2. ONLY the code-review workflow can transition a story from 'review' to 'done'
+# 3. Stories CANNOT skip the 'review' status - this is a mandatory checkpoint
+# 4. If dev-story sets status to 'done', this is a workflow violation - revert to 'review'
+# 5. Pre-commit validation (go-pre-commit run --all-files) is REQUIRED before review
+#
+# VALIDATION CHECKLIST (Before marking 'done'):
+# =============================================
+# [ ] All acceptance criteria verified with code evidence
+# [ ] All tests pass with race detection (go test -race ./...)
+# [ ] Linting passes (magex lint)
+# [ ] Pre-commit hooks pass (go-pre-commit run --all-files)
+# [ ] Code review completed by different agent/session
+# [ ] Story file updated with Dev Agent Record and completion notes
 
 generated: 2025-12-27
 project: atlas
@@ -90,7 +107,7 @@ development_status:
   tech-debt-taskengine-test-coverage: done # P1: Expanded to 83.4% total, 90%+ on most functions
 
   # Epic 5: Validation Pipeline
-  epic-5: in-progress
+  epic-5: done
   5-1-validation-command-executor: done
   5-2-parallel-validation-runner: done
   5-3-validation-result-handling: done
@@ -99,8 +116,11 @@ development_status:
   5-6-task-abandonment-flow: done
   5-7-pre-commit-hook-integration: done
   5-8-validation-progress-and-feedback: done
-  5-9-quality-test-coverage-expansion: review # Comprehensive tests for Epics 1-5
-  epic-5-retrospective: optional
+  5-9-quality-test-coverage-expansion: done # Comprehensive tests for Epics 1-5
+  epic-5-retrospective: done
+
+  # Tech Debt Tasks (from Epic 5 Retrospective)
+  td-3-vision-alignment-validation: ready-for-dev # P2: Deep validation of Epics 1-5 against vision.md
 
   # Epic 6: Git & PR Automation
   epic-6: backlog

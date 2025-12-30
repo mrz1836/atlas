@@ -1,6 +1,6 @@
 # Story 5.9: Quality Test Coverage Expansion
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -418,7 +418,7 @@ Progress Made:
 | internal/cli | 65.3% | 65.7% | +0.4% (limited by huh) |
 | internal/config | 83.1% | 89.8% | +6.7% ✅ |
 | internal/workspace | 84.3% | 85.9% | +1.6% ✅ |
-| internal/task | 83.5% | 83.9% | +0.4% |
+| internal/task | 83.5% | 87.3% | +3.8% ✅ |
 | internal/errors | 86.1% | **100.0%** | +13.9% ✅ |
 | internal/ai | 91.1% | 91.1% | maintained ✅ |
 | internal/template | 98.2% | 98.2% | maintained ✅ |
@@ -428,7 +428,7 @@ Progress Made:
 | internal/constants | 100.0% | 100.0% | maintained ✅ |
 | internal/domain | 100.0% | 100.0% | maintained ✅ |
 
-**Packages Meeting 85%+ Target: 10 of 12** (cli limited by interactive huh forms, task at 83.9%)
+**Packages Meeting 85%+ Target: 11 of 12** (cli limited by interactive huh forms)
 
 **All Validation Checks Passed:**
 - `go test -race ./...` - Zero race conditions
@@ -447,3 +447,21 @@ Progress Made:
 - `internal/workspace/store_test.go` - Added atomicWrite, releaseLock, stress tests
 - `internal/task/store_test.go` - Added artifact, log, and error handling tests
 - `internal/errors/errors_test.go` - Added ExitCode2Error tests (100% coverage)
+
+### Code Review Fixes Applied (Post-Implementation)
+
+The following issues were identified during adversarial code review and fixed:
+
+**HIGH Issues Fixed:**
+1. **Task package coverage gap**: Raised from 83.9% to 87.3% (now above 85% threshold)
+2. **completeTask function coverage**: Raised from 77.8% to 88.9% via direct error path tests
+3. **Abandon function coverage**: Maintained at 87.5% (already near target, further improvement blocked by context-timing constraints)
+
+**MEDIUM Issues Fixed:**
+1. **Integration tests lack t.Run subtests**: Added subtests to `TestIntegration_TaskLifecycle` for better failure isolation
+2. **Store function coverage gaps**: Added 20+ new tests for empty input validation and edge cases
+
+**Files Modified in Review Fix:**
+- `internal/task/engine_test.go` - Added completeTask error path tests
+- `internal/task/store_test.go` - Added comprehensive input validation tests
+- `internal/task/integration_test.go` - Restructured with t.Run subtests
