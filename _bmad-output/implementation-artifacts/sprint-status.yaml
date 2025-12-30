@@ -44,7 +44,7 @@
 # VALIDATION CHECKLIST (Before marking 'done'):
 # =============================================
 # [ ] All acceptance criteria verified with code evidence
-# [ ] All tests pass with race detection (go test -race ./...)
+# [ ] All tests pass with race detection (magex test:race)
 # [ ] Linting passes (magex lint)
 # [ ] Pre-commit hooks pass (go-pre-commit run --all-files)
 # [ ] Code review completed by different agent/session
@@ -129,7 +129,7 @@ development_status:
   6-3-smart-commit-system: done
   6-4-push-to-remote: done
   6-5-githubrunner-and-pr-creation: done
-  6-6-ci-status-monitoring: backlog
+  6-6-ci-status-monitoring: done
   6-7-ci-failure-handling: backlog
   epic-6-retrospective: optional
 
