@@ -21,16 +21,17 @@ func TestNewDefaultRegistry(t *testing.T) {
 
 	require.NotNil(t, registry)
 
-	// All 6 step types should be registered
+	// All 7 step types should be registered
 	assert.True(t, registry.Has(domain.StepTypeAI))
 	assert.True(t, registry.Has(domain.StepTypeValidation))
 	assert.True(t, registry.Has(domain.StepTypeGit))
 	assert.True(t, registry.Has(domain.StepTypeHuman))
 	assert.True(t, registry.Has(domain.StepTypeSDD))
 	assert.True(t, registry.Has(domain.StepTypeCI))
+	assert.True(t, registry.Has(domain.StepTypeVerify))
 
 	types := registry.Types()
-	assert.Len(t, types, 6)
+	assert.Len(t, types, 7)
 }
 
 func TestNewDefaultRegistry_NilAIRunner(t *testing.T) {
@@ -43,9 +44,10 @@ func TestNewDefaultRegistry_NilAIRunner(t *testing.T) {
 
 	require.NotNil(t, registry)
 
-	// AI and SDD should NOT be registered without AIRunner
+	// AI, SDD, and Verify should NOT be registered without AIRunner
 	assert.False(t, registry.Has(domain.StepTypeAI))
 	assert.False(t, registry.Has(domain.StepTypeSDD))
+	assert.False(t, registry.Has(domain.StepTypeVerify))
 
 	// Others should still be registered
 	assert.True(t, registry.Has(domain.StepTypeValidation))
@@ -77,6 +79,7 @@ func TestNewDefaultRegistry_ExecutorTypes(t *testing.T) {
 		{domain.StepTypeHuman, domain.StepTypeHuman},
 		{domain.StepTypeSDD, domain.StepTypeSDD},
 		{domain.StepTypeCI, domain.StepTypeCI},
+		{domain.StepTypeVerify, domain.StepTypeVerify},
 	}
 
 	for _, tt := range tests {

@@ -92,8 +92,7 @@ func runAbandonWithOutput(ctx context.Context, w io.Writer, workspaceName string
 		return handleAbandonError(outputFormat, w, workspaceName, "", fmt.Errorf("not in a git repository: %w", err))
 	}
 
-	//nolint:contextcheck // NewGitWorktreeRunner doesn't take context; it only detects repo root
-	wtRunner, err := workspace.NewGitWorktreeRunner(repoPath)
+	wtRunner, err := workspace.NewGitWorktreeRunner(repoPath) //nolint:contextcheck // NewGitWorktreeRunner doesn't accept context
 	if err != nil {
 		return handleAbandonError(outputFormat, w, workspaceName, "", fmt.Errorf("failed to create worktree runner: %w", err))
 	}

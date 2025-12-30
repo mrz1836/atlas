@@ -26,6 +26,9 @@ const (
 
 	// StepTypeCI indicates the step monitors CI pipeline status.
 	StepTypeCI StepType = "ci"
+
+	// StepTypeVerify indicates the step performs AI verification of implementation.
+	StepTypeVerify StepType = "verify"
 )
 
 // String returns the string representation of the StepType.
@@ -69,6 +72,14 @@ type Template struct {
 
 	// Variables defines template variables with optional defaults.
 	Variables map[string]TemplateVariable `json:"variables,omitempty"`
+
+	// Verify enables AI verification step by default for this template.
+	// Can be overridden with --verify or --no-verify flags.
+	Verify bool `json:"verify,omitempty"`
+
+	// VerifyModel specifies which AI model to use for verification.
+	// If empty, uses a different model family from the implementation model.
+	VerifyModel string `json:"verify_model,omitempty"`
 }
 
 // StepDefinition describes a step within a template.

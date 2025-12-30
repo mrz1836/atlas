@@ -8,7 +8,7 @@ import (
 )
 
 // NewFeatureTemplate creates the feature template with Speckit SDD integration.
-// Steps: specify → review_spec → plan → tasks → implement → validate →
+// Steps: specify → review_spec → plan → tasks → implement → verify → validate →
 //
 //	checklist → git_commit → git_push → git_pr → ci_wait → review
 func NewFeatureTemplate() *domain.Template {
@@ -17,6 +17,8 @@ func NewFeatureTemplate() *domain.Template {
 		Description:  "Develop a new feature with spec-driven development",
 		BranchPrefix: "feat/",
 		DefaultModel: "opus",
+		Verify:       true, // Verification ON by default for feature (disable with --no-verify)
+		VerifyModel:  "",   // Uses different model family automatically
 		Steps: []domain.StepDefinition{
 			{
 				Name:        "specify",
@@ -66,6 +68,17 @@ func NewFeatureTemplate() *domain.Template {
 				RetryCount:  3,
 				Config: map[string]any{
 					"sdd_command": "implement",
+				},
+			},
+			{
+				Name:        "verify",
+				Type:        domain.StepTypeVerify,
+				Description: "AI verification of implementation",
+				Required:    true, // Required by default for feature
+				Timeout:     10 * time.Minute,
+				Config: map[string]any{
+					"model":  "", // Will use different model family
+					"checks": []string{"code_correctness", "test_coverage", "garbage_files", "security"},
 				},
 			},
 			{

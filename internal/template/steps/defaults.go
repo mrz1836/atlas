@@ -4,7 +4,10 @@ package steps
 import (
 	"context"
 
+	"github.com/rs/zerolog"
+
 	"github.com/mrz1836/atlas/internal/ai"
+	"github.com/mrz1836/atlas/internal/git"
 )
 
 // ArtifactSaver abstracts artifact persistence for validation results.
@@ -55,6 +58,10 @@ type ExecutorDeps struct {
 	// RetryHandler is used for AI-assisted validation retry.
 	// If nil, retry capability is not available.
 	RetryHandler RetryHandler
+
+	// Logger is used for structured logging.
+	// If nil, a no-op logger is used.
+	Logger zerolog.Logger
 }
 
 // NewDefaultRegistry creates a registry with all built-in executors.
@@ -83,6 +90,12 @@ func NewDefaultRegistry(deps ExecutorDeps) *ExecutorRegistry {
 
 	// Register CI executor (placeholder for Epic 6)
 	r.Register(NewCIExecutor())
+
+	// Register verify executor (requires AIRunner for AI verification)
+	if deps.AIRunner != nil {
+		garbageDetector := git.NewGarbageDetector(nil)
+		r.Register(NewVerifyExecutor(deps.AIRunner, garbageDetector, deps.Logger))
+	}
 
 	return r
 }

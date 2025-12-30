@@ -25,7 +25,7 @@ func TestBugfixTemplate_StepOrder(t *testing.T) {
 	tmpl := NewBugfixTemplate()
 
 	expectedSteps := []string{
-		"analyze", "implement", "validate", "git_commit",
+		"analyze", "implement", "verify", "validate", "git_commit",
 		"git_push", "git_pr", "ci_wait", "review",
 	}
 
@@ -41,6 +41,7 @@ func TestBugfixTemplate_StepTypes(t *testing.T) {
 	expectedTypes := map[string]domain.StepType{
 		"analyze":    domain.StepTypeAI,
 		"implement":  domain.StepTypeAI,
+		"verify":     domain.StepTypeVerify,
 		"validate":   domain.StepTypeValidation,
 		"git_commit": domain.StepTypeGit,
 		"git_push":   domain.StepTypeGit,
@@ -56,11 +57,20 @@ func TestBugfixTemplate_StepTypes(t *testing.T) {
 	}
 }
 
-func TestBugfixTemplate_AllStepsRequired(t *testing.T) {
+func TestBugfixTemplate_RequiredSteps(t *testing.T) {
 	tmpl := NewBugfixTemplate()
 
+	// In bugfix template, verify step is optional by default
+	optionalSteps := map[string]bool{
+		"verify": true, // Verification is OFF by default for bugfix
+	}
+
 	for _, step := range tmpl.Steps {
-		assert.True(t, step.Required, "step %s should be required", step.Name)
+		if optionalSteps[step.Name] {
+			assert.False(t, step.Required, "step %s should be optional", step.Name)
+		} else {
+			assert.True(t, step.Required, "step %s should be required", step.Name)
+		}
 	}
 }
 

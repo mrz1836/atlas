@@ -240,6 +240,12 @@ var (
 
 	// ErrUnsupportedOS indicates the current operating system is not supported.
 	ErrUnsupportedOS = errors.New("unsupported operating system")
+
+	// ErrInvalidVerificationAction indicates an unknown verification action was specified.
+	ErrInvalidVerificationAction = errors.New("invalid verification action")
+
+	// ErrConflictingFlags indicates that mutually exclusive flags were specified.
+	ErrConflictingFlags = errors.New("conflicting flags specified")
 )
 
 // ExitCode2Error wraps an error to indicate exit code 2 should be used.

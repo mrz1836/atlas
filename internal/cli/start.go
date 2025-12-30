@@ -50,6 +50,8 @@ type startOptions struct {
 	workspaceName string
 	model         string
 	noInteractive bool
+	verify        bool
+	noVerify      bool
 }
 
 // newStartCmd creates the start command.
@@ -59,6 +61,8 @@ func newStartCmd() *cobra.Command {
 		workspaceName string
 		model         string
 		noInteractive bool
+		verify        bool
+		noVerify      bool
 	)
 
 	cmd := &cobra.Command{
@@ -70,7 +74,9 @@ and beginning execution of the template steps.
 Examples:
   atlas start "fix null pointer in parseConfig"
   atlas start "add retry logic to HTTP client" --template feature
-  atlas start "update dependencies" --workspace deps-update --template commit`,
+  atlas start "update dependencies" --workspace deps-update --template commit
+  atlas start "add new feature" --template feature --verify
+  atlas start "quick fix" --template bugfix --no-verify`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runStart(cmd.Context(), cmd, os.Stdout, args[0], startOptions{
@@ -78,6 +84,8 @@ Examples:
 				workspaceName: workspaceName,
 				model:         model,
 				noInteractive: noInteractive,
+				verify:        verify,
+				noVerify:      noVerify,
 			})
 		},
 	}
@@ -90,6 +98,10 @@ Examples:
 		"AI model to use (sonnet, opus, haiku)")
 	cmd.Flags().BoolVar(&noInteractive, "no-interactive", false,
 		"Disable interactive prompts")
+	cmd.Flags().BoolVar(&verify, "verify", false,
+		"Enable AI verification step (cross-model validation)")
+	cmd.Flags().BoolVar(&noVerify, "no-verify", false,
+		"Disable AI verification step")
 
 	return cmd
 }
@@ -128,6 +140,12 @@ func runStart(ctx context.Context, cmd *cobra.Command, w io.Writer, description 
 	// Validate model flag if provided
 	if err := validateModel(opts.model); err != nil {
 		return sc.handleError("", err)
+	}
+
+	// Validate verify flags - cannot use both
+	if opts.verify && opts.noVerify {
+		return sc.handleError("", errors.NewExitCode2Error(
+			fmt.Errorf("%w: cannot use both --verify and --no-verify", errors.ErrConflictingFlags)))
 	}
 
 	// Validate we're in a git repository
@@ -171,6 +189,9 @@ func runStart(ctx context.Context, cmd *cobra.Command, w io.Writer, description 
 		Str("worktree_path", ws.WorktreePath).
 		Msg("workspace created")
 
+	// Apply verify flag overrides to template
+	applyVerifyOverrides(tmpl, opts.verify, opts.noVerify)
+
 	// Start task execution
 	t, err := startTaskExecution(ctx, ws, tmpl, description, opts.model, logger)
 	if err != nil {
@@ -213,8 +234,7 @@ func createWorkspace(ctx context.Context, sc *startContext, wsName, repoPath, br
 	}
 
 	// Create worktree runner
-	//nolint:contextcheck // NewGitWorktreeRunner doesn't take context; it only detects repo root
-	wtRunner, err := workspace.NewGitWorktreeRunner(repoPath)
+	wtRunner, err := workspace.NewGitWorktreeRunner(repoPath) //nolint:contextcheck // NewGitWorktreeRunner doesn't accept context
 	if err != nil {
 		return nil, sc.handleError(wsName, fmt.Errorf("failed to create worktree runner: %w", err))
 	}
@@ -551,8 +571,7 @@ func cleanupWorkspace(ctx context.Context, wsName, repoPath string) error {
 		return fmt.Errorf("failed to create workspace store: %w", err)
 	}
 
-	//nolint:contextcheck // NewGitWorktreeRunner doesn't take context
-	wtRunner, err := workspace.NewGitWorktreeRunner(repoPath)
+	wtRunner, err := workspace.NewGitWorktreeRunner(repoPath) //nolint:contextcheck // NewGitWorktreeRunner doesn't accept context
 	if err != nil {
 		return fmt.Errorf("failed to create worktree runner: %w", err)
 	}
@@ -581,6 +600,37 @@ func validateModel(model string) error {
 			fmt.Errorf("%w: '%s' (must be one of sonnet, opus, haiku)", errors.ErrInvalidModel, model))
 	}
 	return nil
+}
+
+// applyVerifyOverrides applies --verify or --no-verify flag overrides to the template.
+// If neither flag is set, the template's default Verify setting is used.
+// Also propagates VerifyModel from template to the verify step config.
+func applyVerifyOverrides(tmpl *domain.Template, verify, noVerify bool) {
+	// CLI flags override template defaults
+	if verify {
+		tmpl.Verify = true
+	} else if noVerify {
+		tmpl.Verify = false
+	}
+
+	// Update the verify step's Required field and model based on the template settings
+	//nolint:nestif // Configuration logic with nested validation checks
+	for i := range tmpl.Steps {
+		if tmpl.Steps[i].Type == domain.StepTypeVerify {
+			tmpl.Steps[i].Required = tmpl.Verify
+
+			// Propagate VerifyModel from template to step config if set
+			if tmpl.VerifyModel != "" {
+				if tmpl.Steps[i].Config == nil {
+					tmpl.Steps[i].Config = make(map[string]any)
+				}
+				// Only set if not already configured in step
+				if model, ok := tmpl.Steps[i].Config["model"].(string); !ok || model == "" {
+					tmpl.Steps[i].Config["model"] = tmpl.VerifyModel
+				}
+			}
+		}
+	}
 }
 
 // displayTaskStatus outputs the task status in the appropriate format.
