@@ -416,7 +416,7 @@ func TestCLIRunner_CurrentBranch(t *testing.T) {
 
 // TestCLIRunner_CreateBranch tests the CreateBranch method.
 func TestCLIRunner_CreateBranch(t *testing.T) {
-	t.Run("create new branch", func(t *testing.T) {
+	t.Run("create new branch from HEAD", func(t *testing.T) {
 		repoPath := setupTestRepo(t)
 		createFile(t, repoPath, "file.txt", "content")
 		commitInitial(t, repoPath)
@@ -424,13 +424,58 @@ func TestCLIRunner_CreateBranch(t *testing.T) {
 		runner, err := NewRunner(repoPath)
 		require.NoError(t, err)
 
-		err = runner.CreateBranch(context.Background(), "feat/new-feature")
+		// Empty baseBranch creates from current HEAD
+		err = runner.CreateBranch(context.Background(), "feat/new-feature", "")
 		require.NoError(t, err)
 
 		// Verify we're on the new branch
 		branch, err := runner.CurrentBranch(context.Background())
 		require.NoError(t, err)
 		assert.Equal(t, "feat/new-feature", branch)
+	})
+
+	t.Run("create branch from specified base", func(t *testing.T) {
+		repoPath := setupTestRepo(t)
+		createFile(t, repoPath, "file.txt", "content")
+		commitInitial(t, repoPath)
+
+		// Get the default branch name (could be main or master)
+		runner, err := NewRunner(repoPath)
+		require.NoError(t, err)
+		defaultBranch, err := runner.CurrentBranch(context.Background())
+		require.NoError(t, err)
+
+		// Create a feature branch with a new commit
+		cmd := exec.CommandContext(context.Background(), "git", "checkout", "-b", "develop")
+		cmd.Dir = repoPath
+		require.NoError(t, cmd.Run())
+
+		createFile(t, repoPath, "develop.txt", "develop content")
+		cmd = exec.CommandContext(context.Background(), "git", "add", ".")
+		cmd.Dir = repoPath
+		require.NoError(t, cmd.Run())
+		cmd = exec.CommandContext(context.Background(), "git", "commit", "-m", "develop commit")
+		cmd.Dir = repoPath
+		require.NoError(t, cmd.Run())
+
+		// Go back to default branch
+		//nolint:gosec // G204: defaultBranch is from trusted git output, not user input
+		cmd = exec.CommandContext(context.Background(), "git", "checkout", defaultBranch)
+		cmd.Dir = repoPath
+		require.NoError(t, cmd.Run())
+
+		// Create branch from develop
+		err = runner.CreateBranch(context.Background(), "feat/from-develop", "develop")
+		require.NoError(t, err)
+
+		// Verify we're on the new branch
+		branch, err := runner.CurrentBranch(context.Background())
+		require.NoError(t, err)
+		assert.Equal(t, "feat/from-develop", branch)
+
+		// Verify the branch has the develop.txt file (proving it was created from develop)
+		_, err = os.Stat(filepath.Join(repoPath, "develop.txt"))
+		assert.NoError(t, err, "branch should have been created from develop and contain develop.txt")
 	})
 
 	t.Run("branch already exists error", func(t *testing.T) {
@@ -446,7 +491,7 @@ func TestCLIRunner_CreateBranch(t *testing.T) {
 		runner, err := NewRunner(repoPath)
 		require.NoError(t, err)
 
-		err = runner.CreateBranch(context.Background(), "existing-branch")
+		err = runner.CreateBranch(context.Background(), "existing-branch", "")
 		require.Error(t, err)
 		assert.ErrorIs(t, err, atlaserrors.ErrBranchExists)
 	})
@@ -456,7 +501,7 @@ func TestCLIRunner_CreateBranch(t *testing.T) {
 		runner, err := NewRunner(repoPath)
 		require.NoError(t, err)
 
-		err = runner.CreateBranch(context.Background(), "")
+		err = runner.CreateBranch(context.Background(), "", "")
 		require.Error(t, err)
 		assert.ErrorIs(t, err, atlaserrors.ErrEmptyValue)
 	})
@@ -469,7 +514,7 @@ func TestCLIRunner_CreateBranch(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
 
-		err = runner.CreateBranch(ctx, "new-branch")
+		err = runner.CreateBranch(ctx, "new-branch", "")
 		assert.ErrorIs(t, err, context.Canceled)
 	})
 }

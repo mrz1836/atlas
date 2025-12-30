@@ -115,6 +115,11 @@ type TemplatesConfig struct {
 	// CustomTemplates is a map of custom template names to their file paths.
 	// These templates are merged with built-in templates.
 	CustomTemplates map[string]string `yaml:"custom_templates" mapstructure:"custom_templates"`
+
+	// BranchPrefixes maps template types to branch prefixes.
+	// Example: {"bugfix": "fix", "feature": "feat", "commit": "chore"}
+	// These override the built-in defaults in git.DefaultBranchPrefixes.
+	BranchPrefixes map[string]string `yaml:"branch_prefixes,omitempty" mapstructure:"branch_prefixes"`
 }
 
 // ValidationCommands holds validation commands organized by category.

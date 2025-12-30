@@ -154,8 +154,9 @@ func (r *CLIRunner) CurrentBranch(ctx context.Context) (string, error) {
 	return output, nil
 }
 
-// CreateBranch creates a new branch and checks it out.
-func (r *CLIRunner) CreateBranch(ctx context.Context, name string) error {
+// CreateBranch creates a new branch from the specified base and checks it out.
+// If baseBranch is empty, creates from current HEAD.
+func (r *CLIRunner) CreateBranch(ctx context.Context, name, baseBranch string) error {
 	// Check for cancellation at entry
 	select {
 	case <-ctx.Done():
@@ -168,7 +169,7 @@ func (r *CLIRunner) CreateBranch(ctx context.Context, name string) error {
 	}
 
 	// Check if branch already exists
-	exists, err := r.branchExists(ctx, name)
+	exists, err := r.BranchExists(ctx, name)
 	if err != nil {
 		return err
 	}
@@ -177,7 +178,13 @@ func (r *CLIRunner) CreateBranch(ctx context.Context, name string) error {
 	}
 
 	// Create and checkout the branch
-	_, err = r.runGitCommand(ctx, "checkout", "-b", name)
+	// If baseBranch is specified, create from that branch; otherwise from HEAD
+	args := []string{"checkout", "-b", name}
+	if baseBranch != "" {
+		args = append(args, baseBranch)
+	}
+
+	_, err = r.runGitCommand(ctx, args...)
 	if err != nil {
 		return fmt.Errorf("failed to create branch '%s': %w", name, err)
 	}
@@ -207,8 +214,15 @@ func (r *CLIRunner) Diff(ctx context.Context, cached bool) (string, error) {
 	return output, nil
 }
 
-// branchExists checks if a branch exists in the repository.
-func (r *CLIRunner) branchExists(ctx context.Context, name string) (bool, error) {
+// BranchExists checks if a branch exists in the repository.
+func (r *CLIRunner) BranchExists(ctx context.Context, name string) (bool, error) {
+	// Check for cancellation at entry
+	select {
+	case <-ctx.Done():
+		return false, ctx.Err()
+	default:
+	}
+
 	_, err := r.runGitCommand(ctx, "show-ref", "--verify", "refs/heads/"+name)
 	if err != nil {
 		// Exit code 1 or "not a valid ref" means ref not found, which is expected

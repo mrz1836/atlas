@@ -71,6 +71,14 @@ func DefaultConfig() *Config {
 
 			// CustomTemplates: empty map, users add their own.
 			CustomTemplates: nil,
+
+			// BranchPrefixes: default mappings for template types to branch prefixes.
+			// These follow conventional commit naming standards.
+			BranchPrefixes: map[string]string{
+				"bugfix":  "fix",
+				"feature": "feat",
+				"commit":  "chore",
+			},
 		},
 		Validation: ValidationConfig{
 			// Commands: empty means no validation commands by default.

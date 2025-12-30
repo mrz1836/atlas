@@ -7,9 +7,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
+
+	"github.com/rs/zerolog/log"
 
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 	"github.com/mrz1836/atlas/internal/git"
@@ -120,8 +121,22 @@ func (r *GitWorktreeRunner) Create(ctx context.Context, opts WorktreeCreateOptio
 	if err != nil {
 		// CRITICAL: Clean up on failure (atomic creation)
 		_ = os.RemoveAll(wtPath)
+		log.Error().
+			Err(err).
+			Str("branch_name", branchName).
+			Str("workspace_name", opts.WorkspaceName).
+			Str("base_branch", opts.BaseBranch).
+			Msg("failed to create worktree")
 		return nil, fmt.Errorf("failed to create worktree: %w", err)
 	}
+
+	// Log successful branch creation
+	log.Info().
+		Str("branch_name", branchName).
+		Str("base_branch", opts.BaseBranch).
+		Str("workspace_name", opts.WorkspaceName).
+		Str("worktree_path", wtPath).
+		Msg("branch created")
 
 	return &WorktreeInfo{
 		Path:      wtPath,
@@ -261,30 +276,9 @@ func (r *GitWorktreeRunner) DeleteBranch(ctx context.Context, name string, force
 
 // generateUniqueBranchName ensures branch name is unique.
 // If the base name already exists, appends a timestamp suffix.
-// Returns ErrBranchExists wrapped in the error if the branch existed and was modified.
+// Delegates to the shared git.GenerateUniqueBranchNameWithChecker function.
 func (r *GitWorktreeRunner) generateUniqueBranchName(ctx context.Context, baseName string) (string, error) {
-	exists, err := r.BranchExists(ctx, baseName)
-	if err != nil {
-		return "", err
-	}
-	if !exists {
-		return baseName, nil
-	}
-
-	// Branch exists, append timestamp suffix to create unique name
-	uniqueName := fmt.Sprintf("%s-%s", baseName, time.Now().Format("20060102-150405"))
-
-	// Verify the new name doesn't also exist (extremely unlikely but possible)
-	exists, err = r.BranchExists(ctx, uniqueName)
-	if err != nil {
-		return "", err
-	}
-	if exists {
-		return "", fmt.Errorf("branch '%s' already exists and timestamp variant also exists: %w",
-			baseName, atlaserrors.ErrBranchExists)
-	}
-
-	return uniqueName, nil
+	return git.GenerateUniqueBranchNameWithChecker(ctx, r, baseName)
 }
 
 // DetectRepoRoot finds the root of the git repository.
@@ -317,17 +311,10 @@ func siblingPath(repoRoot, workspaceName string) string {
 	return filepath.Join(repoDir, repoName+"-"+workspaceName)
 }
 
-// branchNameRegex is used to sanitize branch names.
-var branchNameRegex = regexp.MustCompile(`[^a-z0-9-]+`)
-
 // generateBranchName creates a branch name from type and workspace name.
+// This delegates to git.GenerateBranchName for centralized branch naming logic.
 func generateBranchName(branchType, workspaceName string) string {
-	// Sanitize workspace name: lowercase, replace non-alphanumeric with dashes
-	name := strings.ToLower(workspaceName)
-	name = branchNameRegex.ReplaceAllString(name, "-")
-	name = strings.Trim(name, "-")
-
-	return fmt.Sprintf("%s/%s", branchType, name)
+	return git.GenerateBranchName(branchType, workspaceName)
 }
 
 // maxPathRetries is the maximum number of numeric suffixes to try before using timestamp.

@@ -25,11 +25,15 @@ type Runner interface {
 	// Returns an error if in detached HEAD state.
 	CurrentBranch(ctx context.Context) (string, error)
 
-	// CreateBranch creates a new branch and checks it out.
+	// CreateBranch creates a new branch from the specified base and checks it out.
+	// If baseBranch is empty, creates from current HEAD.
 	// Returns an error if the branch already exists.
-	CreateBranch(ctx context.Context, name string) error
+	CreateBranch(ctx context.Context, name, baseBranch string) error
 
 	// Diff returns the diff output.
 	// If cached is true, shows staged changes; otherwise shows unstaged changes.
 	Diff(ctx context.Context, cached bool) (string, error)
+
+	// BranchExists checks if a branch exists in the repository.
+	BranchExists(ctx context.Context, name string) (bool, error)
 }
