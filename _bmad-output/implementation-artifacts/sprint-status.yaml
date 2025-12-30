@@ -120,7 +120,7 @@ development_status:
   epic-5-retrospective: done
 
   # Tech Debt Tasks (from Epic 5 Retrospective)
-  td-3-vision-alignment-validation: ready-for-dev # P2: Deep validation of Epics 1-5 against vision.md
+  td-3-vision-alignment-validation: done # P2: Deep validation of Epics 1-5 against vision.md
 
   # Epic 6: Git & PR Automation
   epic-6: backlog
