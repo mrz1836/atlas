@@ -127,7 +127,7 @@ development_status:
   6-1-gitrunner-implementation: done
   6-2-branch-creation-and-naming: done
   6-3-smart-commit-system: done
-  6-4-push-to-remote: backlog
+  6-4-push-to-remote: done
   6-5-githubrunner-and-pr-creation: backlog
   6-6-ci-status-monitoring: backlog
   6-7-ci-failure-handling: backlog
