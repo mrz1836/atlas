@@ -279,7 +279,7 @@ func (t *StatusTable) Render(w io.Writer) error {
 			padRight(row.Branch, widths.Branch),
 			t.renderStatusCellPadded(row.Status, widths.Status),
 			padRight(t.formatStep(row.CurrentStep, row.TotalSteps), widths.Step),
-			padRight(t.renderActionCell(row.Status, row.Action), widths.Action),
+			t.renderActionCellPadded(row.Status, row.Action, widths.Action),
 		}
 		_, err = fmt.Fprintln(w, strings.Join(rowCells, "  "))
 		if err != nil {
@@ -303,7 +303,7 @@ func (t *StatusTable) ToTableData() ([]string, [][]string) {
 			row.Branch,
 			t.renderStatusCellPlain(row.Status), // Plain for data transfer
 			t.formatStep(row.CurrentStep, row.TotalSteps),
-			t.renderActionCell(row.Status, row.Action),
+			t.renderActionCellPlain(row.Status, row.Action), // Plain for data transfer
 		}
 	}
 	return headers, rows
@@ -321,7 +321,7 @@ func (t *StatusTable) ToJSONData() ([]string, [][]string) {
 			row.Branch,
 			t.renderStatusCellPlain(row.Status),
 			t.formatStep(row.CurrentStep, row.TotalSteps),
-			t.renderActionCell(row.Status, row.Action),
+			t.renderActionCellPlain(row.Status, row.Action), // Plain for JSON
 		}
 	}
 	return headers, rows
@@ -393,8 +393,8 @@ func (t *StatusTable) calculateColumnWidths() StatusColumnWidths {
 			widthsSlice[3] = w
 		}
 
-		// Action
-		actionCell := t.renderActionCell(row.Status, row.Action)
+		// Action (use plain version for width calculation to avoid ANSI codes)
+		actionCell := t.renderActionCellPlain(row.Status, row.Action)
 		w = utf8.RuneCountInString(actionCell)
 		if w > widthsSlice[4] {
 			widthsSlice[4] = w
@@ -482,6 +482,8 @@ func (t *StatusTable) renderStatusCellPlain(status constants.TaskStatus) string 
 
 // renderActionCell creates the action cell content (AC: #4).
 // Returns the suggested action or em-dash if no action is needed.
+// For attention states, applies warning color styling (Story 7.9).
+// Maintains triple redundancy: icon + color + text for attention states.
 func (t *StatusTable) renderActionCell(status constants.TaskStatus, customAction string) string {
 	// Use custom action if provided
 	if customAction != "" {
@@ -492,6 +494,36 @@ func (t *StatusTable) renderActionCell(status constants.TaskStatus, customAction
 	action := SuggestedAction(status)
 	if action == "" {
 		return "—" // Em-dash for no action
+	}
+
+	// Apply warning styling for attention states (Story 7.9, AC: #4)
+	// NO_COLOR mode uses "(!) " prefix for accessibility (triple redundancy)
+	if IsAttentionStatus(status) {
+		if !HasColorSupport() {
+			return "(!) " + action
+		}
+		return ActionStyle().Render(action)
+	}
+	return action
+}
+
+// renderActionCellPlain creates the action cell content without ANSI codes.
+// Used for JSON output and width calculations.
+func (t *StatusTable) renderActionCellPlain(status constants.TaskStatus, customAction string) string {
+	// Use custom action if provided
+	if customAction != "" {
+		return customAction
+	}
+
+	// Otherwise use SuggestedAction
+	action := SuggestedAction(status)
+	if action == "" {
+		return "—" // Em-dash for no action
+	}
+
+	// For attention states in NO_COLOR mode, include the prefix
+	if IsAttentionStatus(status) && !HasColorSupport() {
+		return "(!) " + action
 	}
 	return action
 }
@@ -510,6 +542,23 @@ func (t *StatusTable) renderStatusCellPadded(status constants.TaskStatus, width 
 
 	// Get the styled version
 	styledText := t.renderStatusCell(status)
+
+	// Calculate padding needed
+	if plainWidth >= width {
+		return styledText
+	}
+	return styledText + strings.Repeat(" ", width-plainWidth)
+}
+
+// renderActionCellPadded renders the action cell with proper padding.
+// Padding is calculated based on visible character width (excluding ANSI codes).
+func (t *StatusTable) renderActionCellPadded(status constants.TaskStatus, customAction string, width int) string {
+	// Get the plain text version for width calculation
+	plainText := t.renderActionCellPlain(status, customAction)
+	plainWidth := utf8.RuneCountInString(plainText)
+
+	// Get the styled version
+	styledText := t.renderActionCell(status, customAction)
 
 	// Calculate padding needed
 	if plainWidth >= width {

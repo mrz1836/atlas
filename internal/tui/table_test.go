@@ -231,7 +231,13 @@ func TestStatusTable_ActionCellRendering(t *testing.T) {
 				_, dataRows := st.ToTableData()
 				require.Len(t, dataRows, 1)
 				actionCell := dataRows[0][4]
-				assert.Equal(t, tc.expectedAction, actionCell)
+				// In NO_COLOR mode (test environment), action includes "(!) " prefix for attention states
+				// Story 7.9: Triple redundancy - icon + color + text
+				if !HasColorSupport() {
+					assert.Equal(t, "(!) "+tc.expectedAction, actionCell)
+				} else {
+					assert.Equal(t, tc.expectedAction, actionCell)
+				}
 			})
 		}
 	})

@@ -225,6 +225,16 @@ func SuggestedAction(status constants.TaskStatus) string {
 	return ""
 }
 
+// ActionStyle returns a lipgloss.Style for action indicators in attention states.
+// Uses ColorWarning for visibility. Supports NO_COLOR via HasColorSupport().
+// For NO_COLOR mode, returns an unstyled style (plain text indicators handled by caller).
+func ActionStyle() lipgloss.Style {
+	if !HasColorSupport() {
+		return lipgloss.NewStyle() // Plain style for NO_COLOR mode
+	}
+	return lipgloss.NewStyle().Foreground(ColorWarning)
+}
+
 // WorkspaceStatusIcon returns the icon/symbol for a given workspace status.
 // Used for visual status indicators in status displays.
 func WorkspaceStatusIcon(status constants.WorkspaceStatus) string {
