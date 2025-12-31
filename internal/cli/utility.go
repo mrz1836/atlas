@@ -123,8 +123,8 @@ func runCommandsWithOutput(
 		default:
 		}
 
-		// Show command being executed in verbose mode
-		if opts.Verbose {
+		// Show command being executed in verbose mode (TTY only - JSON gets final response)
+		if opts.Verbose && opts.OutputFormat != OutputJSON {
 			out.Info(fmt.Sprintf("⏳ Running: %s", cmdStr))
 		}
 
@@ -145,7 +145,11 @@ func runCommandsWithOutput(
 			return fmt.Errorf("%w: %s in %s", errors.ErrCommandFailed, cmdStr, category)
 		}
 
-		out.Success(fmt.Sprintf("✓ %s", cmdStr))
+		// Only show per-command success for TTY output (JSON gets final response only)
+		// TTYOutput.Success() adds the ✓ prefix automatically, so don't include icon here
+		if opts.OutputFormat != OutputJSON {
+			out.Success(cmdStr)
+		}
 	}
 
 	if opts.OutputFormat == OutputJSON {
