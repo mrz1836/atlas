@@ -118,7 +118,7 @@ func TestStatusCommand_Basic(t *testing.T) {
 			mockMgr := &mockWorkspaceManager{workspaces: tt.workspaces}
 			mockStore := &mockTaskStore{tasks: tt.tasks}
 
-			err := runStatusWithDeps(ctx, &buf, "text", false, mockMgr, mockStore)
+			err := runStatusWithDeps(ctx, &buf, "text", false, false, mockMgr, mockStore)
 			require.NoError(t, err)
 
 			output := buf.String()
@@ -161,7 +161,7 @@ func TestStatusCommand_StatusPrioritySorting(t *testing.T) {
 	mockMgr := &mockWorkspaceManager{workspaces: workspaces}
 	mockStore := &mockTaskStore{tasks: tasks}
 
-	err := runStatusWithDeps(ctx, &buf, "text", false, mockMgr, mockStore)
+	err := runStatusWithDeps(ctx, &buf, "text", false, false, mockMgr, mockStore)
 	require.NoError(t, err)
 
 	output := buf.String()
@@ -224,7 +224,7 @@ func TestStatusCommand_JSONOutput(t *testing.T) {
 	mockMgr := &mockWorkspaceManager{workspaces: workspaces}
 	mockStore := &mockTaskStore{tasks: tasks}
 
-	err := runStatusWithDeps(ctx, &buf, "json", false, mockMgr, mockStore)
+	err := runStatusWithDeps(ctx, &buf, "json", false, false, mockMgr, mockStore)
 	require.NoError(t, err)
 
 	// Parse JSON output
@@ -251,7 +251,7 @@ func TestStatusCommand_EmptyJSON(t *testing.T) {
 	mockMgr := &mockWorkspaceManager{workspaces: []*domain.Workspace{}}
 	mockStore := &mockTaskStore{tasks: map[string][]*domain.Task{}}
 
-	err := runStatusWithDeps(ctx, &buf, "json", false, mockMgr, mockStore)
+	err := runStatusWithDeps(ctx, &buf, "json", false, false, mockMgr, mockStore)
 	require.NoError(t, err)
 
 	output := strings.TrimSpace(buf.String())
@@ -291,7 +291,7 @@ func TestStatusCommand_QuietMode(t *testing.T) {
 	mockMgr := &mockWorkspaceManager{workspaces: workspaces}
 	mockStore := &mockTaskStore{tasks: tasks}
 
-	err := runStatusWithDeps(ctx, &buf, "text", true, mockMgr, mockStore)
+	err := runStatusWithDeps(ctx, &buf, "text", true, false, mockMgr, mockStore)
 	require.NoError(t, err)
 
 	output := buf.String()
@@ -342,7 +342,7 @@ func TestStatusCommand_HeaderAndFooter(t *testing.T) {
 	mockMgr := &mockWorkspaceManager{workspaces: workspaces}
 	mockStore := &mockTaskStore{tasks: tasks}
 
-	err := runStatusWithDeps(ctx, &buf, "text", false, mockMgr, mockStore)
+	err := runStatusWithDeps(ctx, &buf, "text", false, false, mockMgr, mockStore)
 	require.NoError(t, err)
 
 	output := buf.String()
@@ -394,7 +394,7 @@ func TestStatusCommand_Performance(t *testing.T) {
 	mockStore := &mockTaskStore{tasks: tasks}
 
 	start := time.Now()
-	err := runStatusWithDeps(ctx, &buf, "text", false, mockMgr, mockStore)
+	err := runStatusWithDeps(ctx, &buf, "text", false, false, mockMgr, mockStore)
 	duration := time.Since(start)
 
 	require.NoError(t, err)
@@ -412,7 +412,7 @@ func TestStatusCommand_ContextCancellation(t *testing.T) {
 	mockMgr := &mockWorkspaceManager{workspaces: []*domain.Workspace{}}
 	mockStore := &mockTaskStore{tasks: map[string][]*domain.Task{}}
 
-	err := runStatusWithDeps(ctx, &buf, "text", false, mockMgr, mockStore)
+	err := runStatusWithDeps(ctx, &buf, "text", false, false, mockMgr, mockStore)
 	assert.ErrorIs(t, err, context.Canceled)
 }
 
@@ -446,7 +446,7 @@ func TestRunStatus_EmptyWorkspaces(t *testing.T) {
 	rootCmd.AddCommand(statusCmd)
 
 	// Execute with buffer - tests the production code path (no watch mode)
-	err := runStatus(context.Background(), statusCmd, &buf, false, DefaultWatchInterval)
+	err := runStatus(context.Background(), statusCmd, &buf, false, DefaultWatchInterval, false)
 	require.NoError(t, err)
 
 	// Verify empty message
@@ -473,7 +473,7 @@ func TestRunStatus_JSONOutput(t *testing.T) {
 	_ = rootCmd.PersistentFlags().Set("output", "json")
 
 	// Execute with buffer (no watch mode)
-	err := runStatus(context.Background(), statusCmd, &buf, false, DefaultWatchInterval)
+	err := runStatus(context.Background(), statusCmd, &buf, false, DefaultWatchInterval, false)
 	require.NoError(t, err)
 
 	// Should output empty JSON array
@@ -496,7 +496,7 @@ func TestRunStatus_ContextCancellation(t *testing.T) {
 	rootCmd.AddCommand(statusCmd)
 
 	// Execute with canceled context (no watch mode)
-	err := runStatus(ctx, statusCmd, &buf, false, DefaultWatchInterval)
+	err := runStatus(ctx, statusCmd, &buf, false, DefaultWatchInterval, false)
 
 	// Should return context.Canceled error
 	require.Error(t, err)
@@ -534,7 +534,7 @@ func TestStatusCommand_MultipleAttentionStates(t *testing.T) {
 	mockMgr := &mockWorkspaceManager{workspaces: workspaces}
 	mockStore := &mockTaskStore{tasks: tasks}
 
-	err := runStatusWithDeps(ctx, &buf, "text", false, mockMgr, mockStore)
+	err := runStatusWithDeps(ctx, &buf, "text", false, false, mockMgr, mockStore)
 	require.NoError(t, err)
 
 	output := buf.String()
@@ -559,7 +559,7 @@ func TestStatusCommand_WorkspacesWithNoTasks(t *testing.T) {
 	mockMgr := &mockWorkspaceManager{workspaces: workspaces}
 	mockStore := &mockTaskStore{tasks: tasks}
 
-	err := runStatusWithDeps(ctx, &buf, "text", false, mockMgr, mockStore)
+	err := runStatusWithDeps(ctx, &buf, "text", false, false, mockMgr, mockStore)
 	require.NoError(t, err)
 
 	output := buf.String()
@@ -608,7 +608,7 @@ func TestStatusCommand_AllStatuses(t *testing.T) {
 			mockMgr := &mockWorkspaceManager{workspaces: workspaces}
 			mockStore := &mockTaskStore{tasks: tasks}
 
-			err := runStatusWithDeps(ctx, &buf, "text", false, mockMgr, mockStore)
+			err := runStatusWithDeps(ctx, &buf, "text", false, false, mockMgr, mockStore)
 			require.NoError(t, err, "status %s should not cause error", status)
 
 			output := buf.String()
@@ -753,6 +753,11 @@ func TestAddStatusCommand_WatchFlags(t *testing.T) {
 	intervalFlag := statusCmd.Flags().Lookup("interval")
 	require.NotNil(t, intervalFlag, "--interval flag should exist")
 	assert.Equal(t, "2s", intervalFlag.DefValue, "default interval should be 2s")
+
+	// Check --progress flag exists (Story 7.8)
+	progressFlag := statusCmd.Flags().Lookup("progress")
+	require.NotNil(t, progressFlag, "--progress flag should exist")
+	assert.Equal(t, "p", progressFlag.Shorthand, "-p shorthand should be registered")
 }
 
 // TestRunStatus_WatchModeMinInterval tests minimum interval validation.
@@ -769,7 +774,7 @@ func TestRunStatus_WatchModeMinInterval(t *testing.T) {
 	rootCmd.AddCommand(statusCmd)
 
 	// Try with interval below minimum (500ms)
-	err := runStatus(context.Background(), statusCmd, &buf, true, 100*time.Millisecond)
+	err := runStatus(context.Background(), statusCmd, &buf, true, 100*time.Millisecond, false)
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, errors.ErrWatchIntervalTooShort)
@@ -792,7 +797,7 @@ func TestRunStatus_WatchModeJSONError(t *testing.T) {
 	_ = rootCmd.PersistentFlags().Set("output", "json")
 
 	// Try watch mode with JSON output
-	err := runStatus(context.Background(), statusCmd, &buf, true, 2*time.Second)
+	err := runStatus(context.Background(), statusCmd, &buf, true, 2*time.Second, false)
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, errors.ErrWatchModeJSONUnsupported)
@@ -804,4 +809,75 @@ func TestMinWatchInterval(t *testing.T) {
 
 	assert.Equal(t, 500*time.Millisecond, MinWatchInterval)
 	assert.Equal(t, 2*time.Second, DefaultWatchInterval)
+}
+
+// TestStatusCommand_ProgressFlag tests progress bar display (Story 7.8).
+func TestStatusCommand_ProgressFlag(t *testing.T) {
+	t.Parallel()
+
+	// Create workspaces with running tasks
+	workspaces := []*domain.Workspace{
+		{
+			Name: "auth", Branch: "feat/auth", Status: constants.WorkspaceStatusActive,
+			Tasks: []domain.TaskRef{{ID: "task-1", Status: constants.TaskStatusRunning}},
+		},
+		{
+			Name: "payment", Branch: "fix/payment", Status: constants.WorkspaceStatusActive,
+			Tasks: []domain.TaskRef{{ID: "task-2", Status: constants.TaskStatusValidating}},
+		},
+		{
+			Name: "completed-ws", Branch: "feat/done", Status: constants.WorkspaceStatusActive,
+			Tasks: []domain.TaskRef{{ID: "task-3", Status: constants.TaskStatusCompleted}},
+		},
+	}
+
+	tasks := map[string][]*domain.Task{
+		"auth":         {{ID: "task-1", Status: constants.TaskStatusRunning, CurrentStep: 3, Steps: make([]domain.Step, 7)}},
+		"payment":      {{ID: "task-2", Status: constants.TaskStatusValidating, CurrentStep: 5, Steps: make([]domain.Step, 7)}},
+		"completed-ws": {{ID: "task-3", Status: constants.TaskStatusCompleted, CurrentStep: 7, Steps: make([]domain.Step, 7)}},
+	}
+
+	var buf bytes.Buffer
+	ctx := context.Background()
+
+	mockMgr := &mockWorkspaceManager{workspaces: workspaces}
+	mockStore := &mockTaskStore{tasks: tasks}
+
+	// Run with showProgress=true
+	err := runStatusWithDeps(ctx, &buf, "text", false, true, mockMgr, mockStore)
+	require.NoError(t, err)
+
+	output := buf.String()
+
+	// Should include table data
+	assert.Contains(t, output, "auth")
+	assert.Contains(t, output, "payment")
+
+	// Progress bars should be rendered for running/validating tasks
+	// (Output will include progress bar characters like █ or ░)
+	// The output should be longer than without progress
+	assert.Greater(t, len(output), 100, "output with progress should have substantial content")
+}
+
+// TestBuildProgressRows tests the buildProgressRows function.
+func TestBuildProgressRows(t *testing.T) {
+	t.Parallel()
+
+	rows := []tui.StatusRow{
+		{Workspace: "running-ws", Status: constants.TaskStatusRunning, CurrentStep: 3, TotalSteps: 7},
+		{Workspace: "validating-ws", Status: constants.TaskStatusValidating, CurrentStep: 5, TotalSteps: 7},
+		{Workspace: "completed-ws", Status: constants.TaskStatusCompleted, CurrentStep: 7, TotalSteps: 7},
+		{Workspace: "pending-ws", Status: constants.TaskStatusPending, CurrentStep: 0, TotalSteps: 5},
+	}
+
+	progressRows := buildProgressRows(rows)
+
+	// Only running and validating should be included
+	assert.Len(t, progressRows, 2, "only active tasks should be included")
+	assert.Equal(t, "running-ws", progressRows[0].Name)
+	assert.Equal(t, "validating-ws", progressRows[1].Name)
+
+	// Check progress calculations
+	assert.InDelta(t, 3.0/7.0, progressRows[0].Percent, 0.01)
+	assert.InDelta(t, 5.0/7.0, progressRows[1].Percent, 0.01)
 }

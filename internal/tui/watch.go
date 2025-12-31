@@ -22,14 +22,17 @@ type WatchConfig struct {
 	BellEnabled bool
 	// Quiet suppresses header and footer output.
 	Quiet bool
+	// ShowProgress displays progress bars below the status table.
+	ShowProgress bool
 }
 
 // DefaultWatchConfig returns the default watch configuration.
 func DefaultWatchConfig() WatchConfig {
 	return WatchConfig{
-		Interval:    2 * time.Second,
-		BellEnabled: true,
-		Quiet:       false,
+		Interval:     2 * time.Second,
+		BellEnabled:  true,
+		Quiet:        false,
+		ShowProgress: false,
 	}
 }
 
@@ -170,8 +173,7 @@ func (m *WatchModel) View() string {
 	if len(m.rows) == 0 {
 		b.WriteString("No workspaces. Run 'atlas start' to create one.\n")
 	} else {
-		table := NewStatusTable(m.rows, WithTerminalWidth(m.width))
-		_ = table.Render(&b)
+		m.renderStatusContent(&b)
 	}
 
 	// Footer (unless quiet)
@@ -391,4 +393,27 @@ func (m *WatchModel) buildActionableSuggestion(row *StatusRow) string {
 	}
 
 	return "\nRun: " + action + " " + row.Workspace
+}
+
+// renderStatusContent renders the status table and optional progress bars.
+func (m *WatchModel) renderStatusContent(b *strings.Builder) {
+	table := NewStatusTable(m.rows, WithTerminalWidth(m.width))
+	_ = table.Render(b)
+
+	// Progress bars (if enabled and there are active tasks)
+	if m.config.ShowProgress {
+		progressRows := m.buildProgressRows()
+		if len(progressRows) > 0 {
+			b.WriteString("\n")
+			pd := NewProgressDashboard(progressRows, WithTermWidth(m.width))
+			_ = pd.Render(b)
+		}
+	}
+}
+
+// buildProgressRows converts status rows to progress rows for the dashboard.
+// Only includes rows with active tasks (running or validating states).
+// Delegates to shared helper to avoid code duplication with CLI status command.
+func (m *WatchModel) buildProgressRows() []ProgressRow {
+	return BuildProgressRowsFromStatus(m.rows)
 }

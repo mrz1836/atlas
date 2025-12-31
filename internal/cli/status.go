@@ -45,6 +45,7 @@ const DefaultWatchInterval = 2 * time.Second
 func AddStatusCommand(parent *cobra.Command) {
 	var watchMode bool
 	var watchInterval time.Duration
+	var showProgress bool
 
 	cmd := &cobra.Command{
 		Use:   "status",
@@ -63,27 +64,31 @@ Workspaces are sorted by priority: attention-required states first,
 then running states, then others.
 
 Watch mode (-w) enables live updates with automatic refresh.
+Progress mode (-p) shows visual progress bars for active tasks.
 
 Examples:
   atlas status              # Display styled status table
   atlas status --output json # Display as JSON array
   atlas status --quiet      # Show table only (no header/footer)
   atlas status --watch      # Live updating dashboard
-  atlas status -w --interval 5s # Update every 5 seconds`,
+  atlas status -w --interval 5s # Update every 5 seconds
+  atlas status --progress   # Show progress bars for active tasks
+  atlas status -w -p        # Watch mode with progress bars`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runStatus(cmd.Context(), cmd, os.Stdout, watchMode, watchInterval)
+			return runStatus(cmd.Context(), cmd, os.Stdout, watchMode, watchInterval, showProgress)
 		},
 	}
 
 	// Watch mode flags
 	cmd.Flags().BoolVarP(&watchMode, "watch", "w", false, "Enable watch mode with live updates")
 	cmd.Flags().DurationVar(&watchInterval, "interval", DefaultWatchInterval, "Refresh interval in watch mode (minimum 500ms)")
+	cmd.Flags().BoolVarP(&showProgress, "progress", "p", false, "Show progress bars for active tasks")
 
 	parent.AddCommand(cmd)
 }
 
 // runStatus executes the status command with production dependencies.
-func runStatus(ctx context.Context, cmd *cobra.Command, w io.Writer, watchMode bool, watchInterval time.Duration) error {
+func runStatus(ctx context.Context, cmd *cobra.Command, w io.Writer, watchMode bool, watchInterval time.Duration, showProgress bool) error {
 	// Check for cancellation at entry
 	select {
 	case <-ctx.Done():
@@ -123,10 +128,10 @@ func runStatus(ctx context.Context, cmd *cobra.Command, w io.Writer, watchMode b
 			return errors.ErrWatchModeJSONUnsupported
 		}
 
-		return runWatchMode(ctx, wsMgr, taskStore, watchInterval, quiet)
+		return runWatchMode(ctx, wsMgr, taskStore, watchInterval, quiet, showProgress)
 	}
 
-	return runStatusWithDeps(ctx, w, output, quiet, wsMgr, taskStore)
+	return runStatusWithDeps(ctx, w, output, quiet, showProgress, wsMgr, taskStore)
 }
 
 // runStatusWithDeps executes the status command with injected dependencies.
@@ -136,6 +141,7 @@ func runStatusWithDeps(
 	w io.Writer,
 	output string,
 	quiet bool,
+	showProgress bool,
 	wsMgr WorkspaceLister,
 	taskStore TaskLister,
 ) error {
@@ -176,7 +182,7 @@ func runStatusWithDeps(
 		return outputStatusJSON(w, rows)
 	}
 
-	return outputStatusTable(w, rows, quiet)
+	return outputStatusTable(w, rows, quiet, showProgress)
 }
 
 // buildStatusRows builds StatusRow slice from workspaces.
@@ -283,7 +289,7 @@ func toLowerCamelCase(s string) string {
 }
 
 // outputStatusTable outputs status as styled table with header and footer.
-func outputStatusTable(w io.Writer, rows []tui.StatusRow, quiet bool) error {
+func outputStatusTable(w io.Writer, rows []tui.StatusRow, quiet, showProgress bool) error {
 	table := tui.NewStatusTable(rows)
 
 	// Header (unless quiet)
@@ -297,6 +303,16 @@ func outputStatusTable(w io.Writer, rows []tui.StatusRow, quiet bool) error {
 		return err
 	}
 
+	// Progress bars (if enabled)
+	if showProgress {
+		progressRows := buildProgressRows(rows)
+		if len(progressRows) > 0 {
+			_, _ = fmt.Fprintln(w)
+			pd := tui.NewProgressDashboard(progressRows)
+			_ = pd.Render(w)
+		}
+	}
+
 	// Footer (unless quiet)
 	if !quiet {
 		_, _ = fmt.Fprintln(w)
@@ -304,6 +320,13 @@ func outputStatusTable(w io.Writer, rows []tui.StatusRow, quiet bool) error {
 	}
 
 	return nil
+}
+
+// buildProgressRows converts status rows to progress rows for the dashboard.
+// Only includes rows with active tasks (running or validating states).
+// Delegates to shared helper in tui package to avoid code duplication.
+func buildProgressRows(rows []tui.StatusRow) []tui.ProgressRow {
+	return tui.BuildProgressRowsFromStatus(rows)
 }
 
 // buildFooter creates the footer summary and actionable command.
@@ -363,7 +386,7 @@ func buildActionableSuggestion(row *tui.StatusRow) string {
 }
 
 // runWatchMode starts the watch mode TUI with live updates.
-func runWatchMode(ctx context.Context, wsMgr tui.WorkspaceLister, taskStore tui.TaskLister, interval time.Duration, quiet bool) error {
+func runWatchMode(ctx context.Context, wsMgr tui.WorkspaceLister, taskStore tui.TaskLister, interval time.Duration, quiet, showProgress bool) error {
 	// Load config to get bell preference
 	cfg, err := config.Load(ctx)
 	bellEnabled := true // Default to enabled
@@ -373,9 +396,10 @@ func runWatchMode(ctx context.Context, wsMgr tui.WorkspaceLister, taskStore tui.
 
 	// Create watch config
 	watchCfg := tui.WatchConfig{
-		Interval:    interval,
-		BellEnabled: bellEnabled,
-		Quiet:       quiet,
+		Interval:     interval,
+		BellEnabled:  bellEnabled,
+		Quiet:        quiet,
+		ShowProgress: showProgress,
 	}
 
 	// Create the watch model with context for proper cancellation propagation
