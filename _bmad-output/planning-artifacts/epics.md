@@ -303,6 +303,8 @@ This document provides the complete epic and story breakdown for atlas, decompos
 
 **Covers:** FR41-FR46, UX-1 to UX-14
 
+**Design Reference:** `_bmad-output/implementation-artifacts/epic-7-tui-components-from-scenarios.md` - TUI component specifications extracted from user scenarios
+
 ---
 
 ### Epic 8: Interactive Review & Approval
@@ -1559,6 +1561,8 @@ So that **I am presented with options to view logs, retry, fix manually, or aban
 ## Epic 7: Status Dashboard & Monitoring
 
 **Goal:** Users can view their "fleet" of workspaces with a beautiful TUI, live updates, and terminal bell notifications.
+
+**Design Reference:** See `_bmad-output/implementation-artifacts/epic-7-tui-components-from-scenarios.md` for exact terminal output formats extracted from user scenarios. This document maps each TUI component to its corresponding story and provides pixel-perfect specifications for box borders, icons, colors, and layouts.
 
 ### Story 7.1: TUI Style System
 
