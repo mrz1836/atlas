@@ -117,15 +117,15 @@ func (m *mockTaskStoreForApprove) Update(_ context.Context, workspaceName string
 	return nil
 }
 
-func (m *mockTaskStoreForApprove) Delete(_ context.Context, _ string, _ string) error {
+func (m *mockTaskStoreForApprove) Delete(_ context.Context, _, _ string) error {
 	return nil
 }
 
-func (m *mockTaskStoreForApprove) AppendLog(_ context.Context, _ string, _ string, _ []byte) error {
+func (m *mockTaskStoreForApprove) AppendLog(_ context.Context, _, _ string, _ []byte) error {
 	return nil
 }
 
-func (m *mockTaskStoreForApprove) SaveArtifact(_ context.Context, _ string, _ string, _ string, _ []byte) error {
+func (m *mockTaskStoreForApprove) SaveArtifact(_ context.Context, _, _, _ string, _ []byte) error {
 	return nil
 }
 
@@ -144,7 +144,7 @@ func (m *mockTaskStoreForApprove) GetArtifact(_ context.Context, workspaceName, 
 	return nil, atlaserrors.ErrArtifactNotFound
 }
 
-func (m *mockTaskStoreForApprove) ListArtifacts(_ context.Context, _ string, _ string) ([]string, error) {
+func (m *mockTaskStoreForApprove) ListArtifacts(_ context.Context, _, _ string) ([]string, error) {
 	return []string{}, nil
 }
 
