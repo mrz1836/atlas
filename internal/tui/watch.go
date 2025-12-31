@@ -176,11 +176,20 @@ func (m *WatchModel) View() string {
 		m.renderStatusContent(&b)
 	}
 
-	// Footer (unless quiet)
+	// Footer summary (unless quiet)
 	if !m.config.Quiet {
 		b.WriteString("\n")
 		b.WriteString(m.buildFooter())
 		b.WriteString("\n")
+	}
+
+	// Action indicators footer (Story 7.9) - shows copy-paste commands
+	// Render even in quiet mode since these are actionable commands
+	if len(m.rows) > 0 {
+		footer := NewStatusFooter(m.rows)
+		if footer.HasItems() {
+			_ = footer.Render(&b)
+		}
 	}
 
 	// Timestamp and quit hint
