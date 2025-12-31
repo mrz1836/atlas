@@ -59,5 +59,6 @@ bin/
 # AI / SDD files
 # Revisit these entries if you are intentionally committing files for these tools
 _bmad/
+_bmad_backup/
 .agent/
 .claude/
