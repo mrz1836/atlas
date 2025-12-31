@@ -117,6 +117,7 @@ Features:
 	AddLintCommand(cmd)
 	AddTestCommand(cmd)
 	AddApproveCommand(cmd)
+	AddRejectCommand(cmd)
 
 	return cmd
 }
