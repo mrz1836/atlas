@@ -76,10 +76,15 @@ func (e *Engine) handleCIFailure(ctx context.Context, task *domain.Task, result 
 		Str("workspace", task.WorkspaceID).
 		Msg("handling CI failure")
 
+	oldStatus := task.Status
+
 	// Transition to CIFailed state
 	if err := Transition(ctx, task, constants.TaskStatusCIFailed, "CI checks failed"); err != nil {
 		return fmt.Errorf("failed to transition to ci_failed: %w", err)
 	}
+
+	// Notify on transition to attention state
+	e.notifyStateChange(oldStatus, constants.TaskStatusCIFailed)
 
 	// Store failure context for action processing
 	task.Metadata = e.ensureMetadata(task.Metadata)
@@ -108,10 +113,15 @@ func (e *Engine) handleGHFailure(ctx context.Context, task *domain.Task, result 
 		Str("workspace", task.WorkspaceID).
 		Msg("handling GitHub failure")
 
+	oldStatus := task.Status
+
 	// Transition to GHFailed state
 	if err := Transition(ctx, task, constants.TaskStatusGHFailed, result.Error); err != nil {
 		return fmt.Errorf("failed to transition to gh_failed: %w", err)
 	}
+
+	// Notify on transition to attention state
+	e.notifyStateChange(oldStatus, constants.TaskStatusGHFailed)
 
 	// Store error context
 	task.Metadata = e.ensureMetadata(task.Metadata)
@@ -140,10 +150,15 @@ func (e *Engine) handleCITimeout(ctx context.Context, task *domain.Task, result 
 		Dur("elapsed", ciResult.ElapsedTime).
 		Msg("handling CI timeout")
 
+	oldStatus := task.Status
+
 	// Transition to CITimeout state
 	if err := Transition(ctx, task, constants.TaskStatusCITimeout, "CI monitoring timed out"); err != nil {
 		return fmt.Errorf("failed to transition to ci_timeout: %w", err)
 	}
+
+	// Notify on transition to attention state
+	e.notifyStateChange(oldStatus, constants.TaskStatusCITimeout)
 
 	// Store timeout context
 	task.Metadata = e.ensureMetadata(task.Metadata)

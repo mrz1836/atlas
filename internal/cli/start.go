@@ -279,6 +279,14 @@ func startTaskExecution(ctx context.Context, ws *domain.Workspace, tmpl *domain.
 	// The quiet flag is not currently passed through to this function.
 	notifier := tui.NewNotifier(cfg.Notifications.Bell, false)
 
+	// Create state change notifier for engine-level notifications (Story 7.6).
+	// This emits bell on task state transitions to attention-required states.
+	stateNotifier := task.NewStateChangeNotifier(task.NotificationConfig{
+		BellEnabled: cfg.Notifications.Bell,
+		Quiet:       false, // TODO: Pass quiet flag through when available
+		Events:      cfg.Notifications.Events,
+	})
+
 	// Create AI runner for AI-dependent services
 	aiRunner := ai.NewClaudeCodeRunner(&cfg.AI, nil)
 
@@ -310,7 +318,9 @@ func startTaskExecution(ctx context.Context, ws *domain.Workspace, tmpl *domain.
 	})
 
 	engineCfg := task.DefaultEngineConfig()
-	engine := task.NewEngine(taskStore, execRegistry, engineCfg, GetLogger())
+	engine := task.NewEngine(taskStore, execRegistry, engineCfg, GetLogger(),
+		task.WithNotifier(stateNotifier),
+	)
 
 	// Apply model override if specified
 	if model != "" {
