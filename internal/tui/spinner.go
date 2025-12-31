@@ -23,8 +23,9 @@ const SpinnerInterval = 100 * time.Millisecond
 // ElapsedTimeThreshold is the duration after which elapsed time is shown in spinner.
 const ElapsedTimeThreshold = 30 * time.Second
 
-// Spinner provides animated progress indication for terminal output.
-type Spinner struct {
+// TerminalSpinner provides animated progress indication for terminal output.
+// This is the concrete implementation of spinner functionality.
+type TerminalSpinner struct {
 	w       io.Writer
 	styles  *OutputStyles
 	message string
@@ -34,17 +35,22 @@ type Spinner struct {
 	running bool
 }
 
-// NewSpinner creates a new spinner that writes to w.
-func NewSpinner(w io.Writer) *Spinner {
-	return &Spinner{
+// NewTerminalSpinner creates a new spinner that writes to w.
+func NewTerminalSpinner(w io.Writer) *TerminalSpinner {
+	return &TerminalSpinner{
 		w:      w,
 		styles: NewOutputStyles(),
 	}
 }
 
+// NewSpinner is an alias for NewTerminalSpinner for backward compatibility.
+func NewSpinner(w io.Writer) *TerminalSpinner {
+	return NewTerminalSpinner(w)
+}
+
 // Start begins the spinner animation with the given message.
 // This method is safe to call multiple times; subsequent calls update the message.
-func (s *Spinner) Start(ctx context.Context, message string) {
+func (s *TerminalSpinner) Start(ctx context.Context, message string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -63,14 +69,14 @@ func (s *Spinner) Start(ctx context.Context, message string) {
 }
 
 // UpdateMessage changes the spinner message without stopping the animation.
-func (s *Spinner) UpdateMessage(message string) {
+func (s *TerminalSpinner) UpdateMessage(message string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.message = message
 }
 
 // Stop stops the spinner animation and clears the line.
-func (s *Spinner) Stop() {
+func (s *TerminalSpinner) Stop() {
 	s.mu.Lock()
 	if !s.running {
 		s.mu.Unlock()
@@ -85,25 +91,25 @@ func (s *Spinner) Stop() {
 }
 
 // StopWithSuccess stops the spinner and displays a success message.
-func (s *Spinner) StopWithSuccess(message string) {
+func (s *TerminalSpinner) StopWithSuccess(message string) {
 	s.Stop()
 	_, _ = fmt.Fprintln(s.w, s.styles.Success.Render("✓ "+message))
 }
 
 // StopWithError stops the spinner and displays an error message.
-func (s *Spinner) StopWithError(message string) {
+func (s *TerminalSpinner) StopWithError(message string) {
 	s.Stop()
 	_, _ = fmt.Fprintln(s.w, s.styles.Error.Render("✗ "+message))
 }
 
 // StopWithWarning stops the spinner and displays a warning message.
-func (s *Spinner) StopWithWarning(message string) {
+func (s *TerminalSpinner) StopWithWarning(message string) {
 	s.Stop()
 	_, _ = fmt.Fprintln(s.w, s.styles.Warning.Render("⚠ "+message))
 }
 
 // animate runs the spinner animation loop.
-func (s *Spinner) animate(ctx context.Context) {
+func (s *TerminalSpinner) animate(ctx context.Context) {
 	ticker := time.NewTicker(SpinnerInterval)
 	defer ticker.Stop()
 
@@ -164,3 +170,44 @@ func FormatDuration(ms int64) string {
 	}
 	return fmt.Sprintf("%.1fs", float64(ms)/1000)
 }
+
+// SpinnerAdapter wraps the TerminalSpinner to satisfy the Output.Spinner interface.
+// This provides a bridge between the existing spinner implementation and the
+// Output interface contract.
+type SpinnerAdapter struct {
+	spinner *TerminalSpinner
+	cancel  context.CancelFunc
+}
+
+// NewSpinnerAdapter creates a new SpinnerAdapter for TTY output (AC: #6).
+// Uses the custom TerminalSpinner implementation which provides animated
+// spinner functionality similar to the Bubbles spinner library.
+func NewSpinnerAdapter(w io.Writer, msg string) *SpinnerAdapter {
+	ctx, cancel := context.WithCancel(context.Background())
+	s := NewTerminalSpinner(w)
+	s.Start(ctx, msg)
+	return &SpinnerAdapter{
+		spinner: s,
+		cancel:  cancel,
+	}
+}
+
+// Update changes the spinner message (AC: #6).
+func (a *SpinnerAdapter) Update(msg string) {
+	a.spinner.UpdateMessage(msg)
+}
+
+// Stop terminates the spinner (AC: #6).
+func (a *SpinnerAdapter) Stop() {
+	a.cancel()
+	a.spinner.Stop()
+}
+
+// NoopSpinner is a no-op spinner for JSON/non-TTY output (AC: #6).
+type NoopSpinner struct{}
+
+// Update is a no-op for NoopSpinner.
+func (*NoopSpinner) Update(_ string) {}
+
+// Stop is a no-op for NoopSpinner.
+func (*NoopSpinner) Stop() {}
