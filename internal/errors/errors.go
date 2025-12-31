@@ -258,6 +258,9 @@ var (
 
 	// ErrMenuCanceled indicates that the user canceled a menu operation.
 	ErrMenuCanceled = errors.New("menu canceled by user")
+
+	// ErrInvalidArgument indicates that an invalid argument was provided.
+	ErrInvalidArgument = errors.New("invalid argument")
 )
 
 // ExitCode2Error wraps an error to indicate exit code 2 should be used.
