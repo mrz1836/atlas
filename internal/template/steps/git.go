@@ -437,6 +437,13 @@ func (e *GitExecutor) executeCreatePR(ctx context.Context, step *domain.StepDefi
 		}
 	}
 
+	// Store PR number in task metadata for CI monitoring step
+	if task.Metadata == nil {
+		task.Metadata = make(map[string]any)
+	}
+	task.Metadata["pr_number"] = prResult.Number
+	task.Metadata["pr_url"] = prResult.URL
+
 	return &domain.StepResult{
 		Status:       "success",
 		Output:       fmt.Sprintf("Created PR #%d: %s", prResult.Number, prResult.URL),
