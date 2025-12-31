@@ -57,7 +57,7 @@ func TestNewWatchModel(t *testing.T) {
 		Quiet:       false,
 	}
 
-	model := NewWatchModel(mockWs, mockTask, cfg)
+	model := NewWatchModel(context.Background(), mockWs, mockTask, cfg)
 
 	assert.NotNil(t, model)
 	assert.NotNil(t, model.previousRows)
@@ -88,7 +88,7 @@ func TestWatchModel_Init(t *testing.T) {
 	mockTask := &mockTaskLister{tasks: map[string][]*domain.Task{}}
 
 	cfg := DefaultWatchConfig()
-	model := NewWatchModel(mockWs, mockTask, cfg)
+	model := NewWatchModel(context.Background(), mockWs, mockTask, cfg)
 
 	cmd := model.Init()
 
@@ -104,7 +104,7 @@ func TestWatchModel_Update_KeyQuit(t *testing.T) {
 	mockTask := &mockTaskLister{tasks: map[string][]*domain.Task{}}
 
 	cfg := DefaultWatchConfig()
-	model := NewWatchModel(mockWs, mockTask, cfg)
+	model := NewWatchModel(context.Background(), mockWs, mockTask, cfg)
 
 	// Simulate 'q' key press
 	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}}
@@ -123,7 +123,7 @@ func TestWatchModel_Update_KeyCtrlC(t *testing.T) {
 	mockTask := &mockTaskLister{tasks: map[string][]*domain.Task{}}
 
 	cfg := DefaultWatchConfig()
-	model := NewWatchModel(mockWs, mockTask, cfg)
+	model := NewWatchModel(context.Background(), mockWs, mockTask, cfg)
 
 	// Simulate Ctrl+C key press
 	msg := tea.KeyMsg{Type: tea.KeyCtrlC}
@@ -142,7 +142,7 @@ func TestWatchModel_Update_WindowResize(t *testing.T) {
 	mockTask := &mockTaskLister{tasks: map[string][]*domain.Task{}}
 
 	cfg := DefaultWatchConfig()
-	model := NewWatchModel(mockWs, mockTask, cfg)
+	model := NewWatchModel(context.Background(), mockWs, mockTask, cfg)
 
 	// Simulate window resize
 	msg := tea.WindowSizeMsg{Width: 120, Height: 40}
@@ -162,7 +162,7 @@ func TestWatchModel_Update_TickMsg(t *testing.T) {
 	mockTask := &mockTaskLister{tasks: map[string][]*domain.Task{}}
 
 	cfg := DefaultWatchConfig()
-	model := NewWatchModel(mockWs, mockTask, cfg)
+	model := NewWatchModel(context.Background(), mockWs, mockTask, cfg)
 
 	// Simulate tick message
 	msg := TickMsg(time.Now())
@@ -180,7 +180,7 @@ func TestWatchModel_Update_RefreshMsg(t *testing.T) {
 	mockTask := &mockTaskLister{tasks: map[string][]*domain.Task{}}
 
 	cfg := DefaultWatchConfig()
-	model := NewWatchModel(mockWs, mockTask, cfg)
+	model := NewWatchModel(context.Background(), mockWs, mockTask, cfg)
 
 	testRows := []StatusRow{
 		{Workspace: "auth", Branch: "feat/auth", Status: constants.TaskStatusRunning},
@@ -205,7 +205,7 @@ func TestWatchModel_Update_RefreshMsgError(t *testing.T) {
 	mockTask := &mockTaskLister{tasks: map[string][]*domain.Task{}}
 
 	cfg := DefaultWatchConfig()
-	model := NewWatchModel(mockWs, mockTask, cfg)
+	model := NewWatchModel(context.Background(), mockWs, mockTask, cfg)
 
 	// Simulate refresh with error
 	msg := RefreshMsg{Rows: nil, Err: assert.AnError}
@@ -224,11 +224,13 @@ func TestWatchModel_View_Empty(t *testing.T) {
 	mockTask := &mockTaskLister{tasks: map[string][]*domain.Task{}}
 
 	cfg := DefaultWatchConfig()
-	model := NewWatchModel(mockWs, mockTask, cfg)
+	model := NewWatchModel(context.Background(), mockWs, mockTask, cfg)
 
 	view := model.View()
 
-	assert.Contains(t, view, "ATLAS")
+	// Header uses ASCII art (▄▀█) in wide mode or "ATLAS" text in narrow mode
+	assert.True(t, strings.Contains(view, "▄▀█") || strings.Contains(view, "ATLAS"),
+		"expected header to contain ASCII art or ATLAS text")
 	assert.Contains(t, view, "No workspaces")
 	assert.Contains(t, view, "atlas start")
 	assert.Contains(t, view, "Press 'q' to quit")
@@ -242,7 +244,7 @@ func TestWatchModel_View_Quitting(t *testing.T) {
 	mockTask := &mockTaskLister{tasks: map[string][]*domain.Task{}}
 
 	cfg := DefaultWatchConfig()
-	model := NewWatchModel(mockWs, mockTask, cfg)
+	model := NewWatchModel(context.Background(), mockWs, mockTask, cfg)
 	model.quitting = true
 
 	view := model.View()
@@ -258,7 +260,7 @@ func TestWatchModel_View_WithData(t *testing.T) {
 	mockTask := &mockTaskLister{tasks: map[string][]*domain.Task{}}
 
 	cfg := DefaultWatchConfig()
-	model := NewWatchModel(mockWs, mockTask, cfg)
+	model := NewWatchModel(context.Background(), mockWs, mockTask, cfg)
 	model.rows = []StatusRow{
 		{Workspace: "auth", Branch: "feat/auth", Status: constants.TaskStatusRunning, CurrentStep: 3, TotalSteps: 7},
 		{Workspace: "payment", Branch: "fix/pay", Status: constants.TaskStatusAwaitingApproval, CurrentStep: 5, TotalSteps: 7},
@@ -267,7 +269,9 @@ func TestWatchModel_View_WithData(t *testing.T) {
 
 	view := model.View()
 
-	assert.Contains(t, view, "ATLAS")
+	// Header uses ASCII art (▄▀█) in wide mode or "ATLAS" text in narrow mode
+	assert.True(t, strings.Contains(view, "▄▀█") || strings.Contains(view, "ATLAS"),
+		"expected header to contain ASCII art or ATLAS text")
 	assert.Contains(t, view, "auth")
 	assert.Contains(t, view, "payment")
 	assert.Contains(t, view, "Last updated:")
@@ -287,7 +291,7 @@ func TestWatchModel_View_Quiet(t *testing.T) {
 		BellEnabled: false,
 		Quiet:       true,
 	}
-	model := NewWatchModel(mockWs, mockTask, cfg)
+	model := NewWatchModel(context.Background(), mockWs, mockTask, cfg)
 	model.rows = []StatusRow{
 		{Workspace: "auth", Branch: "feat/auth", Status: constants.TaskStatusRunning},
 	}
@@ -311,7 +315,7 @@ func TestWatchModel_View_WithError(t *testing.T) {
 	mockTask := &mockTaskLister{tasks: map[string][]*domain.Task{}}
 
 	cfg := DefaultWatchConfig()
-	model := NewWatchModel(mockWs, mockTask, cfg)
+	model := NewWatchModel(context.Background(), mockWs, mockTask, cfg)
 	model.err = assert.AnError
 
 	view := model.View()
@@ -331,7 +335,7 @@ func TestWatchModel_BellNotification_OnNewAttention(t *testing.T) {
 		BellEnabled: true,
 		Quiet:       false,
 	}
-	model := NewWatchModel(mockWs, mockTask, cfg)
+	model := NewWatchModel(context.Background(), mockWs, mockTask, cfg)
 
 	// First refresh with running status (no attention)
 	model.rows = []StatusRow{
@@ -360,7 +364,7 @@ func TestWatchModel_BellNotification_NoRepeatBell(t *testing.T) {
 		BellEnabled: true,
 		Quiet:       false,
 	}
-	model := NewWatchModel(mockWs, mockTask, cfg)
+	model := NewWatchModel(context.Background(), mockWs, mockTask, cfg)
 
 	// Initial attention state - should bell
 	model.rows = []StatusRow{
@@ -386,7 +390,7 @@ func TestWatchModel_BellNotification_Disabled(t *testing.T) {
 		BellEnabled: false, // Disabled
 		Quiet:       false,
 	}
-	model := NewWatchModel(mockWs, mockTask, cfg)
+	model := NewWatchModel(context.Background(), mockWs, mockTask, cfg)
 
 	model.rows = []StatusRow{
 		{Workspace: "auth", Status: constants.TaskStatusAwaitingApproval},
@@ -408,7 +412,7 @@ func TestWatchModel_BellNotification_QuietModeSuppresses(t *testing.T) {
 		BellEnabled: true, // Bell would normally be enabled
 		Quiet:       true, // But quiet mode suppresses it
 	}
-	model := NewWatchModel(mockWs, mockTask, cfg)
+	model := NewWatchModel(context.Background(), mockWs, mockTask, cfg)
 
 	model.rows = []StatusRow{
 		{Workspace: "auth", Status: constants.TaskStatusAwaitingApproval},
@@ -442,7 +446,7 @@ func TestWatchModel_BellNotification_AllAttentionStatuses(t *testing.T) {
 				BellEnabled: true,
 				Quiet:       false,
 			}
-			model := NewWatchModel(mockWs, mockTask, cfg)
+			model := NewWatchModel(context.Background(), mockWs, mockTask, cfg)
 
 			model.rows = []StatusRow{
 				{Workspace: "test-ws", Status: status},
@@ -484,7 +488,7 @@ func TestWatchModel_StatusRowBuilding(t *testing.T) {
 	mockTask := &mockTaskLister{tasks: tasks}
 
 	cfg := DefaultWatchConfig()
-	model := NewWatchModel(mockWs, mockTask, cfg)
+	model := NewWatchModel(context.Background(), mockWs, mockTask, cfg)
 
 	rows := model.buildStatusRows(context.Background(), workspaces)
 	require.Len(t, rows, 1)
@@ -518,7 +522,7 @@ func TestWatchModel_StatusRowBuilding_TaskListerError(t *testing.T) {
 	}
 
 	cfg := DefaultWatchConfig()
-	model := NewWatchModel(mockWs, mockTask, cfg)
+	model := NewWatchModel(context.Background(), mockWs, mockTask, cfg)
 
 	// buildStatusRows should gracefully handle TaskLister errors
 	rows := model.buildStatusRows(context.Background(), workspaces)
@@ -542,7 +546,7 @@ func TestWatchModel_StatusPrioritySorting(t *testing.T) {
 	mockTask := &mockTaskLister{tasks: map[string][]*domain.Task{}}
 
 	cfg := DefaultWatchConfig()
-	model := NewWatchModel(mockWs, mockTask, cfg)
+	model := NewWatchModel(context.Background(), mockWs, mockTask, cfg)
 
 	rows := []StatusRow{
 		{Workspace: "completed", Status: constants.TaskStatusCompleted},
@@ -566,7 +570,7 @@ func TestWatchModel_Accessors(t *testing.T) {
 	mockTask := &mockTaskLister{tasks: map[string][]*domain.Task{}}
 
 	cfg := DefaultWatchConfig()
-	model := NewWatchModel(mockWs, mockTask, cfg)
+	model := NewWatchModel(context.Background(), mockWs, mockTask, cfg)
 	model.rows = []StatusRow{
 		{Workspace: "auth", Status: constants.TaskStatusRunning},
 	}
@@ -633,7 +637,7 @@ func TestWatchModel_Footer(t *testing.T) {
 			mockTask := &mockTaskLister{tasks: map[string][]*domain.Task{}}
 
 			cfg := DefaultWatchConfig()
-			model := NewWatchModel(mockWs, mockTask, cfg)
+			model := NewWatchModel(context.Background(), mockWs, mockTask, cfg)
 			model.rows = tt.rows
 
 			footer := model.buildFooter()
@@ -656,7 +660,7 @@ func TestWatchModel_CleanupRemovedWorkspaces(t *testing.T) {
 		BellEnabled: true,
 		Quiet:       false,
 	}
-	model := NewWatchModel(mockWs, mockTask, cfg)
+	model := NewWatchModel(context.Background(), mockWs, mockTask, cfg)
 
 	// First, track a workspace
 	model.rows = []StatusRow{
@@ -714,7 +718,7 @@ func TestWatchModel_RefreshData(t *testing.T) {
 	mockTask := &mockTaskLister{tasks: tasks}
 
 	cfg := DefaultWatchConfig()
-	model := NewWatchModel(mockWs, mockTask, cfg)
+	model := NewWatchModel(context.Background(), mockWs, mockTask, cfg)
 
 	cmd := model.refreshData()
 	require.NotNil(t, cmd)
@@ -738,7 +742,7 @@ func TestWatchModel_RefreshDataError(t *testing.T) {
 	mockTask := &mockTaskLister{tasks: map[string][]*domain.Task{}}
 
 	cfg := DefaultWatchConfig()
-	model := NewWatchModel(mockWs, mockTask, cfg)
+	model := NewWatchModel(context.Background(), mockWs, mockTask, cfg)
 
 	cmd := model.refreshData()
 	require.NotNil(t, cmd)
@@ -774,7 +778,7 @@ func TestWatchModel_ViewContainsTimestamp(t *testing.T) {
 	mockTask := &mockTaskLister{tasks: map[string][]*domain.Task{}}
 
 	cfg := DefaultWatchConfig()
-	model := NewWatchModel(mockWs, mockTask, cfg)
+	model := NewWatchModel(context.Background(), mockWs, mockTask, cfg)
 	model.rows = []StatusRow{
 		{Workspace: "auth", Status: constants.TaskStatusRunning},
 	}
@@ -795,7 +799,7 @@ func TestWatchModel_NoTimestampBeforeFirstRefresh(t *testing.T) {
 	mockTask := &mockTaskLister{tasks: map[string][]*domain.Task{}}
 
 	cfg := DefaultWatchConfig()
-	model := NewWatchModel(mockWs, mockTask, cfg)
+	model := NewWatchModel(context.Background(), mockWs, mockTask, cfg)
 
 	view := model.View()
 
@@ -847,7 +851,7 @@ func TestWatchModel_ActionableSuggestion(t *testing.T) {
 			mockTask := &mockTaskLister{tasks: map[string][]*domain.Task{}}
 
 			cfg := DefaultWatchConfig()
-			model := NewWatchModel(mockWs, mockTask, cfg)
+			model := NewWatchModel(context.Background(), mockWs, mockTask, cfg)
 			model.rows = []StatusRow{
 				{Workspace: "test-ws", Status: tt.status},
 			}
@@ -886,7 +890,7 @@ func TestWatchModel_MultipleRefreshes(t *testing.T) {
 	mockTask := &mockTaskLister{tasks: tasks}
 
 	cfg := DefaultWatchConfig()
-	model := NewWatchModel(mockWs, mockTask, cfg)
+	model := NewWatchModel(context.Background(), mockWs, mockTask, cfg)
 
 	// Simulate first refresh
 	msg1 := RefreshMsg{Rows: []StatusRow{{Workspace: "auth", Status: constants.TaskStatusRunning}}}
@@ -914,7 +918,7 @@ func TestWatchModel_StatusPriority(t *testing.T) {
 
 	mockWs := &mockWorkspaceLister{}
 	mockTask := &mockTaskLister{}
-	model := NewWatchModel(mockWs, mockTask, DefaultWatchConfig())
+	model := NewWatchModel(context.Background(), mockWs, mockTask, DefaultWatchConfig())
 
 	tests := []struct {
 		status   constants.TaskStatus
@@ -948,7 +952,7 @@ func TestWatchModel_TableRendering(t *testing.T) {
 	mockTask := &mockTaskLister{}
 
 	cfg := DefaultWatchConfig()
-	model := NewWatchModel(mockWs, mockTask, cfg)
+	model := NewWatchModel(context.Background(), mockWs, mockTask, cfg)
 	model.rows = []StatusRow{
 		{Workspace: "auth", Branch: "feat/auth", Status: constants.TaskStatusRunning, CurrentStep: 3, TotalSteps: 7},
 	}

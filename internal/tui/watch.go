@@ -63,6 +63,10 @@ type WatchModel struct {
 	// Dependencies
 	wsMgr     WorkspaceLister
 	taskStore TaskLister
+	// baseCtx is stored for use in async Bubble Tea commands.
+	// Storing context in structs is generally discouraged, but Bubble Tea's
+	// async command model requires it for proper context propagation.
+	baseCtx context.Context //nolint:containedctx // Required for Bubble Tea async commands
 }
 
 // TickMsg signals time for a refresh.
@@ -78,7 +82,8 @@ type RefreshMsg struct {
 type BellMsg struct{}
 
 // NewWatchModel creates a new WatchModel with the given dependencies.
-func NewWatchModel(wsMgr WorkspaceLister, taskStore TaskLister, cfg WatchConfig) *WatchModel {
+// The context is stored for use in async Bubble Tea commands.
+func NewWatchModel(ctx context.Context, wsMgr WorkspaceLister, taskStore TaskLister, cfg WatchConfig) *WatchModel {
 	return &WatchModel{
 		rows:         nil,
 		previousRows: make(map[string]constants.TaskStatus),
@@ -90,6 +95,7 @@ func NewWatchModel(wsMgr WorkspaceLister, taskStore TaskLister, cfg WatchConfig)
 		err:          nil,
 		wsMgr:        wsMgr,
 		taskStore:    taskStore,
+		baseCtx:      ctx,
 	}
 }
 
@@ -151,7 +157,8 @@ func (m *WatchModel) View() string {
 
 	// Header (unless quiet)
 	if !m.config.Quiet {
-		b.WriteString("═══ ATLAS ═══\n\n")
+		b.WriteString(RenderHeader(m.width))
+		b.WriteString("\n\n")
 	}
 
 	// Error display
@@ -213,7 +220,11 @@ func (m *WatchModel) tick() tea.Cmd {
 // refreshData loads fresh data from the workspace and task stores.
 func (m *WatchModel) refreshData() tea.Cmd {
 	return func() tea.Msg {
-		ctx := context.Background()
+		// Use stored context for proper cancellation propagation
+		ctx := m.baseCtx
+		if ctx == nil {
+			ctx = context.Background()
+		}
 
 		workspaces, err := m.wsMgr.List(ctx)
 		if err != nil {

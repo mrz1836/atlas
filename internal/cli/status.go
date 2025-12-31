@@ -288,7 +288,7 @@ func outputStatusTable(w io.Writer, rows []tui.StatusRow, quiet bool) error {
 
 	// Header (unless quiet)
 	if !quiet {
-		_, _ = fmt.Fprintln(w, "═══ ATLAS ═══")
+		_, _ = fmt.Fprintln(w, tui.RenderHeaderAuto())
 		_, _ = fmt.Fprintln(w)
 	}
 
@@ -378,8 +378,8 @@ func runWatchMode(ctx context.Context, wsMgr tui.WorkspaceLister, taskStore tui.
 		Quiet:       quiet,
 	}
 
-	// Create the watch model
-	model := tui.NewWatchModel(wsMgr, taskStore, watchCfg)
+	// Create the watch model with context for proper cancellation propagation
+	model := tui.NewWatchModel(ctx, wsMgr, taskStore, watchCfg)
 
 	// Create and run the Bubble Tea program with alternate screen and context
 	p := tea.NewProgram(model, tea.WithAltScreen(), tea.WithContext(ctx))
