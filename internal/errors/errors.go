@@ -252,6 +252,12 @@ var (
 
 	// ErrWatchModeJSONUnsupported indicates that watch mode does not support JSON output.
 	ErrWatchModeJSONUnsupported = errors.New("watch mode does not support JSON output")
+
+	// ErrNoMenuOptions indicates that no options were provided to a menu.
+	ErrNoMenuOptions = errors.New("no menu options provided")
+
+	// ErrMenuCanceled indicates that the user canceled a menu operation.
+	ErrMenuCanceled = errors.New("menu canceled by user")
 )
 
 // ExitCode2Error wraps an error to indicate exit code 2 should be used.
