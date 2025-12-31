@@ -141,8 +141,8 @@ development_status:
 
   # Epic 7: Status Dashboard & Monitoring
   # Design Reference: _bmad-output/implementation-artifacts/epic-7-tui-components-from-scenarios.md
-  epic-7: backlog
-  7-1-tui-style-system: backlog
+  epic-7: in-progress
+  7-1-tui-style-system: done
   7-2-output-interface: backlog
   7-3-status-table-component: backlog
   7-4-implement-atlas-status-command: backlog
