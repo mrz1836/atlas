@@ -17,10 +17,12 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
+	"github.com/mrz1836/atlas/internal/ai"
 	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/domain"
 	"github.com/mrz1836/atlas/internal/errors"
+	"github.com/mrz1836/atlas/internal/git"
 	"github.com/mrz1836/atlas/internal/task"
 	"github.com/mrz1836/atlas/internal/template"
 	"github.com/mrz1836/atlas/internal/template/steps"
@@ -277,11 +279,34 @@ func startTaskExecution(ctx context.Context, ws *domain.Workspace, tmpl *domain.
 	// The quiet flag is not currently passed through to this function.
 	notifier := tui.NewNotifier(cfg.Notifications.Bell, false)
 
+	// Create AI runner for AI-dependent services
+	aiRunner := ai.NewClaudeCodeRunner(&cfg.AI, nil)
+
+	// Create git services for commit, push, and PR operations
+	gitRunner, err := git.NewRunner(ws.WorktreePath) //nolint:contextcheck // NewRunner doesn't accept context
+	if err != nil {
+		return nil, fmt.Errorf("failed to create git runner: %w", err)
+	}
+
+	smartCommitter := git.NewSmartCommitRunner(gitRunner, ws.WorktreePath, aiRunner)
+	pusher := git.NewPushRunner(gitRunner)
+	hubRunner := git.NewCLIGitHubRunner(ws.WorktreePath)
+	prDescGen := git.NewAIDescriptionGenerator(aiRunner)
+	ciFailureHandler := task.NewCIFailureHandler(hubRunner)
+
 	// Create executor registry with full dependencies for artifact saving and notifications
 	execRegistry := steps.NewDefaultRegistry(steps.ExecutorDeps{
-		WorkDir:       ws.WorktreePath,
-		ArtifactSaver: taskStore,
-		Notifier:      notifier,
+		WorkDir:                ws.WorktreePath,
+		ArtifactSaver:          taskStore,
+		Notifier:               notifier,
+		AIRunner:               aiRunner,
+		Logger:                 logger,
+		SmartCommitter:         smartCommitter,
+		Pusher:                 pusher,
+		HubRunner:              hubRunner,
+		PRDescriptionGenerator: prDescGen,
+		GitRunner:              gitRunner,
+		CIFailureHandler:       ciFailureHandler,
 	})
 
 	engineCfg := task.DefaultEngineConfig()
