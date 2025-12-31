@@ -104,7 +104,7 @@ So that **I know when my CI checks pass or fail and can take appropriate action*
 
 ### Review Follow-ups (AI)
 
-- [ ] [AI-Review][LOW] Consider extracting `CIResultArtifact` and `CICheckArtifact` to shared package to reduce duplication between `ci.go` and `ci_failure.go` [internal/template/steps/ci.go:28-54, internal/task/ci_failure.go:88-112]
+- [x] [AI-Review][LOW] ~~Consider extracting `CIResultArtifact` and `CICheckArtifact` to shared package to reduce duplication between `ci.go` and `ci_failure.go`~~ - DONE: Moved to `internal/domain/artifact.go` (2025-12-30)
 
 ## Dev Agent Record
 

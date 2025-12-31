@@ -123,7 +123,7 @@ development_status:
   td-3-vision-alignment-validation: done # P2: Deep validation of Epics 1-5 against vision.md
 
   # Epic 6: Git & PR Automation
-  epic-6: in-progress
+  epic-6: done
   6-1-gitrunner-implementation: done
   6-2-branch-creation-and-naming: done
   6-3-smart-commit-system: done
@@ -137,9 +137,10 @@ development_status:
   6-9-wire-gitexecutor-to-git-package: done # P0: Wire git operations (GAP 1, 4) - Code review passed 2025-12-30
   6-10-wire-ciexecutor-to-hubrunner: done # P0: Wire CI monitoring (GAP 2) - Code review passed 2025-12-30
   6-11-integrate-cifailurehandler-into-task-engine: done # P0: Wire failure handling (GAP 3) - Code review passed 2025-12-30
-  epic-6-retrospective: optional
+  epic-6-retrospective: done # Completed 2025-12-30
 
   # Epic 7: Status Dashboard & Monitoring
+  # Design Reference: _bmad-output/implementation-artifacts/epic-7-tui-components-from-scenarios.md
   epic-7: backlog
   7-1-tui-style-system: backlog
   7-2-output-interface: backlog
