@@ -161,10 +161,15 @@ func runStatusWithDeps(
 	// Handle empty case
 	if len(workspaces) == 0 {
 		if output == OutputJSON {
-			_, _ = fmt.Fprintln(w, "[]")
-		} else {
-			_, _ = fmt.Fprintln(w, "No workspaces. Run 'atlas start' to create one.")
+			// Story 7.9: Use structured JSON format for consistency
+			emptyOutput := statusJSONOutput{
+				Workspaces: []map[string]string{},
+			}
+			encoder := json.NewEncoder(w)
+			encoder.SetIndent("", "  ")
+			return encoder.Encode(emptyOutput)
 		}
+		_, _ = fmt.Fprintln(w, "No workspaces. Run 'atlas start' to create one.")
 		return nil
 	}
 
@@ -246,13 +251,20 @@ func statusPriority(status constants.TaskStatus) int {
 	return 0 // Lowest priority
 }
 
-// outputStatusJSON outputs status as JSON array.
+// statusJSONOutput is the structured JSON output for the status command.
+// Includes workspaces and attention_items per Story 7.9.
+type statusJSONOutput struct {
+	Workspaces     []map[string]string `json:"workspaces"`
+	AttentionItems []map[string]string `json:"attention_items,omitempty"`
+}
+
+// outputStatusJSON outputs status as JSON with workspaces and attention items.
 func outputStatusJSON(w io.Writer, rows []tui.StatusRow) error {
 	table := tui.NewStatusTable(rows)
 	headers, data := table.ToJSONData()
 
 	// Convert to array of objects with full field names
-	result := make([]map[string]string, len(data))
+	workspaces := make([]map[string]string, len(data))
 	for i, row := range data {
 		obj := make(map[string]string)
 		for j, header := range headers {
@@ -262,12 +274,22 @@ func outputStatusJSON(w io.Writer, rows []tui.StatusRow) error {
 				obj[key] = row[j]
 			}
 		}
-		result[i] = obj
+		workspaces[i] = obj
+	}
+
+	// Build attention items from StatusFooter (Story 7.9)
+	footer := tui.NewStatusFooter(rows)
+	attentionItems := footer.ToJSON()
+
+	// Build output structure
+	output := statusJSONOutput{
+		Workspaces:     workspaces,
+		AttentionItems: attentionItems,
 	}
 
 	encoder := json.NewEncoder(w)
 	encoder.SetIndent("", "  ")
-	return encoder.Encode(result)
+	return encoder.Encode(output)
 }
 
 // toLowerCamelCase converts UPPER_CASE to lowercase.
@@ -313,10 +335,17 @@ func outputStatusTable(w io.Writer, rows []tui.StatusRow, quiet, showProgress bo
 		}
 	}
 
-	// Footer (unless quiet)
+	// Footer summary (unless quiet)
 	if !quiet {
 		_, _ = fmt.Fprintln(w)
 		_, _ = fmt.Fprintln(w, buildFooter(rows))
+	}
+
+	// Action indicators footer (Story 7.9) - shows copy-paste commands
+	// Render even in quiet mode since these are actionable commands
+	footer := tui.NewStatusFooter(rows)
+	if footer.HasItems() {
+		_ = footer.Render(w)
 	}
 
 	return nil

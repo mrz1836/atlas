@@ -227,21 +227,26 @@ func TestStatusCommand_JSONOutput(t *testing.T) {
 	err := runStatusWithDeps(ctx, &buf, "json", false, false, mockMgr, mockStore)
 	require.NoError(t, err)
 
-	// Parse JSON output
-	var result []map[string]string
+	// Parse JSON output - now uses structured format with workspaces and attention_items (Story 7.9)
+	var result statusJSONOutput
 	err = json.Unmarshal(buf.Bytes(), &result)
 	require.NoError(t, err, "output should be valid JSON")
-	require.Len(t, result, 1, "should have one workspace")
+	require.Len(t, result.Workspaces, 1, "should have one workspace")
 
 	// Check JSON uses full field names (AC: #2)
-	assert.Equal(t, "payment", result[0]["workspace"])
-	assert.Equal(t, "fix/payment", result[0]["branch"])
-	assert.Contains(t, result[0]["status"], "awaiting_approval")
-	assert.Equal(t, "6/7", result[0]["step"])
-	assert.Equal(t, "atlas approve", result[0]["action"], "action field should be present")
+	assert.Equal(t, "payment", result.Workspaces[0]["workspace"])
+	assert.Equal(t, "fix/payment", result.Workspaces[0]["branch"])
+	assert.Contains(t, result.Workspaces[0]["status"], "awaiting_approval")
+	assert.Equal(t, "6/7", result.Workspaces[0]["step"])
+	assert.Equal(t, "atlas approve", result.Workspaces[0]["action"], "action field should be present")
+
+	// Check attention_items (Story 7.9)
+	require.Len(t, result.AttentionItems, 1, "should have one attention item")
+	assert.Equal(t, "payment", result.AttentionItems[0]["workspace"])
+	assert.Equal(t, "atlas approve payment", result.AttentionItems[0]["action"])
 }
 
-// TestStatusCommand_EmptyJSON tests empty state returns [] not null.
+// TestStatusCommand_EmptyJSON tests empty state returns valid JSON with empty workspaces array.
 func TestStatusCommand_EmptyJSON(t *testing.T) {
 	t.Parallel()
 
@@ -254,8 +259,12 @@ func TestStatusCommand_EmptyJSON(t *testing.T) {
 	err := runStatusWithDeps(ctx, &buf, "json", false, false, mockMgr, mockStore)
 	require.NoError(t, err)
 
-	output := strings.TrimSpace(buf.String())
-	assert.Equal(t, "[]", output, "empty state should return [] not null")
+	// Story 7.9: JSON output now uses structured format
+	var result statusJSONOutput
+	err = json.Unmarshal(buf.Bytes(), &result)
+	require.NoError(t, err, "empty state should return valid JSON")
+	assert.Empty(t, result.Workspaces, "workspaces array should be empty")
+	assert.Nil(t, result.AttentionItems, "attention_items should be nil/omitted")
 }
 
 // TestStatusCommand_QuietMode tests quiet mode output.
@@ -476,8 +485,11 @@ func TestRunStatus_JSONOutput(t *testing.T) {
 	err := runStatus(context.Background(), statusCmd, &buf, false, DefaultWatchInterval, false)
 	require.NoError(t, err)
 
-	// Should output empty JSON array
-	assert.Equal(t, "[]\n", buf.String())
+	// Story 7.9: Should output empty structured JSON object
+	var result statusJSONOutput
+	err = json.Unmarshal(buf.Bytes(), &result)
+	require.NoError(t, err, "output should be valid JSON")
+	assert.Empty(t, result.Workspaces)
 }
 
 // TestRunStatus_ContextCancellation tests runStatus respects context cancellation.
