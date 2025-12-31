@@ -156,7 +156,7 @@ development_status:
   # Epic 8: Interactive Review & Approval
   epic-8: in-progress
   8-1-interactive-menu-system: done
-  8-2-approval-summary-component: backlog
+  8-2-approval-summary-component: done
   8-3-implement-atlas-approve-command: backlog
   8-4-implement-atlas-reject-command: backlog
   8-5-error-recovery-menus: backlog
