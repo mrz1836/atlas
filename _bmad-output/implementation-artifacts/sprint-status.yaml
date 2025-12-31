@@ -144,7 +144,7 @@ development_status:
   epic-7: in-progress
   7-1-tui-style-system: done
   7-2-output-interface: done
-  7-3-status-table-component: backlog
+  7-3-status-table-component: done
   7-4-implement-atlas-status-command: backlog
   7-5-watch-mode-with-live-updates: backlog
   7-6-terminal-bell-notifications: backlog
