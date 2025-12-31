@@ -25,7 +25,7 @@ func TestFeatureTemplate_StepOrder(t *testing.T) {
 	tmpl := NewFeatureTemplate()
 
 	expectedSteps := []string{
-		"specify", "review_spec", "plan", "tasks", "implement",
+		"specify", "review_spec", "plan", "tasks", "implement", "verify",
 		"validate", "checklist", "git_commit", "git_push", "git_pr",
 		"ci_wait", "review",
 	}
@@ -45,6 +45,7 @@ func TestFeatureTemplate_StepTypes(t *testing.T) {
 		"plan":        domain.StepTypeSDD,
 		"tasks":       domain.StepTypeSDD,
 		"implement":   domain.StepTypeSDD,
+		"verify":      domain.StepTypeVerify,
 		"validate":    domain.StepTypeValidation,
 		"checklist":   domain.StepTypeSDD,
 		"git_commit":  domain.StepTypeGit,

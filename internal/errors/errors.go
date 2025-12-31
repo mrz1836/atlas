@@ -207,6 +207,45 @@ var (
 
 	// ErrRetryDisabled indicates that AI retry is disabled in configuration.
 	ErrRetryDisabled = errors.New("AI retry is disabled")
+
+	// ErrAIError indicates that the AI returned an error.
+	ErrAIError = errors.New("AI returned error")
+
+	// ErrAIEmptyResponse indicates that the AI returned an empty response.
+	ErrAIEmptyResponse = errors.New("AI returned empty response")
+
+	// ErrAIInvalidFormat indicates that the AI response was not in the expected format.
+	ErrAIInvalidFormat = errors.New("AI response not in expected format")
+
+	// ErrPushAuthFailed indicates that git push failed due to authentication.
+	ErrPushAuthFailed = errors.New("push authentication failed")
+
+	// ErrPushNetworkFailed indicates that git push failed due to network issues.
+	ErrPushNetworkFailed = errors.New("push network failed")
+
+	// ErrPRCreationFailed indicates that PR creation failed.
+	ErrPRCreationFailed = errors.New("PR creation failed")
+
+	// ErrGHRateLimited indicates that GitHub API rate limit was exceeded.
+	ErrGHRateLimited = errors.New("GitHub API rate limited")
+
+	// ErrGHAuthFailed indicates that GitHub authentication failed.
+	ErrGHAuthFailed = errors.New("GitHub authentication failed")
+
+	// ErrPRNotFound indicates that the requested PR was not found.
+	ErrPRNotFound = errors.New("PR not found")
+
+	// ErrCICheckNotFound indicates that a required CI check was not found.
+	ErrCICheckNotFound = errors.New("required CI check not found")
+
+	// ErrUnsupportedOS indicates the current operating system is not supported.
+	ErrUnsupportedOS = errors.New("unsupported operating system")
+
+	// ErrInvalidVerificationAction indicates an unknown verification action was specified.
+	ErrInvalidVerificationAction = errors.New("invalid verification action")
+
+	// ErrConflictingFlags indicates that mutually exclusive flags were specified.
+	ErrConflictingFlags = errors.New("conflicting flags specified")
 )
 
 // ExitCode2Error wraps an error to indicate exit code 2 should be used.

@@ -8,7 +8,7 @@ inputDocuments:
   - _bmad-output/planning-artifacts/ux-design-specification.md
   - docs/external/vision.md
 totalEpics: 8
-totalStories: 62
+totalStories: 66
 ---
 
 # atlas - Epic Breakdown
@@ -302,6 +302,8 @@ This document provides the complete epic and story breakdown for atlas, decompos
 **User Outcome:** Users experience the "fleet commander" view - glanceable status, notification-driven awareness.
 
 **Covers:** FR41-FR46, UX-1 to UX-14
+
+**Design Reference:** `_bmad-output/implementation-artifacts/epic-7-tui-components-from-scenarios.md` - TUI component specifications extracted from user scenarios
 
 ---
 
@@ -1467,9 +1469,100 @@ So that **I can decide whether to fix, retry, or abandon**.
 
 ---
 
+### Story 6.8: AI Verification Step
+
+As a **user**,
+I want **an optional AI verification step that uses a different model to review my implementation**,
+So that **I can catch issues before committing, with cross-model validation for higher confidence**.
+
+**Acceptance Criteria:**
+
+**Given** the `--verify` flag is passed to `atlas start`
+**When** implementation completes
+**Then** the system invokes a secondary AI model to review the implementation
+**And** the verifier checks: code correctness, test coverage, garbage files, security issues
+**And** if issues found, presents options: auto-fix, manual fix, ignore, view report
+**And** `--no-verify` flag disables verification regardless of template default
+**And** bugfix template has verification OFF by default
+**And** feature template has verification ON by default
+**And** verification model is configurable via `verify_model` in config
+**And** verification report is saved as artifact (verification-report.md)
+
+**Source:** epic-6-user-scenarios.md - Scenario 1 Step 6, Scenario 5 Step 13
+
+---
+
+### Story 6.9: Wire GitExecutor to internal/git Package
+
+As a **user**,
+I want **the git operations in my workflow (commit, push, PR) to actually execute**,
+So that **my changes are committed, pushed, and a PR is created automatically**.
+
+**Acceptance Criteria:**
+
+**Given** a task reaches the `git_commit` step
+**When** the step executes
+**Then** the system runs garbage detection via `GarbageScanner.Scan()`
+**And** if garbage found, presents warning with options (remove, include, abort)
+**And** executes smart commit via `SmartCommitter.Commit()` with file grouping
+**And** for `git_push` step, calls `Pusher.Push()` with retry logic
+**And** for `git_pr` step, generates description and calls `HubRunner.CreatePR()`
+**And** ATLAS trailers are included in all commits
+**And** push/PR failures transition to `gh_failed` state
+
+**Source:** epic-6-traceability-matrix.md - GAP 1, GAP 4
+
+---
+
+### Story 6.10: Wire CIExecutor to HubRunner.WatchPRChecks
+
+As a **user**,
+I want **the CI wait step to actually poll GitHub Actions**,
+So that **I know when my CI checks pass or fail and can take appropriate action**.
+
+**Acceptance Criteria:**
+
+**Given** a task reaches the `ci_wait` step
+**When** the step executes
+**Then** the system calls `HubRunner.WatchPRChecks()` to poll GitHub Actions API
+**And** polls at configurable intervals (default: 2 minutes)
+**And** emits bell notification when checks complete
+**And** on success, transitions to next step and saves ci-result.json
+**And** on failure, transitions to `ci_failed` state and invokes `CIFailureHandler`
+**And** on timeout, transitions to `ci_timeout` state with continue/retry options
+
+**Source:** epic-6-traceability-matrix.md - GAP 2
+
+---
+
+### Story 6.11: Integrate CIFailureHandler into Task Engine
+
+As a **user**,
+I want **the task engine to automatically invoke the CI failure handler when CI fails**,
+So that **I am presented with options to view logs, retry, fix manually, or abandon**.
+
+**Acceptance Criteria:**
+
+**Given** a step returns `ci_failed` failure type
+**When** the task engine processes the result
+**Then** the engine invokes `CIFailureHandler` to present options
+**And** "View logs" opens GitHub Actions URL in browser
+**And** "Retry from implement" resumes from implement step with error context
+**And** "Fix manually" shows worktree path and `atlas resume` instructions
+**And** "Abandon task" converts PR to draft and transitions to abandoned
+**And** `gh_failed` failures (push/PR) present similar options
+**And** `ci_timeout` presents additional "Continue waiting" option
+**And** `atlas resume` after manual fix continues from ci_wait step
+
+**Source:** epic-6-traceability-matrix.md - GAP 3
+
+---
+
 ## Epic 7: Status Dashboard & Monitoring
 
 **Goal:** Users can view their "fleet" of workspaces with a beautiful TUI, live updates, and terminal bell notifications.
+
+**Design Reference:** See `_bmad-output/implementation-artifacts/epic-7-tui-components-from-scenarios.md` for exact terminal output formats extracted from user scenarios. This document maps each TUI component to its corresponding story and provides pixel-perfect specifications for box borders, icons, colors, and layouts.
 
 ### Story 7.1: TUI Style System
 
@@ -1884,8 +1977,8 @@ So that **information is easy to scan and understand**.
 | 3 | Workspace Management | 7 |
 | 4 | Task Engine & AI Execution | 9 |
 | 5 | Validation Pipeline | 8 |
-| 6 | Git & PR Automation | 7 |
+| 6 | Git & PR Automation | 11 |
 | 7 | Status Dashboard & Monitoring | 9 |
 | 8 | Interactive Review & Approval | 9 |
 
-**Grand Total: 62 stories across 8 epics covering all 52 FRs, 33 NFRs, and 31 additional requirements**
+**Grand Total: 66 stories across 8 epics covering all 52 FRs, 33 NFRs, and 31 additional requirements**

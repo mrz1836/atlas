@@ -8,13 +8,15 @@ import (
 )
 
 // NewBugfixTemplate creates the bugfix template for fixing bugs.
-// Steps: analyze → implement → validate → git_commit → git_push → git_pr → ci_wait → review
+// Steps: analyze → implement → verify (optional) → validate → git_commit → git_push → git_pr → ci_wait → review
 func NewBugfixTemplate() *domain.Template {
 	return &domain.Template{
 		Name:         "bugfix",
 		Description:  "Fix a reported bug with analysis, implementation, and validation",
 		BranchPrefix: "fix/",
 		DefaultModel: "sonnet",
+		Verify:       false, // Verification OFF by default for bugfix (enable with --verify)
+		VerifyModel:  "",    // Uses different model family automatically
 		Steps: []domain.StepDefinition{
 			{
 				Name:        "analyze",
@@ -38,6 +40,17 @@ func NewBugfixTemplate() *domain.Template {
 				Config: map[string]any{
 					"permission_mode": "default",
 					"prompt_template": "implement_fix",
+				},
+			},
+			{
+				Name:        "verify",
+				Type:        domain.StepTypeVerify,
+				Description: "Optional AI verification of implementation",
+				Required:    false, // Optional for bugfix
+				Timeout:     5 * time.Minute,
+				Config: map[string]any{
+					"model":  "", // Will use different model family
+					"checks": []string{"code_correctness", "garbage_files"},
 				},
 			},
 			{

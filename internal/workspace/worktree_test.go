@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
+	"github.com/mrz1836/atlas/internal/git"
 )
 
 // createTestRepo creates a temporary git repository for testing.
@@ -796,11 +797,11 @@ func TestGitWorktreeRunner_DeleteBranch(t *testing.T) {
 	})
 }
 
-func TestRunGitCommand(t *testing.T) {
+func TestGitRunCommand(t *testing.T) {
 	t.Run("returns stdout for successful command", func(t *testing.T) {
 		repoPath := createTestRepo(t)
 
-		output, err := runGitCommand(context.Background(), repoPath, "rev-parse", "--show-toplevel")
+		output, err := git.RunCommand(context.Background(), repoPath, "rev-parse", "--show-toplevel")
 		require.NoError(t, err)
 
 		// Compare resolved paths to handle symlinks (e.g., /var -> /private/var on macOS)
@@ -812,7 +813,7 @@ func TestRunGitCommand(t *testing.T) {
 	t.Run("returns error with stderr for failed command", func(t *testing.T) {
 		repoPath := createTestRepo(t)
 
-		_, err := runGitCommand(context.Background(), repoPath, "show-ref", "--verify", "refs/heads/nonexistent")
+		_, err := git.RunCommand(context.Background(), repoPath, "show-ref", "--verify", "refs/heads/nonexistent")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "git show-ref failed")
 	})
@@ -824,7 +825,7 @@ func TestRunGitCommand(t *testing.T) {
 		defer cancel()
 		time.Sleep(10 * time.Millisecond) // Ensure timeout triggers
 
-		_, err := runGitCommand(ctx, repoPath, "status")
+		_, err := git.RunCommand(ctx, repoPath, "status")
 		assert.Error(t, err)
 	})
 }

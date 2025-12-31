@@ -3,17 +3,17 @@
 package workspace
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
 
+	"github.com/rs/zerolog/log"
+
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
+	"github.com/mrz1836/atlas/internal/git"
 )
 
 // WorktreeRunner defines operations for Git worktree management.
@@ -117,12 +117,26 @@ func (r *GitWorktreeRunner) Create(ctx context.Context, opts WorktreeCreateOptio
 		args = append(args, opts.BaseBranch)
 	}
 
-	_, err = runGitCommand(ctx, r.repoPath, args...)
+	_, err = git.RunCommand(ctx, r.repoPath, args...)
 	if err != nil {
 		// CRITICAL: Clean up on failure (atomic creation)
 		_ = os.RemoveAll(wtPath)
+		log.Error().
+			Err(err).
+			Str("branch_name", branchName).
+			Str("workspace_name", opts.WorkspaceName).
+			Str("base_branch", opts.BaseBranch).
+			Msg("failed to create worktree")
 		return nil, fmt.Errorf("failed to create worktree: %w", err)
 	}
+
+	// Log successful branch creation
+	log.Info().
+		Str("branch_name", branchName).
+		Str("base_branch", opts.BaseBranch).
+		Str("workspace_name", opts.WorkspaceName).
+		Str("worktree_path", wtPath).
+		Msg("branch created")
 
 	return &WorktreeInfo{
 		Path:      wtPath,
@@ -140,7 +154,7 @@ func (r *GitWorktreeRunner) List(ctx context.Context) ([]*WorktreeInfo, error) {
 	default:
 	}
 
-	output, err := runGitCommand(ctx, r.repoPath, "worktree", "list", "--porcelain")
+	output, err := git.RunCommand(ctx, r.repoPath, "worktree", "list", "--porcelain")
 	if err != nil {
 		return nil, fmt.Errorf("failed to list worktrees: %w", err)
 	}
@@ -176,7 +190,7 @@ func (r *GitWorktreeRunner) Remove(ctx context.Context, path string, force bool)
 		args = append(args, "--force")
 	}
 
-	_, err = runGitCommand(ctx, r.repoPath, args...)
+	_, err = git.RunCommand(ctx, r.repoPath, args...)
 	if err != nil {
 		// Check for dirty worktree error
 		errStr := err.Error()
@@ -208,7 +222,7 @@ func (r *GitWorktreeRunner) Prune(ctx context.Context) error {
 	default:
 	}
 
-	_, err := runGitCommand(ctx, r.repoPath, "worktree", "prune")
+	_, err := git.RunCommand(ctx, r.repoPath, "worktree", "prune")
 	if err != nil {
 		return fmt.Errorf("failed to prune worktrees: %w", err)
 	}
@@ -225,10 +239,11 @@ func (r *GitWorktreeRunner) BranchExists(ctx context.Context, name string) (bool
 	default:
 	}
 
-	_, err := runGitCommand(ctx, r.repoPath, "show-ref", "--verify", "refs/heads/"+name)
+	_, err := git.RunCommand(ctx, r.repoPath, "show-ref", "--verify", "refs/heads/"+name)
 	if err != nil {
-		// Exit code 1 means ref not found, which is expected
-		if strings.Contains(err.Error(), "exit status 1") {
+		// Exit code 1 or "not a valid ref" means ref not found, which is expected
+		errStr := err.Error()
+		if strings.Contains(errStr, "exit status 1") || strings.Contains(errStr, "not a valid ref") {
 			return false, nil
 		}
 		return false, fmt.Errorf("failed to check branch existence: %w", err)
@@ -251,7 +266,7 @@ func (r *GitWorktreeRunner) DeleteBranch(ctx context.Context, name string, force
 		flag = "-D"
 	}
 
-	_, err := runGitCommand(ctx, r.repoPath, "branch", flag, name)
+	_, err := git.RunCommand(ctx, r.repoPath, "branch", flag, name)
 	if err != nil {
 		return fmt.Errorf("failed to delete branch '%s': %w", name, err)
 	}
@@ -261,30 +276,9 @@ func (r *GitWorktreeRunner) DeleteBranch(ctx context.Context, name string, force
 
 // generateUniqueBranchName ensures branch name is unique.
 // If the base name already exists, appends a timestamp suffix.
-// Returns ErrBranchExists wrapped in the error if the branch existed and was modified.
+// Delegates to the shared git.GenerateUniqueBranchNameWithChecker function.
 func (r *GitWorktreeRunner) generateUniqueBranchName(ctx context.Context, baseName string) (string, error) {
-	exists, err := r.BranchExists(ctx, baseName)
-	if err != nil {
-		return "", err
-	}
-	if !exists {
-		return baseName, nil
-	}
-
-	// Branch exists, append timestamp suffix to create unique name
-	uniqueName := fmt.Sprintf("%s-%s", baseName, time.Now().Format("20060102-150405"))
-
-	// Verify the new name doesn't also exist (extremely unlikely but possible)
-	exists, err = r.BranchExists(ctx, uniqueName)
-	if err != nil {
-		return "", err
-	}
-	if exists {
-		return "", fmt.Errorf("branch '%s' already exists and timestamp variant also exists: %w",
-			baseName, atlaserrors.ErrBranchExists)
-	}
-
-	return uniqueName, nil
+	return git.GenerateUniqueBranchNameWithChecker(ctx, r, baseName)
 }
 
 // DetectRepoRoot finds the root of the git repository.
@@ -301,7 +295,7 @@ func SiblingPath(repoRoot, workspaceName string) string {
 
 // detectRepoRoot finds the root of the git repository.
 func detectRepoRoot(ctx context.Context, path string) (string, error) {
-	output, err := runGitCommand(ctx, path, "rev-parse", "--show-toplevel")
+	output, err := git.RunCommand(ctx, path, "rev-parse", "--show-toplevel")
 	if err != nil {
 		return "", fmt.Errorf("%w: %w", atlaserrors.ErrNotGitRepo, err)
 	}
@@ -317,17 +311,10 @@ func siblingPath(repoRoot, workspaceName string) string {
 	return filepath.Join(repoDir, repoName+"-"+workspaceName)
 }
 
-// branchNameRegex is used to sanitize branch names.
-var branchNameRegex = regexp.MustCompile(`[^a-z0-9-]+`)
-
 // generateBranchName creates a branch name from type and workspace name.
+// This delegates to git.GenerateBranchName for centralized branch naming logic.
 func generateBranchName(branchType, workspaceName string) string {
-	// Sanitize workspace name: lowercase, replace non-alphanumeric with dashes
-	name := strings.ToLower(workspaceName)
-	name = branchNameRegex.ReplaceAllString(name, "-")
-	name = strings.Trim(name, "-")
-
-	return fmt.Sprintf("%s/%s", branchType, name)
+	return git.GenerateBranchName(branchType, workspaceName)
 }
 
 // maxPathRetries is the maximum number of numeric suffixes to try before using timestamp.
@@ -358,31 +345,6 @@ func ensureUniquePath(basePath string) (string, error) {
 
 	// Extremely unlikely: all paths including timestamp exist
 	return "", fmt.Errorf("path '%s' and all variants already exist: %w", basePath, atlaserrors.ErrWorktreeExists)
-}
-
-// runGitCommand executes a git command and returns its output.
-func runGitCommand(ctx context.Context, repoPath string, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, "git", args...) //#nosec G204 -- args are constructed internally, not user input
-	cmd.Dir = repoPath
-
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	err := cmd.Run()
-	if err != nil {
-		// Check for context cancellation
-		if ctx.Err() != nil {
-			return "", ctx.Err()
-		}
-		// Include stderr in error for debugging
-		if stderr.Len() > 0 {
-			return "", fmt.Errorf("git %s failed: %s: %w", args[0], strings.TrimSpace(stderr.String()), err)
-		}
-		return "", fmt.Errorf("git %s failed: %w", args[0], err)
-	}
-
-	return strings.TrimSpace(stdout.String()), nil
 }
 
 // parseWorktreeList parses git worktree list --porcelain output.

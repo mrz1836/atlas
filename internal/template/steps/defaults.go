@@ -4,7 +4,10 @@ package steps
 import (
 	"context"
 
+	"github.com/rs/zerolog"
+
 	"github.com/mrz1836/atlas/internal/ai"
+	"github.com/mrz1836/atlas/internal/git"
 )
 
 // ArtifactSaver abstracts artifact persistence for validation results.
@@ -55,6 +58,34 @@ type ExecutorDeps struct {
 	// RetryHandler is used for AI-assisted validation retry.
 	// If nil, retry capability is not available.
 	RetryHandler RetryHandler
+
+	// Logger is used for structured logging.
+	// If nil, a no-op logger is used.
+	Logger zerolog.Logger
+
+	// SmartCommitter is used for intelligent commit operations.
+	// If nil, commit operations will fail with a configuration error.
+	SmartCommitter git.SmartCommitService
+
+	// Pusher is used for push operations.
+	// If nil, push operations will fail with a configuration error.
+	Pusher git.PushService
+
+	// HubRunner is used for GitHub operations (PR creation).
+	// If nil, GitHub operations will fail with a configuration error.
+	HubRunner git.HubRunner
+
+	// PRDescriptionGenerator generates PR descriptions.
+	// If nil, PR operations will fail with a configuration error.
+	PRDescriptionGenerator git.PRDescriptionGenerator
+
+	// GitRunner is used for basic git operations.
+	// If nil, some git operations may fail.
+	GitRunner git.Runner
+
+	// CIFailureHandler is used for handling CI failures.
+	// If nil, CI failures return simple error without interactive options.
+	CIFailureHandler CIFailureHandlerInterface
 }
 
 // NewDefaultRegistry creates a registry with all built-in executors.
@@ -70,8 +101,27 @@ func NewDefaultRegistry(deps ExecutorDeps) *ExecutorRegistry {
 	// Register validation executor with optional artifact saving, notifications, and retry
 	r.Register(NewValidationExecutorWithDeps(deps.WorkDir, deps.ArtifactSaver, deps.Notifier, deps.RetryHandler))
 
-	// Register git executor (placeholder for Epic 6)
-	r.Register(NewGitExecutor(deps.WorkDir))
+	// Register git executor with dependencies for commit, push, and PR creation
+	gitExecutorOpts := []GitExecutorOption{
+		WithGitLogger(deps.Logger),
+		WithArtifactsDir(deps.ArtifactsDir),
+	}
+	if deps.SmartCommitter != nil {
+		gitExecutorOpts = append(gitExecutorOpts, WithSmartCommitter(deps.SmartCommitter))
+	}
+	if deps.Pusher != nil {
+		gitExecutorOpts = append(gitExecutorOpts, WithPusher(deps.Pusher))
+	}
+	if deps.HubRunner != nil {
+		gitExecutorOpts = append(gitExecutorOpts, WithHubRunner(deps.HubRunner))
+	}
+	if deps.PRDescriptionGenerator != nil {
+		gitExecutorOpts = append(gitExecutorOpts, WithPRDescriptionGenerator(deps.PRDescriptionGenerator))
+	}
+	if deps.GitRunner != nil {
+		gitExecutorOpts = append(gitExecutorOpts, WithGitRunner(deps.GitRunner))
+	}
+	r.Register(NewGitExecutor(deps.WorkDir, gitExecutorOpts...))
 
 	// Register human executor
 	r.Register(NewHumanExecutor())
@@ -81,8 +131,23 @@ func NewDefaultRegistry(deps ExecutorDeps) *ExecutorRegistry {
 		r.Register(NewSDDExecutor(deps.AIRunner, deps.ArtifactsDir))
 	}
 
-	// Register CI executor (placeholder for Epic 6)
-	r.Register(NewCIExecutor())
+	// Register CI executor with HubRunner and CIFailureHandler dependencies
+	ciExecutorOpts := []CIExecutorOption{
+		WithCILogger(deps.Logger),
+	}
+	if deps.HubRunner != nil {
+		ciExecutorOpts = append(ciExecutorOpts, WithCIHubRunner(deps.HubRunner))
+	}
+	if deps.CIFailureHandler != nil {
+		ciExecutorOpts = append(ciExecutorOpts, WithCIFailureHandlerInterface(deps.CIFailureHandler))
+	}
+	r.Register(NewCIExecutor(ciExecutorOpts...))
+
+	// Register verify executor (requires AIRunner for AI verification)
+	if deps.AIRunner != nil {
+		garbageDetector := git.NewGarbageDetector(nil)
+		r.Register(NewVerifyExecutor(deps.AIRunner, garbageDetector, deps.Logger))
+	}
 
 	return r
 }

@@ -37,6 +37,9 @@ coverage.out
 # Fuzz Tests
 testdata
 
+# Test artifacts (created by unit tests)
+internal/template/steps/artifacts/
+
 # Node modules
 node_modules/
 

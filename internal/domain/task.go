@@ -193,6 +193,10 @@ type StepResult struct {
 
 	// NumTurns is how many conversation turns occurred (AI steps only).
 	NumTurns int `json:"num_turns,omitempty"`
+
+	// Metadata contains additional step-specific data.
+	// Used for passing failure_type and ci_result for specialized failure handling.
+	Metadata map[string]any `json:"metadata,omitempty"`
 }
 
 // Transition records a state change for audit trail.
