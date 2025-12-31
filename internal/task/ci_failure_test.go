@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/mrz1836/atlas/internal/domain"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 	"github.com/mrz1836/atlas/internal/git"
 )
@@ -386,7 +387,7 @@ func TestCIFailureHandler_SaveCIResultArtifact(t *testing.T) {
 		data, readErr := os.ReadFile(path) //#nosec G304 -- test file only
 		require.NoError(t, readErr)
 
-		var artifact CIResultArtifact
+		var artifact domain.CIResultArtifact
 		require.NoError(t, json.Unmarshal(data, &artifact))
 
 		assert.Equal(t, "failure", artifact.Status)

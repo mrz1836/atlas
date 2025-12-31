@@ -21,6 +21,7 @@ import (
 
 	"github.com/rs/zerolog"
 
+	"github.com/mrz1836/atlas/internal/domain"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 	"github.com/mrz1836/atlas/internal/git"
 )
@@ -139,32 +140,6 @@ type CIFailureResult struct {
 	ArtifactPath string
 	// Message is user-facing result message.
 	Message string
-}
-
-// CIResultArtifact is the structure saved to ci-result.json.
-type CIResultArtifact struct {
-	// Status is the final CI status (failure, timeout).
-	Status string `json:"status"`
-	// ElapsedTime is how long CI was monitored.
-	ElapsedTime string `json:"elapsed_time"`
-	// FailedChecks is the list of checks that failed.
-	FailedChecks []CICheckArtifact `json:"failed_checks"`
-	// AllChecks is the complete list of checks.
-	AllChecks []CICheckArtifact `json:"all_checks"`
-	// ErrorMessage is the error description.
-	ErrorMessage string `json:"error_message,omitempty"`
-	// Timestamp is when the artifact was created.
-	Timestamp string `json:"timestamp"`
-}
-
-// CICheckArtifact represents a single CI check in the artifact.
-type CICheckArtifact struct {
-	Name     string `json:"name"`
-	State    string `json:"state"`
-	Bucket   string `json:"bucket"`
-	URL      string `json:"url,omitempty"`
-	Duration string `json:"duration,omitempty"`
-	Workflow string `json:"workflow,omitempty"`
 }
 
 // BrowserOpener is a function that opens a URL in a browser.
@@ -396,8 +371,8 @@ func (h *CIFailureHandler) handleAbandon(ctx context.Context, opts CIFailureOpti
 }
 
 // buildCIResultArtifact constructs the artifact structure from CI watch result.
-func (h *CIFailureHandler) buildCIResultArtifact(result *git.CIWatchResult) CIResultArtifact {
-	artifact := CIResultArtifact{
+func (h *CIFailureHandler) buildCIResultArtifact(result *git.CIWatchResult) domain.CIResultArtifact {
+	artifact := domain.CIResultArtifact{
 		Status:      result.Status.String(),
 		ElapsedTime: result.ElapsedTime.String(),
 		Timestamp:   time.Now().UTC().Format(time.RFC3339),
@@ -408,11 +383,11 @@ func (h *CIFailureHandler) buildCIResultArtifact(result *git.CIWatchResult) CIRe
 	}
 
 	// Convert check results
-	allChecks := make([]CICheckArtifact, 0, len(result.CheckResults))
-	failedChecks := make([]CICheckArtifact, 0)
+	allChecks := make([]domain.CICheckArtifact, 0, len(result.CheckResults))
+	failedChecks := make([]domain.CICheckArtifact, 0)
 
 	for _, check := range result.CheckResults {
-		checkArtifact := CICheckArtifact{
+		checkArtifact := domain.CICheckArtifact{
 			Name:     check.Name,
 			State:    check.State,
 			Bucket:   check.Bucket,

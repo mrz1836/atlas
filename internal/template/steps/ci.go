@@ -25,34 +25,6 @@ type CIFailureHandlerInterface interface {
 	HasHandler() bool
 }
 
-// CIResultArtifact is the structure saved to ci-result.json.
-// This matches task.CIResultArtifact but is defined here to avoid import cycle.
-type CIResultArtifact struct {
-	// Status is the final CI status (failure, timeout).
-	Status string `json:"status"`
-	// ElapsedTime is how long CI was monitored.
-	ElapsedTime string `json:"elapsed_time"`
-	// FailedChecks is the list of checks that failed.
-	FailedChecks []CICheckArtifact `json:"failed_checks"`
-	// AllChecks is the complete list of checks.
-	AllChecks []CICheckArtifact `json:"all_checks"`
-	// ErrorMessage is the error description.
-	ErrorMessage string `json:"error_message,omitempty"`
-	// Timestamp is when the artifact was created.
-	Timestamp string `json:"timestamp"`
-}
-
-// CICheckArtifact represents a single CI check in the artifact.
-// This matches task.CICheckArtifact but is defined here to avoid import cycle.
-type CICheckArtifact struct {
-	Name     string `json:"name"`
-	State    string `json:"state"`
-	Bucket   string `json:"bucket"`
-	URL      string `json:"url,omitempty"`
-	Duration string `json:"duration,omitempty"`
-	Workflow string `json:"workflow,omitempty"`
-}
-
 // CIExecutor handles CI waiting steps by monitoring GitHub Actions.
 type CIExecutor struct {
 	hubRunner        git.HubRunner
@@ -349,7 +321,7 @@ func (e *CIExecutor) saveCIArtifact(result *git.CIWatchResult, t *domain.Task, s
 		return ""
 	}
 
-	artifact := CIResultArtifact{
+	artifact := domain.CIResultArtifact{
 		Status:      result.Status.String(),
 		ElapsedTime: result.ElapsedTime.String(),
 		Timestamp:   time.Now().UTC().Format(time.RFC3339),
@@ -360,11 +332,11 @@ func (e *CIExecutor) saveCIArtifact(result *git.CIWatchResult, t *domain.Task, s
 	}
 
 	// Convert check results
-	allChecks := make([]CICheckArtifact, 0, len(result.CheckResults))
-	failedChecks := make([]CICheckArtifact, 0)
+	allChecks := make([]domain.CICheckArtifact, 0, len(result.CheckResults))
+	failedChecks := make([]domain.CICheckArtifact, 0)
 
 	for _, check := range result.CheckResults {
-		checkArtifact := CICheckArtifact{
+		checkArtifact := domain.CICheckArtifact{
 			Name:     check.Name,
 			State:    check.State,
 			Bucket:   check.Bucket,
