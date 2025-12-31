@@ -110,7 +110,8 @@ func DefaultConfig() *Config {
 			Bell: true,
 
 			// Events: default events that trigger notifications.
-			Events: []string{"awaiting_approval", "validation_failed"},
+			// Per Story 7.6: all attention states should trigger bells by default.
+			Events: []string{"awaiting_approval", "validation_failed", "error"},
 		},
 	}
 }

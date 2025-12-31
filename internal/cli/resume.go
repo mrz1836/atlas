@@ -158,6 +158,14 @@ func runResume(ctx context.Context, cmd *cobra.Command, w io.Writer, workspaceNa
 	// Create notifier from config
 	notifier := tui.NewNotifier(cfg.Notifications.Bell, false)
 
+	// Create state change notifier for engine-level notifications (Story 7.6).
+	// This emits bell on task state transitions to attention-required states.
+	stateNotifier := task.NewStateChangeNotifier(task.NotificationConfig{
+		BellEnabled: cfg.Notifications.Bell,
+		Quiet:       false, // TODO: Pass quiet flag through when available
+		Events:      cfg.Notifications.Events,
+	})
+
 	// Create AI runner for AI-dependent services
 	aiRunner := ai.NewClaudeCodeRunner(&cfg.AI, nil)
 
@@ -189,7 +197,9 @@ func runResume(ctx context.Context, cmd *cobra.Command, w io.Writer, workspaceNa
 	})
 
 	engineCfg := task.DefaultEngineConfig()
-	engine := task.NewEngine(taskStore, execRegistry, engineCfg, logger)
+	engine := task.NewEngine(taskStore, execRegistry, engineCfg, logger,
+		task.WithNotifier(stateNotifier),
+	)
 
 	// Display resume information
 	out.Info(fmt.Sprintf("Resuming task in workspace '%s'...", workspaceName))

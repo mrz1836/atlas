@@ -53,6 +53,7 @@ type Engine struct {
 	config           EngineConfig
 	logger           zerolog.Logger
 	ciFailureHandler *CIFailureHandler
+	notifier         *StateChangeNotifier
 }
 
 // EngineOption configures an Engine.
@@ -62,6 +63,15 @@ type EngineOption func(*Engine)
 func WithCIFailureHandler(handler *CIFailureHandler) EngineOption {
 	return func(e *Engine) {
 		e.ciFailureHandler = handler
+	}
+}
+
+// WithNotifier sets the state change notifier for the engine.
+// The notifier emits terminal bell notifications when tasks transition
+// to attention-required states.
+func WithNotifier(notifier *StateChangeNotifier) EngineOption {
+	return func(e *Engine) {
+		e.notifier = notifier
 	}
 }
 
@@ -265,12 +275,18 @@ func (e *Engine) HandleStepResult(ctx context.Context, task *domain.Task, result
 	case "awaiting_approval":
 		// For human steps, need to transition through Validating first
 		// (Running -> Validating -> AwaitingApproval)
+		oldStatus := task.Status
 		if task.Status == constants.TaskStatusRunning {
 			if err := Transition(ctx, task, constants.TaskStatusValidating, "step requires approval"); err != nil {
 				return err
 			}
 		}
-		return Transition(ctx, task, constants.TaskStatusAwaitingApproval, "awaiting user approval")
+		if err := Transition(ctx, task, constants.TaskStatusAwaitingApproval, "awaiting user approval"); err != nil {
+			return err
+		}
+		// Notify on transition to attention state
+		e.notifyStateChange(oldStatus, constants.TaskStatusAwaitingApproval)
+		return nil
 
 	case "failed":
 		// Store error context for retry (FR25)
@@ -544,6 +560,8 @@ func (e *Engine) completeTask(ctx context.Context, task *domain.Task) error {
 		Str("task_id", task.ID).
 		Msg("all steps completed, transitioning to validation")
 
+	oldStatus := task.Status
+
 	// Transition to Validating
 	if err := Transition(ctx, task, constants.TaskStatusValidating, "all steps completed"); err != nil {
 		return err
@@ -553,6 +571,9 @@ func (e *Engine) completeTask(ctx context.Context, task *domain.Task) error {
 	if err := Transition(ctx, task, constants.TaskStatusAwaitingApproval, "validation passed"); err != nil {
 		return err
 	}
+
+	// Notify on transition to attention state
+	e.notifyStateChange(oldStatus, constants.TaskStatusAwaitingApproval)
 
 	// Save final state
 	if err := e.store.Update(ctx, task.WorkspaceID, task); err != nil {
@@ -595,6 +616,7 @@ func (e *Engine) requiresValidatingIntermediate(currentStatus, targetStatus cons
 // following valid state machine paths.
 func (e *Engine) transitionToErrorState(ctx context.Context, task *domain.Task, stepType domain.StepType, reason string) error {
 	targetStatus := e.mapStepTypeToErrorStatus(stepType)
+	oldStatus := task.Status
 
 	// From Running, ValidationFailed requires intermediate Validating state
 	if e.requiresValidatingIntermediate(task.Status, targetStatus) {
@@ -603,7 +625,13 @@ func (e *Engine) transitionToErrorState(ctx context.Context, task *domain.Task, 
 		}
 	}
 
-	return Transition(ctx, task, targetStatus, reason)
+	if err := Transition(ctx, task, targetStatus, reason); err != nil {
+		return err
+	}
+
+	// Notify on transition to attention/error state
+	e.notifyStateChange(oldStatus, targetStatus)
+	return nil
 }
 
 // buildRetryContext creates a human-readable error summary for AI retry (FR25).
@@ -676,4 +704,12 @@ func (e *Engine) executeParallelGroup(ctx context.Context, task *domain.Task, te
 	}
 
 	return results, nil
+}
+
+// notifyStateChange emits a bell notification if the state transition warrants it.
+// This is called after successful state transitions to attention-required states.
+func (e *Engine) notifyStateChange(oldStatus, newStatus constants.TaskStatus) {
+	if e.notifier != nil {
+		e.notifier.NotifyStateChange(oldStatus, newStatus)
+	}
 }

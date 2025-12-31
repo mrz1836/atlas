@@ -2,107 +2,91 @@
 package tui
 
 import (
-	"encoding/json"
-	"fmt"
 	"io"
+	"os"
+
+	"golang.org/x/term"
 )
 
-// Output provides methods for structured output to a terminal.
+// Output format constants (AC: #2).
+const (
+	// FormatAuto auto-detects the output format based on TTY status.
+	FormatAuto = ""
+
+	// FormatText forces human-readable styled output.
+	FormatText = "text"
+
+	// FormatJSON forces machine-readable JSON output.
+	FormatJSON = "json"
+)
+
+// Output is the interface for handling TTY vs JSON output (AC: #1).
+// Commands use this interface to output human-friendly or machine-readable formats.
 type Output interface {
-	// Success prints a success message.
+	// Success outputs a success message with green styling (TTY) or structured JSON.
 	Success(msg string)
-	// Error prints an error message.
+
+	// Error outputs an error with red styling (TTY) or structured JSON with details.
 	Error(err error)
-	// Warning prints a warning message.
+
+	// Warning outputs a warning message with yellow styling (TTY) or structured JSON.
 	Warning(msg string)
-	// Info prints an informational message.
+
+	// Info outputs an informational message with blue styling (TTY) or structured JSON.
 	Info(msg string)
-	// JSON outputs a value as formatted JSON.
-	JSON(v any) error
+
+	// Table outputs tabular data with aligned columns (TTY) or array of objects (JSON).
+	Table(headers []string, rows [][]string)
+
+	// JSON outputs an arbitrary value as JSON (used for command-specific structured output).
+	// Returns an error if encoding fails.
+	JSON(v interface{}) error
+
+	// Spinner returns a spinner for long-running operations.
+	// TTY: Animated spinner using Bubbles.
+	// JSON: No-op spinner that does nothing.
+	Spinner(msg string) Spinner
 }
 
-// TTYOutput provides styled output for terminal displays.
-type TTYOutput struct {
-	w      io.Writer
-	styles *OutputStyles
+// Spinner is the interface for progress indication during long-running operations (AC: #6).
+type Spinner interface {
+	// Update changes the spinner message.
+	Update(msg string)
+
+	// Stop terminates the spinner.
+	Stop()
 }
 
-// NewTTYOutput creates a new TTYOutput.
-func NewTTYOutput(w io.Writer) *TTYOutput {
-	return &TTYOutput{
-		w:      w,
-		styles: NewOutputStyles(),
-	}
-}
-
-// Success prints a success message.
-func (o *TTYOutput) Success(msg string) {
-	_, _ = fmt.Fprintln(o.w, o.styles.Success.Render("✓ "+msg))
-}
-
-// Error prints an error message.
-func (o *TTYOutput) Error(err error) {
-	_, _ = fmt.Fprintln(o.w, o.styles.Error.Render("✗ "+err.Error()))
-}
-
-// Warning prints a warning message.
-func (o *TTYOutput) Warning(msg string) {
-	_, _ = fmt.Fprintln(o.w, o.styles.Warning.Render("⚠ "+msg))
-}
-
-// Info prints an informational message.
-func (o *TTYOutput) Info(msg string) {
-	_, _ = fmt.Fprintln(o.w, o.styles.Info.Render(msg))
-}
-
-// JSON outputs a value as formatted JSON.
-func (o *TTYOutput) JSON(v any) error {
-	encoder := json.NewEncoder(o.w)
-	encoder.SetIndent("", "  ")
-	if err := encoder.Encode(v); err != nil {
-		return fmt.Errorf("failed to encode JSON: %w", err)
-	}
-	return nil
-}
-
-// JSONOutput provides plain JSON output without styling.
-type JSONOutput struct {
-	w io.Writer
-}
-
-// NewJSONOutput creates a new JSONOutput.
-func NewJSONOutput(w io.Writer) *JSONOutput {
-	return &JSONOutput{w: w}
-}
-
-// Success is a no-op for JSON output.
-func (o *JSONOutput) Success(_ string) {}
-
-// Error outputs the error as JSON.
-func (o *JSONOutput) Error(err error) {
-	_, _ = fmt.Fprintf(o.w, "{\"error\": %q}\n", err.Error())
-}
-
-// Warning is a no-op for JSON output.
-func (o *JSONOutput) Warning(_ string) {}
-
-// Info is a no-op for JSON output.
-func (o *JSONOutput) Info(_ string) {}
-
-// JSON outputs a value as formatted JSON.
-func (o *JSONOutput) JSON(v any) error {
-	encoder := json.NewEncoder(o.w)
-	encoder.SetIndent("", "  ")
-	if err := encoder.Encode(v); err != nil {
-		return fmt.Errorf("failed to encode JSON: %w", err)
-	}
-	return nil
-}
-
-// NewOutput creates the appropriate output based on format.
+// NewOutput creates the appropriate Output implementation based on format (AC: #2).
+//
+// Format selection:
+//   - FormatJSON ("json"): Always use JSONOutput
+//   - FormatText ("text"): Always use TTYOutput
+//   - FormatAuto (""): Auto-detect based on whether w is a TTY
+//
+// When auto-detecting, if w is an *os.File that is a terminal, TTYOutput is used.
+// Otherwise, JSONOutput is used for non-TTY (piped) output.
 func NewOutput(w io.Writer, format string) Output {
-	if format == "json" {
+	switch format {
+	case FormatJSON:
+		return NewJSONOutput(w)
+	case FormatText:
+		return NewTTYOutput(w)
+	default:
+		// Auto-detect based on TTY status
+		if isTTY(w) {
+			return NewTTYOutput(w)
+		}
 		return NewJSONOutput(w)
 	}
-	return NewTTYOutput(w)
+}
+
+// isTTY checks if the writer is a terminal (AC: #2 auto-detection).
+// Returns true if w is an *os.File and the file descriptor is a terminal.
+func isTTY(w io.Writer) bool {
+	f, ok := w.(*os.File)
+	if !ok {
+		return false
+	}
+	return term.IsTerminal(int(f.Fd()))
 }

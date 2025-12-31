@@ -109,6 +109,7 @@ Features:
 	AddUpgradeCommand(cmd)
 	AddWorkspaceCommand(cmd)
 	AddStartCommand(cmd)
+	AddStatusCommand(cmd)
 	AddResumeCommand(cmd)
 	AddAbandonCommand(cmd)
 	AddValidateCommand(cmd)

@@ -141,17 +141,17 @@ development_status:
 
   # Epic 7: Status Dashboard & Monitoring
   # Design Reference: _bmad-output/implementation-artifacts/epic-7-tui-components-from-scenarios.md
-  epic-7: backlog
-  7-1-tui-style-system: backlog
-  7-2-output-interface: backlog
-  7-3-status-table-component: backlog
-  7-4-implement-atlas-status-command: backlog
-  7-5-watch-mode-with-live-updates: backlog
-  7-6-terminal-bell-notifications: backlog
-  7-7-atlas-header-component: backlog
-  7-8-progress-dashboard-component: backlog
-  7-9-action-indicators: backlog
-  epic-7-retrospective: optional
+  epic-7: done
+  7-1-tui-style-system: done
+  7-2-output-interface: done
+  7-3-status-table-component: done
+  7-4-implement-atlas-status-command: done
+  7-5-watch-mode-with-live-updates: done
+  7-6-terminal-bell-notifications: done
+  7-7-atlas-header-component: done
+  7-8-progress-dashboard-component: done
+  7-9-action-indicators: done
+  epic-7-retrospective: done # Completed 2025-12-31
 
   # Epic 8: Interactive Review & Approval
   epic-8: backlog

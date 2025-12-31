@@ -1,0 +1,122 @@
+package tui
+
+import (
+	"encoding/json"
+	"errors"
+	"io"
+)
+
+// JSONOutput provides structured JSON output for non-TTY environments (AC: #4).
+// All messages are output as structured JSON objects.
+type JSONOutput struct {
+	w       io.Writer
+	encoder *json.Encoder
+}
+
+// NewJSONOutput creates a new JSONOutput.
+func NewJSONOutput(w io.Writer) *JSONOutput {
+	return &JSONOutput{
+		w:       w,
+		encoder: json.NewEncoder(w),
+	}
+}
+
+// jsonMessage is the structured format for Success/Warning/Info messages (AC: #4).
+type jsonMessage struct {
+	Type    string `json:"type"`
+	Message string `json:"message"`
+}
+
+// jsonError is the structured format for Error messages (AC: #4).
+type jsonError struct {
+	Type    string `json:"type"`
+	Message string `json:"message"`
+	Details string `json:"details,omitempty"`
+}
+
+// Success outputs a success message as JSON (AC: #4).
+// Format: {"type": "success", "message": "..."}
+func (o *JSONOutput) Success(msg string) {
+	//nolint:errchkjson // Method has no error return per interface contract
+	_ = o.encoder.Encode(jsonMessage{
+		Type:    "success",
+		Message: msg,
+	})
+}
+
+// Error outputs an error as JSON with details (AC: #4).
+// Format: {"type": "error", "message": "...", "details": "..."}
+// Details field is populated with the wrapped error's message if present.
+func (o *JSONOutput) Error(err error) {
+	jsonErr := jsonError{
+		Type:    "error",
+		Message: err.Error(),
+	}
+
+	// Extract details from wrapped error if present (AC: #4)
+	var wrapped error
+	if errors.Unwrap(err) != nil {
+		wrapped = errors.Unwrap(err)
+		jsonErr.Details = wrapped.Error()
+	}
+
+	//nolint:errchkjson // Method has no error return per interface contract
+	_ = o.encoder.Encode(jsonErr)
+}
+
+// Warning outputs a warning message as JSON (AC: #4).
+// Format: {"type": "warning", "message": "..."}
+func (o *JSONOutput) Warning(msg string) {
+	//nolint:errchkjson // Method has no error return per interface contract
+	_ = o.encoder.Encode(jsonMessage{
+		Type:    "warning",
+		Message: msg,
+	})
+}
+
+// Info outputs an informational message as JSON (AC: #4).
+// Format: {"type": "info", "message": "..."}
+func (o *JSONOutput) Info(msg string) {
+	//nolint:errchkjson // Method has no error return per interface contract
+	_ = o.encoder.Encode(jsonMessage{
+		Type:    "info",
+		Message: msg,
+	})
+}
+
+// Table outputs tabular data as an array of objects (AC: #5).
+// Format: [{"col1": "val1", ...}, ...]
+func (o *JSONOutput) Table(headers []string, rows [][]string) {
+	if len(headers) == 0 {
+		//nolint:errchkjson // Method has no error return per interface contract
+		_ = o.encoder.Encode([]map[string]string{})
+		return
+	}
+
+	result := make([]map[string]string, 0, len(rows))
+	for _, row := range rows {
+		obj := make(map[string]string, len(headers))
+		for i, h := range headers {
+			if i < len(row) {
+				obj[h] = row[i]
+			} else {
+				obj[h] = ""
+			}
+		}
+		result = append(result, obj)
+	}
+	//nolint:errchkjson // Method has no error return per interface contract
+	_ = o.encoder.Encode(result)
+}
+
+// JSON outputs an arbitrary value as JSON.
+// Returns an error if encoding fails.
+func (o *JSONOutput) JSON(v interface{}) error {
+	return o.encoder.Encode(v)
+}
+
+// Spinner returns a NoopSpinner for JSON output (AC: #6).
+// JSON output doesn't support animated spinners.
+func (o *JSONOutput) Spinner(_ string) Spinner {
+	return &NoopSpinner{}
+}
