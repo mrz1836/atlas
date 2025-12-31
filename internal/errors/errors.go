@@ -246,6 +246,12 @@ var (
 
 	// ErrConflictingFlags indicates that mutually exclusive flags were specified.
 	ErrConflictingFlags = errors.New("conflicting flags specified")
+
+	// ErrWatchIntervalTooShort indicates that the watch interval is below minimum.
+	ErrWatchIntervalTooShort = errors.New("watch interval too short")
+
+	// ErrWatchModeJSONUnsupported indicates that watch mode does not support JSON output.
+	ErrWatchModeJSONUnsupported = errors.New("watch mode does not support JSON output")
 )
 
 // ExitCode2Error wraps an error to indicate exit code 2 should be used.

@@ -8,11 +8,15 @@ import (
 	"io"
 	"os"
 	"sort"
+	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
 
+	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/domain"
+	"github.com/mrz1836/atlas/internal/errors"
 	"github.com/mrz1836/atlas/internal/task"
 	"github.com/mrz1836/atlas/internal/tui"
 	"github.com/mrz1836/atlas/internal/workspace"
@@ -30,8 +34,18 @@ type TaskLister interface {
 	List(ctx context.Context, workspaceName string) ([]*domain.Task, error)
 }
 
+// MinWatchInterval is the minimum allowed refresh interval for watch mode.
+// Prevents excessive CPU usage from too-frequent refreshes.
+const MinWatchInterval = 500 * time.Millisecond
+
+// DefaultWatchInterval is the default refresh interval for watch mode.
+const DefaultWatchInterval = 2 * time.Second
+
 // AddStatusCommand adds the status command to the root command.
 func AddStatusCommand(parent *cobra.Command) {
+	var watchMode bool
+	var watchInterval time.Duration
+
 	cmd := &cobra.Command{
 		Use:   "status",
 		Short: "Show workspace status dashboard",
@@ -48,19 +62,28 @@ The status table shows:
 Workspaces are sorted by priority: attention-required states first,
 then running states, then others.
 
+Watch mode (-w) enables live updates with automatic refresh.
+
 Examples:
   atlas status              # Display styled status table
   atlas status --output json # Display as JSON array
-  atlas status --quiet      # Show table only (no header/footer)`,
+  atlas status --quiet      # Show table only (no header/footer)
+  atlas status --watch      # Live updating dashboard
+  atlas status -w --interval 5s # Update every 5 seconds`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runStatus(cmd.Context(), cmd, os.Stdout)
+			return runStatus(cmd.Context(), cmd, os.Stdout, watchMode, watchInterval)
 		},
 	}
+
+	// Watch mode flags
+	cmd.Flags().BoolVarP(&watchMode, "watch", "w", false, "Enable watch mode with live updates")
+	cmd.Flags().DurationVar(&watchInterval, "interval", DefaultWatchInterval, "Refresh interval in watch mode (minimum 500ms)")
+
 	parent.AddCommand(cmd)
 }
 
 // runStatus executes the status command with production dependencies.
-func runStatus(ctx context.Context, cmd *cobra.Command, w io.Writer) error {
+func runStatus(ctx context.Context, cmd *cobra.Command, w io.Writer, watchMode bool, watchInterval time.Duration) error {
 	// Check for cancellation at entry
 	select {
 	case <-ctx.Done():
@@ -86,6 +109,21 @@ func runStatus(ctx context.Context, cmd *cobra.Command, w io.Writer) error {
 	taskStore, err := task.NewFileStore("")
 	if err != nil {
 		return fmt.Errorf("failed to create task store: %w", err)
+	}
+
+	// Handle watch mode
+	if watchMode {
+		// Validate interval
+		if watchInterval < MinWatchInterval {
+			return fmt.Errorf("%w: minimum is %v", errors.ErrWatchIntervalTooShort, MinWatchInterval)
+		}
+
+		// Watch mode doesn't support JSON output
+		if output == OutputJSON {
+			return errors.ErrWatchModeJSONUnsupported
+		}
+
+		return runWatchMode(ctx, wsMgr, taskStore, watchInterval, quiet)
 	}
 
 	return runStatusWithDeps(ctx, w, output, quiet, wsMgr, taskStore)
@@ -322,4 +360,30 @@ func buildActionableSuggestion(row *tui.StatusRow) string {
 
 	// All actions include the workspace name for consistency
 	return "\nRun: " + action + " " + row.Workspace
+}
+
+// runWatchMode starts the watch mode TUI with live updates.
+func runWatchMode(ctx context.Context, wsMgr tui.WorkspaceLister, taskStore tui.TaskLister, interval time.Duration, quiet bool) error {
+	// Load config to get bell preference
+	cfg, err := config.Load(ctx)
+	bellEnabled := true // Default to enabled
+	if err == nil {
+		bellEnabled = cfg.Notifications.Bell
+	}
+
+	// Create watch config
+	watchCfg := tui.WatchConfig{
+		Interval:    interval,
+		BellEnabled: bellEnabled,
+		Quiet:       quiet,
+	}
+
+	// Create the watch model
+	model := tui.NewWatchModel(wsMgr, taskStore, watchCfg)
+
+	// Create and run the Bubble Tea program with alternate screen and context
+	p := tea.NewProgram(model, tea.WithAltScreen(), tea.WithContext(ctx))
+
+	_, err = p.Run()
+	return err
 }

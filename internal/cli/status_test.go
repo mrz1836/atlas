@@ -445,8 +445,8 @@ func TestRunStatus_EmptyWorkspaces(t *testing.T) {
 	statusCmd := &cobra.Command{Use: "status"}
 	rootCmd.AddCommand(statusCmd)
 
-	// Execute with buffer - tests the production code path
-	err := runStatus(context.Background(), statusCmd, &buf)
+	// Execute with buffer - tests the production code path (no watch mode)
+	err := runStatus(context.Background(), statusCmd, &buf, false, DefaultWatchInterval)
 	require.NoError(t, err)
 
 	// Verify empty message
@@ -472,8 +472,8 @@ func TestRunStatus_JSONOutput(t *testing.T) {
 	// Set the output flag value on the persistent flags
 	_ = rootCmd.PersistentFlags().Set("output", "json")
 
-	// Execute with buffer
-	err := runStatus(context.Background(), statusCmd, &buf)
+	// Execute with buffer (no watch mode)
+	err := runStatus(context.Background(), statusCmd, &buf, false, DefaultWatchInterval)
 	require.NoError(t, err)
 
 	// Should output empty JSON array
@@ -495,8 +495,8 @@ func TestRunStatus_ContextCancellation(t *testing.T) {
 	statusCmd := &cobra.Command{Use: "status"}
 	rootCmd.AddCommand(statusCmd)
 
-	// Execute with canceled context
-	err := runStatus(ctx, statusCmd, &buf)
+	// Execute with canceled context (no watch mode)
+	err := runStatus(ctx, statusCmd, &buf, false, DefaultWatchInterval)
 
 	// Should return context.Canceled error
 	require.Error(t, err)
@@ -730,4 +730,78 @@ func TestSortByStatusPriority(t *testing.T) {
 	assert.Equal(t, "attention", rows[0].Workspace, "attention should be first")
 	assert.Equal(t, "running", rows[1].Workspace, "running should be second")
 	// Completed and pending have same priority, order is stable
+}
+
+// TestAddStatusCommand_WatchFlags tests that watch mode flags are registered.
+func TestAddStatusCommand_WatchFlags(t *testing.T) {
+	t.Parallel()
+
+	root := &cobra.Command{Use: "atlas"}
+	AddStatusCommand(root)
+
+	// Find the status command
+	statusCmd, _, err := root.Find([]string{"status"})
+	require.NoError(t, err)
+	require.NotNil(t, statusCmd)
+
+	// Check --watch flag exists
+	watchFlag := statusCmd.Flags().Lookup("watch")
+	require.NotNil(t, watchFlag, "--watch flag should exist")
+	assert.Equal(t, "w", watchFlag.Shorthand, "-w shorthand should be registered")
+
+	// Check --interval flag exists
+	intervalFlag := statusCmd.Flags().Lookup("interval")
+	require.NotNil(t, intervalFlag, "--interval flag should exist")
+	assert.Equal(t, "2s", intervalFlag.DefValue, "default interval should be 2s")
+}
+
+// TestRunStatus_WatchModeMinInterval tests minimum interval validation.
+func TestRunStatus_WatchModeMinInterval(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+
+	var buf bytes.Buffer
+
+	rootCmd := &cobra.Command{Use: "atlas"}
+	AddGlobalFlags(rootCmd, &GlobalFlags{})
+
+	statusCmd := &cobra.Command{Use: "status"}
+	rootCmd.AddCommand(statusCmd)
+
+	// Try with interval below minimum (500ms)
+	err := runStatus(context.Background(), statusCmd, &buf, true, 100*time.Millisecond)
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, errors.ErrWatchIntervalTooShort)
+}
+
+// TestRunStatus_WatchModeJSONError tests watch mode rejects JSON output.
+func TestRunStatus_WatchModeJSONError(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+
+	var buf bytes.Buffer
+
+	rootCmd := &cobra.Command{Use: "atlas"}
+	AddGlobalFlags(rootCmd, &GlobalFlags{Output: OutputJSON})
+
+	statusCmd := &cobra.Command{Use: "status"}
+	rootCmd.AddCommand(statusCmd)
+
+	// Set the output flag value on the persistent flags
+	_ = rootCmd.PersistentFlags().Set("output", "json")
+
+	// Try watch mode with JSON output
+	err := runStatus(context.Background(), statusCmd, &buf, true, 2*time.Second)
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, errors.ErrWatchModeJSONUnsupported)
+}
+
+// TestMinWatchInterval tests the constant values.
+func TestMinWatchInterval(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, 500*time.Millisecond, MinWatchInterval)
+	assert.Equal(t, 2*time.Second, DefaultWatchInterval)
 }
