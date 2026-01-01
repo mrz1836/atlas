@@ -173,11 +173,11 @@ func TestSuggestedAction(t *testing.T) {
 		status         constants.TaskStatus
 		expectedAction string
 	}{
-		{constants.TaskStatusValidationFailed, "atlas resume"},
+		{constants.TaskStatusValidationFailed, "atlas recover"},
 		{constants.TaskStatusAwaitingApproval, "atlas approve"},
-		{constants.TaskStatusGHFailed, "atlas retry"},
-		{constants.TaskStatusCIFailed, "atlas retry"},
-		{constants.TaskStatusCITimeout, "atlas retry"},
+		{constants.TaskStatusGHFailed, "atlas recover"},
+		{constants.TaskStatusCIFailed, "atlas recover"},
+		{constants.TaskStatusCITimeout, "atlas recover"},
 		{constants.TaskStatusRunning, ""},
 		{constants.TaskStatusCompleted, ""},
 	}

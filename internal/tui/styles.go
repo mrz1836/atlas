@@ -213,11 +213,11 @@ func IsAttentionStatus(status constants.TaskStatus) bool {
 // Returns empty string if no action is needed or available.
 func SuggestedAction(status constants.TaskStatus) string {
 	actions := map[constants.TaskStatus]string{
-		constants.TaskStatusValidationFailed: "atlas resume",
+		constants.TaskStatusValidationFailed: "atlas recover",
 		constants.TaskStatusAwaitingApproval: "atlas approve",
-		constants.TaskStatusGHFailed:         "atlas retry",
-		constants.TaskStatusCIFailed:         "atlas retry",
-		constants.TaskStatusCITimeout:        "atlas retry",
+		constants.TaskStatusGHFailed:         "atlas recover",
+		constants.TaskStatusCIFailed:         "atlas recover",
+		constants.TaskStatusCITimeout:        "atlas recover",
 	}
 	if action, ok := actions[status]; ok {
 		return action
