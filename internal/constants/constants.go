@@ -78,3 +78,18 @@ const (
 	// DefaultPreCommitCommand is the default command for pre-commit hooks.
 	DefaultPreCommitCommand = "go-pre-commit run --all-files"
 )
+
+// Log rotation configuration constants.
+const (
+	// LogMaxSizeMB is the maximum size in megabytes of the log file before it gets rotated.
+	LogMaxSizeMB = 10
+
+	// LogMaxBackups is the maximum number of old log files to retain.
+	LogMaxBackups = 5
+
+	// LogMaxAgeDays is the maximum number of days to retain old log files.
+	LogMaxAgeDays = 30
+
+	// LogCompress indicates whether the rotated log files should be compressed using gzip.
+	LogCompress = true
+)

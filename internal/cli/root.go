@@ -116,6 +116,9 @@ Features:
 	AddFormatCommand(cmd)
 	AddLintCommand(cmd)
 	AddTestCommand(cmd)
+	AddApproveCommand(cmd)
+	AddRejectCommand(cmd)
+	AddRecoverCommand(cmd)
 
 	return cmd
 }

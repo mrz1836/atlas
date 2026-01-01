@@ -158,6 +158,9 @@ func (e *Engine) Start(ctx context.Context, workspaceName string, template *doma
 		return nil, fmt.Errorf("failed to save task: %w", err)
 	}
 
+	// Inject logger with task context for step executors
+	ctx = e.injectLoggerContext(ctx, workspaceName, taskID)
+
 	// Execute steps - pass template for step definitions
 	if err := e.runSteps(ctx, task, template); err != nil {
 		// Task state is already saved; return error for caller to handle
@@ -202,6 +205,9 @@ func (e *Engine) Resume(ctx context.Context, task *domain.Task, template *domain
 			return fmt.Errorf("failed to save resumed state: %w", err)
 		}
 	}
+
+	// Inject logger with task context for step executors
+	ctx = e.injectLoggerContext(ctx, task.WorkspaceID, task.ID)
 
 	// Continue from current step
 	return e.runSteps(ctx, task, template)
@@ -712,4 +718,15 @@ func (e *Engine) notifyStateChange(oldStatus, newStatus constants.TaskStatus) {
 	if e.notifier != nil {
 		e.notifier.NotifyStateChange(oldStatus, newStatus)
 	}
+}
+
+// injectLoggerContext creates a context with an enriched logger containing
+// workspace_name and task_id fields. Step executors can retrieve this logger
+// using zerolog.Ctx(ctx) to automatically include these fields in all log entries.
+func (e *Engine) injectLoggerContext(ctx context.Context, workspaceName, taskID string) context.Context {
+	logger := e.logger.With().
+		Str("workspace_name", workspaceName).
+		Str("task_id", taskID).
+		Logger()
+	return logger.WithContext(ctx)
 }

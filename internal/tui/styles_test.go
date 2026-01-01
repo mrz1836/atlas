@@ -173,11 +173,11 @@ func TestSuggestedAction(t *testing.T) {
 		status         constants.TaskStatus
 		expectedAction string
 	}{
-		{constants.TaskStatusValidationFailed, "atlas resume"},
+		{constants.TaskStatusValidationFailed, "atlas recover"},
 		{constants.TaskStatusAwaitingApproval, "atlas approve"},
-		{constants.TaskStatusGHFailed, "atlas retry"},
-		{constants.TaskStatusCIFailed, "atlas retry"},
-		{constants.TaskStatusCITimeout, "atlas retry"},
+		{constants.TaskStatusGHFailed, "atlas recover"},
+		{constants.TaskStatusCIFailed, "atlas recover"},
+		{constants.TaskStatusCITimeout, "atlas recover"},
 		{constants.TaskStatusRunning, ""},
 		{constants.TaskStatusCompleted, ""},
 	}
@@ -467,4 +467,32 @@ func TestPadRight_Truncation(t *testing.T) {
 	// Should be exactly 3 runes
 	assert.Equal(t, 3, utf8.RuneCountInString(result))
 	assert.Equal(t, "●●●", result)
+}
+
+// TestTerminalWidthConstants verifies width constants are defined correctly.
+func TestTerminalWidthConstants(t *testing.T) {
+	assert.Equal(t, 80, NarrowTerminalWidth)
+	assert.Equal(t, 80, DefaultTerminalWidth)
+}
+
+// TestIsNarrowTerminal verifies narrow terminal detection.
+func TestIsNarrowTerminal(t *testing.T) {
+	// Just verify it returns a boolean without panic
+	isNarrow := IsNarrowTerminal()
+	assert.IsType(t, true, isNarrow)
+}
+
+// TestIsNarrowTerminal_UsesGetTerminalWidth verifies IsNarrowTerminal uses GetTerminalWidth.
+func TestIsNarrowTerminal_UsesGetTerminalWidth(t *testing.T) {
+	width := GetTerminalWidth()
+	isNarrow := IsNarrowTerminal()
+
+	// If width is 0 (detection failed), should be narrow
+	if width == 0 {
+		assert.True(t, isNarrow, "should be narrow when width detection fails")
+	} else if width < NarrowTerminalWidth {
+		assert.True(t, isNarrow, "should be narrow when width < threshold")
+	} else {
+		assert.False(t, isNarrow, "should not be narrow when width >= threshold")
+	}
 }

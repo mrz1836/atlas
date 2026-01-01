@@ -208,7 +208,7 @@ func handlePipelineFailure(out tui.Output, result *validation.PipelineResult) er
 	allResults := result.AllResults()
 	for _, r := range allResults {
 		if !r.Success {
-			out.Error(fmt.Errorf("%w: %s (exit code: %d)", errors.ErrValidationFailed, r.Command, r.ExitCode))
+			out.Error(tui.WrapWithSuggestion(fmt.Errorf("%w: %s (exit code: %d)", errors.ErrValidationFailed, r.Command, r.ExitCode)))
 			if r.Error != "" {
 				out.Info(r.Error)
 			}

@@ -252,6 +252,24 @@ var (
 
 	// ErrWatchModeJSONUnsupported indicates that watch mode does not support JSON output.
 	ErrWatchModeJSONUnsupported = errors.New("watch mode does not support JSON output")
+
+	// ErrNoMenuOptions indicates that no options were provided to a menu.
+	ErrNoMenuOptions = errors.New("no menu options provided")
+
+	// ErrMenuCanceled indicates that the user canceled a menu operation.
+	ErrMenuCanceled = errors.New("menu canceled by user")
+
+	// ErrInvalidArgument indicates that an invalid argument was provided.
+	ErrInvalidArgument = errors.New("invalid argument")
+
+	// ErrInvalidStatus indicates that a task is in an invalid status for the operation.
+	ErrInvalidStatus = errors.New("invalid task status")
+
+	// ErrApprovalRequired indicates that approval is required but --auto-approve was not provided.
+	ErrApprovalRequired = errors.New("approval required")
+
+	// ErrInteractiveRequired indicates that interactive prompts are required but not available.
+	ErrInteractiveRequired = errors.New("interactive prompt required")
 )
 
 // ExitCode2Error wraps an error to indicate exit code 2 should be used.

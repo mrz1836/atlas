@@ -2,6 +2,7 @@ package tui
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -37,12 +38,51 @@ func TestTTYOutput_Success(t *testing.T) {
 }
 
 func TestTTYOutput_Error(t *testing.T) {
-	var buf bytes.Buffer
-	out := NewTTYOutput(&buf)
-	out.Error(atlaserrors.ErrWorkspaceNotFound)
-	output := buf.String()
-	assert.Contains(t, output, "✗")
-	assert.Contains(t, output, "not found")
+	t.Run("standard error", func(t *testing.T) {
+		var buf bytes.Buffer
+		out := NewTTYOutput(&buf)
+		out.Error(atlaserrors.ErrWorkspaceNotFound)
+		output := buf.String()
+		assert.Contains(t, output, "✗")
+		assert.Contains(t, output, "not found")
+	})
+
+	t.Run("actionable error with suggestion", func(t *testing.T) {
+		var buf bytes.Buffer
+		out := NewTTYOutput(&buf)
+		err := NewActionableError("config not found", "Run: atlas init")
+		out.Error(err)
+		output := buf.String()
+		assert.Contains(t, output, "✗")
+		assert.Contains(t, output, "config not found")
+		assert.Contains(t, output, "▸ Try:")
+		assert.Contains(t, output, "atlas init")
+	})
+
+	t.Run("actionable error with context", func(t *testing.T) {
+		var buf bytes.Buffer
+		out := NewTTYOutput(&buf)
+		err := NewActionableError("file not found", "Check the path").
+			WithContext("/path/to/file")
+		out.Error(err)
+		output := buf.String()
+		assert.Contains(t, output, "✗")
+		assert.Contains(t, output, "file not found")
+		assert.Contains(t, output, "/path/to/file")
+		assert.Contains(t, output, "▸ Try:")
+		assert.Contains(t, output, "Check the path")
+	})
+
+	t.Run("actionable error with empty suggestion", func(t *testing.T) {
+		var buf bytes.Buffer
+		out := NewTTYOutput(&buf)
+		err := NewActionableError("something went wrong", "")
+		out.Error(err)
+		output := buf.String()
+		assert.Contains(t, output, "✗")
+		assert.Contains(t, output, "something went wrong")
+		assert.NotContains(t, output, "▸ Try:")
+	})
 }
 
 func TestTTYOutput_Warning(t *testing.T) {
@@ -125,7 +165,8 @@ func TestTTYOutput_JSON(t *testing.T) {
 func TestTTYOutput_Spinner(t *testing.T) {
 	var buf bytes.Buffer
 	out := NewTTYOutput(&buf)
-	spinner := out.Spinner("Loading...")
+	ctx := context.Background()
+	spinner := out.Spinner(ctx, "Loading...")
 	assert.NotNil(t, spinner)
 	spinner.Update("Still loading...")
 	spinner.Stop()
@@ -169,6 +210,52 @@ func TestJSONOutput_Error(t *testing.T) {
 		assert.Equal(t, "error", result.Type)
 		assert.Contains(t, result.Message, "operation failed")
 		assert.Contains(t, result.Details, "not found") // Wrapped error as details
+	})
+
+	t.Run("actionable error with suggestion", func(t *testing.T) {
+		var buf bytes.Buffer
+		out := NewJSONOutput(&buf)
+		actionErr := NewActionableError("config not found", "Run: atlas init")
+		out.Error(actionErr)
+
+		var result jsonError
+		err := json.Unmarshal(buf.Bytes(), &result)
+		require.NoError(t, err)
+		assert.Equal(t, "error", result.Type)
+		assert.Equal(t, "config not found", result.Message)
+		assert.Equal(t, "Run: atlas init", result.Suggestion)
+		assert.Empty(t, result.Context)
+	})
+
+	t.Run("actionable error with context", func(t *testing.T) {
+		var buf bytes.Buffer
+		out := NewJSONOutput(&buf)
+		actionErr := NewActionableError("file not found", "Check the path").
+			WithContext("/path/to/file")
+		out.Error(actionErr)
+
+		var result jsonError
+		err := json.Unmarshal(buf.Bytes(), &result)
+		require.NoError(t, err)
+		assert.Equal(t, "error", result.Type)
+		assert.Contains(t, result.Message, "file not found")
+		assert.Contains(t, result.Message, "/path/to/file") // Context in message
+		assert.Equal(t, "Check the path", result.Suggestion)
+		assert.Equal(t, "/path/to/file", result.Context)
+	})
+
+	t.Run("actionable error with empty suggestion", func(t *testing.T) {
+		var buf bytes.Buffer
+		out := NewJSONOutput(&buf)
+		actionErr := NewActionableError("something went wrong", "")
+		out.Error(actionErr)
+
+		var result jsonError
+		err := json.Unmarshal(buf.Bytes(), &result)
+		require.NoError(t, err)
+		assert.Equal(t, "error", result.Type)
+		assert.Equal(t, "something went wrong", result.Message)
+		assert.Empty(t, result.Suggestion)
 	})
 }
 
@@ -268,7 +355,8 @@ func TestJSONOutput_JSON(t *testing.T) {
 func TestJSONOutput_Spinner(t *testing.T) {
 	var buf bytes.Buffer
 	out := NewJSONOutput(&buf)
-	spinner := out.Spinner("Loading...")
+	ctx := context.Background()
+	spinner := out.Spinner(ctx, "Loading...")
 
 	// NoopSpinner should do nothing
 	assert.NotNil(t, spinner)
@@ -347,7 +435,8 @@ func TestNoopSpinner(_ *testing.T) {
 
 func TestSpinnerAdapter(t *testing.T) {
 	var buf bytes.Buffer
-	adapter := NewSpinnerAdapter(&buf, "Loading...")
+	ctx := context.Background()
+	adapter := NewSpinnerAdapter(ctx, &buf, "Loading...")
 
 	// Should be usable as Spinner interface
 	var s Spinner = adapter

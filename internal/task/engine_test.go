@@ -3642,3 +3642,30 @@ func TestEngine_Abandon_PreservesMetadata(t *testing.T) {
 	assert.Len(t, task.Steps, 2)
 	assert.Equal(t, 3, task.Steps[1].Attempts)
 }
+
+func TestEngine_InjectLoggerContext(t *testing.T) {
+	t.Parallel()
+
+	var buf strings.Builder
+	logger := zerolog.New(&buf)
+	store := newMockStore()
+	registry := steps.NewExecutorRegistry()
+	engine := NewEngine(store, registry, DefaultEngineConfig(), logger)
+
+	ctx := context.Background()
+	workspaceName := "test-workspace"
+	taskID := "task-20251231-120000"
+
+	// Inject logger context
+	enrichedCtx := engine.injectLoggerContext(ctx, workspaceName, taskID)
+
+	// Extract logger from context and log a message
+	log := zerolog.Ctx(enrichedCtx)
+	log.Info().Msg("test message")
+
+	// Verify the log output contains workspace_name and task_id
+	output := buf.String()
+	assert.Contains(t, output, `"workspace_name":"test-workspace"`)
+	assert.Contains(t, output, `"task_id":"task-20251231-120000"`)
+	assert.Contains(t, output, "test message")
+}

@@ -10,6 +10,10 @@ const (
 
 	// TaskLogFileName is the name of the log file that captures general task execution output.
 	TaskLogFileName = "task.log"
+
+	// CLILogFileName is the name of the global CLI log file for host operations.
+	// This file is located in ~/.atlas/logs/atlas.log
+	CLILogFileName = "atlas.log"
 )
 
 // Configuration file names.

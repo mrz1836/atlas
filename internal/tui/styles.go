@@ -213,11 +213,11 @@ func IsAttentionStatus(status constants.TaskStatus) bool {
 // Returns empty string if no action is needed or available.
 func SuggestedAction(status constants.TaskStatus) string {
 	actions := map[constants.TaskStatus]string{
-		constants.TaskStatusValidationFailed: "atlas resume",
+		constants.TaskStatusValidationFailed: "atlas recover",
 		constants.TaskStatusAwaitingApproval: "atlas approve",
-		constants.TaskStatusGHFailed:         "atlas retry",
-		constants.TaskStatusCIFailed:         "atlas retry",
-		constants.TaskStatusCITimeout:        "atlas retry",
+		constants.TaskStatusGHFailed:         "atlas recover",
+		constants.TaskStatusCIFailed:         "atlas recover",
+		constants.TaskStatusCITimeout:        "atlas recover",
 	}
 	if action, ok := actions[status]; ok {
 		return action
@@ -461,4 +461,23 @@ func padRight(s string, width int) string {
 		return string(runes[:width])
 	}
 	return s + strings.Repeat(" ", width-runeCount)
+}
+
+// NarrowTerminalWidth is the threshold for narrow terminal mode.
+// Terminals narrower than this value may need adjusted formatting.
+const NarrowTerminalWidth = 80
+
+// DefaultTerminalWidth is used when terminal width cannot be determined.
+const DefaultTerminalWidth = 80
+
+// IsNarrowTerminal returns true if terminal width is below the narrow threshold.
+// Use this to adapt output format for narrow terminals.
+// Uses GetTerminalWidth() from header.go for actual terminal detection.
+func IsNarrowTerminal() bool {
+	width := GetTerminalWidth()
+	if width == 0 {
+		// Width 0 means detection failed - treat as narrow for safety
+		return true
+	}
+	return width < NarrowTerminalWidth
 }

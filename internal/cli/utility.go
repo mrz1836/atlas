@@ -141,7 +141,7 @@ func runCommandsWithOutput(
 					Results: results,
 				})
 			}
-			out.Error(fmt.Errorf("%w: %s in %s", errors.ErrCommandFailed, cmdStr, category))
+			out.Error(tui.WrapWithSuggestion(fmt.Errorf("%w: %s in %s", errors.ErrCommandFailed, cmdStr, category)))
 			return fmt.Errorf("%w: %s in %s", errors.ErrCommandFailed, cmdStr, category)
 		}
 
@@ -175,7 +175,7 @@ func handleValidationFailure(out tui.Output, outputFormat string, results []Comm
 	// Find the failed command
 	for _, r := range results {
 		if !r.Success {
-			out.Error(fmt.Errorf("%w: %s (exit code: %d)", errors.ErrValidationFailed, r.Command, r.ExitCode))
+			out.Error(tui.WrapWithSuggestion(fmt.Errorf("%w: %s (exit code: %d)", errors.ErrValidationFailed, r.Command, r.ExitCode)))
 			if r.Error != "" {
 				out.Info(r.Error)
 			}

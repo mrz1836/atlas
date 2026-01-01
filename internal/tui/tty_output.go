@@ -1,7 +1,9 @@
 package tui
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -35,7 +37,20 @@ func (o *TTYOutput) Success(msg string) {
 }
 
 // Error outputs an error with red color and ✗ icon (AC: #3).
+// If the error is an ActionableError, it also displays the suggestion
+// with a dim "▸ Try:" prefix for visual hierarchy.
 func (o *TTYOutput) Error(err error) {
+	var ae *ActionableError
+	if errors.As(err, &ae) {
+		// Format: ✗ <message>\n  ▸ Try: <suggestion>
+		msg := ae.Error()
+		_, _ = fmt.Fprintln(o.w, o.styles.Error.Render("✗ "+msg))
+		if ae.Suggestion != "" {
+			_, _ = fmt.Fprintln(o.w, o.styles.Dim.Render("  ▸ Try: "+ae.Suggestion))
+		}
+		return
+	}
+	// Standard error handling
 	_, _ = fmt.Fprintln(o.w, o.styles.Error.Render("✗ "+err.Error()))
 }
 
@@ -103,6 +118,7 @@ func (o *TTYOutput) JSON(v interface{}) error {
 }
 
 // Spinner returns a SpinnerAdapter for animated progress indication (AC: #6).
-func (o *TTYOutput) Spinner(msg string) Spinner {
-	return NewSpinnerAdapter(o.w, msg)
+// Context is propagated for proper cancellation handling.
+func (o *TTYOutput) Spinner(ctx context.Context, msg string) Spinner {
+	return NewSpinnerAdapter(ctx, o.w, msg)
 }
