@@ -162,6 +162,6 @@ development_status:
   8-5-error-recovery-menus: done
   8-6-progress-spinners: done
   8-7-non-interactive-mode: done
-  8-8-structured-logging-system: backlog
+  8-8-structured-logging-system: done
   8-9-styled-output-system: backlog
   epic-8-retrospective: optional

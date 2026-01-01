@@ -1,31 +1,40 @@
 package cli
 
 import (
+	"bytes"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/mrz1836/atlas/internal/constants"
 )
 
 func TestInitLogger_VerboseMode(t *testing.T) {
 	t.Parallel()
 
-	logger := InitLogger(true, false)
+	// Use custom writer to avoid file creation side effects
+	var buf bytes.Buffer
+	logger := InitLoggerWithWriter(true, false, &buf)
 	assert.Equal(t, zerolog.DebugLevel, logger.GetLevel())
 }
 
 func TestInitLogger_QuietMode(t *testing.T) {
 	t.Parallel()
 
-	logger := InitLogger(false, true)
+	var buf bytes.Buffer
+	logger := InitLoggerWithWriter(false, true, &buf)
 	assert.Equal(t, zerolog.WarnLevel, logger.GetLevel())
 }
 
 func TestInitLogger_DefaultMode(t *testing.T) {
 	t.Parallel()
 
-	logger := InitLogger(false, false)
+	var buf bytes.Buffer
+	logger := InitLoggerWithWriter(false, false, &buf)
 	assert.Equal(t, zerolog.InfoLevel, logger.GetLevel())
 }
 
@@ -68,7 +77,8 @@ func TestInitLogger_LogLevelPrecedence(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			logger := InitLogger(tc.verbose, tc.quiet)
+			var buf bytes.Buffer
+			logger := InitLoggerWithWriter(tc.verbose, tc.quiet, &buf)
 			assert.Equal(t, tc.expectedLevel, logger.GetLevel())
 		})
 	}
@@ -77,9 +87,8 @@ func TestInitLogger_LogLevelPrecedence(t *testing.T) {
 func TestInitLogger_HasTimestamp(t *testing.T) {
 	t.Parallel()
 
-	// The logger should have a timestamp context
-	// We can verify this by checking that the logger was created with With().Timestamp()
-	logger := InitLogger(false, false)
+	var buf bytes.Buffer
+	logger := InitLoggerWithWriter(false, false, &buf)
 
 	// Logger should not be zero value
 	assert.NotEqual(t, zerolog.Logger{}, logger)
@@ -115,8 +124,288 @@ func TestInitLogger_WithNO_COLOR(t *testing.T) {
 	// t.Setenv automatically restores the original value after test
 	t.Setenv("NO_COLOR", "1")
 
+	var buf bytes.Buffer
 	// Logger should initialize without error
-	logger := InitLogger(false, false)
+	logger := InitLoggerWithWriter(false, false, &buf)
 	assert.NotEqual(t, zerolog.Logger{}, logger)
 	assert.Equal(t, zerolog.InfoLevel, logger.GetLevel())
+}
+
+func TestSelectLevel(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		verbose       bool
+		quiet         bool
+		expectedLevel zerolog.Level
+	}{
+		{
+			name:          "default returns info",
+			verbose:       false,
+			quiet:         false,
+			expectedLevel: zerolog.InfoLevel,
+		},
+		{
+			name:          "verbose returns debug",
+			verbose:       true,
+			quiet:         false,
+			expectedLevel: zerolog.DebugLevel,
+		},
+		{
+			name:          "quiet returns warn",
+			verbose:       false,
+			quiet:         true,
+			expectedLevel: zerolog.WarnLevel,
+		},
+		{
+			name:          "verbose takes precedence",
+			verbose:       true,
+			quiet:         true,
+			expectedLevel: zerolog.DebugLevel,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			level := selectLevel(tc.verbose, tc.quiet)
+			assert.Equal(t, tc.expectedLevel, level)
+		})
+	}
+}
+
+func TestCreateLogFileWriter_CreatesDirectory(t *testing.T) {
+	// Can't use t.Parallel() with t.Setenv()
+
+	// Use temp directory as ATLAS_HOME
+	tmpDir := t.TempDir()
+	t.Setenv("ATLAS_HOME", tmpDir)
+
+	writer, err := createLogFileWriter()
+	require.NoError(t, err)
+	require.NotNil(t, writer)
+	defer func() { _ = writer.Close() }()
+
+	// Verify log directory was created
+	logDir := filepath.Join(tmpDir, constants.LogsDir)
+	info, err := os.Stat(logDir)
+	require.NoError(t, err)
+	assert.True(t, info.IsDir())
+}
+
+func TestCreateLogFileWriter_CreatesLogFile(t *testing.T) {
+	// Can't use t.Parallel() with t.Setenv()
+
+	// Use temp directory as ATLAS_HOME
+	tmpDir := t.TempDir()
+	t.Setenv("ATLAS_HOME", tmpDir)
+
+	writer, err := createLogFileWriter()
+	require.NoError(t, err)
+	require.NotNil(t, writer)
+
+	// Write something to trigger file creation
+	_, err = writer.Write([]byte(`{"level":"info","message":"test"}`))
+	require.NoError(t, err)
+
+	// Close to ensure data is flushed
+	err = writer.Close()
+	require.NoError(t, err)
+
+	// Verify log file was created
+	logPath := filepath.Join(tmpDir, constants.LogsDir, constants.CLILogFileName)
+	info, err := os.Stat(logPath)
+	require.NoError(t, err)
+	assert.False(t, info.IsDir())
+	assert.Positive(t, info.Size())
+}
+
+func TestGetAtlasHome_UsesEnvironmentVariable(t *testing.T) {
+	// Can't use t.Parallel() with t.Setenv()
+
+	customHome := "/custom/atlas/home"
+	t.Setenv("ATLAS_HOME", customHome)
+
+	home, err := getAtlasHome()
+	require.NoError(t, err)
+	assert.Equal(t, customHome, home)
+}
+
+func TestGetAtlasHome_DefaultsToUserHome(t *testing.T) {
+	// Can't use t.Parallel() with t.Setenv()
+
+	// Clear ATLAS_HOME to test default behavior
+	t.Setenv("ATLAS_HOME", "")
+
+	home, err := getAtlasHome()
+	require.NoError(t, err)
+
+	userHome, err := os.UserHomeDir()
+	require.NoError(t, err)
+
+	expectedHome := filepath.Join(userHome, constants.AtlasHome)
+	assert.Equal(t, expectedHome, home)
+}
+
+func TestGetLogFilePath(t *testing.T) {
+	// Can't use t.Parallel() with t.Setenv()
+
+	tmpDir := t.TempDir()
+	t.Setenv("ATLAS_HOME", tmpDir)
+
+	path, err := GetLogFilePath()
+	require.NoError(t, err)
+
+	expected := filepath.Join(tmpDir, constants.LogsDir, constants.CLILogFileName)
+	assert.Equal(t, expected, path)
+}
+
+func TestInitLogger_WritesToFile(t *testing.T) {
+	// Can't use t.Parallel() with t.Setenv()
+
+	// Use temp directory as ATLAS_HOME
+	tmpDir := t.TempDir()
+	t.Setenv("ATLAS_HOME", tmpDir)
+
+	// Reset log file writer from any previous tests
+	logFileWriter = nil
+
+	logger := InitLogger(false, false)
+
+	// Log something
+	logger.Info().Str("test_key", "test_value").Msg("test message")
+
+	// Close the log file to flush
+	CloseLogFile()
+
+	// Verify log file was created and contains content
+	logPath := filepath.Join(tmpDir, constants.LogsDir, constants.CLILogFileName)
+	data, err := os.ReadFile(logPath) //#nosec G304 -- path is constructed from test temp dir
+	require.NoError(t, err)
+	assert.Contains(t, string(data), "test_key")
+	assert.Contains(t, string(data), "test_value")
+	assert.Contains(t, string(data), "test message")
+}
+
+func TestCloseLogFile_NoOpWhenNil(_ *testing.T) {
+	// Can't use t.Parallel() when accessing package-level state
+
+	// Ensure logFileWriter is nil
+	logFileWriter = nil
+
+	// Should not panic
+	CloseLogFile()
+}
+
+func TestInitLoggerWithWriter_CustomOutput(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	logger := InitLoggerWithWriter(true, false, &buf)
+
+	logger.Debug().Msg("debug message")
+
+	output := buf.String()
+	assert.Contains(t, output, "debug message")
+}
+
+func TestCreateLogFileWriter_FailsOnInvalidPath(t *testing.T) {
+	// Can't use t.Parallel() with t.Setenv()
+
+	// Set ATLAS_HOME to a path that cannot be created
+	// Use a file as the parent directory which will fail MkdirAll
+	tmpDir := t.TempDir()
+	filePath := filepath.Join(tmpDir, "not_a_directory")
+
+	// Create a file where we expect a directory
+	err := os.WriteFile(filePath, []byte("test"), 0o600) //#nosec G306 -- test file
+	require.NoError(t, err)
+
+	// Set ATLAS_HOME to use the file as a path component
+	t.Setenv("ATLAS_HOME", filePath)
+
+	writer, err := createLogFileWriter()
+	require.Error(t, err)
+	assert.Nil(t, writer)
+	assert.Contains(t, err.Error(), "failed to create log directory")
+}
+
+func TestLogEntryStructure_MatchesExpectedFields(t *testing.T) {
+	t.Parallel()
+
+	// Configure zerolog globals before test
+	configureZerologGlobals()
+
+	var buf bytes.Buffer
+	logger := InitLoggerWithWriter(false, false, &buf)
+
+	// Log a message with typical fields
+	logger.Info().
+		Str("workspace_name", "test-ws").
+		Str("task_id", "task-123").
+		Str("step_name", "validate").
+		Int64("duration_ms", 150).
+		Msg("step completed")
+
+	output := buf.String()
+
+	// Verify field names match logEntry struct in workspace_logs.go
+	assert.Contains(t, output, `"ts":`)    // timestamp field
+	assert.Contains(t, output, `"level":`) // level field
+	assert.Contains(t, output, `"event":`) // message field (not "message")
+	assert.Contains(t, output, `"workspace_name":"test-ws"`)
+	assert.Contains(t, output, `"task_id":"task-123"`)
+	assert.Contains(t, output, `"step_name":"validate"`)
+	assert.Contains(t, output, `"duration_ms":150`)
+	assert.Contains(t, output, "step completed")
+}
+
+func TestConfigureZerologGlobals_Idempotent(t *testing.T) {
+	t.Parallel()
+
+	// Call multiple times - should not panic or change behavior
+	configureZerologGlobals()
+	configureZerologGlobals()
+	configureZerologGlobals()
+
+	// Verify the flag is set
+	assert.True(t, zerologConfigured)
+}
+
+func TestInitLogger_RedactsSensitiveDataInFile(t *testing.T) {
+	// Can't use t.Parallel() with t.Setenv()
+
+	// Use temp directory as ATLAS_HOME
+	tmpDir := t.TempDir()
+	t.Setenv("ATLAS_HOME", tmpDir)
+
+	// Reset log file writer from any previous tests
+	logFileWriter = nil
+
+	logger := InitLogger(false, false)
+
+	// Log a message containing sensitive data
+	logger.Info().Msg("connecting with key sk-ant-api03-verysecretkey123")
+
+	// Close the log file to flush
+	CloseLogFile()
+
+	// Verify log file was created and sensitive data is REDACTED
+	logPath := filepath.Join(tmpDir, constants.LogsDir, constants.CLILogFileName)
+	data, err := os.ReadFile(logPath) //#nosec G304 -- path is constructed from test temp dir
+	require.NoError(t, err)
+
+	content := string(data)
+
+	// The sensitive API key should NOT appear in the log file
+	assert.NotContains(t, content, "sk-ant-api03", "API key should be redacted from log file")
+	assert.NotContains(t, content, "verysecretkey", "API key should be redacted from log file")
+
+	// The redaction marker should appear
+	assert.Contains(t, content, "[REDACTED]", "redaction marker should be present")
+
+	// Non-sensitive parts should be preserved
+	assert.Contains(t, content, "connecting with key", "non-sensitive message part should be preserved")
 }

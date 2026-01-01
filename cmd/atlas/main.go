@@ -19,6 +19,9 @@ var (
 )
 
 func main() {
+	// Ensure log file is properly flushed and closed on exit
+	defer cli.CloseLogFile()
+
 	ctx := context.Background()
 	err := cli.Execute(ctx, cli.BuildInfo{
 		Version: version,
