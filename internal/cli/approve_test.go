@@ -15,6 +15,7 @@ import (
 	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/domain"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
+	"github.com/mrz1836/atlas/internal/tui"
 )
 
 // mockWorkspaceStore implements workspace.Store interface for testing.
@@ -605,7 +606,7 @@ func TestSelectApprovalTask_WorkspaceProvided(t *testing.T) {
 		t.Parallel()
 		var buf bytes.Buffer
 		opts := approveOptions{workspace: "ws1"}
-		ws, task, err := selectApprovalTask(OutputText, &buf, nil, opts, awaitingTasks)
+		ws, task, err := selectApprovalTask(OutputText, &buf, nil, opts, awaitingTasks, false)
 		require.NoError(t, err)
 		assert.Equal(t, "ws1", ws.Name)
 		assert.Equal(t, "task-1", task.ID)
@@ -615,7 +616,7 @@ func TestSelectApprovalTask_WorkspaceProvided(t *testing.T) {
 		t.Parallel()
 		var buf bytes.Buffer
 		opts := approveOptions{workspace: "nonexistent"}
-		_, _, err := selectApprovalTask(OutputText, &buf, nil, opts, awaitingTasks)
+		_, _, err := selectApprovalTask(OutputText, &buf, nil, opts, awaitingTasks, false)
 		require.Error(t, err)
 		assert.ErrorIs(t, err, atlaserrors.ErrWorkspaceNotFound)
 	})
@@ -634,10 +635,34 @@ func TestSelectApprovalTask_SingleTask(t *testing.T) {
 
 	var buf bytes.Buffer
 	opts := approveOptions{} // No workspace specified
-	ws, task, err := selectApprovalTask(OutputText, &buf, nil, opts, awaitingTasks)
+	ws, task, err := selectApprovalTask(OutputText, &buf, nil, opts, awaitingTasks, false)
 	require.NoError(t, err)
 	assert.Equal(t, "ws1", ws.Name)
 	assert.Equal(t, "task-1", task.ID)
+}
+
+// TestSelectApprovalTask_NonInteractive_MultipleTasksRequiresWorkspace tests that non-interactive mode
+// with multiple tasks returns error requiring workspace argument.
+func TestSelectApprovalTask_NonInteractive_MultipleTasksRequiresWorkspace(t *testing.T) {
+	t.Parallel()
+
+	awaitingTasks := []awaitingTask{
+		{
+			workspace: &domain.Workspace{Name: "ws1", Branch: "feat/ws1"},
+			task:      &domain.Task{ID: "task-1", Description: "Task 1"},
+		},
+		{
+			workspace: &domain.Workspace{Name: "ws2", Branch: "feat/ws2"},
+			task:      &domain.Task{ID: "task-2", Description: "Task 2"},
+		},
+	}
+
+	var buf bytes.Buffer
+	opts := approveOptions{}                                                          // No workspace specified
+	_, _, err := selectApprovalTask(OutputText, &buf, nil, opts, awaitingTasks, true) // Non-interactive
+	require.Error(t, err)
+	assert.True(t, atlaserrors.IsExitCode2Error(err))
+	assert.ErrorIs(t, err, atlaserrors.ErrInteractiveRequired)
 }
 
 // TestRunApprove_ContextCancellation tests context cancellation handling.
@@ -773,7 +798,7 @@ func TestSelectApprovalTask_WorkspaceNotFound_JSON(t *testing.T) {
 
 	var buf bytes.Buffer
 	opts := approveOptions{workspace: "nonexistent"}
-	_, _, err := selectApprovalTask(OutputJSON, &buf, nil, opts, awaitingTasks)
+	_, _, err := selectApprovalTask(OutputJSON, &buf, nil, opts, awaitingTasks, false)
 
 	// Should return ErrJSONErrorOutput
 	require.ErrorIs(t, err, atlaserrors.ErrJSONErrorOutput)
@@ -845,10 +870,45 @@ func TestApproveOptions_Structure(t *testing.T) {
 	t.Parallel()
 
 	opts := approveOptions{
-		workspace: "my-workspace",
+		workspace:   "my-workspace",
+		autoApprove: true,
 	}
 
 	assert.Equal(t, "my-workspace", opts.workspace)
+	assert.True(t, opts.autoApprove)
+}
+
+// TestApproveCommand_AutoApproveFlag tests that --auto-approve flag is defined.
+func TestApproveCommand_AutoApproveFlag(t *testing.T) {
+	t.Parallel()
+
+	root := &cobra.Command{Use: "atlas"}
+	AddApproveCommand(root)
+
+	approveCmd, _, err := root.Find([]string{"approve"})
+	require.NoError(t, err)
+
+	// Check that --auto-approve flag exists
+	flag := approveCmd.Flags().Lookup("auto-approve")
+	require.NotNil(t, flag)
+	assert.Equal(t, "bool", flag.Value.Type())
+	assert.Equal(t, "false", flag.DefValue)
+	assert.Contains(t, flag.Usage, "interactive")
+}
+
+// TestApproveCommand_AutoApproveHelp tests that help includes auto-approve examples.
+func TestApproveCommand_AutoApproveHelp(t *testing.T) {
+	t.Parallel()
+
+	root := &cobra.Command{Use: "atlas"}
+	AddApproveCommand(root)
+
+	approveCmd, _, err := root.Find([]string{"approve"})
+	require.NoError(t, err)
+
+	// Check that long description mentions --auto-approve
+	assert.Contains(t, approveCmd.Long, "--auto-approve")
+	assert.Contains(t, approveCmd.Long, "Non-interactive mode")
 }
 
 // TestApprovalAction_String tests approvalAction string conversion.
@@ -876,4 +936,121 @@ func TestFindAwaitingApprovalTasks_WorkspaceListError(t *testing.T) {
 	_, err := findAwaitingApprovalTasks(ctx, mockWS, mockTask)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to list workspaces")
+}
+
+// TestRunAutoApprove_Success tests that runAutoApprove successfully approves a task.
+func TestRunAutoApprove_Success(t *testing.T) {
+	t.Parallel()
+
+	// Create a task in awaiting_approval state
+	task := &domain.Task{
+		ID:          "task-1",
+		WorkspaceID: "test-ws",
+		Description: "Test auto-approve task",
+		Status:      constants.TaskStatusAwaitingApproval,
+		Steps:       make([]domain.Step, 7),
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
+	}
+
+	ws := &domain.Workspace{
+		Name:   "test-ws",
+		Branch: "feat/test",
+	}
+
+	mockStore := &mockTaskStoreForApprove{
+		tasks: map[string][]*domain.Task{
+			"test-ws": {task},
+		},
+	}
+
+	var buf bytes.Buffer
+	out := tui.NewOutput(&buf, "text")
+	notifier := tui.NewNotifier(false, false) // Bell disabled for tests
+
+	ctx := context.Background()
+	err := runAutoApprove(ctx, out, mockStore, ws, task, notifier)
+	require.NoError(t, err)
+
+	// Verify task status changed to completed
+	assert.Equal(t, constants.TaskStatusCompleted, task.Status)
+
+	// Verify output contains success message
+	output := buf.String()
+	assert.Contains(t, output, "Task approved")
+	assert.Contains(t, output, "test-ws")
+	assert.Contains(t, output, "task-1")
+}
+
+// TestRunAutoApprove_WithPRURL tests that runAutoApprove displays PR URL when available.
+func TestRunAutoApprove_WithPRURL(t *testing.T) {
+	t.Parallel()
+
+	task := &domain.Task{
+		ID:          "task-1",
+		WorkspaceID: "test-ws",
+		Description: "Test auto-approve with PR",
+		Status:      constants.TaskStatusAwaitingApproval,
+		Metadata:    map[string]interface{}{"pr_url": "https://github.com/owner/repo/pull/123"},
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
+	}
+
+	ws := &domain.Workspace{
+		Name:   "test-ws",
+		Branch: "feat/test",
+	}
+
+	mockStore := &mockTaskStoreForApprove{
+		tasks: map[string][]*domain.Task{
+			"test-ws": {task},
+		},
+	}
+
+	var buf bytes.Buffer
+	out := tui.NewOutput(&buf, "text")
+	notifier := tui.NewNotifier(false, false)
+
+	ctx := context.Background()
+	err := runAutoApprove(ctx, out, mockStore, ws, task, notifier)
+	require.NoError(t, err)
+
+	// Verify PR URL is in output
+	output := buf.String()
+	assert.Contains(t, output, "https://github.com/owner/repo/pull/123")
+}
+
+// TestRunAutoApprove_StoreError tests error handling when task store update fails.
+func TestRunAutoApprove_StoreError(t *testing.T) {
+	t.Parallel()
+
+	task := &domain.Task{
+		ID:          "task-1",
+		WorkspaceID: "test-ws",
+		Description: "Test auto-approve error",
+		Status:      constants.TaskStatusAwaitingApproval,
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
+	}
+
+	ws := &domain.Workspace{
+		Name:   "test-ws",
+		Branch: "feat/test",
+	}
+
+	mockStore := &mockTaskStoreForApprove{
+		tasks: map[string][]*domain.Task{
+			"test-ws": {task},
+		},
+		updateErr: atlaserrors.ErrTaskNotFound,
+	}
+
+	var buf bytes.Buffer
+	out := tui.NewOutput(&buf, "text")
+	notifier := tui.NewNotifier(false, false)
+
+	ctx := context.Background()
+	err := runAutoApprove(ctx, out, mockStore, ws, task, notifier)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to approve task")
 }

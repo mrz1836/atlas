@@ -264,6 +264,12 @@ var (
 
 	// ErrInvalidStatus indicates that a task is in an invalid status for the operation.
 	ErrInvalidStatus = errors.New("invalid task status")
+
+	// ErrApprovalRequired indicates that approval is required but --auto-approve was not provided.
+	ErrApprovalRequired = errors.New("approval required")
+
+	// ErrInteractiveRequired indicates that interactive prompts are required but not available.
+	ErrInteractiveRequired = errors.New("interactive prompt required")
 )
 
 // ExitCode2Error wraps an error to indicate exit code 2 should be used.

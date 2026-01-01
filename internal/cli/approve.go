@@ -11,6 +11,7 @@ import (
 	"os/exec"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 
 	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/constants"
@@ -28,11 +29,14 @@ func AddApproveCommand(root *cobra.Command) {
 
 // approveOptions contains all options for the approve command.
 type approveOptions struct {
-	workspace string // Optional workspace name
+	workspace   string // Optional workspace name
+	autoApprove bool   // Skip interactive menu and approve directly
 }
 
 // newApproveCmd creates the approve command.
 func newApproveCmd() *cobra.Command {
+	var autoApprove bool
+
 	cmd := &cobra.Command{
 		Use:   "approve [workspace]",
 		Short: "Approve a completed task",
@@ -49,19 +53,28 @@ The approval flow shows a summary of the task and provides options to:
   - Reject the task (redirects to atlas reject)
   - Cancel and return
 
+Non-interactive mode:
+  Use --auto-approve to skip the interactive menu and approve directly.
+  In non-interactive environments (pipes, CI), --auto-approve is required.
+
 Examples:
   atlas approve              # Interactive selection if multiple tasks
   atlas approve my-feature   # Approve task in my-feature workspace
+  atlas approve my-feature --auto-approve  # Approve directly without menu
   atlas approve -o json my-feature  # Output result as JSON`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			opts := approveOptions{}
+			opts := approveOptions{
+				autoApprove: autoApprove,
+			}
 			if len(args) > 0 {
 				opts.workspace = args[0]
 			}
 			return runApprove(cmd.Context(), cmd, os.Stdout, opts)
 		},
 	}
+
+	cmd.Flags().BoolVar(&autoApprove, "auto-approve", false, "Skip interactive menu and approve directly")
 
 	return cmd
 }
@@ -104,13 +117,22 @@ func runApprove(ctx context.Context, cmd *cobra.Command, w io.Writer, opts appro
 
 	out := tui.NewOutput(w, outputFormat)
 
+	// Detect non-interactive mode
+	isNonInteractive := outputFormat == OutputJSON || !term.IsTerminal(int(os.Stdin.Fd()))
+
 	// JSON mode requires workspace argument (no interactive selection)
 	if outputFormat == OutputJSON && opts.workspace == "" {
 		return handleApproveError(outputFormat, w, "", fmt.Errorf("workspace argument required with --output json: %w", atlaserrors.ErrInvalidArgument))
 	}
 
+	// Non-interactive mode requires --auto-approve or JSON output
+	if isNonInteractive && !opts.autoApprove && outputFormat != OutputJSON {
+		return atlaserrors.NewExitCode2Error(
+			fmt.Errorf("use --auto-approve in non-interactive mode: %w", atlaserrors.ErrApprovalRequired))
+	}
+
 	// Create stores and find awaiting tasks
-	selectedWS, selectedTask, err := findAndSelectTask(ctx, outputFormat, w, out, opts)
+	selectedWS, selectedTask, err := findAndSelectTask(ctx, outputFormat, w, out, opts, isNonInteractive)
 	if err != nil {
 		return err
 	}
@@ -146,12 +168,17 @@ func runApprove(ctx context.Context, cmd *cobra.Command, w io.Writer, opts appro
 		return approveAndOutputJSON(ctx, w, taskStore, selectedWS, selectedTask)
 	}
 
+	// Auto-approve mode: approve directly without interactive menu
+	if opts.autoApprove {
+		return runAutoApprove(ctx, out, taskStore, selectedWS, selectedTask, notifier)
+	}
+
 	// Interactive approval flow
 	return runInteractiveApproval(ctx, out, taskStore, selectedWS, selectedTask, notifier)
 }
 
 // findAndSelectTask finds awaiting tasks and selects one based on options.
-func findAndSelectTask(ctx context.Context, outputFormat string, w io.Writer, out tui.Output, opts approveOptions) (*domain.Workspace, *domain.Task, error) {
+func findAndSelectTask(ctx context.Context, outputFormat string, w io.Writer, out tui.Output, opts approveOptions, isNonInteractive bool) (*domain.Workspace, *domain.Task, error) {
 	// Create workspace store
 	wsStore, err := workspace.NewFileStore("")
 	if err != nil {
@@ -181,11 +208,11 @@ func findAndSelectTask(ctx context.Context, outputFormat string, w io.Writer, ou
 	}
 
 	// Select the appropriate task
-	return selectApprovalTask(outputFormat, w, out, opts, awaitingTasks)
+	return selectApprovalTask(outputFormat, w, out, opts, awaitingTasks, isNonInteractive)
 }
 
 // selectApprovalTask selects a task from the awaiting tasks based on options.
-func selectApprovalTask(outputFormat string, w io.Writer, out tui.Output, opts approveOptions, awaitingTasks []awaitingTask) (*domain.Workspace, *domain.Task, error) {
+func selectApprovalTask(outputFormat string, w io.Writer, out tui.Output, opts approveOptions, awaitingTasks []awaitingTask, isNonInteractive bool) (*domain.Workspace, *domain.Task, error) {
 	// If workspace provided, find it directly
 	if opts.workspace != "" {
 		for _, at := range awaitingTasks {
@@ -199,6 +226,12 @@ func selectApprovalTask(outputFormat string, w io.Writer, out tui.Output, opts a
 	// Auto-select if only one task
 	if len(awaitingTasks) == 1 {
 		return awaitingTasks[0].workspace, awaitingTasks[0].task, nil
+	}
+
+	// Non-interactive mode requires workspace argument when multiple tasks exist
+	if isNonInteractive {
+		return nil, nil, atlaserrors.NewExitCode2Error(
+			fmt.Errorf("multiple tasks awaiting approval, use workspace argument to specify: %w", atlaserrors.ErrInteractiveRequired))
 	}
 
 	// Present selection menu (AC: #1)
@@ -284,6 +317,24 @@ func selectWorkspaceForApproval(tasks []awaitingTask) (*awaitingTask, error) {
 	}
 
 	return nil, fmt.Errorf("selected workspace not found: %w", atlaserrors.ErrWorkspaceNotFound)
+}
+
+// runAutoApprove performs automatic approval without interactive menu.
+func runAutoApprove(ctx context.Context, out tui.Output, taskStore task.Store, ws *domain.Workspace, t *domain.Task, notifier *tui.Notifier) error {
+	// Approve the task directly
+	if err := approveTask(ctx, taskStore, t); err != nil {
+		return fmt.Errorf("failed to approve task: %w", err)
+	}
+
+	out.Success(fmt.Sprintf("Task approved: %s", t.Description))
+	out.Info(fmt.Sprintf("  Workspace: %s", ws.Name))
+	out.Info(fmt.Sprintf("  Task ID:   %s", t.ID))
+	if prURL := extractPRURL(t); prURL != "" {
+		out.Info(fmt.Sprintf("  PR URL:    %s", prURL))
+	}
+
+	notifier.Bell()
+	return nil
 }
 
 // runInteractiveApproval runs the interactive approval flow with action menu.
