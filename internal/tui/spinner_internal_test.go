@@ -66,3 +66,24 @@ func TestElapsedTimeThreshold(t *testing.T) {
 	assert.Equal(t, 30*time.Second, ElapsedTimeThreshold,
 		"Elapsed time should be displayed after 30 seconds per AC #8")
 }
+
+// TestNoopSpinnerInternal tests the NoopSpinner methods directly for coverage.
+// The internal test package can access unexported methods if needed.
+func TestNoopSpinnerInternal(t *testing.T) {
+	t.Parallel()
+	spinner := &NoopSpinner{}
+
+	// Update should be a no-op and not panic
+	spinner.Update("test message")
+	spinner.Update("")
+	spinner.Update("another update")
+
+	// Stop should be a no-op and not panic
+	spinner.Stop()
+	spinner.Stop() // Multiple stops should be safe
+
+	// Combined operations
+	spinner.Update("before stop")
+	spinner.Stop()
+	spinner.Update("after stop") // Should still work
+}
