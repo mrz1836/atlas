@@ -118,6 +118,7 @@ Features:
 	AddTestCommand(cmd)
 	AddApproveCommand(cmd)
 	AddRejectCommand(cmd)
+	AddRecoverCommand(cmd)
 
 	return cmd
 }

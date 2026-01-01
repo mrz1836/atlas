@@ -261,6 +261,9 @@ var (
 
 	// ErrInvalidArgument indicates that an invalid argument was provided.
 	ErrInvalidArgument = errors.New("invalid argument")
+
+	// ErrInvalidStatus indicates that a task is in an invalid status for the operation.
+	ErrInvalidStatus = errors.New("invalid task status")
 )
 
 // ExitCode2Error wraps an error to indicate exit code 2 should be used.
