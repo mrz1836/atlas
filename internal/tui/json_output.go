@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -117,6 +118,7 @@ func (o *JSONOutput) JSON(v interface{}) error {
 
 // Spinner returns a NoopSpinner for JSON output (AC: #6).
 // JSON output doesn't support animated spinners.
-func (o *JSONOutput) Spinner(_ string) Spinner {
+// Context parameter accepted for interface compliance but not used.
+func (o *JSONOutput) Spinner(_ context.Context, _ string) Spinner {
 	return &NoopSpinner{}
 }

@@ -2,6 +2,7 @@
 package tui
 
 import (
+	"context"
 	"io"
 	"os"
 
@@ -43,9 +44,10 @@ type Output interface {
 	JSON(v interface{}) error
 
 	// Spinner returns a spinner for long-running operations.
-	// TTY: Animated spinner using Bubbles.
+	// TTY: Animated spinner using custom TerminalSpinner.
 	// JSON: No-op spinner that does nothing.
-	Spinner(msg string) Spinner
+	// Context is used for cancellation propagation.
+	Spinner(ctx context.Context, msg string) Spinner
 }
 
 // Spinner is the interface for progress indication during long-running operations (AC: #6).

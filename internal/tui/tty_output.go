@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -103,6 +104,7 @@ func (o *TTYOutput) JSON(v interface{}) error {
 }
 
 // Spinner returns a SpinnerAdapter for animated progress indication (AC: #6).
-func (o *TTYOutput) Spinner(msg string) Spinner {
-	return NewSpinnerAdapter(o.w, msg)
+// Context is propagated for proper cancellation handling.
+func (o *TTYOutput) Spinner(ctx context.Context, msg string) Spinner {
+	return NewSpinnerAdapter(ctx, o.w, msg)
 }

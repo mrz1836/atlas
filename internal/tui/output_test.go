@@ -2,6 +2,7 @@ package tui
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -125,7 +126,8 @@ func TestTTYOutput_JSON(t *testing.T) {
 func TestTTYOutput_Spinner(t *testing.T) {
 	var buf bytes.Buffer
 	out := NewTTYOutput(&buf)
-	spinner := out.Spinner("Loading...")
+	ctx := context.Background()
+	spinner := out.Spinner(ctx, "Loading...")
 	assert.NotNil(t, spinner)
 	spinner.Update("Still loading...")
 	spinner.Stop()
@@ -268,7 +270,8 @@ func TestJSONOutput_JSON(t *testing.T) {
 func TestJSONOutput_Spinner(t *testing.T) {
 	var buf bytes.Buffer
 	out := NewJSONOutput(&buf)
-	spinner := out.Spinner("Loading...")
+	ctx := context.Background()
+	spinner := out.Spinner(ctx, "Loading...")
 
 	// NoopSpinner should do nothing
 	assert.NotNil(t, spinner)
@@ -347,7 +350,8 @@ func TestNoopSpinner(_ *testing.T) {
 
 func TestSpinnerAdapter(t *testing.T) {
 	var buf bytes.Buffer
-	adapter := NewSpinnerAdapter(&buf, "Loading...")
+	ctx := context.Background()
+	adapter := NewSpinnerAdapter(ctx, &buf, "Loading...")
 
 	// Should be usable as Spinner interface
 	var s Spinner = adapter

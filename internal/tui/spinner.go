@@ -182,8 +182,9 @@ type SpinnerAdapter struct {
 // NewSpinnerAdapter creates a new SpinnerAdapter for TTY output (AC: #6).
 // Uses the custom TerminalSpinner implementation which provides animated
 // spinner functionality similar to the Bubbles spinner library.
-func NewSpinnerAdapter(w io.Writer, msg string) *SpinnerAdapter {
-	ctx, cancel := context.WithCancel(context.Background())
+// Context is used for cancellation propagation per architecture rules.
+func NewSpinnerAdapter(ctx context.Context, w io.Writer, msg string) *SpinnerAdapter {
+	ctx, cancel := context.WithCancel(ctx)
 	s := NewTerminalSpinner(w)
 	s.Start(ctx, msg)
 	return &SpinnerAdapter{
