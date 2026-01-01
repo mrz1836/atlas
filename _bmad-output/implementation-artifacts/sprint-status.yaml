@@ -161,7 +161,7 @@ development_status:
   8-4-implement-atlas-reject-command: done
   8-5-error-recovery-menus: done
   8-6-progress-spinners: done
-  8-7-non-interactive-mode: backlog
+  8-7-non-interactive-mode: done
   8-8-structured-logging-system: backlog
   8-9-styled-output-system: backlog
   epic-8-retrospective: optional
