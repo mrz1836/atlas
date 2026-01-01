@@ -30,9 +30,11 @@ type jsonMessage struct {
 
 // jsonError is the structured format for Error messages (AC: #4).
 type jsonError struct {
-	Type    string `json:"type"`
-	Message string `json:"message"`
-	Details string `json:"details,omitempty"`
+	Type       string `json:"type"`
+	Message    string `json:"message"`
+	Details    string `json:"details,omitempty"`
+	Suggestion string `json:"suggestion,omitempty"`
+	Context    string `json:"context,omitempty"`
 }
 
 // Success outputs a success message as JSON (AC: #4).
@@ -46,12 +48,24 @@ func (o *JSONOutput) Success(msg string) {
 }
 
 // Error outputs an error as JSON with details (AC: #4).
-// Format: {"type": "error", "message": "...", "details": "..."}
+// Format: {"type": "error", "message": "...", "details": "...", "suggestion": "...", "context": "..."}
 // Details field is populated with the wrapped error's message if present.
+// If the error is an ActionableError, suggestion and context fields are included.
 func (o *JSONOutput) Error(err error) {
 	jsonErr := jsonError{
 		Type:    "error",
 		Message: err.Error(),
+	}
+
+	// Check for ActionableError and extract suggestion/context
+	var ae *ActionableError
+	if errors.As(err, &ae) {
+		if ae.Suggestion != "" {
+			jsonErr.Suggestion = ae.Suggestion
+		}
+		if ae.Context != "" {
+			jsonErr.Context = ae.Context
+		}
 	}
 
 	// Extract details from wrapped error if present (AC: #4)

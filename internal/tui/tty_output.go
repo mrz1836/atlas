@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -36,7 +37,20 @@ func (o *TTYOutput) Success(msg string) {
 }
 
 // Error outputs an error with red color and ✗ icon (AC: #3).
+// If the error is an ActionableError, it also displays the suggestion
+// with a dim "▸ Try:" prefix for visual hierarchy.
 func (o *TTYOutput) Error(err error) {
+	var ae *ActionableError
+	if errors.As(err, &ae) {
+		// Format: ✗ <message>\n  ▸ Try: <suggestion>
+		msg := ae.Error()
+		_, _ = fmt.Fprintln(o.w, o.styles.Error.Render("✗ "+msg))
+		if ae.Suggestion != "" {
+			_, _ = fmt.Fprintln(o.w, o.styles.Dim.Render("  ▸ Try: "+ae.Suggestion))
+		}
+		return
+	}
+	// Standard error handling
 	_, _ = fmt.Fprintln(o.w, o.styles.Error.Render("✗ "+err.Error()))
 }
 
