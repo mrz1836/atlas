@@ -385,7 +385,7 @@ func executeApprovalAction(ctx context.Context, out tui.Output, taskStore task.S
 	switch action {
 	case actionApprove:
 		if err := approveTask(ctx, taskStore, t); err != nil {
-			out.Error(err)
+			out.Error(tui.WrapWithSuggestion(err))
 			return false, nil // Continue loop on error
 		}
 		out.Success("Task approved. PR ready for merge.")

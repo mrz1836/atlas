@@ -387,13 +387,13 @@ func executeRecoveryAction(ctx context.Context, out tui.Output, taskStore task.S
 func handleRetryAction(ctx context.Context, out tui.Output, taskStore task.Store, t *domain.Task, notifier *tui.Notifier) (bool, error) {
 	// Transition task back to running
 	if err := task.Transition(ctx, t, constants.TaskStatusRunning, "User requested retry"); err != nil {
-		out.Error(fmt.Errorf("failed to transition task: %w", err))
+		out.Error(tui.WrapWithSuggestion(fmt.Errorf("failed to transition task: %w", err)))
 		return false, nil // Continue loop on error
 	}
 
 	// Save updated task
 	if err := taskStore.Update(ctx, t.WorkspaceID, t); err != nil {
-		out.Error(fmt.Errorf("failed to save task: %w", err))
+		out.Error(tui.WrapWithSuggestion(fmt.Errorf("failed to save task: %w", err)))
 		return false, nil
 	}
 
@@ -480,13 +480,13 @@ func handleViewLogs(ctx context.Context, out tui.Output, ws *domain.Workspace, t
 func handleContinueWaiting(ctx context.Context, out tui.Output, taskStore task.Store, t *domain.Task, notifier *tui.Notifier) (bool, error) {
 	// Transition task back to running to continue CI polling
 	if err := task.Transition(ctx, t, constants.TaskStatusRunning, "User requested to continue waiting"); err != nil {
-		out.Error(fmt.Errorf("failed to transition task: %w", err))
+		out.Error(tui.WrapWithSuggestion(fmt.Errorf("failed to transition task: %w", err)))
 		return false, nil
 	}
 
 	// Save updated task
 	if err := taskStore.Update(ctx, t.WorkspaceID, t); err != nil {
-		out.Error(fmt.Errorf("failed to save task: %w", err))
+		out.Error(tui.WrapWithSuggestion(fmt.Errorf("failed to save task: %w", err)))
 		return false, nil
 	}
 
@@ -499,13 +499,13 @@ func handleContinueWaiting(ctx context.Context, out tui.Output, taskStore task.S
 func handleAbandon(ctx context.Context, out tui.Output, taskStore task.Store, ws *domain.Workspace, t *domain.Task, notifier *tui.Notifier) (bool, error) {
 	// Transition task to abandoned
 	if err := task.Transition(ctx, t, constants.TaskStatusAbandoned, "User abandoned from error recovery"); err != nil {
-		out.Error(fmt.Errorf("failed to transition task: %w", err))
+		out.Error(tui.WrapWithSuggestion(fmt.Errorf("failed to transition task: %w", err)))
 		return false, nil
 	}
 
 	// Save updated task
 	if err := taskStore.Update(ctx, t.WorkspaceID, t); err != nil {
-		out.Error(fmt.Errorf("failed to save task: %w", err))
+		out.Error(tui.WrapWithSuggestion(fmt.Errorf("failed to save task: %w", err)))
 		return false, nil
 	}
 

@@ -1,6 +1,6 @@
 # Story 8.9: Styled Output System
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -77,6 +77,7 @@ So that **information is easy to scan and understand**.
   - [x] 5.1: Review and update `internal/cli/root.go` - ensure Output is available
   - [x] 5.2: Most commands already use tui.Output interface
   - [x] 5.3: Audit confirmed consistent styling patterns across CLI
+  - [x] 5.4: Integrate WrapWithSuggestion() in CLI error paths (code review fix)
   - NOTE: Some commands (init, config_*) use local lipgloss styles directly, which is acceptable for complex interactive flows
 
 - [x] Task 6: Add Terminal Width Adaptation (AC: #3)
@@ -85,6 +86,7 @@ So that **information is easy to scan and understand**.
   - [x] 6.3: Add width constants: NarrowTerminalWidth = 80, DefaultTerminalWidth = 80
   - [x] 6.4: Add IsNarrowTerminal() function for threshold detection
   - [x] 6.5: Add tests for terminal width detection
+  - NOTE: Infrastructure ready for width adaptation; output components can use IsNarrowTerminal() to adapt formatting as needed
 
 - [x] Task 7: Add Actionable Suggestions to Common Errors (AC: #1)
   - [x] 7.1: Create `internal/tui/error_suggestions.go` with error->suggestion mapping
@@ -94,6 +96,7 @@ So that **information is easy to scan and understand**.
   - [x] 7.5: Add suggestions for validation errors
   - [x] 7.6: Add suggestions for git/GitHub errors
   - [x] 7.7: Add GetSuggestionForError(), WithSuggestion(), WrapWithSuggestion() helpers
+  - [x] 7.8: Integrate error suggestion system into CLI commands (code review fix)
 
 - [x] Task 8: Validate and Finalize (AC: All)
   - [x] 8.1: Verify all commands produce consistent styled output
@@ -485,6 +488,12 @@ N/A - Implementation completed successfully without debug issues.
 
 6. **Audit Findings**: Most CLI commands already use tui.Output interface. Commands using raw fmt.Print* (init.go, config_*.go, upgrade.go) use lipgloss styles directly, which is acceptable for complex interactive flows.
 
+7. **Code Review Fix - CLI Integration**: Adversarial code review identified that error suggestion infrastructure was created but not integrated into CLI commands. Fixed by wrapping `out.Error()` calls with `tui.WrapWithSuggestion()` in:
+   - `internal/cli/recover.go` (6 error paths)
+   - `internal/cli/validate.go` (1 error path)
+   - `internal/cli/approve.go` (1 error path)
+   - `internal/cli/utility.go` (2 error paths)
+
 ### File List
 
 **Created:**
@@ -499,4 +508,10 @@ N/A - Implementation completed successfully without debug issues.
 - `internal/tui/output_test.go` - Added tests for ActionableError in TTY and JSON outputs
 - `internal/tui/styles.go` - Added terminal width constants and IsNarrowTerminal()
 - `internal/tui/styles_test.go` - Added tests for terminal width functions
+
+**Modified (Code Review Fix):**
+- `internal/cli/recover.go` - Wrapped error outputs with tui.WrapWithSuggestion()
+- `internal/cli/validate.go` - Wrapped error outputs with tui.WrapWithSuggestion()
+- `internal/cli/approve.go` - Wrapped error outputs with tui.WrapWithSuggestion()
+- `internal/cli/utility.go` - Wrapped error outputs with tui.WrapWithSuggestion()
 
