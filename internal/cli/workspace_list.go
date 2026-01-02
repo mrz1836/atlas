@@ -36,9 +36,9 @@ func newTableStyles() *tableStyles {
 			Foreground(lipgloss.AdaptiveColor{Light: "#666666", Dark: "#888888"}),
 		// Semantic colors for workspace statuses (UX-6)
 		statusColors: map[constants.WorkspaceStatus]lipgloss.AdaptiveColor{
-			constants.WorkspaceStatusActive:  {Light: "#0087AF", Dark: "#00D7FF"}, // Blue
-			constants.WorkspaceStatusPaused:  {Light: "#585858", Dark: "#6C6C6C"}, // Gray
-			constants.WorkspaceStatusRetired: {Light: "#585858", Dark: "#6C6C6C"}, // Dim
+			constants.WorkspaceStatusActive: {Light: "#0087AF", Dark: "#00D7FF"}, // Blue
+			constants.WorkspaceStatusPaused: {Light: "#585858", Dark: "#6C6C6C"}, // Gray
+			constants.WorkspaceStatusClosed: {Light: "#585858", Dark: "#6C6C6C"}, // Dim
 		},
 	}
 }

@@ -84,7 +84,7 @@ func TestRunWorkspaceList_MultipleWorkspaces(t *testing.T) {
 	}{
 		{"auth", "feat/auth", constants.WorkspaceStatusActive, 2 * time.Hour},
 		{"payment", "fix/payment", constants.WorkspaceStatusPaused, 24 * time.Hour},
-		{"old-feat", "feat/old", constants.WorkspaceStatusRetired, 3 * 24 * time.Hour},
+		{"old-feat", "feat/old", constants.WorkspaceStatusClosed, 3 * 24 * time.Hour},
 	}
 
 	for _, data := range workspaceData {
@@ -363,7 +363,7 @@ func TestStatusColors(t *testing.T) {
 	statuses := []constants.WorkspaceStatus{
 		constants.WorkspaceStatusActive,
 		constants.WorkspaceStatusPaused,
-		constants.WorkspaceStatusRetired,
+		constants.WorkspaceStatusClosed,
 	}
 
 	colors := getStatusColors()

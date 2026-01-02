@@ -969,7 +969,7 @@ func TestRunAutoApprove_Success(t *testing.T) {
 	notifier := tui.NewNotifier(false, false) // Bell disabled for tests
 
 	ctx := context.Background()
-	err := runAutoApprove(ctx, out, mockStore, ws, task, notifier)
+	err := runAutoApprove(ctx, out, mockStore, ws, task, notifier, false)
 	require.NoError(t, err)
 
 	// Verify task status changed to completed
@@ -1012,7 +1012,7 @@ func TestRunAutoApprove_WithPRURL(t *testing.T) {
 	notifier := tui.NewNotifier(false, false)
 
 	ctx := context.Background()
-	err := runAutoApprove(ctx, out, mockStore, ws, task, notifier)
+	err := runAutoApprove(ctx, out, mockStore, ws, task, notifier, false)
 	require.NoError(t, err)
 
 	// Verify PR URL is in output
@@ -1050,7 +1050,152 @@ func TestRunAutoApprove_StoreError(t *testing.T) {
 	notifier := tui.NewNotifier(false, false)
 
 	ctx := context.Background()
-	err := runAutoApprove(ctx, out, mockStore, ws, task, notifier)
+	err := runAutoApprove(ctx, out, mockStore, ws, task, notifier, false)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to approve task")
+}
+
+// TestApproveCommand_CloseFlag tests that --close flag is defined.
+func TestApproveCommand_CloseFlag(t *testing.T) {
+	t.Parallel()
+
+	root := &cobra.Command{Use: "atlas"}
+	AddApproveCommand(root)
+
+	approveCmd, _, err := root.Find([]string{"approve"})
+	require.NoError(t, err)
+
+	// Check that --close flag exists
+	flag := approveCmd.Flags().Lookup("close")
+	require.NotNil(t, flag)
+	assert.Equal(t, "bool", flag.Value.Type())
+	assert.Equal(t, "false", flag.DefValue)
+	assert.Contains(t, flag.Usage, "close")
+}
+
+// TestApproveCommand_CloseHelp tests that help includes --close examples.
+func TestApproveCommand_CloseHelp(t *testing.T) {
+	t.Parallel()
+
+	root := &cobra.Command{Use: "atlas"}
+	AddApproveCommand(root)
+
+	approveCmd, _, err := root.Find([]string{"approve"})
+	require.NoError(t, err)
+
+	// Check that long description mentions --close
+	assert.Contains(t, approveCmd.Long, "--close")
+	assert.Contains(t, approveCmd.Long, "close")
+}
+
+// TestApproveAction_ApproveAndClose tests actionApproveAndClose constant.
+func TestApproveAction_ApproveAndClose(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, "approve_and_close", string(actionApproveAndClose))
+}
+
+// TestApproveOptions_CloseField tests approveOptions includes closeWS field.
+func TestApproveOptions_CloseField(t *testing.T) {
+	t.Parallel()
+
+	opts := approveOptions{
+		workspace:   "my-workspace",
+		autoApprove: true,
+		closeWS:     true,
+	}
+
+	assert.Equal(t, "my-workspace", opts.workspace)
+	assert.True(t, opts.autoApprove)
+	assert.True(t, opts.closeWS)
+}
+
+// TestApproveResponse_WorkspaceClosedField tests that WorkspaceClosed field is marshaled correctly.
+func TestApproveResponse_WorkspaceClosedField(t *testing.T) {
+	t.Parallel()
+
+	resp := approveResponse{
+		Success: true,
+		Workspace: workspaceInfo{
+			Name: "test-ws",
+		},
+		Task: taskInfo{
+			ID: "task-1",
+		},
+		WorkspaceClosed: true,
+	}
+
+	data, err := json.Marshal(resp)
+	require.NoError(t, err)
+
+	// Verify workspace_closed field is present
+	var parsed map[string]interface{}
+	err = json.Unmarshal(data, &parsed)
+	require.NoError(t, err)
+
+	assert.True(t, parsed["workspace_closed"].(bool))
+}
+
+// TestApproveResponse_WorkspaceClosedOmitted tests that workspace_closed is omitted when false.
+func TestApproveResponse_WorkspaceClosedOmitted(t *testing.T) {
+	t.Parallel()
+
+	resp := approveResponse{
+		Success: true,
+		Workspace: workspaceInfo{
+			Name: "test-ws",
+		},
+		Task: taskInfo{
+			ID: "task-1",
+		},
+		WorkspaceClosed: false, // Should be omitted
+	}
+
+	data, err := json.Marshal(resp)
+	require.NoError(t, err)
+
+	jsonStr := string(data)
+	assert.NotContains(t, jsonStr, "workspace_closed", "workspace_closed should be omitted when false")
+}
+
+// TestRunAutoApprove_WithCloseFlag tests runAutoApprove with closeWS flag.
+func TestRunAutoApprove_WithCloseFlag(t *testing.T) {
+	t.Parallel()
+
+	task := &domain.Task{
+		ID:          "task-1",
+		WorkspaceID: "test-ws",
+		Description: "Test auto-approve with close",
+		Status:      constants.TaskStatusAwaitingApproval,
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
+	}
+
+	ws := &domain.Workspace{
+		Name:   "test-ws",
+		Branch: "feat/test",
+	}
+
+	mockStore := &mockTaskStoreForApprove{
+		tasks: map[string][]*domain.Task{
+			"test-ws": {task},
+		},
+	}
+
+	var buf bytes.Buffer
+	out := tui.NewOutput(&buf, "text")
+	notifier := tui.NewNotifier(false, false)
+
+	ctx := context.Background()
+	// closeWS=true, but workspace won't actually close because we don't have a real store
+	// This tests that the flag is passed through correctly
+	err := runAutoApprove(ctx, out, mockStore, ws, task, notifier, true)
+	require.NoError(t, err)
+
+	// Verify task status changed to completed
+	assert.Equal(t, constants.TaskStatusCompleted, task.Status)
+
+	// Output should mention the workspace close attempt (even if it fails)
+	output := buf.String()
+	assert.Contains(t, output, "Task approved")
 }

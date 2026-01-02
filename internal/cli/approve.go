@@ -31,11 +31,13 @@ func AddApproveCommand(root *cobra.Command) {
 type approveOptions struct {
 	workspace   string // Optional workspace name
 	autoApprove bool   // Skip interactive menu and approve directly
+	closeWS     bool   // Also close the workspace after approval
 }
 
 // newApproveCmd creates the approve command.
 func newApproveCmd() *cobra.Command {
 	var autoApprove bool
+	var closeWS bool
 
 	cmd := &cobra.Command{
 		Use:   "approve [workspace]",
@@ -47,6 +49,7 @@ You can also specify a workspace name directly to skip the selection.
 
 The approval flow shows a summary of the task and provides options to:
   - Approve and complete the task
+  - Approve and close the workspace (removes worktree, preserves history)
   - View the git diff of changes
   - View task execution logs
   - Open the PR in your browser
@@ -61,11 +64,13 @@ Examples:
   atlas approve              # Interactive selection if multiple tasks
   atlas approve my-feature   # Approve task in my-feature workspace
   atlas approve my-feature --auto-approve  # Approve directly without menu
+  atlas approve my-feature --close         # Approve and close workspace
   atlas approve -o json my-feature  # Output result as JSON`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts := approveOptions{
 				autoApprove: autoApprove,
+				closeWS:     closeWS,
 			}
 			if len(args) > 0 {
 				opts.workspace = args[0]
@@ -75,29 +80,32 @@ Examples:
 	}
 
 	cmd.Flags().BoolVar(&autoApprove, "auto-approve", false, "Skip interactive menu and approve directly")
+	cmd.Flags().BoolVar(&closeWS, "close", false, "Also close the workspace after approval (removes worktree, preserves history)")
 
 	return cmd
 }
 
 // approveResponse represents the JSON output for approve operations.
 type approveResponse struct {
-	Success   bool          `json:"success"`
-	Workspace workspaceInfo `json:"workspace"`
-	Task      taskInfo      `json:"task"`
-	PRURL     string        `json:"pr_url,omitempty"`
-	Error     string        `json:"error,omitempty"`
+	Success         bool          `json:"success"`
+	Workspace       workspaceInfo `json:"workspace"`
+	Task            taskInfo      `json:"task"`
+	PRURL           string        `json:"pr_url,omitempty"`
+	WorkspaceClosed bool          `json:"workspace_closed,omitempty"`
+	Error           string        `json:"error,omitempty"`
 }
 
 // approvalAction represents actions available in the approval menu.
 type approvalAction string
 
 const (
-	actionApprove  approvalAction = "approve"
-	actionViewDiff approvalAction = "view_diff"
-	actionViewLogs approvalAction = "view_logs"
-	actionOpenPR   approvalAction = "open_pr"
-	actionReject   approvalAction = "reject"
-	actionCancel   approvalAction = "cancel"
+	actionApprove         approvalAction = "approve"
+	actionApproveAndClose approvalAction = "approve_and_close"
+	actionViewDiff        approvalAction = "view_diff"
+	actionViewLogs        approvalAction = "view_logs"
+	actionOpenPR          approvalAction = "open_pr"
+	actionReject          approvalAction = "reject"
+	actionCancel          approvalAction = "cancel"
 )
 
 // runApprove executes the approve command.
@@ -165,12 +173,12 @@ func runApprove(ctx context.Context, cmd *cobra.Command, w io.Writer, opts appro
 
 	// JSON mode: approve directly without interactive menu
 	if outputFormat == OutputJSON {
-		return approveAndOutputJSON(ctx, w, taskStore, selectedWS, selectedTask)
+		return approveAndOutputJSON(ctx, w, taskStore, selectedWS, selectedTask, opts.closeWS)
 	}
 
 	// Auto-approve mode: approve directly without interactive menu
 	if opts.autoApprove {
-		return runAutoApprove(ctx, out, taskStore, selectedWS, selectedTask, notifier)
+		return runAutoApprove(ctx, out, taskStore, selectedWS, selectedTask, notifier, opts.closeWS)
 	}
 
 	// Interactive approval flow
@@ -320,7 +328,7 @@ func selectWorkspaceForApproval(tasks []awaitingTask) (*awaitingTask, error) {
 }
 
 // runAutoApprove performs automatic approval without interactive menu.
-func runAutoApprove(ctx context.Context, out tui.Output, taskStore task.Store, ws *domain.Workspace, t *domain.Task, notifier *tui.Notifier) error {
+func runAutoApprove(ctx context.Context, out tui.Output, taskStore task.Store, ws *domain.Workspace, t *domain.Task, notifier *tui.Notifier, closeWS bool) error {
 	// Approve the task directly
 	if err := approveTask(ctx, taskStore, t); err != nil {
 		return fmt.Errorf("failed to approve task: %w", err)
@@ -331,6 +339,15 @@ func runAutoApprove(ctx context.Context, out tui.Output, taskStore task.Store, w
 	out.Info(fmt.Sprintf("  Task ID:   %s", t.ID))
 	if prURL := extractPRURL(t); prURL != "" {
 		out.Info(fmt.Sprintf("  PR URL:    %s", prURL))
+	}
+
+	// Close workspace if requested
+	if closeWS {
+		if err := closeWorkspace(ctx, ws.Name); err != nil {
+			out.Warning(fmt.Sprintf("Failed to close workspace: %s", err.Error()))
+		} else {
+			out.Success(fmt.Sprintf("Workspace '%s' closed. History preserved.", ws.Name))
+		}
 	}
 
 	notifier.Bell()
@@ -392,6 +409,20 @@ func executeApprovalAction(ctx context.Context, out tui.Output, taskStore task.S
 		notifier.Bell()
 		return true, nil
 
+	case actionApproveAndClose:
+		if err := approveTask(ctx, taskStore, t); err != nil {
+			out.Error(tui.WrapWithSuggestion(err))
+			return false, nil // Continue loop on error
+		}
+		out.Success("Task approved. PR ready for merge.")
+		if err := closeWorkspace(ctx, ws.Name); err != nil {
+			out.Warning(fmt.Sprintf("Failed to close workspace: %s", err.Error()))
+		} else {
+			out.Success(fmt.Sprintf("Workspace '%s' closed. History preserved.", ws.Name))
+		}
+		notifier.Bell()
+		return true, nil
+
 	case actionViewDiff:
 		if err := viewDiff(ctx, ws.WorktreePath); err != nil {
 			out.Warning("Could not display diff: " + err.Error())
@@ -431,6 +462,7 @@ func executeApprovalAction(ctx context.Context, out tui.Output, taskStore task.S
 func selectApprovalAction(t *domain.Task) (approvalAction, error) {
 	options := []tui.Option{
 		{Label: "Approve and complete", Description: "Mark task as completed", Value: string(actionApprove)},
+		{Label: "Approve and close workspace", Description: "Mark completed and remove worktree", Value: string(actionApproveAndClose)},
 		{Label: "View diff", Description: "Show file changes", Value: string(actionViewDiff)},
 		{Label: "View logs", Description: "Show task execution log", Value: string(actionViewLogs)},
 	}
@@ -564,7 +596,7 @@ func openInBrowser(ctx context.Context, url string) error {
 }
 
 // approveAndOutputJSON approves the task and outputs JSON result.
-func approveAndOutputJSON(ctx context.Context, w io.Writer, taskStore task.Store, ws *domain.Workspace, t *domain.Task) error {
+func approveAndOutputJSON(ctx context.Context, w io.Writer, taskStore task.Store, ws *domain.Workspace, t *domain.Task, closeWS bool) error {
 	// Approve the task
 	if err := task.Transition(ctx, t, constants.TaskStatusCompleted, "User approved via JSON"); err != nil {
 		return outputApproveErrorJSON(w, ws.Name, t.ID, err.Error())
@@ -572,6 +604,15 @@ func approveAndOutputJSON(ctx context.Context, w io.Writer, taskStore task.Store
 
 	if err := taskStore.Update(ctx, t.WorkspaceID, t); err != nil {
 		return outputApproveErrorJSON(w, ws.Name, t.ID, err.Error())
+	}
+
+	// Close workspace if requested
+	workspaceClosed := false
+	if closeWS {
+		if err := closeWorkspace(ctx, ws.Name); err == nil {
+			workspaceClosed = true
+		}
+		// We don't fail the approval if workspace close fails
 	}
 
 	// Output success JSON
@@ -591,7 +632,8 @@ func approveAndOutputJSON(ctx context.Context, w io.Writer, taskStore task.Store
 			CurrentStep:  t.CurrentStep,
 			TotalSteps:   len(t.Steps),
 		},
-		PRURL: extractPRURL(t),
+		PRURL:           extractPRURL(t),
+		WorkspaceClosed: workspaceClosed,
 	}
 
 	encoder := json.NewEncoder(w)
@@ -626,4 +668,45 @@ func outputApproveErrorJSON(w io.Writer, workspaceName, taskID, errMsg string) e
 		return fmt.Errorf("failed to encode JSON: %w", err)
 	}
 	return atlaserrors.ErrJSONErrorOutput
+}
+
+// closeWorkspace closes the workspace, removing the worktree but preserving history.
+func closeWorkspace(ctx context.Context, workspaceName string) error {
+	// Create workspace store
+	wsStore, err := workspace.NewFileStore("")
+	if err != nil {
+		return fmt.Errorf("failed to create workspace store: %w", err)
+	}
+
+	// Get workspace to find worktree path
+	ws, err := wsStore.Get(ctx, workspaceName)
+	if err != nil {
+		return fmt.Errorf("failed to get workspace: %w", err)
+	}
+
+	// Get repo path for worktree runner
+	repoPath, err := detectRepoPath()
+	if err != nil {
+		// If we can't detect repo, worktree operations will fail gracefully
+		repoPath = ""
+	}
+
+	// Create worktree runner (may be nil if no repo path)
+	var wtRunner workspace.WorktreeRunner
+	if repoPath != "" {
+		//nolint:contextcheck // NewGitWorktreeRunner doesn't take context; it only detects repo root
+		wtRunner, err = workspace.NewGitWorktreeRunner(repoPath)
+		if err != nil {
+			// Continue without worktree runner - close should still update state
+			wtRunner = nil
+		}
+	}
+
+	// Create manager and close
+	mgr := workspace.NewManager(wsStore, wtRunner)
+	if err := mgr.Close(ctx, ws.Name); err != nil {
+		return fmt.Errorf("failed to close workspace: %w", err)
+	}
+
+	return nil
 }

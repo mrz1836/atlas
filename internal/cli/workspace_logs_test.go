@@ -102,7 +102,7 @@ func TestRunWorkspaceLogs_NoTasks(t *testing.T) {
 	assert.Contains(t, buf.String(), "No logs found for workspace 'empty-ws'")
 }
 
-func TestRunWorkspaceLogs_RetiredWorkspace(t *testing.T) {
+func TestRunWorkspaceLogs_ClosedWorkspace(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	startTime := time.Now()
@@ -110,15 +110,15 @@ func TestRunWorkspaceLogs_RetiredWorkspace(t *testing.T) {
 		{ID: "task-20251227-100000", Status: constants.TaskStatusCompleted, StartedAt: &startTime},
 	}
 
-	logContent := `{"ts":"2025-12-27T10:00:00Z","level":"info","event":"retired workspace log","step_name":"implement"}
+	logContent := `{"ts":"2025-12-27T10:00:00Z","level":"info","event":"closed workspace log","step_name":"implement"}
 `
 	// Create workspace
 	store, err := workspace.NewFileStore(tmpDir)
 	require.NoError(t, err)
 
 	ws := &domain.Workspace{
-		Name:      "retired-ws",
-		Status:    constants.WorkspaceStatusRetired, // Retired status
+		Name:      "closed-ws",
+		Status:    constants.WorkspaceStatusClosed, // Closed status
 		Tasks:     tasks,
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
@@ -126,7 +126,7 @@ func TestRunWorkspaceLogs_RetiredWorkspace(t *testing.T) {
 	require.NoError(t, store.Create(context.Background(), ws))
 
 	// Create task directory and log file
-	taskDir := filepath.Join(tmpDir, constants.WorkspacesDir, "retired-ws", constants.TasksDir, "task-20251227-100000")
+	taskDir := filepath.Join(tmpDir, constants.WorkspacesDir, "closed-ws", constants.TasksDir, "task-20251227-100000")
 	require.NoError(t, os.MkdirAll(taskDir, 0o750))
 	logPath := filepath.Join(taskDir, constants.TaskLogFileName)
 	require.NoError(t, os.WriteFile(logPath, []byte(logContent), 0o600))
@@ -135,11 +135,11 @@ func TestRunWorkspaceLogs_RetiredWorkspace(t *testing.T) {
 	cmd := &cobra.Command{}
 	cmd.Flags().String("output", "", "")
 
-	err = runWorkspaceLogs(context.Background(), cmd, &buf, "retired-ws", logsOptions{}, tmpDir)
+	err = runWorkspaceLogs(context.Background(), cmd, &buf, "closed-ws", logsOptions{}, tmpDir)
 	require.NoError(t, err)
 
-	// Logs should still be viewable for retired workspace
-	assert.Contains(t, buf.String(), "retired workspace log")
+	// Logs should still be viewable for closed workspace
+	assert.Contains(t, buf.String(), "closed workspace log")
 }
 
 func TestRunWorkspaceLogs_WorkspaceNotFound(t *testing.T) {
