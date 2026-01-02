@@ -50,6 +50,7 @@ type startOptions struct {
 	templateName  string
 	workspaceName string
 	model         string
+	baseBranch    string
 	noInteractive bool
 	verify        bool
 	noVerify      bool
@@ -61,6 +62,7 @@ func newStartCmd() *cobra.Command {
 		templateName  string
 		workspaceName string
 		model         string
+		baseBranch    string
 		noInteractive bool
 		verify        bool
 		noVerify      bool
@@ -77,13 +79,15 @@ Examples:
   atlas start "add retry logic to HTTP client" --template feature
   atlas start "update dependencies" --workspace deps-update --template commit
   atlas start "add new feature" --template feature --verify
-  atlas start "quick fix" --template bugfix --no-verify`,
+  atlas start "quick fix" --template bugfix --no-verify
+  atlas start "fix from develop" --template bugfix --branch develop`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runStart(cmd.Context(), cmd, os.Stdout, args[0], startOptions{
 				templateName:  templateName,
 				workspaceName: workspaceName,
 				model:         model,
+				baseBranch:    baseBranch,
 				noInteractive: noInteractive,
 				verify:        verify,
 				noVerify:      noVerify,
@@ -97,6 +101,8 @@ Examples:
 		"Custom workspace name")
 	cmd.Flags().StringVarP(&model, "model", "m", "",
 		"AI model to use (sonnet, opus, haiku)")
+	cmd.Flags().StringVarP(&baseBranch, "branch", "b", "",
+		"Base branch to create workspace from (fetches from remote if needed)")
 	cmd.Flags().BoolVar(&noInteractive, "no-interactive", false,
 		"Disable interactive prompts")
 	cmd.Flags().BoolVar(&verify, "verify", false,
@@ -179,7 +185,7 @@ func runStart(ctx context.Context, cmd *cobra.Command, w io.Writer, description 
 	}
 
 	// Create and configure workspace
-	ws, err := createWorkspace(ctx, sc, wsName, repoPath, tmpl.BranchPrefix, opts.noInteractive)
+	ws, err := createWorkspace(ctx, sc, wsName, repoPath, tmpl.BranchPrefix, opts.baseBranch, opts.noInteractive)
 	if err != nil {
 		return err
 	}
@@ -240,7 +246,7 @@ func (sc *startContext) handleTaskStartError(ctx context.Context, ws *domain.Wor
 
 // createWorkspace creates a new workspace or uses an existing one (upsert behavior).
 // If a workspace with the given name already exists, it will be reused.
-func createWorkspace(ctx context.Context, sc *startContext, wsName, repoPath, branchPrefix string, _ bool) (*domain.Workspace, error) {
+func createWorkspace(ctx context.Context, sc *startContext, wsName, repoPath, branchPrefix, baseBranch string, _ bool) (*domain.Workspace, error) {
 	logger := GetLogger()
 
 	// Create workspace store
@@ -270,7 +276,7 @@ func createWorkspace(ctx context.Context, sc *startContext, wsName, repoPath, br
 	}
 
 	// Workspace doesn't exist - create new
-	ws, err := wsMgr.Create(ctx, wsName, repoPath, branchPrefix)
+	ws, err := wsMgr.Create(ctx, wsName, repoPath, branchPrefix, baseBranch)
 	if err != nil {
 		return nil, sc.handleError(wsName, fmt.Errorf("failed to create workspace: %w", err))
 	}

@@ -797,6 +797,274 @@ func TestGitWorktreeRunner_DeleteBranch(t *testing.T) {
 	})
 }
 
+func TestGitWorktreeRunner_Fetch(t *testing.T) {
+	t.Run("fetches from origin successfully", func(t *testing.T) {
+		// Create a bare remote repo
+		remoteDir := t.TempDir()
+		runGit(t, remoteDir, "init", "--bare")
+
+		// Clone it to create local repo
+		localDir := t.TempDir()
+		ctx := context.Background()
+		cmd := exec.CommandContext(ctx, "git", "clone", remoteDir, localDir) // #nosec G204 -- test code with safe temp dirs
+		out, err := cmd.CombinedOutput()
+		require.NoError(t, err, "clone failed: %s", out)
+
+		// Configure git user
+		runGit(t, localDir, "config", "user.email", "test@test.com")
+		runGit(t, localDir, "config", "user.name", "Test")
+
+		// Create initial commit
+		readme := filepath.Join(localDir, "README.md")
+		err = os.WriteFile(readme, []byte("# Test"), 0o600)
+		require.NoError(t, err)
+		runGit(t, localDir, "add", ".")
+		runGit(t, localDir, "commit", "-m", "Initial commit")
+		runGit(t, localDir, "push", "-u", "origin", "master")
+
+		runner, err := NewGitWorktreeRunner(localDir)
+		require.NoError(t, err)
+
+		// Fetch should succeed
+		err = runner.Fetch(context.Background(), "origin")
+		require.NoError(t, err)
+	})
+
+	t.Run("uses origin as default remote", func(t *testing.T) {
+		// Create a bare remote repo
+		remoteDir := t.TempDir()
+		runGit(t, remoteDir, "init", "--bare")
+
+		// Clone it
+		localDir := t.TempDir()
+		ctx := context.Background()
+		cmd := exec.CommandContext(ctx, "git", "clone", remoteDir, localDir) // #nosec G204 -- test code with safe temp dirs
+		out, err := cmd.CombinedOutput()
+		require.NoError(t, err, "clone failed: %s", out)
+
+		// Configure and create initial commit
+		runGit(t, localDir, "config", "user.email", "test@test.com")
+		runGit(t, localDir, "config", "user.name", "Test")
+		readme := filepath.Join(localDir, "README.md")
+		err = os.WriteFile(readme, []byte("# Test"), 0o600)
+		require.NoError(t, err)
+		runGit(t, localDir, "add", ".")
+		runGit(t, localDir, "commit", "-m", "Initial")
+		runGit(t, localDir, "push", "-u", "origin", "master")
+
+		runner, err := NewGitWorktreeRunner(localDir)
+		require.NoError(t, err)
+
+		// Fetch with empty remote should default to origin
+		err = runner.Fetch(context.Background(), "")
+		require.NoError(t, err)
+	})
+
+	t.Run("returns error for non-existent remote", func(t *testing.T) {
+		repoPath := createTestRepo(t)
+		runner, err := NewGitWorktreeRunner(repoPath)
+		require.NoError(t, err)
+
+		err = runner.Fetch(context.Background(), "nonexistent-remote")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to fetch")
+	})
+
+	t.Run("respects context cancellation", func(t *testing.T) {
+		repoPath := createTestRepo(t)
+		runner, err := NewGitWorktreeRunner(repoPath)
+		require.NoError(t, err)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		err = runner.Fetch(ctx, "origin")
+		assert.ErrorIs(t, err, context.Canceled)
+	})
+}
+
+func TestGitWorktreeRunner_RemoteBranchExists(t *testing.T) {
+	t.Run("returns true for existing remote branch", func(t *testing.T) {
+		// Create a bare remote repo
+		remoteDir := t.TempDir()
+		runGit(t, remoteDir, "init", "--bare")
+
+		// Clone it
+		localDir := t.TempDir()
+		ctx := context.Background()
+		cmd := exec.CommandContext(ctx, "git", "clone", remoteDir, localDir) // #nosec G204 -- test code with safe temp dirs
+		out, err := cmd.CombinedOutput()
+		require.NoError(t, err, "clone failed: %s", out)
+
+		// Configure and create initial commit
+		runGit(t, localDir, "config", "user.email", "test@test.com")
+		runGit(t, localDir, "config", "user.name", "Test")
+		readme := filepath.Join(localDir, "README.md")
+		err = os.WriteFile(readme, []byte("# Test"), 0o600)
+		require.NoError(t, err)
+		runGit(t, localDir, "add", ".")
+		runGit(t, localDir, "commit", "-m", "Initial")
+		runGit(t, localDir, "push", "-u", "origin", "master")
+
+		// Create develop branch and push
+		runGit(t, localDir, "checkout", "-b", "develop")
+		runGit(t, localDir, "push", "-u", "origin", "develop")
+		runGit(t, localDir, "checkout", "master")
+
+		runner, err := NewGitWorktreeRunner(localDir)
+		require.NoError(t, err)
+
+		// Fetch to get remote refs
+		err = runner.Fetch(context.Background(), "origin")
+		require.NoError(t, err)
+
+		// Check remote branch exists
+		exists, err := runner.RemoteBranchExists(context.Background(), "origin", "develop")
+		require.NoError(t, err)
+		assert.True(t, exists)
+	})
+
+	t.Run("returns false for non-existing remote branch", func(t *testing.T) {
+		// Create a bare remote repo
+		remoteDir := t.TempDir()
+		runGit(t, remoteDir, "init", "--bare")
+
+		// Clone it
+		localDir := t.TempDir()
+		ctx := context.Background()
+		cmd := exec.CommandContext(ctx, "git", "clone", remoteDir, localDir) // #nosec G204 -- test code with safe temp dirs
+		out, err := cmd.CombinedOutput()
+		require.NoError(t, err, "clone failed: %s", out)
+
+		// Configure and create initial commit
+		runGit(t, localDir, "config", "user.email", "test@test.com")
+		runGit(t, localDir, "config", "user.name", "Test")
+		readme := filepath.Join(localDir, "README.md")
+		err = os.WriteFile(readme, []byte("# Test"), 0o600)
+		require.NoError(t, err)
+		runGit(t, localDir, "add", ".")
+		runGit(t, localDir, "commit", "-m", "Initial")
+		runGit(t, localDir, "push", "-u", "origin", "master")
+
+		runner, err := NewGitWorktreeRunner(localDir)
+		require.NoError(t, err)
+
+		// Fetch to get remote refs
+		err = runner.Fetch(context.Background(), "origin")
+		require.NoError(t, err)
+
+		// Check non-existent branch
+		exists, err := runner.RemoteBranchExists(context.Background(), "origin", "nonexistent")
+		require.NoError(t, err)
+		assert.False(t, exists)
+	})
+
+	t.Run("uses origin as default remote", func(t *testing.T) {
+		// Create a bare remote repo
+		remoteDir := t.TempDir()
+		runGit(t, remoteDir, "init", "--bare")
+
+		// Clone it
+		localDir := t.TempDir()
+		ctx := context.Background()
+		cmd := exec.CommandContext(ctx, "git", "clone", remoteDir, localDir) // #nosec G204 -- test code with safe temp dirs
+		out, err := cmd.CombinedOutput()
+		require.NoError(t, err, "clone failed: %s", out)
+
+		// Configure and create initial commit
+		runGit(t, localDir, "config", "user.email", "test@test.com")
+		runGit(t, localDir, "config", "user.name", "Test")
+		readme := filepath.Join(localDir, "README.md")
+		err = os.WriteFile(readme, []byte("# Test"), 0o600)
+		require.NoError(t, err)
+		runGit(t, localDir, "add", ".")
+		runGit(t, localDir, "commit", "-m", "Initial")
+		runGit(t, localDir, "push", "-u", "origin", "master")
+
+		runner, err := NewGitWorktreeRunner(localDir)
+		require.NoError(t, err)
+
+		// Fetch
+		err = runner.Fetch(context.Background(), "")
+		require.NoError(t, err)
+
+		// Check with empty remote (should default to origin)
+		exists, err := runner.RemoteBranchExists(context.Background(), "", "master")
+		require.NoError(t, err)
+		assert.True(t, exists)
+	})
+
+	t.Run("respects context cancellation", func(t *testing.T) {
+		repoPath := createTestRepo(t)
+		runner, err := NewGitWorktreeRunner(repoPath)
+		require.NoError(t, err)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		_, err = runner.RemoteBranchExists(ctx, "origin", "any")
+		assert.ErrorIs(t, err, context.Canceled)
+	})
+}
+
+func TestGitWorktreeRunner_Create_WithRemoteBaseBranch(t *testing.T) {
+	t.Run("creates worktree from remote branch", func(t *testing.T) {
+		// Create a bare remote repo
+		remoteDir := t.TempDir()
+		runGit(t, remoteDir, "init", "--bare")
+
+		// Clone it
+		localDir := t.TempDir()
+		ctx := context.Background()
+		cmd := exec.CommandContext(ctx, "git", "clone", remoteDir, localDir) // #nosec G204 -- test code with safe temp dirs
+		out, err := cmd.CombinedOutput()
+		require.NoError(t, err, "clone failed: %s", out)
+
+		// Configure and create initial commit
+		runGit(t, localDir, "config", "user.email", "test@test.com")
+		runGit(t, localDir, "config", "user.name", "Test")
+		readme := filepath.Join(localDir, "README.md")
+		err = os.WriteFile(readme, []byte("# Test"), 0o600)
+		require.NoError(t, err)
+		runGit(t, localDir, "add", ".")
+		runGit(t, localDir, "commit", "-m", "Initial")
+		runGit(t, localDir, "push", "-u", "origin", "master")
+
+		// Create develop branch with unique content and push
+		runGit(t, localDir, "checkout", "-b", "develop")
+		developFile := filepath.Join(localDir, "develop.txt")
+		err = os.WriteFile(developFile, []byte("develop content"), 0o600)
+		require.NoError(t, err)
+		runGit(t, localDir, "add", ".")
+		runGit(t, localDir, "commit", "-m", "Develop commit")
+		runGit(t, localDir, "push", "-u", "origin", "develop")
+
+		// Go back to master and delete local develop branch
+		runGit(t, localDir, "checkout", "master")
+		runGit(t, localDir, "branch", "-D", "develop")
+
+		runner, err := NewGitWorktreeRunner(localDir)
+		require.NoError(t, err)
+
+		// Fetch to get remote refs
+		err = runner.Fetch(context.Background(), "origin")
+		require.NoError(t, err)
+
+		// Create worktree from origin/develop
+		info, err := runner.Create(context.Background(), WorktreeCreateOptions{
+			WorkspaceName: "feature",
+			BranchType:    "feat",
+			BaseBranch:    "origin/develop",
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "feat/feature", info.Branch)
+
+		// Verify the worktree has develop.txt (proving it came from develop)
+		_, err = os.Stat(filepath.Join(info.Path, "develop.txt"))
+		assert.NoError(t, err, "worktree should contain develop.txt from develop branch")
+	})
+}
+
 func TestGitRunCommand(t *testing.T) {
 	t.Run("returns stdout for successful command", func(t *testing.T) {
 		repoPath := createTestRepo(t)

@@ -17,8 +17,10 @@ import (
 // It coordinates between the Store (state persistence) and WorktreeRunner (git worktrees).
 type Manager interface {
 	// Create creates a new workspace with a git worktree.
+	// If baseBranch is specified, validates it exists (locally or remotely) and creates from it.
 	// Returns ErrWorkspaceExists if workspace already exists.
-	Create(ctx context.Context, name, repoPath, branchType string) (*domain.Workspace, error)
+	// Returns ErrBranchNotFound if baseBranch is specified but doesn't exist.
+	Create(ctx context.Context, name, repoPath, branchType, baseBranch string) (*domain.Workspace, error)
 
 	// Get retrieves a workspace by name.
 	// Returns ErrWorkspaceNotFound if not found.
@@ -58,7 +60,7 @@ func NewManager(store Store, worktreeRunner WorktreeRunner) *DefaultManager {
 }
 
 // Create creates a new workspace with a git worktree.
-func (m *DefaultManager) Create(ctx context.Context, name, repoPath, branchType string) (*domain.Workspace, error) {
+func (m *DefaultManager) Create(ctx context.Context, name, repoPath, branchType, baseBranch string) (*domain.Workspace, error) {
 	// Check for cancellation
 	select {
 	case <-ctx.Done():
@@ -86,11 +88,23 @@ func (m *DefaultManager) Create(ctx context.Context, name, repoPath, branchType 
 		return nil, fmt.Errorf("failed to create workspace '%s': %w", name, atlaserrors.ErrWorkspaceExists)
 	}
 
+	// Validate and resolve base branch if specified
+	resolvedBaseBranch := baseBranch
+	if baseBranch != "" {
+		var resolveErr error
+		resolved, resolveErr := m.ensureBaseBranch(ctx, baseBranch)
+		if resolveErr != nil {
+			return nil, fmt.Errorf("failed to validate base branch '%s': %w", baseBranch, resolveErr)
+		}
+		resolvedBaseBranch = resolved
+	}
+
 	// Create worktree
 	wtInfo, err := m.worktreeRunner.Create(ctx, WorktreeCreateOptions{
 		RepoPath:      repoPath,
 		WorkspaceName: name,
 		BranchType:    branchType,
+		BaseBranch:    resolvedBaseBranch,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create worktree: %w", err)
@@ -289,4 +303,43 @@ func (m *DefaultManager) Exists(ctx context.Context, name string) (bool, error) 
 	}
 
 	return m.store.Exists(ctx, name)
+}
+
+// ensureBaseBranch ensures the base branch exists, fetching from remote if needed.
+// Returns the resolved branch reference to use (e.g., "origin/develop" if only remote exists).
+func (m *DefaultManager) ensureBaseBranch(ctx context.Context, branch string) (string, error) {
+	// Check for cancellation
+	select {
+	case <-ctx.Done():
+		return "", ctx.Err()
+	default:
+	}
+
+	// Check local first
+	localExists, err := m.worktreeRunner.BranchExists(ctx, branch)
+	if err != nil {
+		return "", fmt.Errorf("failed to check local branch: %w", err)
+	}
+	if localExists {
+		return branch, nil
+	}
+
+	// Try fetching from remote
+	// Fetch may fail if branch doesn't exist or network error
+	// We'll still check if remote branch exists after fetch attempt
+	// (fetch may have partially succeeded or refs may already be present)
+	_ = m.worktreeRunner.Fetch(ctx, "origin")
+
+	// Check if branch exists on remote
+	remoteExists, err := m.worktreeRunner.RemoteBranchExists(ctx, "origin", branch)
+	if err != nil {
+		return "", fmt.Errorf("failed to check remote branch: %w", err)
+	}
+	if remoteExists {
+		// Return the remote tracking reference
+		return fmt.Sprintf("origin/%s", branch), nil
+	}
+
+	// Branch doesn't exist locally or remotely
+	return "", atlaserrors.ErrBranchNotFound
 }

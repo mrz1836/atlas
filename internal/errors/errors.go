@@ -129,6 +129,9 @@ var (
 	// ErrBranchExists indicates the branch already exists.
 	ErrBranchExists = errors.New("branch already exists")
 
+	// ErrBranchNotFound indicates the specified branch does not exist locally or remotely.
+	ErrBranchNotFound = errors.New("branch not found")
+
 	// ErrNotGitRepo indicates the path is not a git repository.
 	ErrNotGitRepo = errors.New("not a git repository")
 

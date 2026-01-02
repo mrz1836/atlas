@@ -408,6 +408,11 @@ func TestNewStartCmd(t *testing.T) {
 	require.NotNil(t, modelFlag)
 	assert.Equal(t, "m", modelFlag.Shorthand)
 
+	branchFlag := cmd.Flags().Lookup("branch")
+	require.NotNil(t, branchFlag)
+	assert.Equal(t, "b", branchFlag.Shorthand)
+	assert.Contains(t, branchFlag.Usage, "Base branch")
+
 	noInteractiveFlag := cmd.Flags().Lookup("no-interactive")
 	require.NotNil(t, noInteractiveFlag)
 }

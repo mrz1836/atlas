@@ -36,6 +36,14 @@ type WorktreeRunner interface {
 
 	// DeleteBranch deletes a branch. If force is true, deletes even if not merged.
 	DeleteBranch(ctx context.Context, name string, force bool) error
+
+	// Fetch fetches from the specified remote.
+	// If remote is empty, defaults to "origin".
+	Fetch(ctx context.Context, remote string) error
+
+	// RemoteBranchExists checks if a branch exists on the specified remote.
+	// Returns true if refs/remotes/{remote}/{name} exists.
+	RemoteBranchExists(ctx context.Context, remote, name string) (bool, error)
 }
 
 // WorktreeCreateOptions contains options for creating a worktree.
@@ -272,6 +280,55 @@ func (r *GitWorktreeRunner) DeleteBranch(ctx context.Context, name string, force
 	}
 
 	return nil
+}
+
+// Fetch fetches from the specified remote.
+func (r *GitWorktreeRunner) Fetch(ctx context.Context, remote string) error {
+	// Check for cancellation at entry
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
+	if remote == "" {
+		remote = "origin"
+	}
+
+	_, err := git.RunCommand(ctx, r.repoPath, "fetch", remote)
+	if err != nil {
+		return fmt.Errorf("failed to fetch from %s: %w", remote, err)
+	}
+
+	return nil
+}
+
+// RemoteBranchExists checks if a branch exists on the specified remote.
+func (r *GitWorktreeRunner) RemoteBranchExists(ctx context.Context, remote, name string) (bool, error) {
+	// Check for cancellation at entry
+	select {
+	case <-ctx.Done():
+		return false, ctx.Err()
+	default:
+	}
+
+	if remote == "" {
+		remote = "origin"
+	}
+
+	// Check for refs/remotes/{remote}/{name}
+	ref := fmt.Sprintf("refs/remotes/%s/%s", remote, name)
+	_, err := git.RunCommand(ctx, r.repoPath, "show-ref", "--verify", ref)
+	if err != nil {
+		// Exit code 1 or "not a valid ref" means ref not found, which is expected
+		errStr := err.Error()
+		if strings.Contains(errStr, "exit status 1") || strings.Contains(errStr, "not a valid ref") {
+			return false, nil
+		}
+		return false, fmt.Errorf("failed to check remote branch existence: %w", err)
+	}
+
+	return true, nil
 }
 
 // generateUniqueBranchName ensures branch name is unique.

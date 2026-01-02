@@ -182,6 +182,9 @@ atlas start "do this thing..." -t task -w task-workspace --model opus
 # Use a specific model
 atlas start "complex refactor" --model opus
 
+# Use a specific branch as the source
+atlas start "add logging" -t task --branch develop
+
 # Enable/disable AI verification
 atlas start "quick fix" --verify
 atlas start "quick fix" --no-verify
