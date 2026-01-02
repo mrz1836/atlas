@@ -177,7 +177,7 @@ atlas start "fix null pointer in parseConfig"
 atlas start "fix null pointer" --template bugfix
 
 # Custom workspace name
-atlas start "Update the quick start guide in docs/internal for the new task template" -t task -w task-workspace --model opus
+atlas start "do this thing..." -t task -w task-workspace --model opus
 
 # Use a specific model
 atlas start "complex refactor" --model opus
