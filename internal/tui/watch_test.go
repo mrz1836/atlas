@@ -528,14 +528,58 @@ func TestWatchModel_StatusRowBuilding_TaskListerError(t *testing.T) {
 	rows := model.buildStatusRows(context.Background(), workspaces)
 	require.Len(t, rows, 1)
 
-	// When TaskLister fails, we should still get a row with default status from workspace
+	// When TaskLister fails, we get defaults (task store is authoritative source)
 	assert.Equal(t, "auth", rows[0].Workspace)
 	assert.Equal(t, "feat/auth", rows[0].Branch)
-	// Status falls back to the TaskRef status since full task load failed
-	assert.Equal(t, constants.TaskStatusRunning, rows[0].Status)
-	// Step info should be zero since we couldn't load the full task
+	// Status defaults to pending when store fails
+	assert.Equal(t, constants.TaskStatusPending, rows[0].Status)
+	// Step info should be zero since we couldn't load from store
 	assert.Equal(t, 0, rows[0].CurrentStep)
 	assert.Equal(t, 0, rows[0].TotalSteps)
+}
+
+// TestWatchModel_StatusRowBuilding_EmptyTaskRefsWithTasksInStore tests the fix for the bug
+// where ws.Tasks is empty but tasks exist in the store.
+func TestWatchModel_StatusRowBuilding_EmptyTaskRefsWithTasksInStore(t *testing.T) {
+	t.Parallel()
+
+	// Workspace with EMPTY Tasks slice (simulates real bug scenario)
+	workspaces := []*domain.Workspace{
+		{
+			Name:   "task-workspace",
+			Branch: "task/task-workspace",
+			Status: constants.WorkspaceStatusActive,
+			Tasks:  []domain.TaskRef{}, // Empty! This is the bug scenario
+		},
+	}
+
+	// But the task store HAS tasks for this workspace
+	tasks := map[string][]*domain.Task{
+		"task-workspace": {
+			{
+				ID:          "task-20260102-152211",
+				WorkspaceID: "task-workspace",
+				Status:      constants.TaskStatusAwaitingApproval,
+				CurrentStep: 7, // 0-indexed, should display as 8
+				Steps:       make([]domain.Step, 8),
+			},
+		},
+	}
+
+	mockWs := &mockWorkspaceLister{workspaces: workspaces}
+	mockTask := &mockTaskLister{tasks: tasks}
+
+	cfg := DefaultWatchConfig()
+	model := NewWatchModel(context.Background(), mockWs, mockTask, cfg)
+
+	rows := model.buildStatusRows(context.Background(), workspaces)
+	require.Len(t, rows, 1)
+
+	// Should show correct status from store, NOT "pending"
+	assert.Equal(t, "task-workspace", rows[0].Workspace)
+	assert.Equal(t, constants.TaskStatusAwaitingApproval, rows[0].Status, "should show actual status from task store")
+	assert.Equal(t, 8, rows[0].CurrentStep, "should show correct current step (1-indexed)")
+	assert.Equal(t, 8, rows[0].TotalSteps, "should show correct total steps")
 }
 
 // TestWatchModel_StatusPrioritySorting tests sorting by status priority.

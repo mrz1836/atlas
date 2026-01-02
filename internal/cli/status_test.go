@@ -581,6 +581,96 @@ func TestStatusCommand_WorkspacesWithNoTasks(t *testing.T) {
 	assert.Contains(t, output, "pending")
 }
 
+// TestStatusCommand_EmptyTaskRefsWithTasksInStore tests the fix for the bug where
+// ws.Tasks is empty but tasks exist in the store. This was the root cause of
+// status showing 0/0 and "pending" instead of actual values.
+func TestStatusCommand_EmptyTaskRefsWithTasksInStore(t *testing.T) {
+	t.Parallel()
+
+	// Workspace with EMPTY Tasks slice (simulates real bug scenario)
+	workspaces := []*domain.Workspace{
+		{
+			Name:   "task-workspace",
+			Branch: "task/task-workspace",
+			Status: constants.WorkspaceStatusActive,
+			Tasks:  []domain.TaskRef{}, // Empty! This is the bug scenario
+		},
+	}
+
+	// But the task store HAS tasks for this workspace
+	tasks := map[string][]*domain.Task{
+		"task-workspace": {
+			{
+				ID:          "task-20260102-152211",
+				WorkspaceID: "task-workspace",
+				Status:      constants.TaskStatusAwaitingApproval,
+				CurrentStep: 7, // 0-indexed, should display as 8
+				Steps:       make([]domain.Step, 8),
+			},
+		},
+	}
+
+	var buf bytes.Buffer
+	ctx := context.Background()
+
+	mockMgr := &mockWorkspaceManager{workspaces: workspaces}
+	mockStore := &mockTaskStore{tasks: tasks}
+
+	err := runStatusWithDeps(ctx, &buf, "text", false, false, mockMgr, mockStore)
+	require.NoError(t, err)
+
+	output := buf.String()
+
+	// Should show correct status from store, NOT "pending"
+	assert.Contains(t, output, "awaiting_approval", "should show actual status from task store")
+	assert.NotContains(t, output, "0/0", "should NOT show 0/0 step count")
+	assert.Contains(t, output, "8/8", "should show correct step count (8/8)")
+}
+
+// TestStatusCommand_EmptyTaskRefsWithTasksInStore_JSON tests JSON output for the same bug scenario.
+func TestStatusCommand_EmptyTaskRefsWithTasksInStore_JSON(t *testing.T) {
+	t.Parallel()
+
+	workspaces := []*domain.Workspace{
+		{
+			Name:   "task-workspace",
+			Branch: "task/task-workspace",
+			Status: constants.WorkspaceStatusActive,
+			Tasks:  []domain.TaskRef{}, // Empty!
+		},
+	}
+
+	tasks := map[string][]*domain.Task{
+		"task-workspace": {
+			{
+				ID:          "task-20260102-152211",
+				WorkspaceID: "task-workspace",
+				Status:      constants.TaskStatusAwaitingApproval,
+				CurrentStep: 7,
+				Steps:       make([]domain.Step, 8),
+			},
+		},
+	}
+
+	var buf bytes.Buffer
+	ctx := context.Background()
+
+	mockMgr := &mockWorkspaceManager{workspaces: workspaces}
+	mockStore := &mockTaskStore{tasks: tasks}
+
+	err := runStatusWithDeps(ctx, &buf, "json", false, false, mockMgr, mockStore)
+	require.NoError(t, err)
+
+	var result statusJSONOutput
+	err = json.Unmarshal(buf.Bytes(), &result)
+	require.NoError(t, err)
+	require.Len(t, result.Workspaces, 1)
+
+	// Verify correct values in JSON
+	assert.Contains(t, result.Workspaces[0]["status"], "awaiting_approval")
+	assert.Equal(t, "8/8", result.Workspaces[0]["step"], "JSON should show correct step count")
+}
+
 // TestStatusCommand_AllStatuses tests all possible task statuses are handled.
 func TestStatusCommand_AllStatuses(t *testing.T) {
 	t.Parallel()

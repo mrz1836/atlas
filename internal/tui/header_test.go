@@ -276,27 +276,6 @@ func TestCenterText(t *testing.T) {
 	}
 }
 
-// stripANSI removes ANSI escape codes from a string for testing.
-func stripANSI(s string) string {
-	// Simple ANSI stripping for test purposes
-	var result strings.Builder
-	inEscape := false
-	for _, r := range s {
-		if r == '\x1b' {
-			inEscape = true
-			continue
-		}
-		if inEscape {
-			if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') {
-				inEscape = false
-			}
-			continue
-		}
-		result.WriteRune(r)
-	}
-	return result.String()
-}
-
 func TestHeader_ConsistentOutput(t *testing.T) {
 	// Verify same width produces same output
 	h1 := NewHeader(100)

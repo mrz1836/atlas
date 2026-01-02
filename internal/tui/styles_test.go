@@ -496,3 +496,149 @@ func TestIsNarrowTerminal_UsesGetTerminalWidth(t *testing.T) {
 		assert.False(t, isNarrow, "should not be narrow when width >= threshold")
 	}
 }
+
+// TestStripANSI verifies ANSI escape code removal.
+func TestStripANSI(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "plain text unchanged",
+			input:    "hello world",
+			expected: "hello world",
+		},
+		{
+			name:     "green color code",
+			input:    "\x1b[32mpassed\x1b[0m",
+			expected: "passed",
+		},
+		{
+			name:     "red color code",
+			input:    "\x1b[31mfailed\x1b[0m",
+			expected: "failed",
+		},
+		{
+			name:     "bold text",
+			input:    "\x1b[1mbold\x1b[0m",
+			expected: "bold",
+		},
+		{
+			name:     "multiple codes in one string",
+			input:    "\x1b[32mgreen\x1b[0m and \x1b[31mred\x1b[0m",
+			expected: "green and red",
+		},
+		{
+			name:     "256 color code",
+			input:    "\x1b[38;5;82mcolor\x1b[0m",
+			expected: "color",
+		},
+		{
+			name:     "RGB color code",
+			input:    "\x1b[38;2;255;100;0mrgb\x1b[0m",
+			expected: "rgb",
+		},
+		{
+			name:     "empty string",
+			input:    "",
+			expected: "",
+		},
+		{
+			name:     "only escape codes",
+			input:    "\x1b[32m\x1b[0m",
+			expected: "",
+		},
+		{
+			name:     "unicode with ANSI",
+			input:    "\x1b[32m✓\x1b[0m passed",
+			expected: "✓ passed",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := stripANSI(tt.input)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+// TestPadRight_WithANSICodes verifies padRight handles ANSI codes correctly.
+func TestPadRight_WithANSICodes(t *testing.T) {
+	tests := []struct {
+		name         string
+		input        string
+		width        int
+		visibleWidth int
+		containsANSI bool
+	}{
+		{
+			name:         "green text padded correctly",
+			input:        "\x1b[32mpassed\x1b[0m",
+			width:        20,
+			visibleWidth: 20,
+			containsANSI: true,
+		},
+		{
+			name:         "red text padded correctly",
+			input:        "\x1b[31mfailed\x1b[0m",
+			width:        20,
+			visibleWidth: 20,
+			containsANSI: true,
+		},
+		{
+			name:         "status with icon and color",
+			input:        "✓ \x1b[32mawaiting_approval\x1b[0m",
+			width:        30,
+			visibleWidth: 30,
+			containsANSI: true,
+		},
+		{
+			name:         "plain text still works",
+			input:        "hello",
+			width:        15,
+			visibleWidth: 15,
+			containsANSI: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := padRight(tt.input, tt.width)
+
+			// Strip ANSI to measure visible width
+			visible := stripANSI(result)
+			actualWidth := utf8.RuneCountInString(visible)
+
+			assert.Equal(t, tt.visibleWidth, actualWidth, "visible width should match target")
+
+			// Verify ANSI codes are preserved if they were in input
+			if tt.containsANSI {
+				assert.Contains(t, result, "\x1b[", "ANSI codes should be preserved")
+			}
+		})
+	}
+}
+
+// TestBoxStyle_Render_WithColoredContent verifies box renders correctly with ANSI-colored content.
+func TestBoxStyle_Render_WithColoredContent(t *testing.T) {
+	box := NewBoxStyle().WithWidth(40)
+
+	// Content with colored text (simulating approval summary)
+	content := "Status: \x1b[32mawaiting_approval\x1b[0m\nValidation: \x1b[32mpassed\x1b[0m"
+	rendered := box.Render("Test", content)
+
+	lines := strings.Split(rendered, "\n")
+
+	// All lines should have the same visible width
+	for i, line := range lines {
+		if line == "" {
+			continue
+		}
+		visibleLine := stripANSI(line)
+		visibleWidth := utf8.RuneCountInString(visibleLine)
+		// All lines should be exactly 40 characters wide (the box width)
+		assert.Equal(t, 40, visibleWidth, "line %d should have visible width of 40, got %d: %q", i, visibleWidth, visibleLine)
+	}
+}
