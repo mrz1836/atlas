@@ -15,12 +15,20 @@ import (
 // AIExecutor handles AI steps (analyze, implement).
 // It uses the ai.Runner interface to execute prompts via Claude Code CLI.
 type AIExecutor struct {
-	runner ai.Runner
+	runner     ai.Runner
+	workingDir string
 }
 
 // NewAIExecutor creates a new AI executor with the given runner.
 func NewAIExecutor(runner ai.Runner) *AIExecutor {
 	return &AIExecutor{runner: runner}
+}
+
+// NewAIExecutorWithWorkingDir creates an AI executor with a working directory.
+// The working directory is used to set the Claude CLI's working directory,
+// ensuring file operations happen in the correct location (e.g., worktree).
+func NewAIExecutorWithWorkingDir(runner ai.Runner, workingDir string) *AIExecutor {
+	return &AIExecutor{runner: runner, workingDir: workingDir}
 }
 
 // Execute runs an AI step using Claude Code.
@@ -109,10 +117,11 @@ func (e *AIExecutor) Type() domain.StepType {
 // buildRequest constructs an AIRequest from task and step configuration.
 func (e *AIExecutor) buildRequest(task *domain.Task, step *domain.StepDefinition) *domain.AIRequest {
 	req := &domain.AIRequest{
-		Prompt:   task.Description,
-		Model:    task.Config.Model,
-		MaxTurns: task.Config.MaxTurns,
-		Timeout:  task.Config.Timeout,
+		Prompt:     task.Description,
+		Model:      task.Config.Model,
+		MaxTurns:   task.Config.MaxTurns,
+		Timeout:    task.Config.Timeout,
+		WorkingDir: e.workingDir,
 	}
 
 	// Apply permission mode from task config

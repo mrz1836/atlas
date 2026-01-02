@@ -95,7 +95,7 @@ func NewDefaultRegistry(deps ExecutorDeps) *ExecutorRegistry {
 
 	// Register AI executor (requires AIRunner)
 	if deps.AIRunner != nil {
-		r.Register(NewAIExecutor(deps.AIRunner))
+		r.Register(NewAIExecutorWithWorkingDir(deps.AIRunner, deps.WorkDir))
 	}
 
 	// Register validation executor with optional artifact saving, notifications, and retry
@@ -128,7 +128,7 @@ func NewDefaultRegistry(deps ExecutorDeps) *ExecutorRegistry {
 
 	// Register SDD executor (requires AIRunner)
 	if deps.AIRunner != nil {
-		r.Register(NewSDDExecutor(deps.AIRunner, deps.ArtifactsDir))
+		r.Register(NewSDDExecutorWithWorkingDir(deps.AIRunner, deps.ArtifactsDir, deps.WorkDir))
 	}
 
 	// Register CI executor with HubRunner and CIFailureHandler dependencies
@@ -146,7 +146,7 @@ func NewDefaultRegistry(deps ExecutorDeps) *ExecutorRegistry {
 	// Register verify executor (requires AIRunner for AI verification)
 	if deps.AIRunner != nil {
 		garbageDetector := git.NewGarbageDetector(nil)
-		r.Register(NewVerifyExecutor(deps.AIRunner, garbageDetector, deps.Logger))
+		r.Register(NewVerifyExecutorWithWorkingDir(deps.AIRunner, garbageDetector, deps.Logger, deps.WorkDir))
 	}
 
 	return r

@@ -4,6 +4,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	stderrors "errors"
 	"fmt"
 	"io"
 	"os"
@@ -20,7 +21,7 @@ import (
 	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/domain"
-	"github.com/mrz1836/atlas/internal/errors"
+	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 	"github.com/mrz1836/atlas/internal/git"
 	"github.com/mrz1836/atlas/internal/task"
 	"github.com/mrz1836/atlas/internal/template"
@@ -145,8 +146,8 @@ func runStart(ctx context.Context, cmd *cobra.Command, w io.Writer, description 
 
 	// Validate verify flags - cannot use both
 	if opts.verify && opts.noVerify {
-		return sc.handleError("", errors.NewExitCode2Error(
-			fmt.Errorf("%w: cannot use both --verify and --no-verify", errors.ErrConflictingFlags)))
+		return sc.handleError("", atlaserrors.NewExitCode2Error(
+			fmt.Errorf("%w: cannot use both --verify and --no-verify", atlaserrors.ErrConflictingFlags)))
 	}
 
 	// Validate we're in a git repository
@@ -196,11 +197,16 @@ func runStart(ctx context.Context, cmd *cobra.Command, w io.Writer, description 
 	// Start task execution
 	t, err := startTaskExecution(ctx, ws, tmpl, description, opts.model, logger)
 	if err != nil {
-		// Clean up workspace on task start failure (AC#9 - graceful cleanup)
-		if cleanupErr := cleanupWorkspace(ctx, ws.Name, repoPath); cleanupErr != nil {
-			logger.Warn().Err(cleanupErr).
-				Str("workspace_name", ws.Name).
-				Msg("failed to cleanup workspace after task failure")
+		// Only clean up workspace on true start failures, NOT on task-paused errors
+		// (validation failed, CI failed, user input required, etc.).
+		// Task-paused errors mean the task was created and saved but is waiting for
+		// user intervention - the workspace must be preserved for resume.
+		if !isTaskPausedError(err) {
+			if cleanupErr := cleanupWorkspace(ctx, ws.Name, repoPath); cleanupErr != nil {
+				logger.Warn().Err(cleanupErr).
+					Str("workspace_name", ws.Name).
+					Msg("failed to cleanup workspace after task failure")
+			}
 		}
 		if t != nil {
 			return displayTaskStatus(out, outputFormat, ws, t, err)
@@ -224,6 +230,17 @@ func (sc *startContext) handleError(wsName string, err error) error {
 		return outputStartErrorJSON(sc.w, wsName, "", err.Error())
 	}
 	return err
+}
+
+// isTaskPausedError returns true if the error indicates the task was created
+// but paused (not a true start failure). Workspace should be preserved for these
+// errors so the user can fix issues and resume the task.
+func isTaskPausedError(err error) bool {
+	return stderrors.Is(err, atlaserrors.ErrValidationFailed) ||
+		stderrors.Is(err, atlaserrors.ErrCIFailed) ||
+		stderrors.Is(err, atlaserrors.ErrUserInputRequired) ||
+		stderrors.Is(err, atlaserrors.ErrUserRejected) ||
+		stderrors.Is(err, atlaserrors.ErrApprovalRequired)
 }
 
 // createWorkspace creates a new workspace or uses an existing one (upsert behavior).
@@ -396,15 +413,15 @@ func selectTemplate(ctx context.Context, registry *template.Registry, templateNa
 	if templateName != "" {
 		tmpl, err := registry.Get(templateName)
 		if err != nil {
-			return nil, fmt.Errorf("template '%s' not found: %w", templateName, errors.ErrTemplateNotFound)
+			return nil, fmt.Errorf("template '%s' not found: %w", templateName, atlaserrors.ErrTemplateNotFound)
 		}
 		return tmpl, nil
 	}
 
 	// Non-interactive mode or JSON output requires template flag
 	if noInteractive || outputFormat == OutputJSON || !term.IsTerminal(int(os.Stdin.Fd())) {
-		return nil, errors.NewExitCode2Error(
-			fmt.Errorf("use --template to specify template: %w", errors.ErrTemplateRequired))
+		return nil, atlaserrors.NewExitCode2Error(
+			fmt.Errorf("use --template to specify template: %w", atlaserrors.ErrTemplateRequired))
 	}
 
 	return selectTemplateInteractive(registry)
@@ -458,15 +475,15 @@ func handleWorkspaceConflict(ctx context.Context, mgr *workspace.DefaultManager,
 	// Workspace exists - handle conflict
 	if noInteractive || outputFormat == OutputJSON {
 		if outputFormat == OutputJSON {
-			return "", outputStartErrorJSON(w, wsName, "", fmt.Sprintf("workspace '%s': %s", wsName, errors.ErrWorkspaceExists.Error()))
+			return "", outputStartErrorJSON(w, wsName, "", fmt.Sprintf("workspace '%s': %s", wsName, atlaserrors.ErrWorkspaceExists.Error()))
 		}
-		return "", errors.NewExitCode2Error(
-			fmt.Errorf("workspace '%s': %w", wsName, errors.ErrWorkspaceExists))
+		return "", atlaserrors.NewExitCode2Error(
+			fmt.Errorf("workspace '%s': %w", wsName, atlaserrors.ErrWorkspaceExists))
 	}
 
 	// Check if we're in a terminal
 	if !term.IsTerminal(int(os.Stdin.Fd())) {
-		return "", fmt.Errorf("workspace '%s': %w (use --workspace to specify a different name)", wsName, errors.ErrWorkspaceExists)
+		return "", fmt.Errorf("workspace '%s': %w (use --workspace to specify a different name)", wsName, atlaserrors.ErrWorkspaceExists)
 	}
 
 	return resolveWorkspaceConflictInteractive(wsName, out)
@@ -481,7 +498,7 @@ func resolveWorkspaceConflictInteractive(wsName string, out tui.Output) (string,
 
 	switch action {
 	case "resume":
-		return "", errors.ErrResumeNotImplemented
+		return "", atlaserrors.ErrResumeNotImplemented
 	case "new":
 		newName, err := promptNewWorkspaceName()
 		if err != nil {
@@ -490,7 +507,7 @@ func resolveWorkspaceConflictInteractive(wsName string, out tui.Output) (string,
 		return sanitizeWorkspaceName(newName), nil
 	case "cancel":
 		out.Info("Operation canceled")
-		return "", errors.ErrOperationCanceled
+		return "", atlaserrors.ErrOperationCanceled
 	}
 
 	return wsName, nil
@@ -544,7 +561,7 @@ func promptNewWorkspaceName() (string, error) {
 // validateWorkspaceName validates a workspace name input.
 func validateWorkspaceName(s string) error {
 	if strings.TrimSpace(s) == "" {
-		return fmt.Errorf("name required: %w", errors.ErrEmptyValue)
+		return fmt.Errorf("name required: %w", atlaserrors.ErrEmptyValue)
 	}
 	return nil
 }
@@ -559,7 +576,7 @@ func findGitRepository(ctx context.Context) (string, error) {
 
 	info, err := git.DetectRepo(ctx, cwd)
 	if err != nil {
-		return "", errors.ErrNotGitRepo
+		return "", atlaserrors.ErrNotGitRepo
 	}
 
 	return info.WorktreePath, nil
@@ -623,8 +640,8 @@ func validateModel(model string) error {
 		return nil // Empty is valid (use default)
 	}
 	if !isValidModel(model) {
-		return errors.NewExitCode2Error(
-			fmt.Errorf("%w: '%s' (must be one of sonnet, opus, haiku)", errors.ErrInvalidModel, model))
+		return atlaserrors.NewExitCode2Error(
+			fmt.Errorf("%w: '%s' (must be one of sonnet, opus, haiku)", atlaserrors.ErrInvalidModel, model))
 	}
 	return nil
 }

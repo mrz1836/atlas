@@ -29,6 +29,7 @@ type VerifyExecutor struct {
 	runner          ai.Runner
 	garbageDetector *git.GarbageDetector
 	logger          zerolog.Logger
+	workingDir      string
 }
 
 // NewVerifyExecutor creates a new verify executor with the given dependencies.
@@ -37,6 +38,18 @@ func NewVerifyExecutor(runner ai.Runner, garbageDetector *git.GarbageDetector, l
 		runner:          runner,
 		garbageDetector: garbageDetector,
 		logger:          logger,
+	}
+}
+
+// NewVerifyExecutorWithWorkingDir creates a verify executor with a working directory.
+// The working directory is used to set the Claude CLI's working directory,
+// ensuring file operations happen in the correct location (e.g., worktree).
+func NewVerifyExecutorWithWorkingDir(runner ai.Runner, garbageDetector *git.GarbageDetector, logger zerolog.Logger, workingDir string) *VerifyExecutor {
+	return &VerifyExecutor{
+		runner:          runner,
+		garbageDetector: garbageDetector,
+		logger:          logger,
+		workingDir:      workingDir,
 	}
 }
 
@@ -197,10 +210,11 @@ func (e *VerifyExecutor) Type() domain.StepType {
 // buildRequest constructs an AIRequest for verification.
 func (e *VerifyExecutor) buildRequest(task *domain.Task, step *domain.StepDefinition) *domain.AIRequest {
 	req := &domain.AIRequest{
-		Prompt:   e.buildVerificationPrompt(task, step),
-		Model:    task.Config.Model,
-		MaxTurns: 5, // Verification should be quick
-		Timeout:  5 * time.Minute,
+		Prompt:     e.buildVerificationPrompt(task, step),
+		Model:      task.Config.Model,
+		MaxTurns:   5, // Verification should be quick
+		Timeout:    5 * time.Minute,
+		WorkingDir: e.workingDir,
 	}
 
 	// Apply step-specific config overrides
@@ -350,9 +364,10 @@ If no issues, respond with: []
 `, taskDescription, e.formatChangedFiles(changedFiles))
 
 	req := &domain.AIRequest{
-		Prompt:   prompt,
-		MaxTurns: 3,
-		Timeout:  3 * time.Minute,
+		Prompt:     prompt,
+		MaxTurns:   3,
+		Timeout:    3 * time.Minute,
+		WorkingDir: e.workingDir,
 	}
 
 	result, err := e.runner.Run(ctx, req)
@@ -853,9 +868,10 @@ func (e *VerifyExecutor) handleAutoFix(ctx context.Context, report *Verification
 	prompt := e.buildAutoFixPrompt(report)
 
 	req := &domain.AIRequest{
-		Prompt:   prompt,
-		MaxTurns: 10,
-		Timeout:  10 * time.Minute,
+		Prompt:     prompt,
+		MaxTurns:   10,
+		Timeout:    10 * time.Minute,
+		WorkingDir: e.workingDir,
 	}
 
 	result, err := e.runner.Run(ctx, req)
