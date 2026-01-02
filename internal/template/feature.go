@@ -15,7 +15,7 @@ func NewFeatureTemplate() *domain.Template {
 	return &domain.Template{
 		Name:         "feature",
 		Description:  "Develop a new feature with spec-driven development",
-		BranchPrefix: "feat/",
+		BranchPrefix: "feat",
 		DefaultModel: "opus",
 		Verify:       true, // Verification ON by default for feature (disable with --no-verify)
 		VerifyModel:  "",   // Uses different model family automatically

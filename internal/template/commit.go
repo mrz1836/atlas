@@ -12,7 +12,7 @@ func NewCommitTemplate() *domain.Template {
 	return &domain.Template{
 		Name:         "commit",
 		Description:  "Analyze changes and create smart commits with garbage detection",
-		BranchPrefix: "chore/",
+		BranchPrefix: "chore",
 		DefaultModel: "sonnet",
 		Steps: []domain.StepDefinition{
 			{

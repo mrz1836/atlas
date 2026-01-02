@@ -13,7 +13,7 @@ func NewTaskTemplate() *domain.Template {
 	return &domain.Template{
 		Name:         "task",
 		Description:  "Complete a simple task with implementation and validation",
-		BranchPrefix: "task/",
+		BranchPrefix: "task",
 		DefaultModel: "sonnet",
 		Verify:       false,  // Verification OFF by default for task (enable with --verify)
 		VerifyModel:  "opus", // Uses different model family automatically

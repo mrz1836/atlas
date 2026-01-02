@@ -13,7 +13,7 @@ func NewBugfixTemplate() *domain.Template {
 	return &domain.Template{
 		Name:         "bugfix",
 		Description:  "Fix a reported bug with analysis, implementation, and validation",
-		BranchPrefix: "fix/",
+		BranchPrefix: "fix",
 		DefaultModel: "sonnet",
 		Verify:       false,  // Verification OFF by default for bugfix (enable with --verify)
 		VerifyModel:  "opus", // Uses different model family automatically

@@ -16,7 +16,7 @@ func TestNewBugfixTemplate(t *testing.T) {
 
 	require.NotNil(t, tmpl)
 	assert.Equal(t, "bugfix", tmpl.Name)
-	assert.Equal(t, "fix/", tmpl.BranchPrefix)
+	assert.Equal(t, "fix", tmpl.BranchPrefix)
 	assert.Equal(t, "sonnet", tmpl.DefaultModel)
 	assert.NotEmpty(t, tmpl.Description)
 }

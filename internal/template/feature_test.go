@@ -16,7 +16,7 @@ func TestNewFeatureTemplate(t *testing.T) {
 
 	require.NotNil(t, tmpl)
 	assert.Equal(t, "feature", tmpl.Name)
-	assert.Equal(t, "feat/", tmpl.BranchPrefix)
+	assert.Equal(t, "feat", tmpl.BranchPrefix)
 	assert.Equal(t, "opus", tmpl.DefaultModel)
 	assert.NotEmpty(t, tmpl.Description)
 }

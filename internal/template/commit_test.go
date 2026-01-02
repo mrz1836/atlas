@@ -15,7 +15,7 @@ func TestNewCommitTemplate(t *testing.T) {
 
 	require.NotNil(t, tmpl)
 	assert.Equal(t, "commit", tmpl.Name)
-	assert.Equal(t, "chore/", tmpl.BranchPrefix)
+	assert.Equal(t, "chore", tmpl.BranchPrefix)
 	assert.Equal(t, "sonnet", tmpl.DefaultModel)
 	assert.NotEmpty(t, tmpl.Description)
 }

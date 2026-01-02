@@ -36,7 +36,7 @@ func TestDefaultRegistry_GetBugfix(t *testing.T) {
 	tmpl, err := r.Get("bugfix")
 	require.NoError(t, err)
 	assert.Equal(t, "bugfix", tmpl.Name)
-	assert.Equal(t, "fix/", tmpl.BranchPrefix)
+	assert.Equal(t, "fix", tmpl.BranchPrefix)
 	assert.Equal(t, "sonnet", tmpl.DefaultModel)
 }
 
@@ -46,7 +46,7 @@ func TestDefaultRegistry_GetFeature(t *testing.T) {
 	tmpl, err := r.Get("feature")
 	require.NoError(t, err)
 	assert.Equal(t, "feature", tmpl.Name)
-	assert.Equal(t, "feat/", tmpl.BranchPrefix)
+	assert.Equal(t, "feat", tmpl.BranchPrefix)
 	assert.Equal(t, "opus", tmpl.DefaultModel)
 }
 
@@ -56,7 +56,7 @@ func TestDefaultRegistry_GetCommit(t *testing.T) {
 	tmpl, err := r.Get("commit")
 	require.NoError(t, err)
 	assert.Equal(t, "commit", tmpl.Name)
-	assert.Equal(t, "chore/", tmpl.BranchPrefix)
+	assert.Equal(t, "chore", tmpl.BranchPrefix)
 	assert.Equal(t, "sonnet", tmpl.DefaultModel)
 }
 
@@ -66,7 +66,7 @@ func TestDefaultRegistry_GetTask(t *testing.T) {
 	tmpl, err := r.Get("task")
 	require.NoError(t, err)
 	assert.Equal(t, "task", tmpl.Name)
-	assert.Equal(t, "task/", tmpl.BranchPrefix)
+	assert.Equal(t, "task", tmpl.BranchPrefix)
 	assert.Equal(t, "sonnet", tmpl.DefaultModel)
 }
 

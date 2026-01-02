@@ -16,7 +16,7 @@ func TestNewTaskTemplate(t *testing.T) {
 
 	require.NotNil(t, tmpl)
 	assert.Equal(t, "task", tmpl.Name)
-	assert.Equal(t, "task/", tmpl.BranchPrefix)
+	assert.Equal(t, "task", tmpl.BranchPrefix)
 	assert.Equal(t, "sonnet", tmpl.DefaultModel)
 	assert.NotEmpty(t, tmpl.Description)
 }
