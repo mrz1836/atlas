@@ -22,7 +22,7 @@ type ManualFixInfo struct {
 func ExtractManualFixInfo(task *domain.Task, workspace *domain.Workspace) *ManualFixInfo {
 	worktreePath := workspace.WorktreePath
 	if worktreePath == "" {
-		worktreePath = "(workspace retired - worktree not available)"
+		worktreePath = "(workspace closed - worktree not available)"
 	}
 
 	info := &ManualFixInfo{

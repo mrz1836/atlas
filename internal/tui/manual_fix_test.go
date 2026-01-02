@@ -63,7 +63,7 @@ func TestExtractManualFixInfo(t *testing.T) {
 			expectCmd:   "atlas resume auth-fix",
 		},
 		{
-			name: "handles retired workspace with empty worktree path",
+			name: "handles closed workspace with empty worktree path",
 			task: &domain.Task{
 				Status:      constants.TaskStatusValidationFailed,
 				CurrentStep: 0,
@@ -72,13 +72,13 @@ func TestExtractManualFixInfo(t *testing.T) {
 				},
 			},
 			workspace: &domain.Workspace{
-				Name:         "retired-ws",
+				Name:         "closed-ws",
 				WorktreePath: "",
 			},
-			expectPath:  "(workspace retired - worktree not available)",
+			expectPath:  "(workspace closed - worktree not available)",
 			expectStep:  "lint",
 			expectError: "",
-			expectCmd:   "atlas resume retired-ws",
+			expectCmd:   "atlas resume closed-ws",
 		},
 		{
 			name: "handles current step beyond steps array",

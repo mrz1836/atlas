@@ -68,9 +68,9 @@ var (
 // Uses AdaptiveColor for light/dark terminal support (UX-6).
 func StatusColors() map[constants.WorkspaceStatus]lipgloss.AdaptiveColor {
 	return map[constants.WorkspaceStatus]lipgloss.AdaptiveColor{
-		constants.WorkspaceStatusActive:  {Light: "#0087AF", Dark: "#00D7FF"}, // Blue
-		constants.WorkspaceStatusPaused:  {Light: "#585858", Dark: "#6C6C6C"}, // Gray
-		constants.WorkspaceStatusRetired: {Light: "#585858", Dark: "#6C6C6C"}, // Dim
+		constants.WorkspaceStatusActive: {Light: "#0087AF", Dark: "#00D7FF"}, // Blue
+		constants.WorkspaceStatusPaused: {Light: "#585858", Dark: "#6C6C6C"}, // Gray
+		constants.WorkspaceStatusClosed: {Light: "#585858", Dark: "#6C6C6C"}, // Dim
 	}
 }
 
@@ -239,9 +239,9 @@ func ActionStyle() lipgloss.Style {
 // Used for visual status indicators in status displays.
 func WorkspaceStatusIcon(status constants.WorkspaceStatus) string {
 	icons := map[constants.WorkspaceStatus]string{
-		constants.WorkspaceStatusActive:  "●", // Filled circle - active
-		constants.WorkspaceStatusPaused:  "○", // Empty circle - paused
-		constants.WorkspaceStatusRetired: "◌", // Dashed circle - retired
+		constants.WorkspaceStatusActive: "●", // Filled circle - active
+		constants.WorkspaceStatusPaused: "○", // Empty circle - paused
+		constants.WorkspaceStatusClosed: "◌", // Dashed circle - closed
 	}
 	if icon, ok := icons[status]; ok {
 		return icon

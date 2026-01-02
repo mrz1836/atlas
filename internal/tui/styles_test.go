@@ -52,7 +52,7 @@ func TestStatusColors(t *testing.T) {
 	statuses := []constants.WorkspaceStatus{
 		constants.WorkspaceStatusActive,
 		constants.WorkspaceStatusPaused,
-		constants.WorkspaceStatusRetired,
+		constants.WorkspaceStatusClosed,
 	}
 
 	for _, status := range statuses {
@@ -196,9 +196,9 @@ func TestWorkspaceStatusIcon(t *testing.T) {
 		status       constants.WorkspaceStatus
 		expectedIcon string
 	}{
-		{constants.WorkspaceStatusActive, "●"},  // Filled circle - active
-		{constants.WorkspaceStatusPaused, "○"},  // Empty circle - paused
-		{constants.WorkspaceStatusRetired, "◌"}, // Dashed circle - retired
+		{constants.WorkspaceStatusActive, "●"}, // Filled circle - active
+		{constants.WorkspaceStatusPaused, "○"}, // Empty circle - paused
+		{constants.WorkspaceStatusClosed, "◌"}, // Dashed circle - closed
 	}
 
 	for _, tc := range tests {
