@@ -451,10 +451,33 @@ func (b *BoxStyle) Render(title, content string) string {
 	return result
 }
 
+// stripANSI removes ANSI escape codes from a string.
+// Used to calculate visible character count (excluding color codes).
+func stripANSI(s string) string {
+	var result strings.Builder
+	inEscape := false
+	for _, r := range s {
+		if r == '\x1b' {
+			inEscape = true
+			continue
+		}
+		if inEscape {
+			if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') {
+				inEscape = false
+			}
+			continue
+		}
+		result.WriteRune(r)
+	}
+	return result.String()
+}
+
 // padRight pads a string to the right to reach the target width.
-// Uses rune count for proper Unicode handling.
+// Uses visible character count (excluding ANSI escape codes) for proper width calculation.
 func padRight(s string, width int) string {
-	runeCount := utf8.RuneCountInString(s)
+	// Strip ANSI codes to get visible character count
+	visible := stripANSI(s)
+	runeCount := utf8.RuneCountInString(visible)
 	if runeCount >= width {
 		// Truncate to width runes (not bytes)
 		runes := []rune(s)
