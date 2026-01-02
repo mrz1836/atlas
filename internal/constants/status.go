@@ -74,9 +74,10 @@ const (
 	// but can be resumed.
 	WorkspaceStatusPaused WorkspaceStatus = "paused"
 
-	// WorkspaceStatusRetired indicates the workspace has been archived
-	// and is no longer in active use.
-	WorkspaceStatusRetired WorkspaceStatus = "retired"
+	// WorkspaceStatusClosed indicates the workspace has been closed
+	// and is no longer in active use. The worktree is removed but
+	// git branch and history are preserved.
+	WorkspaceStatusClosed WorkspaceStatus = "closed"
 )
 
 // String returns the string representation of the WorkspaceStatus.

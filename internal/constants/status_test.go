@@ -95,9 +95,9 @@ func TestWorkspaceStatus_String(t *testing.T) {
 			expected: "paused",
 		},
 		{
-			name:     "retired status",
-			status:   WorkspaceStatusRetired,
-			expected: "retired",
+			name:     "closed status",
+			status:   WorkspaceStatusClosed,
+			expected: "closed",
 		},
 	}
 
@@ -166,9 +166,9 @@ func TestWorkspaceStatus_JSONSerialization(t *testing.T) {
 			expectedJSON: `{"status":"paused"}`,
 		},
 		{
-			name:         "retired serializes correctly",
-			status:       WorkspaceStatusRetired,
-			expectedJSON: `{"status":"retired"}`,
+			name:         "closed serializes correctly",
+			status:       WorkspaceStatusClosed,
+			expectedJSON: `{"status":"closed"}`,
 		},
 	}
 
@@ -230,9 +230,9 @@ func TestWorkspaceStatus_JSONDeserialization(t *testing.T) {
 			expectedStatus: WorkspaceStatusActive,
 		},
 		{
-			name:           "deserialize retired",
-			jsonInput:      `{"status":"retired"}`,
-			expectedStatus: WorkspaceStatusRetired,
+			name:           "deserialize closed",
+			jsonInput:      `{"status":"closed"}`,
+			expectedStatus: WorkspaceStatusClosed,
 		},
 	}
 
