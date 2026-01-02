@@ -15,8 +15,8 @@ func NewBugfixTemplate() *domain.Template {
 		Description:  "Fix a reported bug with analysis, implementation, and validation",
 		BranchPrefix: "fix/",
 		DefaultModel: "sonnet",
-		Verify:       false, // Verification OFF by default for bugfix (enable with --verify)
-		VerifyModel:  "",    // Uses different model family automatically
+		Verify:       false,  // Verification OFF by default for bugfix (enable with --verify)
+		VerifyModel:  "opus", // Uses different model family automatically
 		Steps: []domain.StepDefinition{
 			{
 				Name:        "analyze",
@@ -117,6 +117,7 @@ func NewBugfixTemplate() *domain.Template {
 			"magex format:fix",
 			"magex lint",
 			"magex test",
+			"go-pre-commit run --all-files",
 		},
 	}
 }
