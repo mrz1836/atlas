@@ -7,10 +7,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/rs/zerolog"
 
+	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/domain"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 	"github.com/mrz1836/atlas/internal/git"
@@ -239,11 +241,11 @@ func (e *GitExecutor) executeCommit(ctx context.Context, step *domain.StepDefini
 		}, nil
 	}
 
-	// No changes to commit
+	// No changes to commit - return no_changes status so engine can skip push/PR steps
 	if len(analysis.FileGroups) == 0 {
 		return &domain.StepResult{
-			Status: "success",
-			Output: "No changes to commit",
+			Status: constants.StepStatusNoChanges,
+			Output: "No changes to commit - AI made no modifications",
 		}, nil
 	}
 
@@ -354,17 +356,63 @@ func (e *GitExecutor) executePush(ctx context.Context, step *domain.StepDefiniti
 
 // executeCreatePR handles the PR creation operation.
 func (e *GitExecutor) executeCreatePR(ctx context.Context, step *domain.StepDefinition, task *domain.Task) (*domain.StepResult, error) {
-	if e.hubRunner == nil {
-		return nil, fmt.Errorf("hub runner not configured: %w", atlaserrors.ErrGitHubOperation)
-	}
-	if e.prDescGen == nil {
-		return nil, fmt.Errorf("PR description generator not configured: %w", atlaserrors.ErrGitHubOperation)
+	if err := e.validatePRDependencies(); err != nil {
+		return nil, err
 	}
 
-	// Get branch information
+	headBranch, baseBranch, err := e.getBranchesForPR(step, task)
+	if err != nil {
+		return nil, err
+	}
+
+	// Pre-check: verify there are commits to create a PR for
+	if result := e.checkForCommits(ctx, baseBranch); result != nil {
+		return result, nil
+	}
+
+	// Generate PR description
+	description, err := e.generatePRDescription(ctx, task, baseBranch, headBranch)
+	if err != nil {
+		return nil, err
+	}
+
+	// Save PR description and create PR
+	artifactDir := e.getArtifactDir(step.Name, task)
+	artifactPaths := e.savePRDescriptionArtifact(artifactDir, description)
+
+	prResult, err := e.createPR(ctx, description, baseBranch, headBranch)
+	if err != nil {
+		return e.handlePRCreationError(prResult, err)
+	}
+
+	// Save PR result artifact
+	artifactPaths = append(artifactPaths, e.savePRResultArtifact(artifactDir, prResult)...)
+
+	e.storePRMetadata(task, prResult)
+
+	return &domain.StepResult{
+		Status:       "success",
+		Output:       fmt.Sprintf("Created PR #%d: %s", prResult.Number, prResult.URL),
+		ArtifactPath: joinArtifactPaths(artifactPaths),
+	}, nil
+}
+
+// validatePRDependencies checks that required dependencies are configured.
+func (e *GitExecutor) validatePRDependencies() error {
+	if e.hubRunner == nil {
+		return fmt.Errorf("hub runner not configured: %w", atlaserrors.ErrGitHubOperation)
+	}
+	if e.prDescGen == nil {
+		return fmt.Errorf("PR description generator not configured: %w", atlaserrors.ErrGitHubOperation)
+	}
+	return nil
+}
+
+// getBranchesForPR extracts the head and base branch names from configuration.
+func (e *GitExecutor) getBranchesForPR(step *domain.StepDefinition, task *domain.Task) (string, string, error) {
 	headBranch := getBranchFromConfig(step.Config, task)
 	if headBranch == "" {
-		return nil, fmt.Errorf("head branch not configured: %w", atlaserrors.ErrEmptyValue)
+		return "", "", fmt.Errorf("head branch not configured: %w", atlaserrors.ErrEmptyValue)
 	}
 
 	baseBranch := "main"
@@ -372,83 +420,104 @@ func (e *GitExecutor) executeCreatePR(ctx context.Context, step *domain.StepDefi
 		baseBranch = b
 	}
 
-	// Generate PR description
+	return headBranch, baseBranch, nil
+}
+
+// checkForCommits verifies there are commits between branches.
+// Returns a StepResult if there are no commits (indicating no PR needed), nil otherwise.
+func (e *GitExecutor) checkForCommits(ctx context.Context, baseBranch string) *domain.StepResult {
+	hasCommits, err := e.hasCommitsBetweenBranches(ctx, baseBranch)
+	if err != nil {
+		e.logger.Warn().Err(err).Msg("failed to check for commits between branches, proceeding anyway")
+		return nil
+	}
+	if !hasCommits {
+		return &domain.StepResult{
+			Status: constants.StepStatusNoChanges,
+			Output: fmt.Sprintf("No commits between %s and HEAD - nothing to create PR for", baseBranch),
+		}
+	}
+	return nil
+}
+
+// generatePRDescription creates the PR description using the configured generator.
+func (e *GitExecutor) generatePRDescription(ctx context.Context, task *domain.Task, baseBranch, headBranch string) (*git.PRDescription, error) {
 	descOpts := git.PRDescOptions{
 		TaskDescription: task.Description,
 		TemplateName:    task.TemplateID,
 		TaskID:          task.ID,
 		BaseBranch:      baseBranch,
 		HeadBranch:      headBranch,
+		CommitMessages:  extractCommitMessages(task.StepResults),
+		FilesChanged:    convertToFileChanges(extractFilesChanged(task.StepResults)),
 	}
-
-	// Extract commit messages from step results if available
-	commitMessages := extractCommitMessages(task.StepResults)
-	descOpts.CommitMessages = commitMessages
-
-	// Extract files changed from step results if available
-	filesChanged := extractFilesChanged(task.StepResults)
-	descOpts.FilesChanged = convertToFileChanges(filesChanged)
 
 	description, err := e.prDescGen.Generate(ctx, descOpts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate PR description: %w", err)
 	}
+	return description, nil
+}
 
-	// Save PR description artifact
-	artifactDir := e.getArtifactDir(step.Name, task)
-	artifactPaths := []string{}
-	if artifactDir != "" {
-		descPath, descErr := e.savePRDescriptionMD(artifactDir, description)
-		if descErr == nil {
-			artifactPaths = append(artifactPaths, descPath)
-		} else {
-			e.logger.Warn().Err(descErr).Msg("failed to save PR description")
-		}
+// savePRDescriptionArtifact saves the PR description to disk and returns artifact paths.
+func (e *GitExecutor) savePRDescriptionArtifact(artifactDir string, description *git.PRDescription) []string {
+	if artifactDir == "" {
+		return nil
 	}
 
-	// Create PR
+	descPath, err := e.savePRDescriptionMD(artifactDir, description)
+	if err != nil {
+		e.logger.Warn().Err(err).Msg("failed to save PR description")
+		return nil
+	}
+	return []string{descPath}
+}
+
+// createPR creates the pull request via the hub runner.
+func (e *GitExecutor) createPR(ctx context.Context, description *git.PRDescription, baseBranch, headBranch string) (*git.PRResult, error) {
 	prOpts := git.PRCreateOptions{
 		Title:      description.Title,
 		Body:       description.Body,
 		BaseBranch: baseBranch,
 		HeadBranch: headBranch,
 	}
+	return e.hubRunner.CreatePR(ctx, prOpts)
+}
 
-	prResult, err := e.hubRunner.CreatePR(ctx, prOpts)
+// handlePRCreationError handles errors from PR creation, converting known errors to step results.
+func (e *GitExecutor) handlePRCreationError(prResult *git.PRResult, err error) (*domain.StepResult, error) {
+	// Check for rate limit or auth errors
+	if prResult != nil && (prResult.ErrorType == git.PRErrorRateLimit || prResult.ErrorType == git.PRErrorAuth) {
+		return &domain.StepResult{
+			Status: "failed",
+			Output: fmt.Sprintf("PR creation failed: %v", err),
+			Error:  fmt.Sprintf("gh_failed: %v", err),
+		}, nil
+	}
+	return nil, fmt.Errorf("failed to create PR: %w", err)
+}
+
+// savePRResultArtifact saves the PR result to disk and returns artifact paths.
+func (e *GitExecutor) savePRResultArtifact(artifactDir string, prResult *git.PRResult) []string {
+	if artifactDir == "" {
+		return nil
+	}
+
+	resultPath, err := e.savePRResultJSON(artifactDir, prResult)
 	if err != nil {
-		// Check for rate limit or auth errors
-		if prResult != nil && (prResult.ErrorType == git.PRErrorRateLimit || prResult.ErrorType == git.PRErrorAuth) {
-			return &domain.StepResult{
-				Status: "failed",
-				Output: fmt.Sprintf("PR creation failed: %v", err),
-				Error:  fmt.Sprintf("gh_failed: %v", err),
-			}, nil
-		}
-		return nil, fmt.Errorf("failed to create PR: %w", err)
+		e.logger.Warn().Err(err).Msg("failed to save PR result")
+		return nil
 	}
+	return []string{resultPath}
+}
 
-	// Save PR result artifact
-	if artifactDir != "" {
-		resultPath, resultErr := e.savePRResultJSON(artifactDir, prResult)
-		if resultErr == nil {
-			artifactPaths = append(artifactPaths, resultPath)
-		} else {
-			e.logger.Warn().Err(resultErr).Msg("failed to save PR result")
-		}
-	}
-
-	// Store PR number in task metadata for CI monitoring step
+// storePRMetadata stores PR information in task metadata for downstream steps.
+func (e *GitExecutor) storePRMetadata(task *domain.Task, prResult *git.PRResult) {
 	if task.Metadata == nil {
 		task.Metadata = make(map[string]any)
 	}
 	task.Metadata["pr_number"] = prResult.Number
 	task.Metadata["pr_url"] = prResult.URL
-
-	return &domain.StepResult{
-		Status:       "success",
-		Output:       fmt.Sprintf("Created PR #%d: %s", prResult.Number, prResult.URL),
-		ArtifactPath: joinArtifactPaths(artifactPaths),
-	}, nil
 }
 
 // Helper functions
@@ -617,4 +686,18 @@ func joinArtifactPaths(paths []string) string {
 		result += ";" + paths[i]
 	}
 	return result
+}
+
+// hasCommitsBetweenBranches checks if there are any commits between the base branch and HEAD.
+// Returns true if there are commits to create a PR for, false otherwise.
+func (e *GitExecutor) hasCommitsBetweenBranches(ctx context.Context, baseBranch string) (bool, error) {
+	// Use git rev-list to count commits between base branch and HEAD
+	output, err := git.RunCommand(ctx, e.workDir, "rev-list", "--count", baseBranch+"..HEAD")
+	if err != nil {
+		return false, fmt.Errorf("failed to check commits: %w", err)
+	}
+
+	// Parse the count - if it's 0 or empty, there are no commits
+	count := strings.TrimSpace(output)
+	return count != "" && count != "0", nil
 }

@@ -93,3 +93,30 @@ const (
 	// LogCompress indicates whether the rotated log files should be compressed using gzip.
 	LogCompress = true
 )
+
+// Step result status constants used by step executors.
+const (
+	// StepStatusSuccess indicates the step completed successfully.
+	StepStatusSuccess = "success"
+
+	// StepStatusFailed indicates the step failed.
+	StepStatusFailed = "failed"
+
+	// StepStatusPending indicates the step has not started yet.
+	StepStatusPending = "pending"
+
+	// StepStatusRunning indicates the step is currently executing.
+	StepStatusRunning = "running"
+
+	// StepStatusAwaitingApproval indicates the step requires user approval.
+	StepStatusAwaitingApproval = "awaiting_approval"
+
+	// StepStatusNoChanges indicates the step completed but made no changes.
+	// This is used by git commit when there are no files to commit.
+	// The engine should skip subsequent git push/PR steps when this status is returned.
+	StepStatusNoChanges = "no_changes"
+
+	// StepStatusSkipped indicates the step was skipped.
+	// This is used when a step is intentionally not executed (e.g., git push/PR when no changes).
+	StepStatusSkipped = "skipped"
+)

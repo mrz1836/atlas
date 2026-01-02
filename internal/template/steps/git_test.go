@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/domain"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 	"github.com/mrz1836/atlas/internal/git"
@@ -212,8 +213,8 @@ func TestGitExecutor_ExecuteCommit_NoChanges(t *testing.T) {
 	result, err := executor.Execute(ctx, task, step)
 
 	require.NoError(t, err)
-	assert.Equal(t, "success", result.Status)
-	assert.Equal(t, "No changes to commit", result.Output)
+	assert.Equal(t, constants.StepStatusNoChanges, result.Status)
+	assert.Equal(t, "No changes to commit - AI made no modifications", result.Output)
 }
 
 func TestGitExecutor_ExecuteCommit_WithGarbage(t *testing.T) {

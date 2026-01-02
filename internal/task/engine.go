@@ -288,11 +288,22 @@ func (e *Engine) HandleStepResult(ctx context.Context, task *domain.Task, result
 	}
 
 	switch result.Status {
-	case "success":
+	case constants.StepStatusSuccess:
 		// Auto-proceed logic handled by caller (runSteps continues)
 		return nil
 
-	case "awaiting_approval":
+	case constants.StepStatusNoChanges:
+		// No changes were made (e.g., AI decided no modifications needed)
+		// Set metadata flag to skip remaining git steps (push, PR)
+		task.Metadata = e.ensureMetadata(task.Metadata)
+		task.Metadata["skip_git_steps"] = true
+		e.logger.Info().
+			Str("task_id", task.ID).
+			Str("step_name", step.Name).
+			Msg("no changes to commit, will skip remaining git steps")
+		return nil
+
+	case constants.StepStatusAwaitingApproval:
 		// For human steps, need to transition through Validating first
 		// (Running -> Validating -> AwaitingApproval)
 		oldStatus := task.Status
@@ -308,7 +319,7 @@ func (e *Engine) HandleStepResult(ctx context.Context, task *domain.Task, result
 		e.notifyStateChange(oldStatus, constants.TaskStatusAwaitingApproval)
 		return nil
 
-	case "failed":
+	case constants.StepStatusFailed:
 		// Store error context for retry (FR25)
 		e.setErrorMetadata(task, step.Name, result.Error)
 
@@ -501,13 +512,17 @@ func (e *Engine) runSteps(ctx context.Context, task *domain.Task, template *doma
 
 		step := &template.Steps[task.CurrentStep]
 
+		// Check if this step should be skipped (e.g., git push/PR when no changes)
+		if e.shouldSkipStep(task, step) {
+			if err := e.handleSkippedStep(ctx, task, step); err != nil {
+				return err
+			}
+			continue
+		}
+
 		result, err := e.executeCurrentStep(ctx, task, template)
 		if err != nil {
-			// Save step result first to preserve output (e.g., validation errors)
-			if result != nil {
-				task.StepResults = append(task.StepResults, *result)
-			}
-			return e.handleStepError(ctx, task, step, err)
+			return e.handleExecutionError(ctx, task, step, result, err)
 		}
 
 		if err := e.processStepResult(ctx, task, result, step); err != nil {
@@ -524,6 +539,73 @@ func (e *Engine) runSteps(ctx context.Context, task *domain.Task, template *doma
 	}
 
 	return e.completeTask(ctx, task)
+}
+
+// handleSkippedStep marks a step as skipped and advances to the next step.
+func (e *Engine) handleSkippedStep(ctx context.Context, task *domain.Task, step *domain.StepDefinition) error {
+	e.logger.Info().
+		Str("task_id", task.ID).
+		Str("step_name", step.Name).
+		Msg("skipping step - no changes to push/PR")
+
+	// Mark step as skipped
+	if task.CurrentStep < len(task.Steps) {
+		task.Steps[task.CurrentStep].Status = constants.StepStatusSkipped
+	}
+
+	// Record skipped result
+	task.StepResults = append(task.StepResults, domain.StepResult{
+		StepIndex:   task.CurrentStep,
+		StepName:    step.Name,
+		Status:      constants.StepStatusSkipped,
+		Output:      "Skipped - no changes were made",
+		StartedAt:   time.Now().UTC(),
+		CompletedAt: time.Now().UTC(),
+	})
+
+	return e.advanceToNextStep(ctx, task)
+}
+
+// handleExecutionError handles errors from step execution.
+func (e *Engine) handleExecutionError(ctx context.Context, task *domain.Task, step *domain.StepDefinition, result *domain.StepResult, err error) error {
+	// Save step result first to preserve output (e.g., validation errors)
+	if result != nil {
+		task.StepResults = append(task.StepResults, *result)
+	}
+	return e.handleStepError(ctx, task, step, err)
+}
+
+// shouldSkipStep returns true if the step should be skipped.
+// Currently, this skips git push and PR steps when the "skip_git_steps" flag is set,
+// which happens when the commit step returns "no_changes" (AI made no modifications).
+func (e *Engine) shouldSkipStep(task *domain.Task, step *domain.StepDefinition) bool {
+	// Early return if no metadata
+	if task.Metadata == nil {
+		return false
+	}
+
+	// Check if git steps should be skipped
+	skipGit, ok := task.Metadata["skip_git_steps"].(bool)
+	if !ok || !skipGit {
+		return false
+	}
+
+	// Only skip git push and PR operations
+	if step.Type != domain.StepTypeGit {
+		return false
+	}
+
+	return e.isSkippableGitOperation(step)
+}
+
+// isSkippableGitOperation returns true if the step is a push or create_pr operation.
+func (e *Engine) isSkippableGitOperation(step *domain.StepDefinition) bool {
+	op, ok := step.Config["operation"].(string)
+	if !ok {
+		return false
+	}
+	// These operation names match GitOpPush and GitOpCreatePR in steps/git.go
+	return op == "push" || op == "create_pr"
 }
 
 // shouldPause returns true if the task should pause execution.
