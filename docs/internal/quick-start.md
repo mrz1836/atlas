@@ -684,10 +684,17 @@ ATLAS provides pre-defined workflow templates:
 
 | Template | Description | Branch Prefix | Use Case |
 |----------|-------------|---------------|----------|
-| **bugfix** | Analyze → Implement → Validate → Commit → PR | `fix/` | Quick bug fixes |
-| **feature** | Speckit SDD: Specify → Plan → Tasks → Implement → Validate → PR | `feat/` | New features with specifications |
-| **task** | Implement → Validate → Commit → PR | `task/` | Simple, well-defined tasks |
-| **commit** | Smart commits: Garbage detection, logical grouping, message generation | `chore/` | Commit assistance |
+| **bugfix** | Analyze → Implement → Validate → Commit → PR | `fix` | Bug fixes requiring analysis |
+| **feature** | Speckit SDD: Specify → Plan → Tasks → Implement → Validate → PR | `feat` | New features with specifications |
+| **task** | Implement → (Verify) → Validate → Commit → PR | `task` | Simple, well-defined tasks |
+| **commit** | Smart commits: Garbage detection, logical grouping, message generation | `chore` | Commit assistance |
+
+**Template Details:**
+
+- **bugfix**: Best for issues requiring investigation. Includes an `analyze` step to understand the problem before implementing.
+- **feature**: Full Speckit SDD workflow with specification, planning, and task breakdown. Ideal for complex features.
+- **task**: Fastest workflow for straightforward changes. Skips analysis and goes straight to implementation. Add `--verify` for optional AI cross-validation.
+- **commit**: Specialized template for creating intelligent commits from existing changes.
 
 **Utility Templates:**
 - `format` - Run code formatting only
@@ -794,6 +801,8 @@ atlas start "add retry logic to HTTP client" --template feature
 
 ### Task Workflow
 
+The **task** template is ideal for simple, well-defined work where you know exactly what needs to be done. It skips the analysis phase and goes straight to implementation, making it the fastest workflow for straightforward changes.
+
 ```bash
 # Start a simple task
 atlas start "add logging to HTTP client" --template task
@@ -815,8 +824,15 @@ atlas status --watch
 atlas start "refactor HTTP client" --template task --verify
 ```
 
+**Key Features:**
+- **Direct implementation**: Skips analysis, goes straight to coding
+- **Optional verification**: Add `--verify` flag for AI cross-validation using a different model
+- **Branch prefix**: Creates `task` branches
+- **Default model**: Uses `sonnet` for speed
+- **Best for**: Documentation updates, simple refactors, adding straightforward features
+
 **When to use Task vs Bugfix vs Feature:**
-- **Task**: Simple, well-defined work with clear requirements (e.g., "add logging", "update dependencies", "rename function")
+- **Task**: Simple, well-defined work with clear requirements (e.g., "add logging", "update dependencies", "rename function", "update documentation")
 - **Bugfix**: Problem analysis needed (e.g., "fix null pointer", "resolve race condition")
 - **Feature**: Complex changes requiring specification (e.g., "add authentication", "implement caching layer")
 
