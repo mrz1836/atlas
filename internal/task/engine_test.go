@@ -2750,6 +2750,42 @@ func TestEngine_HandleStepResult_UnknownStatus(t *testing.T) {
 	assert.ErrorIs(t, err, atlaserrors.ErrUnknownStepResultStatus)
 }
 
+// TestEngine_HandleStepResult_SkippedStatus tests skipped result status handling.
+// This is the scenario when AI decides no changes are needed and the CI step
+// is skipped because no PR was created.
+func TestEngine_HandleStepResult_SkippedStatus(t *testing.T) {
+	ctx := context.Background()
+
+	store := newMockStore()
+	registry := steps.NewExecutorRegistry()
+	engine := NewEngine(store, registry, DefaultEngineConfig(), testLogger())
+
+	task := &domain.Task{
+		ID:          "task-skipped",
+		WorkspaceID: "test",
+		Status:      constants.TaskStatusRunning,
+		CurrentStep: 0,
+		Steps:       []domain.Step{{Name: "ci_wait", Type: domain.StepTypeCI, Status: "running"}},
+		StepResults: []domain.StepResult{},
+		Metadata:    map[string]any{"skip_git_steps": true}, // Set by git_commit when no changes
+	}
+
+	result := &domain.StepResult{
+		StepName:    "ci_wait",
+		Status:      constants.StepStatusSkipped, // CI step skipped due to no PR
+		CompletedAt: time.Now().UTC(),
+		Output:      "Skipped - no PR was created (no changes to commit)",
+	}
+	step := &domain.StepDefinition{Name: "ci_wait", Type: domain.StepTypeCI}
+
+	err := engine.HandleStepResult(ctx, task, result, step)
+
+	// Should NOT return an error - skipped is a valid status
+	require.NoError(t, err)
+	// Task should remain in Running status (caller advances to next step)
+	assert.Equal(t, constants.TaskStatusRunning, task.Status)
+}
+
 // TestEngine_MapStepTypeToErrorStatus_DefaultCase tests the default case in switch.
 func TestEngine_MapStepTypeToErrorStatus_DefaultCase(t *testing.T) {
 	store := newMockStore()

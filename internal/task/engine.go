@@ -332,6 +332,11 @@ func (e *Engine) HandleStepResult(ctx context.Context, task *domain.Task, result
 		// Map step type to error status with valid transition path
 		return e.transitionToErrorState(ctx, task, step.Type, result.Error)
 
+	case constants.StepStatusSkipped:
+		// Step was intentionally skipped (e.g., CI step when no PR exists)
+		// No further action needed, just allow continuation
+		return nil
+
 	default:
 		return fmt.Errorf("%w: %s", atlaserrors.ErrUnknownStepResultStatus, result.Status)
 	}
