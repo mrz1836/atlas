@@ -267,6 +267,25 @@ Feature implementation using Speckit for specification-driven development.
 
 **Best for:** Small to medium features with clear requirements
 
+### task
+
+Simple task workflow for well-defined work without requiring analysis.
+
+**Steps:** implement → verify (optional) → validate → commit → push → pr → ci_wait → review
+
+**Best for:** Simple, well-defined tasks with clear requirements (e.g., "add logging", "update dependencies", "update documentation")
+
+**Key Features:**
+- **Direct implementation**: Skips analysis phase and goes straight to coding
+- **Fast execution**: Uses `sonnet` model by default for speed
+- **Optional verification**: Enable with `--verify` flag for AI cross-validation using a different model
+- **Branch prefix**: Creates branches with `task/` prefix
+
+**When to use Task vs Bugfix vs Feature:**
+- **Task**: Simple, well-defined work with clear requirements
+- **Bugfix**: Problem requires investigation and root cause analysis
+- **Feature**: Complex changes requiring specification and planning
+
 ### test-coverage (Post-MVP)
 
 Add test coverage to existing code.
