@@ -197,17 +197,7 @@ func runStart(ctx context.Context, cmd *cobra.Command, w io.Writer, description 
 	// Start task execution
 	t, err := startTaskExecution(ctx, ws, tmpl, description, opts.model, logger)
 	if err != nil {
-		// Only clean up workspace on true start failures, NOT on task-paused errors
-		// (validation failed, CI failed, user input required, etc.).
-		// Task-paused errors mean the task was created and saved but is waiting for
-		// user intervention - the workspace must be preserved for resume.
-		if !isTaskPausedError(err) {
-			if cleanupErr := cleanupWorkspace(ctx, ws.Name, repoPath); cleanupErr != nil {
-				logger.Warn().Err(cleanupErr).
-					Str("workspace_name", ws.Name).
-					Msg("failed to cleanup workspace after task failure")
-			}
-		}
+		sc.handleTaskStartError(ctx, ws, repoPath, err, logger)
 		if t != nil {
 			return displayTaskStatus(out, outputFormat, ws, t, err)
 		}
@@ -230,6 +220,23 @@ func (sc *startContext) handleError(wsName string, err error) error {
 		return outputStartErrorJSON(sc.w, wsName, "", err.Error())
 	}
 	return err
+}
+
+// handleTaskStartError handles cleanup when task execution fails.
+// Only cleans up workspace on true start failures, NOT on task-paused errors
+// (validation failed, CI failed, user input required, etc.).
+// Task-paused errors mean the task was created and saved but is waiting for
+// user intervention - the workspace must be preserved for resume.
+func (sc *startContext) handleTaskStartError(ctx context.Context, ws *domain.Workspace, repoPath string, err error, logger zerolog.Logger) {
+	if isTaskPausedError(err) {
+		return
+	}
+	cleanupErr := cleanupWorkspace(ctx, ws.Name, repoPath)
+	if cleanupErr != nil {
+		logger.Warn().Err(cleanupErr).
+			Str("workspace_name", ws.Name).
+			Msg("failed to cleanup workspace after task failure")
+	}
 }
 
 // isTaskPausedError returns true if the error indicates the task was created

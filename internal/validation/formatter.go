@@ -50,11 +50,17 @@ func formatFailedCommand(r Result) string {
 		sb.WriteString("\n```\n")
 	}
 
-	// Only show stdout if it's reasonably short (avoids overwhelming output)
-	if r.Stdout != "" && len(r.Stdout) < maxStdoutDisplay {
-		sb.WriteString("**Standard output:**\n```\n")
-		sb.WriteString(r.Stdout)
-		sb.WriteString("\n```\n")
+	// Show stdout, truncating if necessary
+	if r.Stdout != "" {
+		if len(r.Stdout) < maxStdoutDisplay {
+			sb.WriteString("**Standard output:**\n```\n")
+			sb.WriteString(r.Stdout)
+			sb.WriteString("\n```\n")
+		} else {
+			sb.WriteString("**Standard output (truncated):**\n```\n")
+			sb.WriteString(r.Stdout[:maxStdoutDisplay])
+			sb.WriteString("\n...[truncated, see validation.json artifact for full output]\n```\n")
+		}
 	}
 
 	sb.WriteString("\n")

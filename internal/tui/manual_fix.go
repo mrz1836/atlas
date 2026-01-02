@@ -10,11 +10,12 @@ import (
 
 // ManualFixInfo contains information for manual fix display.
 type ManualFixInfo struct {
-	WorkspaceName string
-	WorktreePath  string
-	ErrorSummary  string
-	FailedStep    string
-	ResumeCommand string
+	WorkspaceName    string
+	WorktreePath     string
+	ErrorSummary     string
+	FailedStep       string
+	ResumeCommand    string
+	ValidationOutput string // Full output from failed validation step
 }
 
 // ExtractManualFixInfo extracts manual fix information from task and workspace.
@@ -42,6 +43,14 @@ func ExtractManualFixInfo(task *domain.Task, workspace *domain.Workspace) *Manua
 		info.FailedStep = task.Steps[task.CurrentStep].Name
 	}
 
+	// Extract validation output from step results
+	for _, sr := range task.StepResults {
+		if sr.Status == "failed" && sr.Output != "" {
+			info.ValidationOutput = sr.Output
+			break // Use the first failed step's output
+		}
+	}
+
 	return info
 }
 
@@ -61,7 +70,13 @@ func DisplayManualFixInstructions(output Output, task *domain.Task, workspace *d
 		sb.WriteString(fmt.Sprintf("❌ Failed Step: %s\n\n", info.FailedStep))
 	}
 
-	if info.ErrorSummary != "" {
+	// Show validation output if available, otherwise fall back to error summary
+	if info.ValidationOutput != "" {
+		sb.WriteString("📋 Validation Output:\n")
+		sb.WriteString("```\n")
+		sb.WriteString(info.ValidationOutput)
+		sb.WriteString("\n```\n\n")
+	} else if info.ErrorSummary != "" {
 		sb.WriteString("📋 Error Details:\n")
 		// Indent error output
 		for _, line := range strings.Split(info.ErrorSummary, "\n") {

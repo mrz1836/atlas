@@ -240,7 +240,8 @@ func (e *Engine) ExecuteStep(ctx context.Context, task *domain.Task, step *domai
 
 	result, err := e.executeStepInternal(ctx, task, step)
 	if err != nil {
-		return nil, err
+		// Pass through result - it may contain useful output even on error
+		return result, err
 	}
 
 	return result, nil
@@ -258,6 +259,15 @@ func (e *Engine) HandleStepResult(ctx context.Context, task *domain.Task, result
 	case <-ctx.Done():
 		return ctx.Err()
 	default:
+	}
+
+	// Handle nil result - create minimal result for tracking
+	if result == nil {
+		result = &domain.StepResult{
+			StepIndex: task.CurrentStep,
+			StepName:  step.Name,
+			Status:    "failed",
+		}
 	}
 
 	// Append result to history
@@ -408,7 +418,8 @@ func (e *Engine) executeStepInternal(ctx context.Context, task *domain.Task, ste
 			Str("step_name", step.Name).
 			Int64("duration_ms", duration.Milliseconds()).
 			Msg("step execution failed")
-		return nil, err
+		// Return result WITH error - result may contain useful output (e.g., validation errors)
+		return result, err
 	}
 
 	// Log completion
@@ -488,6 +499,10 @@ func (e *Engine) runSteps(ctx context.Context, task *domain.Task, template *doma
 
 		result, err := e.executeCurrentStep(ctx, task, template)
 		if err != nil {
+			// Save step result first to preserve output (e.g., validation errors)
+			if result != nil {
+				task.StepResults = append(task.StepResults, *result)
+			}
 			return e.handleStepError(ctx, task, step, err)
 		}
 
@@ -694,13 +709,15 @@ func (e *Engine) executeParallelGroup(ctx context.Context, task *domain.Task, te
 		g.Go(func() error {
 			// Use internal method to avoid race on task.Steps
 			result, err := e.executeStepInternal(gctx, task, step)
-			if err != nil {
-				return err
-			}
 
+			// Always save result first - it may contain useful output even on error
 			mu.Lock()
 			results[i] = result
 			mu.Unlock()
+
+			if err != nil {
+				return err
+			}
 			return nil
 		})
 	}
