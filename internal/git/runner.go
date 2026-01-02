@@ -36,4 +36,14 @@ type Runner interface {
 
 	// BranchExists checks if a branch exists in the repository.
 	BranchExists(ctx context.Context, name string) (bool, error)
+
+	// Fetch downloads objects and refs from a remote repository without merging.
+	Fetch(ctx context.Context, remote string) error
+
+	// Rebase replays commits on top of another branch.
+	// Returns an error if conflicts occur during rebase.
+	Rebase(ctx context.Context, onto string) error
+
+	// RebaseAbort cancels an in-progress rebase operation.
+	RebaseAbort(ctx context.Context) error
 }

@@ -18,7 +18,7 @@ type CLIRunner struct {
 
 // NewRunner creates a new CLIRunner for the given working directory.
 // Returns an error if the directory is not a git repository.
-func NewRunner(workDir string) (*CLIRunner, error) {
+func NewRunner(ctx context.Context, workDir string) (*CLIRunner, error) {
 	if workDir == "" {
 		return nil, fmt.Errorf("work directory cannot be empty: %w", atlaserrors.ErrEmptyValue)
 	}
@@ -26,7 +26,7 @@ func NewRunner(workDir string) (*CLIRunner, error) {
 	r := &CLIRunner{workDir: workDir}
 
 	// Verify this is a git repository
-	_, err := r.runGitCommand(context.Background(), "rev-parse", "--git-dir")
+	_, err := r.runGitCommand(ctx, "rev-parse", "--git-dir")
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", atlaserrors.ErrNotGitRepo, err)
 	}
@@ -233,6 +233,77 @@ func (r *CLIRunner) BranchExists(ctx context.Context, name string) (bool, error)
 		return false, fmt.Errorf("failed to check branch existence: %w", err)
 	}
 	return true, nil
+}
+
+// Fetch downloads objects and refs from a remote repository.
+func (r *CLIRunner) Fetch(ctx context.Context, remote string) error {
+	// Check for cancellation at entry
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
+	if remote == "" {
+		remote = "origin"
+	}
+
+	_, err := r.runGitCommand(ctx, "fetch", remote)
+	if err != nil {
+		return fmt.Errorf("failed to fetch from %s: %w", remote, err)
+	}
+
+	return nil
+}
+
+// Rebase replays commits on top of another branch.
+func (r *CLIRunner) Rebase(ctx context.Context, onto string) error {
+	// Check for cancellation at entry
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
+	if onto == "" {
+		return fmt.Errorf("rebase target cannot be empty: %w", atlaserrors.ErrEmptyValue)
+	}
+
+	_, err := r.runGitCommand(ctx, "rebase", onto)
+	if err != nil {
+		errStr := strings.ToLower(err.Error())
+		// Check for conflict indicators
+		if strings.Contains(errStr, "conflict") ||
+			strings.Contains(errStr, "could not apply") ||
+			strings.Contains(errStr, "merge conflict") {
+			return fmt.Errorf("rebase has conflicts: %w", atlaserrors.ErrRebaseConflict)
+		}
+		return fmt.Errorf("failed to rebase onto %s: %w", onto, err)
+	}
+
+	return nil
+}
+
+// RebaseAbort cancels an in-progress rebase operation.
+func (r *CLIRunner) RebaseAbort(ctx context.Context) error {
+	// Check for cancellation at entry
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
+	_, err := r.runGitCommand(ctx, "rebase", "--abort")
+	if err != nil {
+		// If there's no rebase in progress, that's fine
+		errStr := strings.ToLower(err.Error())
+		if strings.Contains(errStr, "no rebase in progress") {
+			return nil
+		}
+		return fmt.Errorf("failed to abort rebase: %w", err)
+	}
+
+	return nil
 }
 
 // runGitCommand executes a git command and returns its output.

@@ -46,6 +46,9 @@ const (
 
 	// RecoveryActionRetryGH retries the failed GitHub operation.
 	RecoveryActionRetryGH RecoveryAction = "retry_gh"
+
+	// RecoveryActionRebaseRetry rebases local commits onto remote and retries push.
+	RecoveryActionRebaseRetry RecoveryAction = "rebase_retry"
 )
 
 // String returns the string representation of the RecoveryAction.
@@ -140,6 +143,29 @@ func GHFailedOptions() []ErrorRecoveryOption {
 			Action: RecoveryActionAbandon,
 		},
 	}
+}
+
+// GHFailedOptionsForPushError returns context-aware menu options for gh_failed state
+// based on the specific push error type. For non-fast-forward errors, this adds
+// a "Rebase and retry" option as the first choice.
+func GHFailedOptionsForPushError(pushErrorType string) []ErrorRecoveryOption {
+	options := []ErrorRecoveryOption{}
+
+	// For non-fast-forward errors, add rebase option as the first choice
+	if pushErrorType == "non_fast_forward" {
+		options = append(options, ErrorRecoveryOption{
+			Option: Option{
+				Label:       "Rebase and retry",
+				Description: "Integrate remote changes, then push",
+				Value:       string(RecoveryActionRebaseRetry),
+			},
+			Action: RecoveryActionRebaseRetry,
+		})
+	}
+
+	// Add standard options
+	options = append(options, GHFailedOptions()...)
+	return options
 }
 
 // CIFailedOptions returns the menu options for ci_failed state.

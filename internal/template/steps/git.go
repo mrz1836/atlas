@@ -327,6 +327,14 @@ func (e *GitExecutor) executePush(ctx context.Context, step *domain.StepDefiniti
 				Error:  fmt.Sprintf("gh_failed: %v", err),
 			}, nil
 		}
+		// Check for non-fast-forward rejection (remote has commits local doesn't)
+		if result != nil && result.ErrorType == git.PushErrorNonFastForward {
+			return &domain.StepResult{
+				Status: "failed",
+				Output: "Push rejected: remote branch has newer commits. Your local commits are preserved.",
+				Error:  "gh_failed: non_fast_forward",
+			}, nil
+		}
 		return nil, fmt.Errorf("failed to push: %w", err)
 	}
 

@@ -273,6 +273,9 @@ var (
 
 	// ErrWorktreeNotFound indicates the requested worktree does not exist.
 	ErrWorktreeNotFound = errors.New("worktree not found")
+
+	// ErrRebaseConflict indicates that a rebase operation has conflicts that need manual resolution.
+	ErrRebaseConflict = errors.New("rebase has conflicts")
 )
 
 // ExitCode2Error wraps an error to indicate exit code 2 should be used.

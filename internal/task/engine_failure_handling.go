@@ -127,6 +127,15 @@ func (e *Engine) handleGHFailure(ctx context.Context, task *domain.Task, result 
 	task.Metadata = e.ensureMetadata(task.Metadata)
 	task.Metadata["last_error"] = result.Error
 
+	// Extract and store push error type for recovery UI
+	// Error format: "gh_failed: <error_type>" (e.g., "gh_failed: non_fast_forward")
+	if result.Error != "" {
+		errorType := extractPushErrorType(result.Error)
+		if errorType != "" {
+			task.Metadata["push_error_type"] = errorType
+		}
+	}
+
 	// Save task state
 	if err := e.store.Update(ctx, task.WorkspaceID, task); err != nil {
 		return fmt.Errorf("failed to save task state: %w", err)
@@ -392,4 +401,15 @@ func (e *Engine) extractPRNumber(task *domain.Task) int {
 	default:
 		return 0
 	}
+}
+
+// extractPushErrorType extracts the push error type from an error string.
+// Expected format: "gh_failed: <error_type>" (e.g., "gh_failed: non_fast_forward")
+// Returns the error type (e.g., "non_fast_forward") or empty string if not found.
+func extractPushErrorType(errStr string) string {
+	const prefix = "gh_failed: "
+	if len(errStr) > len(prefix) && errStr[:len(prefix)] == prefix {
+		return errStr[len(prefix):]
+	}
+	return ""
 }

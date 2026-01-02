@@ -26,6 +26,8 @@ const (
 	PushErrorNetwork
 	// PushErrorTimeout indicates a timeout - retry with backoff.
 	PushErrorTimeout
+	// PushErrorNonFastForward indicates remote has commits local doesn't - needs rebase.
+	PushErrorNonFastForward
 	// PushErrorOther indicates an unknown error - don't retry.
 	PushErrorOther
 )
@@ -41,6 +43,8 @@ func (t PushErrorType) String() string {
 		return "network"
 	case PushErrorTimeout:
 		return "timeout"
+	case PushErrorNonFastForward:
+		return "non_fast_forward"
 	case PushErrorOther:
 		return "other"
 	}
@@ -327,6 +331,8 @@ func (p *PushRunner) buildFinalError(result *PushResult) error {
 		return fmt.Errorf("authentication failed: %w", atlaserrors.ErrPushAuthFailed)
 	case PushErrorNetwork, PushErrorTimeout:
 		return fmt.Errorf("push failed after %d attempts: %w", result.Attempts, atlaserrors.ErrPushNetworkFailed)
+	case PushErrorNonFastForward:
+		return fmt.Errorf("push rejected (non-fast-forward): %w", result.FinalErr)
 	case PushErrorOther:
 		return fmt.Errorf("failed to push: %w", result.FinalErr)
 	}
@@ -352,6 +358,10 @@ func classifyPushError(err error) PushErrorType {
 
 	if isNetworkError(errStr) {
 		return PushErrorNetwork
+	}
+
+	if isNonFastForwardError(errStr) {
+		return PushErrorNonFastForward
 	}
 
 	return PushErrorOther
@@ -392,5 +402,34 @@ func isNetworkError(errStr string) bool {
 			return true
 		}
 	}
+	return false
+}
+
+// isNonFastForwardError checks if the error indicates a non-fast-forward rejection.
+// This occurs when the remote branch has commits that the local branch doesn't have.
+func isNonFastForwardError(errStr string) bool {
+	// Primary pattern - most specific
+	if strings.Contains(errStr, "non-fast-forward") {
+		return true
+	}
+
+	// Secondary patterns that indicate the branch is behind
+	behindPatterns := []string{
+		"tip of your current branch is behind",
+		"rejected because the remote contains work",
+		"updates were rejected",
+	}
+	for _, pattern := range behindPatterns {
+		if strings.Contains(errStr, pattern) {
+			return true
+		}
+	}
+
+	// "failed to push some refs" is only non-fast-forward if combined with rejection context
+	if strings.Contains(errStr, "failed to push some refs") &&
+		(strings.Contains(errStr, "rejected") || strings.Contains(errStr, "behind")) {
+		return true
+	}
+
 	return false
 }

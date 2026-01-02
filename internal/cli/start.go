@@ -310,7 +310,7 @@ func startTaskExecution(ctx context.Context, ws *domain.Workspace, tmpl *domain.
 	aiRunner := ai.NewClaudeCodeRunner(&cfg.AI, nil)
 
 	// Create git services for commit, push, and PR operations
-	gitRunner, err := git.NewRunner(ws.WorktreePath) //nolint:contextcheck // NewRunner doesn't accept context
+	gitRunner, err := git.NewRunner(ctx, ws.WorktreePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create git runner: %w", err)
 	}

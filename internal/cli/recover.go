@@ -15,6 +15,7 @@ import (
 	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/domain"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
+	"github.com/mrz1836/atlas/internal/git"
 	"github.com/mrz1836/atlas/internal/task"
 	"github.com/mrz1836/atlas/internal/tui"
 	"github.com/mrz1836/atlas/internal/workspace"
@@ -337,7 +338,7 @@ func displayErrorContext(out tui.Output, ws *domain.Workspace, t *domain.Task) {
 // runRecoveryActionLoop handles the recovery action menu loop.
 func runRecoveryActionLoop(ctx context.Context, out tui.Output, taskStore task.Store, ws *domain.Workspace, t *domain.Task, notifier *tui.Notifier) error {
 	for {
-		action, err := tui.SelectErrorRecovery(t.Status)
+		action, err := selectRecoveryAction(t)
 		if err != nil {
 			if errors.Is(err, tui.ErrMenuCanceled) {
 				out.Info("Recovery canceled.")
@@ -357,12 +358,58 @@ func runRecoveryActionLoop(ctx context.Context, out tui.Output, taskStore task.S
 	}
 }
 
+// selectRecoveryAction selects the appropriate recovery menu based on task state.
+// For GH failed state with specific error types, shows context-aware options.
+func selectRecoveryAction(t *domain.Task) (tui.RecoveryAction, error) {
+	// For GH failed state, check for specific push error type
+	if action, ok := tryGHFailedRecovery(t); ok {
+		return action, nil
+	}
+
+	// Default: use standard recovery menu
+	return tui.SelectErrorRecovery(t.Status)
+}
+
+// tryGHFailedRecovery attempts to show GH-specific recovery options.
+// Returns the selected action and true if successful, or empty action and false otherwise.
+func tryGHFailedRecovery(t *domain.Task) (tui.RecoveryAction, bool) {
+	if t.Status != constants.TaskStatusGHFailed || t.Metadata == nil {
+		return "", false
+	}
+
+	pushErrorType, ok := t.Metadata["push_error_type"].(string)
+	if !ok || pushErrorType == "" {
+		return "", false
+	}
+
+	options := tui.GHFailedOptionsForPushError(pushErrorType)
+	if len(options) == 0 {
+		return "", false
+	}
+
+	baseOptions := make([]tui.Option, len(options))
+	for i, opt := range options {
+		baseOptions[i] = opt.Option
+	}
+
+	title := tui.GetMenuTitleForStatus(t.Status)
+	selected, err := tui.Select(title, baseOptions)
+	if err != nil {
+		return "", false
+	}
+
+	return tui.RecoveryAction(selected), true
+}
+
 // executeRecoveryAction executes the selected recovery action.
 // Returns true if the action loop should exit.
 func executeRecoveryAction(ctx context.Context, out tui.Output, taskStore task.Store, ws *domain.Workspace, t *domain.Task, notifier *tui.Notifier, action tui.RecoveryAction) (bool, error) {
 	switch action {
 	case tui.RecoveryActionRetryAI, tui.RecoveryActionRetryGH:
 		return handleRetryAction(ctx, out, taskStore, t, notifier)
+
+	case tui.RecoveryActionRebaseRetry:
+		return handleRebaseRetry(ctx, out, taskStore, ws, t, notifier)
 
 	case tui.RecoveryActionFixManually:
 		return handleFixManually(out, ws, notifier)
@@ -415,6 +462,83 @@ func handleFixManually(out tui.Output, ws *domain.Workspace, notifier *tui.Notif
 	out.Info("  # Make your fixes")
 	out.Info(fmt.Sprintf("  atlas resume %s", ws.Name))
 	out.Info("")
+	notifier.Bell()
+	return true, nil
+}
+
+// handleRebaseRetry handles the "Rebase and retry" action for non-fast-forward push failures.
+// It fetches from remote, rebases local commits onto the remote branch, and transitions
+// the task back to running to retry the push.
+func handleRebaseRetry(ctx context.Context, out tui.Output, taskStore task.Store, ws *domain.Workspace, t *domain.Task, notifier *tui.Notifier) (bool, error) {
+	// Validate worktree path
+	if ws.WorktreePath == "" {
+		out.Error(tui.WrapWithSuggestion(fmt.Errorf("worktree path not available: %w", atlaserrors.ErrWorktreeNotFound)))
+		return false, nil
+	}
+
+	// Get branch name
+	branch := ws.Branch
+	if branch == "" {
+		out.Error(tui.WrapWithSuggestion(fmt.Errorf("branch name not available: %w", atlaserrors.ErrEmptyValue)))
+		return false, nil
+	}
+	remote := "origin"
+
+	// Create git runner for worktree
+	runner, err := git.NewRunner(ctx, ws.WorktreePath)
+	if err != nil {
+		out.Error(tui.WrapWithSuggestion(fmt.Errorf("failed to create git runner: %w", err)))
+		return false, nil
+	}
+
+	// Fetch latest from remote
+	out.Info(fmt.Sprintf("Fetching latest from %s...", remote))
+	if err := runner.Fetch(ctx, remote); err != nil {
+		out.Error(tui.WrapWithSuggestion(fmt.Errorf("fetch failed: %w", err)))
+		return false, nil
+	}
+
+	// Attempt rebase
+	rebaseTarget := fmt.Sprintf("%s/%s", remote, branch)
+	out.Info(fmt.Sprintf("Rebasing onto %s...", rebaseTarget))
+	if err := runner.Rebase(ctx, rebaseTarget); err != nil {
+		// Check for conflicts
+		if errors.Is(err, atlaserrors.ErrRebaseConflict) {
+			// Abort the failed rebase
+			_ = runner.RebaseAbort(ctx)
+
+			out.Warning("Rebase has conflicts that require manual resolution:")
+			out.Info("")
+			out.Info(fmt.Sprintf("  cd %s", ws.WorktreePath))
+			out.Info(fmt.Sprintf("  git fetch %s", remote))
+			out.Info(fmt.Sprintf("  git rebase %s", rebaseTarget))
+			out.Info("  # Resolve conflicts in your editor")
+			out.Info("  git add <resolved-files>")
+			out.Info("  git rebase --continue")
+			out.Info(fmt.Sprintf("  atlas resume %s", ws.Name))
+			out.Info("")
+			notifier.Bell()
+			return true, nil
+		}
+
+		out.Error(tui.WrapWithSuggestion(fmt.Errorf("rebase failed: %w", err)))
+		return false, nil
+	}
+
+	// Rebase succeeded, transition task back to running
+	if err := task.Transition(ctx, t, constants.TaskStatusRunning, "Rebased and retrying push"); err != nil {
+		out.Error(tui.WrapWithSuggestion(fmt.Errorf("failed to transition task: %w", err)))
+		return false, nil
+	}
+
+	// Save updated task
+	if err := taskStore.Update(ctx, t.WorkspaceID, t); err != nil {
+		out.Error(tui.WrapWithSuggestion(fmt.Errorf("failed to save task: %w", err)))
+		return false, nil
+	}
+
+	out.Success("Rebase successful. Task will retry push on next resume.")
+	out.Info(fmt.Sprintf("Run: atlas resume %s", ws.Name))
 	notifier.Bell()
 	return true, nil
 }
