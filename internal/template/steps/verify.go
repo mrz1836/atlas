@@ -301,9 +301,23 @@ func (e *VerifyExecutor) formatChecks(checks []string) string {
 // parseVerificationResult parses the JSON verification result from AI output.
 func (e *VerifyExecutor) parseVerificationResult(output string) (*VerificationResult, error) {
 	var result VerificationResult
+
+	// Try to parse as JSON object directly
+	//nolint:nestif // Error handling with fallback parsing logic
 	if err := json.Unmarshal([]byte(output), &result); err != nil {
-		return nil, fmt.Errorf("failed to parse verification result: %w", err)
+		// If parsing fails, try to extract JSON from the output
+		jsonStart := strings.Index(output, "{")
+		jsonEnd := strings.LastIndex(output, "}")
+		if jsonStart >= 0 && jsonEnd > jsonStart {
+			output = output[jsonStart : jsonEnd+1]
+			if parseErr := json.Unmarshal([]byte(output), &result); parseErr != nil {
+				return nil, fmt.Errorf("failed to parse verification result: %w", parseErr)
+			}
+		} else {
+			return nil, fmt.Errorf("failed to parse verification result: %w", err)
+		}
 	}
+
 	return &result, nil
 }
 
