@@ -164,6 +164,7 @@ func TestFeatureTemplate_ValidationCommands(t *testing.T) {
 		"magex format:fix",
 		"magex lint",
 		"magex test",
+		"go-pre-commit run --all-files",
 	}
 
 	assert.Equal(t, expectedCommands, tmpl.ValidationCommands)
