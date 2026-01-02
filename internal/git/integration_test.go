@@ -85,7 +85,7 @@ func TestIntegration_PushRunner_RealGitPush(t *testing.T) {
 	require.NoError(t, err, "failed to create branch")
 
 	// Create CLIRunner
-	runner, err := NewRunner(repoDir)
+	runner, err := NewRunner(context.Background(), repoDir)
 	require.NoError(t, err)
 
 	// Create PushRunner with logger
@@ -252,7 +252,7 @@ func TestIntegration_PushRunner_InvalidRemote(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create CLIRunner and PushRunner
-	runner, err := NewRunner(tmpDir)
+	runner, err := NewRunner(context.Background(), tmpDir)
 	require.NoError(t, err)
 
 	pushRunner := NewPushRunner(runner)

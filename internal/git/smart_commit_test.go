@@ -35,7 +35,7 @@ func TestNewSmartCommitRunner(t *testing.T) {
 	tmpDir := t.TempDir()
 	initGitRepo(t, tmpDir)
 
-	gitRunner, err := NewRunner(tmpDir)
+	gitRunner, err := NewRunner(context.Background(), tmpDir)
 	require.NoError(t, err)
 
 	runner := NewSmartCommitRunner(gitRunner, tmpDir, nil)
@@ -48,7 +48,7 @@ func TestSmartCommitRunner_Options(t *testing.T) {
 	tmpDir := t.TempDir()
 	initGitRepo(t, tmpDir)
 
-	gitRunner, err := NewRunner(tmpDir)
+	gitRunner, err := NewRunner(context.Background(), tmpDir)
 	require.NoError(t, err)
 
 	artifactsDir := filepath.Join(tmpDir, "artifacts")
@@ -71,7 +71,7 @@ func TestSmartCommitRunner_Analyze_EmptyRepo(t *testing.T) {
 	tmpDir := t.TempDir()
 	initGitRepo(t, tmpDir)
 
-	gitRunner, err := NewRunner(tmpDir)
+	gitRunner, err := NewRunner(context.Background(), tmpDir)
 	require.NoError(t, err)
 
 	runner := NewSmartCommitRunner(gitRunner, tmpDir, nil)
@@ -94,7 +94,7 @@ func TestSmartCommitRunner_Analyze_WithFiles(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(internalDir, "runner.go"), []byte("package git"), 0o600))
 	require.NoError(t, os.WriteFile(filepath.Join(internalDir, "runner_test.go"), []byte("package git"), 0o600))
 
-	gitRunner, err := NewRunner(tmpDir)
+	gitRunner, err := NewRunner(context.Background(), tmpDir)
 	require.NoError(t, err)
 
 	runner := NewSmartCommitRunner(gitRunner, tmpDir, nil)
@@ -116,7 +116,7 @@ func TestSmartCommitRunner_Analyze_WithGarbage(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, ".env"), []byte("SECRET=test"), 0o600))
 	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "coverage.out"), []byte("coverage"), 0o600))
 
-	gitRunner, err := NewRunner(tmpDir)
+	gitRunner, err := NewRunner(context.Background(), tmpDir)
 	require.NoError(t, err)
 
 	runner := NewSmartCommitRunner(gitRunner, tmpDir, nil)
@@ -139,7 +139,7 @@ func TestSmartCommitRunner_Analyze_ContextCancellation(t *testing.T) {
 	tmpDir := t.TempDir()
 	initGitRepo(t, tmpDir)
 
-	gitRunner, err := NewRunner(tmpDir)
+	gitRunner, err := NewRunner(context.Background(), tmpDir)
 	require.NoError(t, err)
 
 	runner := NewSmartCommitRunner(gitRunner, tmpDir, nil)
@@ -161,7 +161,7 @@ func TestSmartCommitRunner_Commit_DryRun(t *testing.T) {
 	require.NoError(t, os.MkdirAll(internalDir, 0o750))
 	require.NoError(t, os.WriteFile(filepath.Join(internalDir, "runner.go"), []byte("package git"), 0o600))
 
-	gitRunner, err := NewRunner(tmpDir)
+	gitRunner, err := NewRunner(context.Background(), tmpDir)
 	require.NoError(t, err)
 
 	runner := NewSmartCommitRunner(gitRunner, tmpDir, nil,
@@ -194,7 +194,7 @@ func TestSmartCommitRunner_Commit_SingleCommit(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(gitDir, "runner.go"), []byte("package git"), 0o600))
 	require.NoError(t, os.WriteFile(filepath.Join(configDir, "config.go"), []byte("package config"), 0o600))
 
-	gitRunner, err := NewRunner(tmpDir)
+	gitRunner, err := NewRunner(context.Background(), tmpDir)
 	require.NoError(t, err)
 
 	runner := NewSmartCommitRunner(gitRunner, tmpDir, nil)
@@ -217,7 +217,7 @@ func TestSmartCommitRunner_Commit_WithGarbage_Blocked(t *testing.T) {
 	// Create garbage file
 	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, ".env"), []byte("SECRET=test"), 0o600))
 
-	gitRunner, err := NewRunner(tmpDir)
+	gitRunner, err := NewRunner(context.Background(), tmpDir)
 	require.NoError(t, err)
 
 	runner := NewSmartCommitRunner(gitRunner, tmpDir, nil)
@@ -235,7 +235,7 @@ func TestSmartCommitRunner_Commit_WithGarbage_Skipped(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "main.go"), []byte("package main"), 0o600))
 	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, ".env"), []byte("SECRET=test"), 0o600))
 
-	gitRunner, err := NewRunner(tmpDir)
+	gitRunner, err := NewRunner(context.Background(), tmpDir)
 	require.NoError(t, err)
 
 	runner := NewSmartCommitRunner(gitRunner, tmpDir, nil)
@@ -254,7 +254,7 @@ func TestSmartCommitRunner_Commit_NoFiles(t *testing.T) {
 	tmpDir := t.TempDir()
 	initGitRepo(t, tmpDir)
 
-	gitRunner, err := NewRunner(tmpDir)
+	gitRunner, err := NewRunner(context.Background(), tmpDir)
 	require.NoError(t, err)
 
 	runner := NewSmartCommitRunner(gitRunner, tmpDir, nil)
@@ -273,7 +273,7 @@ func TestSmartCommitRunner_Commit_RealCommit(t *testing.T) {
 	require.NoError(t, os.MkdirAll(internalDir, 0o750))
 	require.NoError(t, os.WriteFile(filepath.Join(internalDir, "runner.go"), []byte("package git"), 0o600))
 
-	gitRunner, err := NewRunner(tmpDir)
+	gitRunner, err := NewRunner(context.Background(), tmpDir)
 	require.NoError(t, err)
 
 	// Put artifacts outside the repo to avoid untracked files issue
@@ -315,7 +315,7 @@ func TestSmartCommitRunner_Commit_MultipleGroups(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(gitDir, "runner.go"), []byte("package git"), 0o600))
 	require.NoError(t, os.WriteFile(filepath.Join(configDir, "config.go"), []byte("package config"), 0o600))
 
-	gitRunner, err := NewRunner(tmpDir)
+	gitRunner, err := NewRunner(context.Background(), tmpDir)
 	require.NoError(t, err)
 
 	runner := NewSmartCommitRunner(gitRunner, tmpDir, nil)
@@ -517,7 +517,7 @@ func TestSmartCommitRunner_GenerateAIMessage_Success(t *testing.T) {
 	tmpDir := t.TempDir()
 	initGitRepo(t, tmpDir)
 
-	gitRunner, err := NewRunner(tmpDir)
+	gitRunner, err := NewRunner(context.Background(), tmpDir)
 	require.NoError(t, err)
 
 	mockAI := &mockAIRunner{
@@ -546,7 +546,7 @@ func TestSmartCommitRunner_GenerateAIMessage_AIError(t *testing.T) {
 	tmpDir := t.TempDir()
 	initGitRepo(t, tmpDir)
 
-	gitRunner, err := NewRunner(tmpDir)
+	gitRunner, err := NewRunner(context.Background(), tmpDir)
 	require.NoError(t, err)
 
 	mockAI := &mockAIRunner{
@@ -572,7 +572,7 @@ func TestSmartCommitRunner_GenerateAIMessage_AIReturnsError(t *testing.T) {
 	tmpDir := t.TempDir()
 	initGitRepo(t, tmpDir)
 
-	gitRunner, err := NewRunner(tmpDir)
+	gitRunner, err := NewRunner(context.Background(), tmpDir)
 	require.NoError(t, err)
 
 	mockAI := &mockAIRunner{
@@ -598,7 +598,7 @@ func TestSmartCommitRunner_GenerateAIMessage_EmptyResponse(t *testing.T) {
 	tmpDir := t.TempDir()
 	initGitRepo(t, tmpDir)
 
-	gitRunner, err := NewRunner(tmpDir)
+	gitRunner, err := NewRunner(context.Background(), tmpDir)
 	require.NoError(t, err)
 
 	mockAI := &mockAIRunner{
@@ -624,7 +624,7 @@ func TestSmartCommitRunner_GenerateAIMessage_InvalidFormat(t *testing.T) {
 	tmpDir := t.TempDir()
 	initGitRepo(t, tmpDir)
 
-	gitRunner, err := NewRunner(tmpDir)
+	gitRunner, err := NewRunner(context.Background(), tmpDir)
 	require.NoError(t, err)
 
 	mockAI := &mockAIRunner{
@@ -650,7 +650,7 @@ func TestSmartCommitRunner_GenerateAIMessage_ExtractsFirstLine(t *testing.T) {
 	tmpDir := t.TempDir()
 	initGitRepo(t, tmpDir)
 
-	gitRunner, err := NewRunner(tmpDir)
+	gitRunner, err := NewRunner(context.Background(), tmpDir)
 	require.NoError(t, err)
 
 	// AI returns message with extra lines/explanation
@@ -683,7 +683,7 @@ func TestSmartCommitRunner_Commit_WithGarbage_Included(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "main.go"), []byte("package main"), 0o600))
 	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, ".env"), []byte("SECRET=test"), 0o600))
 
-	gitRunner, err := NewRunner(tmpDir)
+	gitRunner, err := NewRunner(context.Background(), tmpDir)
 	require.NoError(t, err)
 
 	runner := NewSmartCommitRunner(gitRunner, tmpDir, nil)
@@ -705,7 +705,7 @@ func TestSmartCommitRunner_Commit_ContextCancellation(t *testing.T) {
 	tmpDir := t.TempDir()
 	initGitRepo(t, tmpDir)
 
-	gitRunner, err := NewRunner(tmpDir)
+	gitRunner, err := NewRunner(context.Background(), tmpDir)
 	require.NoError(t, err)
 
 	runner := NewSmartCommitRunner(gitRunner, tmpDir, nil)
@@ -759,7 +759,7 @@ func TestSmartCommitRunner_GetDiffSummary(t *testing.T) {
 	// Modify the file
 	require.NoError(t, os.WriteFile(testFile, []byte("package main\n\nfunc main() {\n\tfmt.Println(\"hello\")\n}\n"), 0o600))
 
-	gitRunner, err := NewRunner(tmpDir)
+	gitRunner, err := NewRunner(context.Background(), tmpDir)
 	require.NoError(t, err)
 
 	runner := NewSmartCommitRunner(gitRunner, tmpDir, nil)
@@ -820,7 +820,7 @@ func TestSmartCommitRunner_GenerateCommitMessage_FallbackOnAIError(t *testing.T)
 	tmpDir := t.TempDir()
 	initGitRepo(t, tmpDir)
 
-	gitRunner, err := NewRunner(tmpDir)
+	gitRunner, err := NewRunner(context.Background(), tmpDir)
 	require.NoError(t, err)
 
 	// AI runner that always fails

@@ -46,6 +46,9 @@ type MockRunner struct {
 	CreateBranchFunc  func(ctx context.Context, name, baseBranch string) error
 	DiffFunc          func(ctx context.Context, cached bool) (string, error)
 	BranchExistsFunc  func(ctx context.Context, name string) (bool, error)
+	FetchFunc         func(ctx context.Context, remote string) error
+	RebaseFunc        func(ctx context.Context, onto string) error
+	RebaseAbortFunc   func(ctx context.Context) error
 }
 
 func (m *MockRunner) Push(ctx context.Context, remote, branch string, setUpstream bool) error {
@@ -102,6 +105,27 @@ func (m *MockRunner) BranchExists(ctx context.Context, name string) (bool, error
 		return m.BranchExistsFunc(ctx, name)
 	}
 	return false, nil
+}
+
+func (m *MockRunner) Fetch(ctx context.Context, remote string) error {
+	if m.FetchFunc != nil {
+		return m.FetchFunc(ctx, remote)
+	}
+	return nil
+}
+
+func (m *MockRunner) Rebase(ctx context.Context, onto string) error {
+	if m.RebaseFunc != nil {
+		return m.RebaseFunc(ctx, onto)
+	}
+	return nil
+}
+
+func (m *MockRunner) RebaseAbort(ctx context.Context) error {
+	if m.RebaseAbortFunc != nil {
+		return m.RebaseAbortFunc(ctx)
+	}
+	return nil
 }
 
 func TestPushErrorType_String(t *testing.T) {

@@ -65,13 +65,13 @@ func TestNewRunner(t *testing.T) {
 	t.Run("success with valid git repo", func(t *testing.T) {
 		repoPath := setupTestRepo(t)
 
-		runner, err := NewRunner(repoPath)
+		runner, err := NewRunner(context.Background(), repoPath)
 		require.NoError(t, err)
 		assert.NotNil(t, runner)
 	})
 
 	t.Run("error with empty path", func(t *testing.T) {
-		runner, err := NewRunner("")
+		runner, err := NewRunner(context.Background(), "")
 		assert.Nil(t, runner)
 		require.Error(t, err)
 		assert.ErrorIs(t, err, atlaserrors.ErrEmptyValue)
@@ -80,14 +80,14 @@ func TestNewRunner(t *testing.T) {
 	t.Run("error with non-git directory", func(t *testing.T) {
 		tmpDir := t.TempDir()
 
-		runner, err := NewRunner(tmpDir)
+		runner, err := NewRunner(context.Background(), tmpDir)
 		assert.Nil(t, runner)
 		require.Error(t, err)
 		assert.ErrorIs(t, err, atlaserrors.ErrNotGitRepo)
 	})
 
 	t.Run("error with non-existent path", func(t *testing.T) {
-		runner, err := NewRunner("/nonexistent/path/to/repo")
+		runner, err := NewRunner(context.Background(), "/nonexistent/path/to/repo")
 		assert.Nil(t, runner)
 		require.Error(t, err)
 		assert.ErrorIs(t, err, atlaserrors.ErrGitOperation)
@@ -101,7 +101,7 @@ func TestCLIRunner_Status(t *testing.T) {
 		createFile(t, repoPath, "initial.txt", "initial content")
 		commitInitial(t, repoPath)
 
-		runner, err := NewRunner(repoPath)
+		runner, err := NewRunner(context.Background(), repoPath)
 		require.NoError(t, err)
 
 		status, err := runner.Status(context.Background())
@@ -118,7 +118,7 @@ func TestCLIRunner_Status(t *testing.T) {
 		commitInitial(t, repoPath)
 		createFile(t, repoPath, "untracked.txt", "untracked content")
 
-		runner, err := NewRunner(repoPath)
+		runner, err := NewRunner(context.Background(), repoPath)
 		require.NoError(t, err)
 
 		status, err := runner.Status(context.Background())
@@ -139,7 +139,7 @@ func TestCLIRunner_Status(t *testing.T) {
 		cmd.Dir = repoPath
 		require.NoError(t, cmd.Run())
 
-		runner, err := NewRunner(repoPath)
+		runner, err := NewRunner(context.Background(), repoPath)
 		require.NoError(t, err)
 
 		status, err := runner.Status(context.Background())
@@ -156,7 +156,7 @@ func TestCLIRunner_Status(t *testing.T) {
 		commitInitial(t, repoPath)
 		createFile(t, repoPath, "file.txt", "modified content")
 
-		runner, err := NewRunner(repoPath)
+		runner, err := NewRunner(context.Background(), repoPath)
 		require.NoError(t, err)
 
 		status, err := runner.Status(context.Background())
@@ -169,7 +169,7 @@ func TestCLIRunner_Status(t *testing.T) {
 
 	t.Run("context cancellation", func(t *testing.T) {
 		repoPath := setupTestRepo(t)
-		runner, err := NewRunner(repoPath)
+		runner, err := NewRunner(context.Background(), repoPath)
 		require.NoError(t, err)
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -183,7 +183,7 @@ func TestCLIRunner_Status(t *testing.T) {
 	t.Run("branch info with no commits", func(t *testing.T) {
 		repoPath := setupTestRepo(t)
 
-		runner, err := NewRunner(repoPath)
+		runner, err := NewRunner(context.Background(), repoPath)
 		require.NoError(t, err)
 
 		status, err := runner.Status(context.Background())
@@ -197,7 +197,7 @@ func TestCLIRunner_Status(t *testing.T) {
 		createFile(t, repoPath, "initial.txt", "initial content")
 		commitInitial(t, repoPath)
 
-		runner, err := NewRunner(repoPath)
+		runner, err := NewRunner(context.Background(), repoPath)
 		require.NoError(t, err)
 
 		status, err := runner.Status(context.Background())
@@ -214,7 +214,7 @@ func TestCLIRunner_Add(t *testing.T) {
 		createFile(t, repoPath, "file1.txt", "content1")
 		createFile(t, repoPath, "file2.txt", "content2")
 
-		runner, err := NewRunner(repoPath)
+		runner, err := NewRunner(context.Background(), repoPath)
 		require.NoError(t, err)
 
 		err = runner.Add(context.Background(), []string{"file1.txt"})
@@ -233,7 +233,7 @@ func TestCLIRunner_Add(t *testing.T) {
 		createFile(t, repoPath, "file1.txt", "content1")
 		createFile(t, repoPath, "file2.txt", "content2")
 
-		runner, err := NewRunner(repoPath)
+		runner, err := NewRunner(context.Background(), repoPath)
 		require.NoError(t, err)
 
 		err = runner.Add(context.Background(), nil)
@@ -252,7 +252,7 @@ func TestCLIRunner_Add(t *testing.T) {
 		createFile(t, repoPath, "file2.txt", "content2")
 		createFile(t, repoPath, "file3.txt", "content3")
 
-		runner, err := NewRunner(repoPath)
+		runner, err := NewRunner(context.Background(), repoPath)
 		require.NoError(t, err)
 
 		err = runner.Add(context.Background(), []string{"file1.txt", "file3.txt"})
@@ -266,7 +266,7 @@ func TestCLIRunner_Add(t *testing.T) {
 
 	t.Run("context cancellation", func(t *testing.T) {
 		repoPath := setupTestRepo(t)
-		runner, err := NewRunner(repoPath)
+		runner, err := NewRunner(context.Background(), repoPath)
 		require.NoError(t, err)
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -283,7 +283,7 @@ func TestCLIRunner_Commit(t *testing.T) {
 		repoPath := setupTestRepo(t)
 		createFile(t, repoPath, "file.txt", "content")
 
-		runner, err := NewRunner(repoPath)
+		runner, err := NewRunner(context.Background(), repoPath)
 		require.NoError(t, err)
 
 		err = runner.Add(context.Background(), nil)
@@ -302,7 +302,7 @@ func TestCLIRunner_Commit(t *testing.T) {
 		repoPath := setupTestRepo(t)
 		createFile(t, repoPath, "file.txt", "content")
 
-		runner, err := NewRunner(repoPath)
+		runner, err := NewRunner(context.Background(), repoPath)
 		require.NoError(t, err)
 
 		err = runner.Add(context.Background(), nil)
@@ -329,7 +329,7 @@ func TestCLIRunner_Commit(t *testing.T) {
 		repoPath := setupTestRepo(t)
 		createFile(t, repoPath, "file.txt", "content")
 
-		runner, err := NewRunner(repoPath)
+		runner, err := NewRunner(context.Background(), repoPath)
 		require.NoError(t, err)
 
 		err = runner.Add(context.Background(), nil)
@@ -345,7 +345,7 @@ func TestCLIRunner_Commit(t *testing.T) {
 		createFile(t, repoPath, "file.txt", "content")
 		commitInitial(t, repoPath)
 
-		runner, err := NewRunner(repoPath)
+		runner, err := NewRunner(context.Background(), repoPath)
 		require.NoError(t, err)
 
 		err = runner.Commit(context.Background(), "empty commit", nil)
@@ -355,7 +355,7 @@ func TestCLIRunner_Commit(t *testing.T) {
 
 	t.Run("context cancellation", func(t *testing.T) {
 		repoPath := setupTestRepo(t)
-		runner, err := NewRunner(repoPath)
+		runner, err := NewRunner(context.Background(), repoPath)
 		require.NoError(t, err)
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -373,7 +373,7 @@ func TestCLIRunner_CurrentBranch(t *testing.T) {
 		createFile(t, repoPath, "file.txt", "content")
 		commitInitial(t, repoPath)
 
-		runner, err := NewRunner(repoPath)
+		runner, err := NewRunner(context.Background(), repoPath)
 		require.NoError(t, err)
 
 		branch, err := runner.CurrentBranch(context.Background())
@@ -393,7 +393,7 @@ func TestCLIRunner_CurrentBranch(t *testing.T) {
 		cmd.Dir = repoPath
 		require.NoError(t, cmd.Run())
 
-		runner, err := NewRunner(repoPath)
+		runner, err := NewRunner(context.Background(), repoPath)
 		require.NoError(t, err)
 
 		_, err = runner.CurrentBranch(context.Background())
@@ -403,7 +403,7 @@ func TestCLIRunner_CurrentBranch(t *testing.T) {
 
 	t.Run("context cancellation", func(t *testing.T) {
 		repoPath := setupTestRepo(t)
-		runner, err := NewRunner(repoPath)
+		runner, err := NewRunner(context.Background(), repoPath)
 		require.NoError(t, err)
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -421,7 +421,7 @@ func TestCLIRunner_CreateBranch(t *testing.T) {
 		createFile(t, repoPath, "file.txt", "content")
 		commitInitial(t, repoPath)
 
-		runner, err := NewRunner(repoPath)
+		runner, err := NewRunner(context.Background(), repoPath)
 		require.NoError(t, err)
 
 		// Empty baseBranch creates from current HEAD
@@ -440,7 +440,7 @@ func TestCLIRunner_CreateBranch(t *testing.T) {
 		commitInitial(t, repoPath)
 
 		// Get the default branch name (could be main or master)
-		runner, err := NewRunner(repoPath)
+		runner, err := NewRunner(context.Background(), repoPath)
 		require.NoError(t, err)
 		defaultBranch, err := runner.CurrentBranch(context.Background())
 		require.NoError(t, err)
@@ -488,7 +488,7 @@ func TestCLIRunner_CreateBranch(t *testing.T) {
 		cmd.Dir = repoPath
 		require.NoError(t, cmd.Run())
 
-		runner, err := NewRunner(repoPath)
+		runner, err := NewRunner(context.Background(), repoPath)
 		require.NoError(t, err)
 
 		err = runner.CreateBranch(context.Background(), "existing-branch", "")
@@ -498,7 +498,7 @@ func TestCLIRunner_CreateBranch(t *testing.T) {
 
 	t.Run("empty branch name error", func(t *testing.T) {
 		repoPath := setupTestRepo(t)
-		runner, err := NewRunner(repoPath)
+		runner, err := NewRunner(context.Background(), repoPath)
 		require.NoError(t, err)
 
 		err = runner.CreateBranch(context.Background(), "", "")
@@ -508,7 +508,7 @@ func TestCLIRunner_CreateBranch(t *testing.T) {
 
 	t.Run("context cancellation", func(t *testing.T) {
 		repoPath := setupTestRepo(t)
-		runner, err := NewRunner(repoPath)
+		runner, err := NewRunner(context.Background(), repoPath)
 		require.NoError(t, err)
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -526,7 +526,7 @@ func TestCLIRunner_Diff(t *testing.T) {
 		createFile(t, repoPath, "file.txt", "content")
 		commitInitial(t, repoPath)
 
-		runner, err := NewRunner(repoPath)
+		runner, err := NewRunner(context.Background(), repoPath)
 		require.NoError(t, err)
 
 		diff, err := runner.Diff(context.Background(), false)
@@ -544,7 +544,7 @@ func TestCLIRunner_Diff(t *testing.T) {
 		commitInitial(t, repoPath)
 		createFile(t, repoPath, "file.txt", "modified content")
 
-		runner, err := NewRunner(repoPath)
+		runner, err := NewRunner(context.Background(), repoPath)
 		require.NoError(t, err)
 
 		diff, err := runner.Diff(context.Background(), false)
@@ -565,7 +565,7 @@ func TestCLIRunner_Diff(t *testing.T) {
 		cmd.Dir = repoPath
 		require.NoError(t, cmd.Run())
 
-		runner, err := NewRunner(repoPath)
+		runner, err := NewRunner(context.Background(), repoPath)
 		require.NoError(t, err)
 
 		// Unstaged diff should be empty
@@ -582,7 +582,7 @@ func TestCLIRunner_Diff(t *testing.T) {
 
 	t.Run("context cancellation", func(t *testing.T) {
 		repoPath := setupTestRepo(t)
-		runner, err := NewRunner(repoPath)
+		runner, err := NewRunner(context.Background(), repoPath)
 		require.NoError(t, err)
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -600,7 +600,7 @@ func TestCLIRunner_Push(t *testing.T) {
 		createFile(t, repoPath, "file.txt", "content")
 		commitInitial(t, repoPath)
 
-		runner, err := NewRunner(repoPath)
+		runner, err := NewRunner(context.Background(), repoPath)
 		require.NoError(t, err)
 
 		// Should fail because there's no remote
@@ -611,7 +611,7 @@ func TestCLIRunner_Push(t *testing.T) {
 
 	t.Run("context cancellation", func(t *testing.T) {
 		repoPath := setupTestRepo(t)
-		runner, err := NewRunner(repoPath)
+		runner, err := NewRunner(context.Background(), repoPath)
 		require.NoError(t, err)
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -734,7 +734,7 @@ A  newfile.txt
 func TestCLIRunner_ContextTimeout(t *testing.T) {
 	t.Run("timeout during status", func(t *testing.T) {
 		repoPath := setupTestRepo(t)
-		runner, err := NewRunner(repoPath)
+		runner, err := NewRunner(context.Background(), repoPath)
 		require.NoError(t, err)
 
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond)
@@ -755,7 +755,7 @@ func TestCLIRunner_ContextTimeout(t *testing.T) {
 func TestCLIRunner_ErrorWrapping(t *testing.T) {
 	t.Run("git operation error is wrapped", func(t *testing.T) {
 		repoPath := setupTestRepo(t)
-		runner, err := NewRunner(repoPath)
+		runner, err := NewRunner(context.Background(), repoPath)
 		require.NoError(t, err)
 
 		// Try to push without remote - should fail with wrapped error

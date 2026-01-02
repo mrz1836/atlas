@@ -850,3 +850,15 @@ func (m *mockRunner) Diff(_ context.Context, _ bool) (string, error) {
 func (m *mockRunner) BranchExists(_ context.Context, _ string) (bool, error) {
 	return false, nil
 }
+
+func (m *mockRunner) Fetch(_ context.Context, _ string) error {
+	return nil
+}
+
+func (m *mockRunner) Rebase(_ context.Context, _ string) error {
+	return nil
+}
+
+func (m *mockRunner) RebaseAbort(_ context.Context) error {
+	return nil
+}

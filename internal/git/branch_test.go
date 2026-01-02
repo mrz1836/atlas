@@ -309,7 +309,7 @@ func TestBranchCreator_GenerateUniqueBranchName(t *testing.T) {
 		_, err = RunCommand(context.Background(), repoDir, "commit", "-m", "initial commit")
 		require.NoError(t, err)
 
-		runner, err := NewRunner(repoDir)
+		runner, err := NewRunner(context.Background(), repoDir)
 		require.NoError(t, err)
 
 		creator := NewBranchCreator(runner)
@@ -346,7 +346,7 @@ func TestBranchCreator_GenerateUniqueBranchName(t *testing.T) {
 		_, err = RunCommand(context.Background(), repoDir, "branch", "feat/existing")
 		require.NoError(t, err)
 
-		runner, err := NewRunner(repoDir)
+		runner, err := NewRunner(context.Background(), repoDir)
 		require.NoError(t, err)
 
 		creator := NewBranchCreator(runner)
@@ -368,7 +368,7 @@ func TestBranchCreator_GenerateUniqueBranchName(t *testing.T) {
 		_, err = RunCommand(context.Background(), repoDir, "init")
 		require.NoError(t, err)
 
-		runner, err := NewRunner(repoDir)
+		runner, err := NewRunner(context.Background(), repoDir)
 		require.NoError(t, err)
 
 		creator := NewBranchCreator(runner)
@@ -405,7 +405,7 @@ func TestBranchCreator_Create(t *testing.T) {
 		_, err = RunCommand(context.Background(), repoDir, "commit", "-m", "initial commit")
 		require.NoError(t, err)
 
-		runner, err := NewRunner(repoDir)
+		runner, err := NewRunner(context.Background(), repoDir)
 		require.NoError(t, err)
 
 		creator := NewBranchCreator(runner)
@@ -448,7 +448,7 @@ func TestBranchCreator_Create(t *testing.T) {
 		_, err = RunCommand(context.Background(), repoDir, "commit", "-m", "initial commit")
 		require.NoError(t, err)
 
-		runner, err := NewRunner(repoDir)
+		runner, err := NewRunner(context.Background(), repoDir)
 		require.NoError(t, err)
 
 		creator := NewBranchCreator(runner)
@@ -482,7 +482,7 @@ func TestBranchCreator_Create(t *testing.T) {
 		_, err = RunCommand(context.Background(), repoDir, "commit", "-m", "initial commit")
 		require.NoError(t, err)
 
-		runner, err := NewRunner(repoDir)
+		runner, err := NewRunner(context.Background(), repoDir)
 		require.NoError(t, err)
 
 		creator := NewBranchCreator(runner)
@@ -504,7 +504,7 @@ func TestBranchCreator_Create(t *testing.T) {
 		_, err = RunCommand(context.Background(), repoDir, "init")
 		require.NoError(t, err)
 
-		runner, err := NewRunner(repoDir)
+		runner, err := NewRunner(context.Background(), repoDir)
 		require.NoError(t, err)
 
 		creator := NewBranchCreator(runner)
@@ -526,7 +526,7 @@ func TestBranchCreator_Create(t *testing.T) {
 		_, err = RunCommand(context.Background(), repoDir, "init")
 		require.NoError(t, err)
 
-		runner, err := NewRunner(repoDir)
+		runner, err := NewRunner(context.Background(), repoDir)
 		require.NoError(t, err)
 
 		creator := NewBranchCreator(runner)
@@ -548,7 +548,7 @@ func TestBranchCreator_Create(t *testing.T) {
 		_, err = RunCommand(context.Background(), repoDir, "init")
 		require.NoError(t, err)
 
-		runner, err := NewRunner(repoDir)
+		runner, err := NewRunner(context.Background(), repoDir)
 		require.NoError(t, err)
 
 		creator := NewBranchCreator(runner)
@@ -628,7 +628,7 @@ func TestBranchCreator_CreateWithCustomConfig(t *testing.T) {
 		_, err = RunCommand(context.Background(), repoDir, "commit", "-m", "initial commit")
 		require.NoError(t, err)
 
-		runner, err := NewRunner(repoDir)
+		runner, err := NewRunner(context.Background(), repoDir)
 		require.NoError(t, err)
 
 		// Create with custom prefix configuration
@@ -658,7 +658,7 @@ func TestNewBranchCreatorWithConfig(t *testing.T) {
 	_, err = RunCommand(context.Background(), repoDir, "init")
 	require.NoError(t, err)
 
-	runner, err := NewRunner(repoDir)
+	runner, err := NewRunner(context.Background(), repoDir)
 	require.NoError(t, err)
 
 	customPrefixes := map[string]string{
@@ -698,7 +698,7 @@ func TestCLIRunner_BranchExists(t *testing.T) {
 		_, err = RunCommand(context.Background(), repoDir, "branch", "test-branch")
 		require.NoError(t, err)
 
-		runner, err := NewRunner(repoDir)
+		runner, err := NewRunner(context.Background(), repoDir)
 		require.NoError(t, err)
 
 		exists, err := runner.BranchExists(context.Background(), "test-branch")
@@ -726,7 +726,7 @@ func TestCLIRunner_BranchExists(t *testing.T) {
 		_, err = RunCommand(context.Background(), repoDir, "commit", "-m", "initial commit")
 		require.NoError(t, err)
 
-		runner, err := NewRunner(repoDir)
+		runner, err := NewRunner(context.Background(), repoDir)
 		require.NoError(t, err)
 
 		exists, err := runner.BranchExists(context.Background(), "nonexistent-branch")
@@ -742,7 +742,7 @@ func TestCLIRunner_BranchExists(t *testing.T) {
 		_, err = RunCommand(context.Background(), repoDir, "init")
 		require.NoError(t, err)
 
-		runner, err := NewRunner(repoDir)
+		runner, err := NewRunner(context.Background(), repoDir)
 		require.NoError(t, err)
 
 		ctx, cancel := context.WithCancel(context.Background())
