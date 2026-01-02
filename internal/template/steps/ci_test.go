@@ -669,3 +669,71 @@ func TestCIExecutor_Execute_FailureHandler_NotConfigured(t *testing.T) {
 	require.ErrorIs(t, err, atlaserrors.ErrCIFailed)
 	assert.Equal(t, "failed", result.Status)
 }
+
+func TestCIExecutor_Execute_SkipsWhenNoChanges(t *testing.T) {
+	// Test that CI step is skipped when skip_git_steps metadata is set
+	// This happens when the commit step finds no changes to commit
+	mockRunner := &ciMockHubRunner{
+		watchResult: &git.CIWatchResult{
+			Status:      git.CIStatusSuccess,
+			ElapsedTime: time.Second,
+		},
+	}
+
+	executor := NewCIExecutor(WithCIHubRunner(mockRunner))
+
+	task := &domain.Task{
+		ID:          "task-no-changes",
+		CurrentStep: 5,
+		Metadata: map[string]any{
+			"skip_git_steps": true, // Set by commit step when no changes
+		},
+	}
+	step := &domain.StepDefinition{
+		Name: "ci-wait",
+		Type: domain.StepTypeCI,
+	}
+
+	result, err := executor.Execute(context.Background(), task, step)
+
+	require.NoError(t, err)
+	assert.Equal(t, "skipped", result.Status)
+	assert.Equal(t, 5, result.StepIndex)
+	assert.Equal(t, "ci-wait", result.StepName)
+	assert.Contains(t, result.Output, "no PR was created")
+	assert.Contains(t, result.Output, "no changes to commit")
+	// Verify WatchPRChecks was never called
+	assert.Equal(t, 0, mockRunner.callCount)
+}
+
+func TestCIExecutor_Execute_DoesNotSkipWhenFlagFalse(t *testing.T) {
+	// Test that CI step runs normally when skip_git_steps is false
+	mockRunner := &ciMockHubRunner{
+		watchResult: &git.CIWatchResult{
+			Status:      git.CIStatusSuccess,
+			ElapsedTime: time.Second,
+		},
+	}
+
+	executor := NewCIExecutor(WithCIHubRunner(mockRunner))
+
+	task := &domain.Task{
+		ID:          "task-with-changes",
+		CurrentStep: 0,
+		Metadata: map[string]any{
+			"skip_git_steps": false,
+			"pr_number":      42,
+		},
+	}
+	step := &domain.StepDefinition{
+		Name: "ci-wait",
+		Type: domain.StepTypeCI,
+	}
+
+	result, err := executor.Execute(context.Background(), task, step)
+
+	require.NoError(t, err)
+	assert.Equal(t, "success", result.Status)
+	// Verify WatchPRChecks was called
+	assert.Equal(t, 1, mockRunner.callCount)
+}

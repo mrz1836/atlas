@@ -89,6 +89,25 @@ func (e *CIExecutor) Execute(ctx context.Context, task *domain.Task, step *domai
 		Str("step_type", string(step.Type)).
 		Msg("executing ci step")
 
+	// Check if git steps were skipped (no changes to commit)
+	// If so, skip CI wait since there's no PR to monitor
+	if task.Metadata != nil {
+		if skipGit, ok := task.Metadata["skip_git_steps"].(bool); ok && skipGit {
+			e.logger.Info().
+				Str("task_id", task.ID).
+				Str("step_name", step.Name).
+				Msg("skipping CI wait - no PR was created (no changes to commit)")
+			return &domain.StepResult{
+				StepIndex:   task.CurrentStep,
+				StepName:    step.Name,
+				Status:      constants.StepStatusSkipped,
+				StartedAt:   startTime,
+				CompletedAt: time.Now(),
+				Output:      "Skipped - no PR was created (no changes to commit)",
+			}, nil
+		}
+	}
+
 	// Validate HubRunner dependency
 	if e.hubRunner == nil {
 		return e.buildErrorResult(task, step, startTime, "CI executor missing HubRunner dependency"),
