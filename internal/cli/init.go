@@ -615,7 +615,7 @@ func copyFile(src, dst string) error {
 }
 
 // isInGitRepo checks if the current directory is inside a git repository.
-// It looks for a .git directory in the current directory or any parent.
+// It looks for a .git entry (directory or file for worktrees) in the current directory or any parent.
 func isInGitRepo() bool {
 	dir, err := os.Getwd()
 	if err != nil {
@@ -624,7 +624,7 @@ func isInGitRepo() bool {
 
 	for {
 		gitPath := filepath.Join(dir, ".git")
-		if info, err := os.Stat(gitPath); err == nil && info.IsDir() {
+		if _, err := os.Stat(gitPath); err == nil {
 			return true
 		}
 
@@ -647,7 +647,7 @@ func findGitRoot() string {
 
 	for {
 		gitPath := filepath.Join(dir, ".git")
-		if info, err := os.Stat(gitPath); err == nil && info.IsDir() {
+		if _, err := os.Stat(gitPath); err == nil {
 			return dir
 		}
 

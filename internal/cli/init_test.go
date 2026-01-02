@@ -812,11 +812,10 @@ func TestFindGitRoot(t *testing.T) {
 	gitRoot := findGitRoot()
 	assert.NotEmpty(t, gitRoot, "Should find git root")
 
-	// Verify .git directory exists at the returned path
+	// Verify .git exists at the returned path (can be dir or file in worktree)
 	gitPath := filepath.Join(gitRoot, ".git")
-	info, err := os.Stat(gitPath)
+	_, err := os.Stat(gitPath)
 	require.NoError(t, err)
-	assert.True(t, info.IsDir(), ".git should be a directory")
 }
 
 func TestSaveProjectConfig(t *testing.T) {
