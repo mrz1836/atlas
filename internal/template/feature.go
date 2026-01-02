@@ -155,6 +155,7 @@ func NewFeatureTemplate() *domain.Template {
 			"magex format:fix",
 			"magex lint",
 			"magex test",
+			"go-pre-commit run --all-files",
 		},
 	}
 }
