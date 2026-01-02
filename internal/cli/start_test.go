@@ -192,7 +192,7 @@ func TestFindGitRepository(t *testing.T) {
 
 	t.Run("in git repo", func(t *testing.T) {
 		// We're already in a git repo (the atlas project)
-		repoPath, err := findGitRepository()
+		repoPath, err := findGitRepository(context.Background())
 		require.NoError(t, err)
 		assert.NotEmpty(t, repoPath)
 
@@ -207,7 +207,7 @@ func TestFindGitRepository(t *testing.T) {
 		tmpDir := t.TempDir()
 		require.NoError(t, os.Chdir(tmpDir))
 
-		_, err := findGitRepository()
+		_, err := findGitRepository(context.Background())
 		require.Error(t, err)
 		assert.ErrorIs(t, err, errors.ErrNotGitRepo)
 	})

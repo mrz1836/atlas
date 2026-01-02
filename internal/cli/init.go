@@ -20,6 +20,7 @@ import (
 	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/constants"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
+	"github.com/mrz1836/atlas/internal/git"
 )
 
 // InitFlags holds flags specific to the init command.
@@ -216,7 +217,7 @@ func runInitWithDetector(ctx context.Context, w io.Writer, flags *InitFlags, det
 	styles := newInitStyles()
 
 	// Validate --project flag requires being in a git repo
-	if flags.Project && !isInGitRepo() {
+	if flags.Project && !isInGitRepo(ctx) {
 		_, _ = fmt.Fprintln(w, styles.err.Render("Error: --project flag requires being in a git repository."))
 		_, _ = fmt.Fprintln(w, styles.dim.Render("  Project config is stored at .atlas/config.yaml relative to the git root."))
 		_, _ = fmt.Fprintln(w, styles.dim.Render("  Use --global to save to ~/.atlas/config.yaml instead."))
@@ -282,7 +283,7 @@ func runInitWithDetector(ctx context.Context, w io.Writer, flags *InitFlags, det
 	}
 
 	// Determine and execute config save strategy
-	saveResult, err := determineAndSaveConfig(w, flags, cfg, styles)
+	saveResult, err := determineAndSaveConfig(ctx, w, flags, cfg, styles)
 	if err != nil {
 		return err
 	}
@@ -615,49 +616,32 @@ func copyFile(src, dst string) error {
 }
 
 // isInGitRepo checks if the current directory is inside a git repository.
-// It looks for a .git entry (directory or file for worktrees) in the current directory or any parent.
-func isInGitRepo() bool {
-	dir, err := os.Getwd()
+// Uses git rev-parse for accurate detection even in worktrees.
+func isInGitRepo(ctx context.Context) bool {
+	cwd, err := os.Getwd()
 	if err != nil {
 		return false
 	}
 
-	for {
-		gitPath := filepath.Join(dir, ".git")
-		if _, err := os.Stat(gitPath); err == nil {
-			return true
-		}
-
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			// Reached filesystem root
-			return false
-		}
-		dir = parent
-	}
+	_, err = git.DetectRepo(ctx, cwd)
+	return err == nil
 }
 
-// findGitRoot returns the root directory of the current git repository.
+// findGitRoot returns the root directory of the current working tree.
+// For worktrees, this returns the worktree root (not main repo root).
 // Returns empty string if not in a git repository.
-func findGitRoot() string {
-	dir, err := os.Getwd()
+func findGitRoot(ctx context.Context) string {
+	cwd, err := os.Getwd()
 	if err != nil {
 		return ""
 	}
 
-	for {
-		gitPath := filepath.Join(dir, ".git")
-		if _, err := os.Stat(gitPath); err == nil {
-			return dir
-		}
-
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			// Reached filesystem root
-			return ""
-		}
-		dir = parent
+	info, err := git.DetectRepo(ctx, cwd)
+	if err != nil {
+		return ""
 	}
+
+	return info.WorktreePath
 }
 
 // configSaveResult contains the result of saving configuration.
@@ -668,7 +652,7 @@ type configSaveResult struct {
 
 // determineAndSaveConfig determines where to save config and performs the save.
 // This function handles the logic for deciding between project and global config.
-func determineAndSaveConfig(w io.Writer, flags *InitFlags, cfg AtlasConfig, styles *initStyles) (*configSaveResult, error) {
+func determineAndSaveConfig(ctx context.Context, w io.Writer, flags *InitFlags, cfg AtlasConfig, styles *initStyles) (*configSaveResult, error) {
 	result := &configSaveResult{
 		configPaths: []string{},
 	}
@@ -678,15 +662,15 @@ func determineAndSaveConfig(w io.Writer, flags *InitFlags, cfg AtlasConfig, styl
 
 	// If neither flag is set, determine based on context
 	if !saveToProject && !saveToGlobal {
-		saveToProject, saveToGlobal = determineConfigLocations(w, flags, styles)
+		saveToProject, saveToGlobal = determineConfigLocations(ctx, w, flags, styles)
 	}
 
 	// Save to project config if requested
 	if saveToProject {
-		if err := saveProjectConfig(cfg); err != nil {
+		if err := saveProjectConfig(ctx, cfg); err != nil {
 			return nil, fmt.Errorf("failed to save project configuration: %w", err)
 		}
-		gitRoot := findGitRoot()
+		gitRoot := findGitRoot(ctx)
 		projectPath := filepath.Join(gitRoot, constants.AtlasHome, constants.GlobalConfigName)
 		result.configPaths = append(result.configPaths, projectPath)
 		result.projectConfigCreated = true
@@ -707,8 +691,8 @@ func determineAndSaveConfig(w io.Writer, flags *InitFlags, cfg AtlasConfig, styl
 
 // determineConfigLocations decides whether to save to project and/or global config.
 // Returns (saveToProject, saveToGlobal).
-func determineConfigLocations(w io.Writer, flags *InitFlags, styles *initStyles) (bool, bool) {
-	inGitRepo := isInGitRepo()
+func determineConfigLocations(ctx context.Context, w io.Writer, flags *InitFlags, styles *initStyles) (bool, bool) {
+	inGitRepo := isInGitRepo(ctx)
 
 	// Non-interactive or not in git repo: save to global only
 	if flags.NoInteractive || !inGitRepo {
@@ -759,8 +743,8 @@ func promptProjectConfigCreation(w io.Writer, styles *initStyles) (bool, error) 
 
 // saveProjectConfig writes the configuration to .atlas/config.yaml in the git root.
 // If a config file already exists, it creates a backup before overwriting.
-func saveProjectConfig(cfg AtlasConfig) error {
-	gitRoot := findGitRoot()
+func saveProjectConfig(ctx context.Context, cfg AtlasConfig) error {
+	gitRoot := findGitRoot(ctx)
 	if gitRoot == "" {
 		return atlaserrors.ErrNotInGitRepo
 	}

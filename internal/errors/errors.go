@@ -270,6 +270,9 @@ var (
 
 	// ErrInteractiveRequired indicates that interactive prompts are required but not available.
 	ErrInteractiveRequired = errors.New("interactive prompt required")
+
+	// ErrWorktreeNotFound indicates the requested worktree does not exist.
+	ErrWorktreeNotFound = errors.New("worktree not found")
 )
 
 // ExitCode2Error wraps an error to indicate exit code 2 should be used.

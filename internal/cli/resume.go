@@ -85,7 +85,7 @@ func runResume(ctx context.Context, cmd *cobra.Command, w io.Writer, workspaceNa
 	}
 
 	// Find git repository for worktree runner
-	repoPath, err := findGitRepository()
+	repoPath, err := findGitRepository(ctx)
 	if err != nil {
 		return handleResumeError(outputFormat, w, workspaceName, "", fmt.Errorf("not in a git repository: %w", err))
 	}

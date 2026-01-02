@@ -360,6 +360,63 @@ func applyValidationOverrides(cfg, overrides *Config) {
 	}
 }
 
+// LoadWithWorktree loads configuration with worktree inheritance.
+// Config is loaded in order (highest precedence first):
+//  1. Environment variables (ATLAS_* prefix)
+//  2. Worktree config (worktreePath/.atlas/config.yaml) - if different from main repo
+//  3. Main repo config (mainRepoPath/.atlas/config.yaml)
+//  4. Global config (~/.atlas/config.yaml)
+//  5. Built-in defaults
+//
+// This enables worktree-specific overrides while inheriting base settings.
+// The worktree config is only loaded if worktreePath differs from mainRepoPath.
+func LoadWithWorktree(_ context.Context, mainRepoPath, worktreePath string) (*Config, error) {
+	v := viper.New()
+
+	// Set defaults first (lowest precedence)
+	setDefaults(v)
+
+	// Configure environment variables (highest precedence after CLI flags)
+	v.SetEnvPrefix("ATLAS")
+	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+	v.AutomaticEnv()
+
+	// Load global config first (lowest file precedence)
+	if err := loadGlobalConfig(v); err != nil {
+		return nil, err
+	}
+
+	// Load main repo config (middle precedence)
+	mainConfigPath := filepath.Join(mainRepoPath, ".atlas", "config.yaml")
+	if fileExists(mainConfigPath) {
+		v.SetConfigFile(mainConfigPath)
+		if err := v.MergeInConfig(); err != nil {
+			var configNotFoundErr viper.ConfigFileNotFoundError
+			if !stderrors.As(err, &configNotFoundErr) {
+				return nil, errors.Wrap(err, "failed to read main repo config")
+			}
+		}
+	}
+
+	// Load worktree config if different from main repo (highest file precedence)
+	if err := mergeWorktreeConfig(v, worktreePath, mainRepoPath); err != nil {
+		return nil, err
+	}
+
+	// Unmarshal into Config struct
+	var cfg Config
+	if err := v.Unmarshal(&cfg, viperDecoderOption()); err != nil {
+		return nil, errors.Wrap(err, "failed to unmarshal config")
+	}
+
+	// Validate the configuration
+	if err := Validate(&cfg); err != nil {
+		return nil, errors.Wrap(err, "invalid configuration")
+	}
+
+	return &cfg, nil
+}
+
 // viperDecoderOption returns the decoder options for Viper unmarshal.
 // This configures mapstructure to handle time.Duration conversion from strings.
 func viperDecoderOption() viper.DecoderConfigOption {
@@ -368,4 +425,26 @@ func viperDecoderOption() viper.DecoderConfigOption {
 			mapstructure.StringToTimeDurationHookFunc(),
 		),
 	)
+}
+
+// mergeWorktreeConfig loads and merges the worktree-specific config if it exists.
+// Returns nil if worktree is same as main repo or config doesn't exist.
+func mergeWorktreeConfig(v *viper.Viper, worktreePath, mainRepoPath string) error {
+	if worktreePath == mainRepoPath {
+		return nil
+	}
+
+	worktreeConfigPath := filepath.Join(worktreePath, ".atlas", "config.yaml")
+	if !fileExists(worktreeConfigPath) {
+		return nil
+	}
+
+	v.SetConfigFile(worktreeConfigPath)
+	if err := v.MergeInConfig(); err != nil {
+		var configNotFoundErr viper.ConfigFileNotFoundError
+		if !stderrors.As(err, &configNotFoundErr) {
+			return errors.Wrap(err, "failed to read worktree config")
+		}
+	}
+	return nil
 }

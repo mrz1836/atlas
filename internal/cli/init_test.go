@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -803,13 +804,14 @@ func TestCopyFile_SourceNotFound(t *testing.T) {
 
 func TestIsInGitRepo(t *testing.T) {
 	// This test runs in the atlas repo, so it should return true
-	result := isInGitRepo()
+	result := isInGitRepo(context.Background())
 	assert.True(t, result, "Should detect we're in the atlas git repository")
 }
 
 func TestFindGitRoot(t *testing.T) {
 	// This test runs in the atlas repo, so it should find the root
-	gitRoot := findGitRoot()
+	ctx := context.Background()
+	gitRoot := findGitRoot(ctx)
 	assert.NotEmpty(t, gitRoot, "Should find git root")
 
 	// Verify .git exists at the returned path (can be dir or file in worktree)
@@ -819,11 +821,23 @@ func TestFindGitRoot(t *testing.T) {
 }
 
 func TestSaveProjectConfig(t *testing.T) {
-	// Create a fake git repo in temp directory
+	// Create a real git repo in temp directory
 	tmpDir := t.TempDir()
-	gitDir := filepath.Join(tmpDir, ".git")
-	err := os.MkdirAll(gitDir, 0o750)
-	require.NoError(t, err)
+
+	// Initialize git repository
+	ctx := context.Background()
+	cmd := exec.CommandContext(ctx, "git", "init")
+	cmd.Dir = tmpDir
+	err := cmd.Run()
+	require.NoError(t, err, "failed to initialize git repo")
+
+	// Configure git user for commit (required by git)
+	cmd = exec.CommandContext(ctx, "git", "config", "user.email", "test@test.com")
+	cmd.Dir = tmpDir
+	_ = cmd.Run()
+	cmd = exec.CommandContext(ctx, "git", "config", "user.name", "Test")
+	cmd.Dir = tmpDir
+	_ = cmd.Run()
 
 	// Change to temp directory
 	origDir, err := os.Getwd()
@@ -843,7 +857,7 @@ func TestSaveProjectConfig(t *testing.T) {
 		},
 	}
 
-	err = saveProjectConfig(cfg)
+	err = saveProjectConfig(ctx, cfg)
 	require.NoError(t, err)
 
 	// Verify the config file was created
@@ -879,16 +893,28 @@ func TestSaveProjectConfig_NotInGitRepo(t *testing.T) {
 		AI: AIConfig{Model: "sonnet"},
 	}
 
-	err = saveProjectConfig(cfg)
+	err = saveProjectConfig(context.Background(), cfg)
 	require.ErrorIs(t, err, atlaserrors.ErrNotInGitRepo)
 }
 
 func TestSaveProjectConfig_CreatesBackup(t *testing.T) {
-	// Create a fake git repo in temp directory
+	// Create a real git repo in temp directory
 	tmpDir := t.TempDir()
-	gitDir := filepath.Join(tmpDir, ".git")
-	err := os.MkdirAll(gitDir, 0o750)
-	require.NoError(t, err)
+
+	// Initialize git repository
+	ctx := context.Background()
+	cmd := exec.CommandContext(ctx, "git", "init")
+	cmd.Dir = tmpDir
+	err := cmd.Run()
+	require.NoError(t, err, "failed to initialize git repo")
+
+	// Configure git user for commit (required by git)
+	cmd = exec.CommandContext(ctx, "git", "config", "user.email", "test@test.com")
+	cmd.Dir = tmpDir
+	_ = cmd.Run()
+	cmd = exec.CommandContext(ctx, "git", "config", "user.name", "Test")
+	cmd.Dir = tmpDir
+	_ = cmd.Run()
 
 	// Create initial config
 	atlasDir := filepath.Join(tmpDir, constants.AtlasHome)
@@ -912,7 +938,7 @@ func TestSaveProjectConfig_CreatesBackup(t *testing.T) {
 		AI: AIConfig{Model: "opus"},
 	}
 
-	err = saveProjectConfig(cfg)
+	err = saveProjectConfig(ctx, cfg)
 	require.NoError(t, err)
 
 	// Verify new config
@@ -935,7 +961,7 @@ func TestDetermineConfigLocations_NonInteractive(t *testing.T) {
 	styles := newInitStyles()
 	flags := &InitFlags{NoInteractive: true}
 
-	saveToProject, saveToGlobal := determineConfigLocations(&buf, flags, styles)
+	saveToProject, saveToGlobal := determineConfigLocations(context.Background(), &buf, flags, styles)
 
 	assert.False(t, saveToProject, "Non-interactive should not save to project")
 	assert.True(t, saveToGlobal, "Non-interactive should save to global")
@@ -1028,11 +1054,23 @@ func TestRunInitWithDetector_GlobalFlag_Success(t *testing.T) {
 }
 
 func TestRunInitWithDetector_ProjectFlag_Success(t *testing.T) {
-	// Create a fake git repo in temp directory
+	// Create a real git repo in temp directory
 	tmpDir := t.TempDir()
-	gitDir := filepath.Join(tmpDir, ".git")
-	err := os.MkdirAll(gitDir, 0o750)
-	require.NoError(t, err)
+
+	// Initialize git repository
+	ctx := context.Background()
+	cmd := exec.CommandContext(ctx, "git", "init")
+	cmd.Dir = tmpDir
+	err := cmd.Run()
+	require.NoError(t, err, "failed to initialize git repo")
+
+	// Configure git user for commit (required by git)
+	cmd = exec.CommandContext(ctx, "git", "config", "user.email", "test@test.com")
+	cmd.Dir = tmpDir
+	_ = cmd.Run()
+	cmd = exec.CommandContext(ctx, "git", "config", "user.name", "Test")
+	cmd.Dir = tmpDir
+	_ = cmd.Run()
 
 	// Change to temp directory
 	origDir, err := os.Getwd()

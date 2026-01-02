@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -151,7 +150,7 @@ func runStart(ctx context.Context, cmd *cobra.Command, w io.Writer, description 
 	}
 
 	// Validate we're in a git repository
-	repoPath, err := findGitRepository()
+	repoPath, err := findGitRepository(ctx)
 	if err != nil {
 		return sc.handleError("", fmt.Errorf("not in a git repository: %w", err))
 	}
@@ -227,8 +226,11 @@ func (sc *startContext) handleError(wsName string, err error) error {
 	return err
 }
 
-// createWorkspace creates a new workspace with all necessary components.
-func createWorkspace(ctx context.Context, sc *startContext, wsName, repoPath, branchPrefix string, noInteractive bool) (*domain.Workspace, error) {
+// createWorkspace creates a new workspace or uses an existing one (upsert behavior).
+// If a workspace with the given name already exists, it will be reused.
+func createWorkspace(ctx context.Context, sc *startContext, wsName, repoPath, branchPrefix string, _ bool) (*domain.Workspace, error) {
+	logger := GetLogger()
+
 	// Create workspace store
 	wsStore, err := workspace.NewFileStore("")
 	if err != nil {
@@ -244,13 +246,18 @@ func createWorkspace(ctx context.Context, sc *startContext, wsName, repoPath, br
 	// Create manager
 	wsMgr := workspace.NewManager(wsStore, wtRunner)
 
-	// Check for existing workspace
-	wsName, err = handleWorkspaceConflict(ctx, wsMgr, wsName, noInteractive, sc.outputFormat, sc.out, sc.w)
-	if err != nil {
-		return nil, err
+	// Check if workspace already exists (upsert behavior)
+	existingWs, err := wsMgr.Get(ctx, wsName)
+	if err == nil && existingWs != nil {
+		// Workspace exists - use it
+		logger.Info().
+			Str("workspace_name", wsName).
+			Str("worktree_path", existingWs.WorktreePath).
+			Msg("using existing workspace")
+		return existingWs, nil
 	}
 
-	// Create workspace with branch type from template
+	// Workspace doesn't exist - create new
 	ws, err := wsMgr.Create(ctx, wsName, repoPath, branchPrefix)
 	if err != nil {
 		return nil, sc.handleError(wsName, fmt.Errorf("failed to create workspace: %w", err))
@@ -431,7 +438,7 @@ func selectTemplateInteractive(registry *template.Registry) (*domain.Template, e
 }
 
 // handleWorkspaceConflict checks for existing workspace and handles conflicts.
-func handleWorkspaceConflict(ctx context.Context, mgr *workspace.DefaultManager, wsName string, noInteractive bool, outputFormat string, out tui.Output, w io.Writer) (string, error) {
+func handleWorkspaceConflict(ctx context.Context, mgr *workspace.DefaultManager, wsName string, noInteractive bool, outputFormat string, out tui.Output, w io.Writer) (string, error) { //nolint:unparam // out reserved for future use
 	// Check context cancellation
 	select {
 	case <-ctx.Done():
@@ -543,34 +550,19 @@ func validateWorkspaceName(s string) error {
 }
 
 // findGitRepository finds the git repository root from the current directory.
-func findGitRepository() (string, error) {
-	// Start from current directory
-	dir, err := os.Getwd()
+// Uses git rev-parse for accurate detection even in worktrees.
+func findGitRepository(ctx context.Context) (string, error) {
+	cwd, err := os.Getwd()
 	if err != nil {
 		return "", err
 	}
 
-	// Walk up until we find .git
-	for {
-		gitPath := filepath.Join(dir, ".git")
-		info, err := os.Stat(gitPath)
-		if err == nil {
-			if info.IsDir() {
-				return dir, nil
-			}
-			// .git file (worktree) - read the gitdir
-			content, err := os.ReadFile(gitPath) //#nosec G304 -- path is constructed internally
-			if err == nil && strings.HasPrefix(string(content), "gitdir:") {
-				return dir, nil
-			}
-		}
-
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			return "", errors.ErrNotGitRepo
-		}
-		dir = parent
+	info, err := git.DetectRepo(ctx, cwd)
+	if err != nil {
+		return "", errors.ErrNotGitRepo
 	}
+
+	return info.WorktreePath, nil
 }
 
 // startResponse represents the JSON output for start operations.
