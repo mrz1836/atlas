@@ -4,7 +4,6 @@ package cli
 import (
 	"context"
 	"encoding/json"
-	stderrors "errors"
 	"fmt"
 	"io"
 	"os"
@@ -197,7 +196,7 @@ func runStart(ctx context.Context, cmd *cobra.Command, w io.Writer, description 
 	// Start task execution
 	t, err := startTaskExecution(ctx, ws, tmpl, description, opts.model, logger)
 	if err != nil {
-		sc.handleTaskStartError(ctx, ws, repoPath, err, logger)
+		sc.handleTaskStartError(ctx, ws, repoPath, t, logger)
 		if t != nil {
 			return displayTaskStatus(out, outputFormat, ws, t, err)
 		}
@@ -223,31 +222,20 @@ func (sc *startContext) handleError(wsName string, err error) error {
 }
 
 // handleTaskStartError handles cleanup when task execution fails.
-// Only cleans up workspace on true start failures, NOT on task-paused errors
-// (validation failed, CI failed, user input required, etc.).
-// Task-paused errors mean the task was created and saved but is waiting for
-// user intervention - the workspace must be preserved for resume.
-func (sc *startContext) handleTaskStartError(ctx context.Context, ws *domain.Workspace, repoPath string, err error, logger zerolog.Logger) {
-	if isTaskPausedError(err) {
+// Only cleans up workspace if the task was never created (t == nil).
+// If the task exists, the workspace must be preserved for investigation and resume.
+func (sc *startContext) handleTaskStartError(ctx context.Context, ws *domain.Workspace, repoPath string, t *domain.Task, logger zerolog.Logger) {
+	// If task was created, workspace should be preserved for resume
+	if t != nil {
 		return
 	}
+	// Only cleanup if task creation failed entirely (no task to preserve)
 	cleanupErr := cleanupWorkspace(ctx, ws.Name, repoPath)
 	if cleanupErr != nil {
 		logger.Warn().Err(cleanupErr).
 			Str("workspace_name", ws.Name).
-			Msg("failed to cleanup workspace after task failure")
+			Msg("failed to cleanup workspace after task creation failure")
 	}
-}
-
-// isTaskPausedError returns true if the error indicates the task was created
-// but paused (not a true start failure). Workspace should be preserved for these
-// errors so the user can fix issues and resume the task.
-func isTaskPausedError(err error) bool {
-	return stderrors.Is(err, atlaserrors.ErrValidationFailed) ||
-		stderrors.Is(err, atlaserrors.ErrCIFailed) ||
-		stderrors.Is(err, atlaserrors.ErrUserInputRequired) ||
-		stderrors.Is(err, atlaserrors.ErrUserRejected) ||
-		stderrors.Is(err, atlaserrors.ErrApprovalRequired)
 }
 
 // createWorkspace creates a new workspace or uses an existing one (upsert behavior).
@@ -359,7 +347,7 @@ func startTaskExecution(ctx context.Context, ws *domain.Workspace, tmpl *domain.
 	}
 
 	// Start task
-	t, err := engine.Start(ctx, ws.Name, tmpl, description)
+	t, err := engine.Start(ctx, ws.Name, ws.Branch, tmpl, description)
 	if err != nil {
 		logger.Error().Err(err).
 			Str("workspace_name", ws.Name).

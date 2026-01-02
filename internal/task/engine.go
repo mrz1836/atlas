@@ -97,13 +97,14 @@ func NewEngine(store Store, registry *steps.ExecutorRegistry, cfg EngineConfig, 
 // transitions to Running, and begins step execution.
 //
 // The workspaceName identifies which workspace this task belongs to.
+// The branch is the git branch name for this task (used by git operations).
 // The template defines the steps to execute.
 // The description provides a human-readable summary of the task.
 //
 // Returns the created task and any error that occurred during execution.
 // Even if execution fails partway through, the task is returned so the
 // caller can inspect its state.
-func (e *Engine) Start(ctx context.Context, workspaceName string, template *domain.Template, description string) (*domain.Task, error) {
+func (e *Engine) Start(ctx context.Context, workspaceName, branch string, template *domain.Template, description string) (*domain.Task, error) {
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
@@ -140,6 +141,9 @@ func (e *Engine) Start(ctx context.Context, workspaceName string, template *doma
 		UpdatedAt:     now,
 		Config:        domain.TaskConfig{},
 		SchemaVersion: constants.TaskSchemaVersion,
+		Metadata: map[string]any{
+			"branch": branch,
+		},
 	}
 
 	e.logger.Info().
