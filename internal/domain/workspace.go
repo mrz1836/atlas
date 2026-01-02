@@ -40,7 +40,7 @@ type Workspace struct {
 	Branch string `json:"branch"`
 
 	// Status is the current state of the workspace.
-	// Uses constants.WorkspaceStatus values (active, paused, retired).
+	// Uses constants.WorkspaceStatus values (active, paused, closed).
 	Status constants.WorkspaceStatus `json:"status"`
 
 	// Tasks is the list of tasks associated with this workspace.

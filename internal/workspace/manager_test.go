@@ -338,7 +338,7 @@ func TestDefaultManager_List_MultipleWorkspaces(t *testing.T) {
 	store := newMockStore()
 	store.workspaces["ws1"] = &domain.Workspace{Name: "ws1", Status: constants.WorkspaceStatusActive}
 	store.workspaces["ws2"] = &domain.Workspace{Name: "ws2", Status: constants.WorkspaceStatusPaused}
-	store.workspaces["ws3"] = &domain.Workspace{Name: "ws3", Status: constants.WorkspaceStatusRetired}
+	store.workspaces["ws3"] = &domain.Workspace{Name: "ws3", Status: constants.WorkspaceStatusClosed}
 	runner := newMockWorktreeRunner()
 
 	mgr := NewManager(store, runner)
@@ -466,10 +466,10 @@ func TestDefaultManager_Destroy_ContextCancellation(t *testing.T) {
 }
 
 // ============================================================================
-// Task 6 Tests: Retire operation
+// Task 6 Tests: Close operation
 // ============================================================================
 
-func TestDefaultManager_Retire_CleanWorkspace(t *testing.T) {
+func TestDefaultManager_Close_CleanWorkspace(t *testing.T) {
 	store := newMockStore()
 	store.workspaces["test"] = &domain.Workspace{
 		Name:         "test",
@@ -481,12 +481,12 @@ func TestDefaultManager_Retire_CleanWorkspace(t *testing.T) {
 	runner := newMockWorktreeRunner()
 
 	mgr := NewManager(store, runner)
-	err := mgr.Retire(context.Background(), "test")
+	err := mgr.Close(context.Background(), "test")
 
 	require.NoError(t, err)
 	// Verify status was updated
 	ws := store.workspaces["test"]
-	assert.Equal(t, constants.WorkspaceStatusRetired, ws.Status)
+	assert.Equal(t, constants.WorkspaceStatusClosed, ws.Status)
 	// Verify worktree path was cleared
 	assert.Empty(t, ws.WorktreePath)
 	// Verify UpdatedAt was set (Manager owns timestamp)
@@ -497,7 +497,7 @@ func TestDefaultManager_Retire_CleanWorkspace(t *testing.T) {
 	assert.Equal(t, 0, runner.deleteBranchCallCount)
 }
 
-func TestDefaultManager_Retire_StoreUpdateFailure(t *testing.T) {
+func TestDefaultManager_Close_StoreUpdateFailure(t *testing.T) {
 	store := newMockStore()
 	store.workspaces["test"] = &domain.Workspace{
 		Name:         "test",
@@ -510,7 +510,7 @@ func TestDefaultManager_Retire_StoreUpdateFailure(t *testing.T) {
 	runner := newMockWorktreeRunner()
 
 	mgr := NewManager(store, runner)
-	err := mgr.Retire(context.Background(), "test")
+	err := mgr.Close(context.Background(), "test")
 
 	// Should fail with store error
 	require.Error(t, err)
@@ -519,7 +519,7 @@ func TestDefaultManager_Retire_StoreUpdateFailure(t *testing.T) {
 	assert.Equal(t, 0, runner.removeCallCount)
 }
 
-func TestDefaultManager_Retire_WithRunningTasksReturnsError(t *testing.T) {
+func TestDefaultManager_Close_WithRunningTasksReturnsError(t *testing.T) {
 	store := newMockStore()
 	store.workspaces["test"] = &domain.Workspace{
 		Name:         "test",
@@ -533,7 +533,7 @@ func TestDefaultManager_Retire_WithRunningTasksReturnsError(t *testing.T) {
 	runner := newMockWorktreeRunner()
 
 	mgr := NewManager(store, runner)
-	err := mgr.Retire(context.Background(), "test")
+	err := mgr.Close(context.Background(), "test")
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "task 'task-1' is still running")
@@ -542,7 +542,7 @@ func TestDefaultManager_Retire_WithRunningTasksReturnsError(t *testing.T) {
 	assert.Equal(t, constants.WorkspaceStatusActive, ws.Status)
 }
 
-func TestDefaultManager_Retire_WithValidatingTasksReturnsError(t *testing.T) {
+func TestDefaultManager_Close_WithValidatingTasksReturnsError(t *testing.T) {
 	store := newMockStore()
 	store.workspaces["test"] = &domain.Workspace{
 		Name:         "test",
@@ -556,13 +556,13 @@ func TestDefaultManager_Retire_WithValidatingTasksReturnsError(t *testing.T) {
 	runner := newMockWorktreeRunner()
 
 	mgr := NewManager(store, runner)
-	err := mgr.Retire(context.Background(), "test")
+	err := mgr.Close(context.Background(), "test")
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "task 'task-1' is still running")
 }
 
-func TestDefaultManager_Retire_WithCompletedTasksSucceeds(t *testing.T) {
+func TestDefaultManager_Close_WithCompletedTasksSucceeds(t *testing.T) {
 	store := newMockStore()
 	store.workspaces["test"] = &domain.Workspace{
 		Name:         "test",
@@ -576,23 +576,23 @@ func TestDefaultManager_Retire_WithCompletedTasksSucceeds(t *testing.T) {
 	runner := newMockWorktreeRunner()
 
 	mgr := NewManager(store, runner)
-	err := mgr.Retire(context.Background(), "test")
+	err := mgr.Close(context.Background(), "test")
 
 	require.NoError(t, err)
 }
 
-func TestDefaultManager_Retire_NonExistentWorkspace(t *testing.T) {
+func TestDefaultManager_Close_NonExistentWorkspace(t *testing.T) {
 	store := newMockStore()
 	runner := newMockWorktreeRunner()
 
 	mgr := NewManager(store, runner)
-	err := mgr.Retire(context.Background(), "nonexistent")
+	err := mgr.Close(context.Background(), "nonexistent")
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, atlaserrors.ErrWorkspaceNotFound)
 }
 
-func TestDefaultManager_Retire_ContextCancellation(t *testing.T) {
+func TestDefaultManager_Close_ContextCancellation(t *testing.T) {
 	store := newMockStore()
 	runner := newMockWorktreeRunner()
 
@@ -601,7 +601,7 @@ func TestDefaultManager_Retire_ContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	err := mgr.Retire(ctx, "test")
+	err := mgr.Close(ctx, "test")
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, context.Canceled)
@@ -746,7 +746,7 @@ func TestDefaultManager_Create_CheckExistenceError(t *testing.T) {
 	assert.Contains(t, err.Error(), "failed to check workspace existence")
 }
 
-func TestDefaultManager_Retire_ForceRemoveOnDirty(t *testing.T) {
+func TestDefaultManager_Close_ForceRemoveOnDirty(t *testing.T) {
 	store := newMockStore()
 	store.workspaces["test"] = &domain.Workspace{
 		Name:         "test",
@@ -758,7 +758,7 @@ func TestDefaultManager_Retire_ForceRemoveOnDirty(t *testing.T) {
 	runner := &forceRemoveMockRunner{firstCallFails: true}
 
 	mgr := NewManager(store, runner)
-	err := mgr.Retire(context.Background(), "test")
+	err := mgr.Close(context.Background(), "test")
 
 	require.NoError(t, err)
 	// Store update happens first, then worktree removal
@@ -766,7 +766,7 @@ func TestDefaultManager_Retire_ForceRemoveOnDirty(t *testing.T) {
 	assert.Equal(t, 2, runner.removeCallCount) // First try, then force
 	// Status should be updated
 	ws := store.workspaces["test"]
-	assert.Equal(t, constants.WorkspaceStatusRetired, ws.Status)
+	assert.Equal(t, constants.WorkspaceStatusClosed, ws.Status)
 }
 
 // forceRemoveMockRunner is a mock that fails on first Remove call.

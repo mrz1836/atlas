@@ -435,7 +435,7 @@ func TestStatusReexports(t *testing.T) {
 	// Verify WorkspaceStatus re-exports
 	assert.Equal(t, "active", string(WorkspaceStatusActive))
 	assert.Equal(t, "paused", string(WorkspaceStatusPaused))
-	assert.Equal(t, "retired", string(WorkspaceStatusRetired))
+	assert.Equal(t, "closed", string(WorkspaceStatusClosed))
 }
 
 // TestTask_OmitemptyFields verifies optional fields are omitted when empty.

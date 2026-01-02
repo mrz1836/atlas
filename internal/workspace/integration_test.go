@@ -15,7 +15,7 @@ import (
 )
 
 // TestIntegration_WorkspaceLifecycle tests the full workspace lifecycle:
-// create -> update -> list -> retire -> destroy
+// create -> update -> list -> close -> destroy
 func TestIntegration_WorkspaceLifecycle(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
@@ -55,7 +55,7 @@ func TestIntegration_WorkspaceLifecycle(t *testing.T) {
 	assert.Equal(t, "value", retrieved.Metadata["test"])
 
 	// 4. Update workspace
-	retrieved.Status = constants.WorkspaceStatusRetired
+	retrieved.Status = constants.WorkspaceStatusClosed
 	retrieved.Branch = "feature/updated-branch"
 	err = store.Update(ctx, retrieved)
 	require.NoError(t, err)
@@ -63,7 +63,7 @@ func TestIntegration_WorkspaceLifecycle(t *testing.T) {
 	// 5. Verify update
 	updated, err := store.Get(ctx, "integration-test-ws")
 	require.NoError(t, err)
-	assert.Equal(t, constants.WorkspaceStatusRetired, updated.Status)
+	assert.Equal(t, constants.WorkspaceStatusClosed, updated.Status)
 	assert.Equal(t, "feature/updated-branch", updated.Branch)
 
 	// 6. List workspaces

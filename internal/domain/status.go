@@ -69,6 +69,6 @@ const (
 	// WorkspaceStatusPaused indicates the workspace is temporarily inactive.
 	WorkspaceStatusPaused = constants.WorkspaceStatusPaused
 
-	// WorkspaceStatusRetired indicates the workspace has been archived.
-	WorkspaceStatusRetired = constants.WorkspaceStatusRetired
+	// WorkspaceStatusClosed indicates the workspace has been closed.
+	WorkspaceStatusClosed = constants.WorkspaceStatusClosed
 )

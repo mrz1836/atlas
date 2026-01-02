@@ -32,9 +32,9 @@ type Manager interface {
 	// ALWAYS succeeds even if state is corrupted (NFR18).
 	Destroy(ctx context.Context, name string) error
 
-	// Retire archives a workspace, removing worktree but keeping state.
+	// Close archives a workspace, removing worktree but keeping state.
 	// Returns error if tasks are running.
-	Retire(ctx context.Context, name string) error
+	Close(ctx context.Context, name string) error
 
 	// UpdateStatus updates the status of a workspace.
 	UpdateStatus(ctx context.Context, name string, status constants.WorkspaceStatus) error
@@ -197,8 +197,8 @@ func (m *DefaultManager) Destroy(ctx context.Context, name string) error {
 	return nil
 }
 
-// Retire archives a workspace, removing worktree but keeping state.
-func (m *DefaultManager) Retire(ctx context.Context, name string) error {
+// Close archives a workspace, removing worktree but keeping state.
+func (m *DefaultManager) Close(ctx context.Context, name string) error {
 	// Check for cancellation
 	select {
 	case <-ctx.Done():
@@ -209,14 +209,14 @@ func (m *DefaultManager) Retire(ctx context.Context, name string) error {
 	// Load workspace
 	ws, err := m.store.Get(ctx, name)
 	if err != nil {
-		return fmt.Errorf("failed to retire workspace '%s': %w", name, err)
+		return fmt.Errorf("failed to close workspace '%s': %w", name, err)
 	}
 
 	// Check for running tasks
 	for _, task := range ws.Tasks {
 		if task.Status == constants.TaskStatusRunning ||
 			task.Status == constants.TaskStatusValidating {
-			return fmt.Errorf("cannot retire workspace '%s': task '%s' is still running: %w",
+			return fmt.Errorf("cannot close workspace '%s': task '%s' is still running: %w",
 				name, task.ID, atlaserrors.ErrWorkspaceHasRunningTasks)
 		}
 	}
@@ -226,7 +226,7 @@ func (m *DefaultManager) Retire(ctx context.Context, name string) error {
 
 	// Update state FIRST (before removing worktree) for consistency
 	// If store update fails, worktree is still intact
-	ws.Status = constants.WorkspaceStatusRetired
+	ws.Status = constants.WorkspaceStatusClosed
 	ws.WorktreePath = "" // Will be removed
 	ws.UpdatedAt = time.Now()
 
@@ -235,7 +235,7 @@ func (m *DefaultManager) Retire(ctx context.Context, name string) error {
 	}
 
 	// Now remove worktree (state is already consistent)
-	// If this fails, state says retired with no worktree, which is acceptable
+	// If this fails, state says closed with no worktree, which is acceptable
 	if worktreePath != "" {
 		if err := m.worktreeRunner.Remove(ctx, worktreePath, false); err != nil {
 			// If worktree is dirty or has other issues, force remove
