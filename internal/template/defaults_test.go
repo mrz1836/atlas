@@ -16,9 +16,9 @@ func TestDefaultRegistry_ContainsAllTemplates(t *testing.T) {
 	r := NewDefaultRegistry()
 
 	templates := r.List()
-	assert.Len(t, templates, 3)
+	assert.Len(t, templates, 4)
 
-	// Verify all three templates are present
+	// Verify all four templates are present
 	names := make(map[string]bool)
 	for _, tmpl := range templates {
 		names[tmpl.Name] = true
@@ -27,6 +27,7 @@ func TestDefaultRegistry_ContainsAllTemplates(t *testing.T) {
 	assert.True(t, names["bugfix"], "missing bugfix template")
 	assert.True(t, names["feature"], "missing feature template")
 	assert.True(t, names["commit"], "missing commit template")
+	assert.True(t, names["task"], "missing task template")
 }
 
 func TestDefaultRegistry_GetBugfix(t *testing.T) {
@@ -59,13 +60,23 @@ func TestDefaultRegistry_GetCommit(t *testing.T) {
 	assert.Equal(t, "sonnet", tmpl.DefaultModel)
 }
 
+func TestDefaultRegistry_GetTask(t *testing.T) {
+	r := NewDefaultRegistry()
+
+	tmpl, err := r.Get("task")
+	require.NoError(t, err)
+	assert.Equal(t, "task", tmpl.Name)
+	assert.Equal(t, "task/", tmpl.BranchPrefix)
+	assert.Equal(t, "sonnet", tmpl.DefaultModel)
+}
+
 func TestDefaultRegistry_TemplatesAreCompiledIn(t *testing.T) {
 	// This test verifies that templates are Go code, not loaded from files.
 	// If templates were loaded from files, this would fail or require file I/O.
 	r := NewDefaultRegistry()
 
 	// All templates should be immediately available without file loading
-	for _, name := range []string{"bugfix", "feature", "commit"} {
+	for _, name := range []string{"bugfix", "feature", "commit", "task"} {
 		tmpl, err := r.Get(name)
 		require.NoError(t, err, "template %s should be available", name)
 		assert.NotEmpty(t, tmpl.Steps, "template %s should have steps", name)
