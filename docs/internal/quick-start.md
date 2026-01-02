@@ -263,6 +263,9 @@ atlas approve my-workspace
 # Skip interactive menu
 atlas approve --auto-approve
 
+# Approve and close workspace (removes worktree, keeps history)
+atlas approve my-workspace --close
+
 # JSON output for scripting
 atlas approve my-workspace --output json
 ```
@@ -272,9 +275,11 @@ atlas approve my-workspace --output json
 | Flag | Description |
 |------|-------------|
 | `--auto-approve` | Skip interactive menu, approve directly |
+| `--close` | Also close the workspace after approval (removes worktree, preserves history) |
 
 **Interactive Options:**
 - Approve and complete
+- Approve and close workspace (removes worktree)
 - View git diff
 - View execution logs
 - Open PR in browser
@@ -597,7 +602,7 @@ atlas workspace ls
 **Output Columns:**
 - Workspace name
 - Branch
-- Status (active, paused, retired)
+- Status (active, paused, closed)
 - Created time
 - Task count
 
@@ -624,16 +629,16 @@ atlas workspace destroy my-workspace --force
 - Git worktree
 - Local branch
 
-#### atlas workspace retire
+#### atlas workspace close
 
-Archive a workspace (removes worktree, preserves history).
+Close a workspace (removes worktree, preserves history).
 
 ```bash
 # With confirmation prompt
-atlas workspace retire my-workspace
+atlas workspace close my-workspace
 
 # Skip confirmation
-atlas workspace retire my-workspace --force
+atlas workspace close my-workspace --force
 ```
 
 **Use Case:** When done with a workspace but want to keep the history for reference.

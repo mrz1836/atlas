@@ -11,7 +11,7 @@ func newWorkspaceCmd() *cobra.Command {
 		Use:   "workspace",
 		Short: "Manage ATLAS workspaces",
 		Long: `Commands for managing ATLAS workspaces including listing,
-destroying, and retiring workspaces.
+destroying, and closing workspaces.
 
 A workspace represents an isolated development environment with its own
 git worktree and task history.`,
@@ -24,7 +24,7 @@ git worktree and task history.`,
 	// Add subcommands
 	addWorkspaceListCmd(cmd)
 	addWorkspaceDestroyCmd(cmd)
-	addWorkspaceRetireCmd(cmd)
+	addWorkspaceCloseCmd(cmd)
 	addWorkspaceLogsCmd(cmd)
 
 	return cmd

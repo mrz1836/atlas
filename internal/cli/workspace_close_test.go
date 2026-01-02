@@ -17,48 +17,48 @@ import (
 	"github.com/mrz1836/atlas/internal/workspace"
 )
 
-func TestWorkspaceRetireCommand_Structure(t *testing.T) {
+func TestWorkspaceCloseCommand_Structure(t *testing.T) {
 	// Create root command with workspace subcommand
 	flags := &GlobalFlags{}
 	rootCmd := &cobra.Command{Use: "atlas"}
 	AddGlobalFlags(rootCmd, flags)
 	AddWorkspaceCommand(rootCmd)
 
-	// Find retire command
-	retireCmd, _, err := rootCmd.Find([]string{"workspace", "retire"})
+	// Find close command
+	closeCmd, _, err := rootCmd.Find([]string{"workspace", "close"})
 	require.NoError(t, err)
-	assert.NotNil(t, retireCmd)
-	assert.Equal(t, "retire", retireCmd.Name())
+	assert.NotNil(t, closeCmd)
+	assert.Equal(t, "close", closeCmd.Name())
 }
 
-func TestWorkspaceRetireCommand_HasForceFlag(t *testing.T) {
+func TestWorkspaceCloseCommand_HasForceFlag(t *testing.T) {
 	// Create root command with workspace subcommand
 	flags := &GlobalFlags{}
 	rootCmd := &cobra.Command{Use: "atlas"}
 	AddGlobalFlags(rootCmd, flags)
 	AddWorkspaceCommand(rootCmd)
 
-	// Find retire command
-	retireCmd, _, err := rootCmd.Find([]string{"workspace", "retire"})
+	// Find close command
+	closeCmd, _, err := rootCmd.Find([]string{"workspace", "close"})
 	require.NoError(t, err)
 
 	// Verify --force flag exists
-	forceFlag := retireCmd.Flag("force")
+	forceFlag := closeCmd.Flag("force")
 	assert.NotNil(t, forceFlag, "--force flag should exist")
 
 	// Verify shorthand -f
 	assert.Equal(t, "f", forceFlag.Shorthand, "shorthand should be -f")
 }
 
-func TestWorkspaceRetireCommand_RequiresArg(t *testing.T) {
+func TestWorkspaceCloseCommand_RequiresArg(t *testing.T) {
 	// Create root command with workspace subcommand
 	flags := &GlobalFlags{}
 	rootCmd := &cobra.Command{Use: "atlas"}
 	AddGlobalFlags(rootCmd, flags)
 	AddWorkspaceCommand(rootCmd)
 
-	// Execute retire without arguments
-	rootCmd.SetArgs([]string{"workspace", "retire"})
+	// Execute close without arguments
+	rootCmd.SetArgs([]string{"workspace", "close"})
 	err := rootCmd.Execute()
 
 	// Should fail because name argument is required
@@ -66,7 +66,7 @@ func TestWorkspaceRetireCommand_RequiresArg(t *testing.T) {
 	assert.Contains(t, err.Error(), "accepts 1 arg")
 }
 
-func TestRunWorkspaceRetire_WorkspaceNotFound(t *testing.T) {
+func TestRunWorkspaceClose_WorkspaceNotFound(t *testing.T) {
 	// Set up a temporary atlas directory
 	tmpDir := t.TempDir()
 	t.Setenv("HOME", tmpDir)
@@ -86,11 +86,11 @@ func TestRunWorkspaceRetire_WorkspaceNotFound(t *testing.T) {
 	rootCmd := &cobra.Command{Use: "atlas"}
 	AddGlobalFlags(rootCmd, &GlobalFlags{})
 
-	retireCmd := &cobra.Command{Use: "retire"}
-	rootCmd.AddCommand(retireCmd)
+	closeCmd := &cobra.Command{Use: "close"}
+	rootCmd.AddCommand(closeCmd)
 
-	// Execute retire with nonexistent workspace
-	err = runWorkspaceRetire(context.Background(), retireCmd, &buf, "nonexistent", true, tmpDir)
+	// Execute close with nonexistent workspace
+	err = runWorkspaceClose(context.Background(), closeCmd, &buf, "nonexistent", true, tmpDir)
 
 	// Should return an error matching AC5 format with wrapped sentinel
 	require.Error(t, err)
@@ -98,7 +98,7 @@ func TestRunWorkspaceRetire_WorkspaceNotFound(t *testing.T) {
 	assert.ErrorIs(t, err, errors.ErrWorkspaceNotFound)
 }
 
-func TestRunWorkspaceRetire_HappyPath(t *testing.T) {
+func TestRunWorkspaceClose_HappyPath(t *testing.T) {
 	// Create temp directory for test store
 	tmpDir := t.TempDir()
 	t.Setenv("HOME", tmpDir)
@@ -131,26 +131,26 @@ func TestRunWorkspaceRetire_HappyPath(t *testing.T) {
 	rootCmd := &cobra.Command{Use: "atlas"}
 	AddGlobalFlags(rootCmd, &GlobalFlags{})
 
-	retireCmd := &cobra.Command{Use: "retire"}
-	rootCmd.AddCommand(retireCmd)
+	closeCmd := &cobra.Command{Use: "close"}
+	rootCmd.AddCommand(closeCmd)
 
-	// Execute retire with force flag
-	err = runWorkspaceRetire(context.Background(), retireCmd, &buf, "test-ws", true, tmpDir)
+	// Execute close with force flag
+	err = runWorkspaceClose(context.Background(), closeCmd, &buf, "test-ws", true, tmpDir)
 
 	// Should succeed
 	require.NoError(t, err)
-	assert.Contains(t, buf.String(), "retired")
+	assert.Contains(t, buf.String(), "closed")
 	assert.Contains(t, buf.String(), "History preserved")
 
-	// Verify workspace is retired but still exists
+	// Verify workspace is closed but still exists
 	ws2, err := store.Get(context.Background(), "test-ws")
 	require.NoError(t, err)
-	assert.Equal(t, constants.WorkspaceStatusRetired, ws2.Status)
+	assert.Equal(t, constants.WorkspaceStatusClosed, ws2.Status)
 	assert.Empty(t, ws2.WorktreePath)        // Worktree path cleared
 	assert.Equal(t, "feat/test", ws2.Branch) // Branch preserved
 }
 
-func TestRunWorkspaceRetire_PausedWorkspace(t *testing.T) {
+func TestRunWorkspaceClose_PausedWorkspace(t *testing.T) {
 	// Create temp directory for test store
 	tmpDir := t.TempDir()
 	t.Setenv("HOME", tmpDir)
@@ -178,22 +178,22 @@ func TestRunWorkspaceRetire_PausedWorkspace(t *testing.T) {
 	rootCmd := &cobra.Command{Use: "atlas"}
 	AddGlobalFlags(rootCmd, &GlobalFlags{})
 
-	retireCmd := &cobra.Command{Use: "retire"}
-	rootCmd.AddCommand(retireCmd)
+	closeCmd := &cobra.Command{Use: "close"}
+	rootCmd.AddCommand(closeCmd)
 
-	// Execute retire
-	err = runWorkspaceRetire(context.Background(), retireCmd, &buf, "paused-ws", true, tmpDir)
+	// Execute close
+	err = runWorkspaceClose(context.Background(), closeCmd, &buf, "paused-ws", true, tmpDir)
 
 	// Should succeed
 	require.NoError(t, err)
 
-	// Verify workspace is retired
+	// Verify workspace is closed
 	ws2, err := store.Get(context.Background(), "paused-ws")
 	require.NoError(t, err)
-	assert.Equal(t, constants.WorkspaceStatusRetired, ws2.Status)
+	assert.Equal(t, constants.WorkspaceStatusClosed, ws2.Status)
 }
 
-func TestRunWorkspaceRetire_WithRunningTasks(t *testing.T) {
+func TestRunWorkspaceClose_WithRunningTasks(t *testing.T) {
 	// Create temp directory for test store
 	tmpDir := t.TempDir()
 	t.Setenv("HOME", tmpDir)
@@ -223,22 +223,22 @@ func TestRunWorkspaceRetire_WithRunningTasks(t *testing.T) {
 	rootCmd := &cobra.Command{Use: "atlas"}
 	AddGlobalFlags(rootCmd, &GlobalFlags{})
 
-	retireCmd := &cobra.Command{Use: "retire"}
-	rootCmd.AddCommand(retireCmd)
+	closeCmd := &cobra.Command{Use: "close"}
+	rootCmd.AddCommand(closeCmd)
 
-	// Execute retire
-	err = runWorkspaceRetire(context.Background(), retireCmd, &buf, "running-ws", true, tmpDir)
+	// Execute close
+	err = runWorkspaceClose(context.Background(), closeCmd, &buf, "running-ws", true, tmpDir)
 
 	// Should fail with running tasks error (AC #3)
 	require.Error(t, err)
 	require.ErrorIs(t, err, errors.ErrWorkspaceHasRunningTasks)
 	// Verify error message format includes workspace name and reason
-	assert.Contains(t, err.Error(), "cannot retire workspace")
+	assert.Contains(t, err.Error(), "cannot close workspace")
 	assert.Contains(t, err.Error(), "running-ws")
 	assert.Contains(t, err.Error(), "running tasks")
 }
 
-func TestRunWorkspaceRetire_AlreadyRetired(t *testing.T) {
+func TestRunWorkspaceClose_AlreadyClosed(t *testing.T) {
 	// Create temp directory for test store
 	tmpDir := t.TempDir()
 	t.Setenv("HOME", tmpDir)
@@ -247,13 +247,13 @@ func TestRunWorkspaceRetire_AlreadyRetired(t *testing.T) {
 	store, err := workspace.NewFileStore(tmpDir)
 	require.NoError(t, err)
 
-	// Create workspace that is already retired
+	// Create workspace that is already closed
 	now := time.Now()
 	ws := &domain.Workspace{
-		Name:         "retired-ws",
+		Name:         "closed-ws",
 		WorktreePath: "", // Already cleared
-		Branch:       "feat/retired",
-		Status:       constants.WorkspaceStatusRetired,
+		Branch:       "feat/closed",
+		Status:       constants.WorkspaceStatusClosed,
 		Tasks:        []domain.TaskRef{},
 		CreatedAt:    now,
 		UpdatedAt:    now,
@@ -266,18 +266,18 @@ func TestRunWorkspaceRetire_AlreadyRetired(t *testing.T) {
 	rootCmd := &cobra.Command{Use: "atlas"}
 	AddGlobalFlags(rootCmd, &GlobalFlags{})
 
-	retireCmd := &cobra.Command{Use: "retire"}
-	rootCmd.AddCommand(retireCmd)
+	closeCmd := &cobra.Command{Use: "close"}
+	rootCmd.AddCommand(closeCmd)
 
-	// Execute retire
-	err = runWorkspaceRetire(context.Background(), retireCmd, &buf, "retired-ws", true, tmpDir)
+	// Execute close
+	err = runWorkspaceClose(context.Background(), closeCmd, &buf, "closed-ws", true, tmpDir)
 
 	// Should succeed with informative message (AC #4)
 	require.NoError(t, err)
-	assert.Contains(t, buf.String(), "already retired")
+	assert.Contains(t, buf.String(), "already closed")
 }
 
-func TestRunWorkspaceRetire_JSONOutput(t *testing.T) {
+func TestRunWorkspaceClose_JSONOutput(t *testing.T) {
 	// Create temp directory for test store
 	tmpDir := t.TempDir()
 	t.Setenv("HOME", tmpDir)
@@ -301,35 +301,35 @@ func TestRunWorkspaceRetire_JSONOutput(t *testing.T) {
 
 	var buf bytes.Buffer
 
-	// Execute retire with JSON output
-	err = runWorkspaceRetireWithOutput(context.Background(), &buf, "json-test", true, tmpDir, OutputJSON)
+	// Execute close with JSON output
+	err = runWorkspaceCloseWithOutput(context.Background(), &buf, "json-test", true, tmpDir, OutputJSON)
 	require.NoError(t, err)
 
 	// Parse JSON output
-	var result retireResult
+	var result closeResult
 	err = json.Unmarshal(buf.Bytes(), &result)
 	require.NoError(t, err)
 
-	assert.Equal(t, "retired", result.Status)
+	assert.Equal(t, "closed", result.Status)
 	assert.Equal(t, "json-test", result.Workspace)
 	assert.True(t, result.HistoryPreserved)
 }
 
-func TestRunWorkspaceRetire_JSONOutput_Error(t *testing.T) {
+func TestRunWorkspaceClose_JSONOutput_Error(t *testing.T) {
 	// Create temp directory for test store
 	tmpDir := t.TempDir()
 	t.Setenv("HOME", tmpDir)
 
 	var buf bytes.Buffer
 
-	// Execute retire with nonexistent workspace and JSON output
-	err := runWorkspaceRetireWithOutput(context.Background(), &buf, "nonexistent", true, tmpDir, OutputJSON)
+	// Execute close with nonexistent workspace and JSON output
+	err := runWorkspaceCloseWithOutput(context.Background(), &buf, "nonexistent", true, tmpDir, OutputJSON)
 
 	// Should return ErrJSONErrorOutput for non-zero exit code
 	require.ErrorIs(t, err, errors.ErrJSONErrorOutput)
 
 	// Parse JSON output
-	var result retireResult
+	var result closeResult
 	unmarshalErr := json.Unmarshal(buf.Bytes(), &result)
 	require.NoError(t, unmarshalErr)
 
@@ -338,7 +338,7 @@ func TestRunWorkspaceRetire_JSONOutput_Error(t *testing.T) {
 	assert.Contains(t, result.Error, "not found")
 }
 
-func TestRunWorkspaceRetire_ContextCancellation(t *testing.T) {
+func TestRunWorkspaceClose_ContextCancellation(t *testing.T) {
 	// Set up a temporary atlas directory
 	tmpDir := t.TempDir()
 	t.Setenv("HOME", tmpDir)
@@ -349,22 +349,22 @@ func TestRunWorkspaceRetire_ContextCancellation(t *testing.T) {
 	rootCmd := &cobra.Command{Use: "atlas"}
 	AddGlobalFlags(rootCmd, &GlobalFlags{})
 
-	retireCmd := &cobra.Command{Use: "retire"}
-	rootCmd.AddCommand(retireCmd)
+	closeCmd := &cobra.Command{Use: "close"}
+	rootCmd.AddCommand(closeCmd)
 
 	// Create canceled context
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately
 
 	// Execute with canceled context
-	err := runWorkspaceRetire(ctx, retireCmd, &buf, "test-ws", true, tmpDir)
+	err := runWorkspaceClose(ctx, closeCmd, &buf, "test-ws", true, tmpDir)
 
 	// Should return context.Canceled error
 	require.Error(t, err)
 	assert.ErrorIs(t, err, context.Canceled)
 }
 
-func TestRunWorkspaceRetire_NonInteractiveWithoutForce(t *testing.T) {
+func TestRunWorkspaceClose_NonInteractiveWithoutForce(t *testing.T) {
 	// Set up a temporary atlas directory
 	tmpDir := t.TempDir()
 	t.Setenv("HOME", tmpDir)
@@ -392,19 +392,19 @@ func TestRunWorkspaceRetire_NonInteractiveWithoutForce(t *testing.T) {
 	terminalCheck = func() bool { return false }
 	defer func() { terminalCheck = originalTerminalCheck }()
 
-	// Execute retire WITHOUT --force in non-interactive mode
-	err = runWorkspaceRetireWithOutput(context.Background(), &buf, "test-ws", false, tmpDir, "text")
+	// Execute close WITHOUT --force in non-interactive mode
+	err = runWorkspaceCloseWithOutput(context.Background(), &buf, "test-ws", false, tmpDir, "text")
 
 	// Should return ErrNonInteractiveMode
 	require.ErrorIs(t, err, errors.ErrNonInteractiveMode)
 
-	// Workspace should still exist (not retired)
+	// Workspace should still exist (not closed)
 	exists, err := store.Exists(context.Background(), "test-ws")
 	require.NoError(t, err)
 	assert.True(t, exists)
 }
 
-func TestRunWorkspaceRetire_NonInteractiveWithoutForce_JSON(t *testing.T) {
+func TestRunWorkspaceClose_NonInteractiveWithoutForce_JSON(t *testing.T) {
 	// Set up a temporary atlas directory
 	tmpDir := t.TempDir()
 	t.Setenv("HOME", tmpDir)
@@ -432,14 +432,14 @@ func TestRunWorkspaceRetire_NonInteractiveWithoutForce_JSON(t *testing.T) {
 	terminalCheck = func() bool { return false }
 	defer func() { terminalCheck = originalTerminalCheck }()
 
-	// Execute retire WITHOUT --force in non-interactive mode with JSON output
-	err = runWorkspaceRetireWithOutput(context.Background(), &buf, "test-ws", false, tmpDir, OutputJSON)
+	// Execute close WITHOUT --force in non-interactive mode with JSON output
+	err = runWorkspaceCloseWithOutput(context.Background(), &buf, "test-ws", false, tmpDir, OutputJSON)
 
 	// Should return ErrJSONErrorOutput for proper exit code
 	require.ErrorIs(t, err, errors.ErrJSONErrorOutput)
 
 	// Parse JSON output
-	var result retireResult
+	var result closeResult
 	unmarshalErr := json.Unmarshal(buf.Bytes(), &result)
 	require.NoError(t, unmarshalErr)
 
@@ -447,48 +447,48 @@ func TestRunWorkspaceRetire_NonInteractiveWithoutForce_JSON(t *testing.T) {
 	assert.Contains(t, result.Error, "use --force in non-interactive mode")
 }
 
-func TestWorkspaceRetireCommand_Help(t *testing.T) {
+func TestWorkspaceCloseCommand_Help(t *testing.T) {
 	// Create root command with workspace subcommand
 	flags := &GlobalFlags{}
 	rootCmd := &cobra.Command{Use: "atlas"}
 	AddGlobalFlags(rootCmd, flags)
 	AddWorkspaceCommand(rootCmd)
 
-	// Find retire command
-	retireCmd, _, err := rootCmd.Find([]string{"workspace", "retire"})
+	// Find close command
+	closeCmd, _, err := rootCmd.Find([]string{"workspace", "close"})
 	require.NoError(t, err)
 
 	// Verify help text contains key information
-	assert.Contains(t, retireCmd.Long, "Archive a completed workspace")
-	assert.Contains(t, retireCmd.Long, "--force")
-	assert.Contains(t, retireCmd.Short, "Retire a workspace")
+	assert.Contains(t, closeCmd.Long, "Archive a completed workspace")
+	assert.Contains(t, closeCmd.Long, "--force")
+	assert.Contains(t, closeCmd.Short, "Close a workspace")
 }
 
-func TestOutputRetireSuccessJSON(t *testing.T) {
+func TestOutputCloseSuccessJSON(t *testing.T) {
 	var buf bytes.Buffer
 
-	err := outputRetireSuccessJSON(&buf, "test-ws")
+	err := outputCloseSuccessJSON(&buf, "test-ws")
 	require.NoError(t, err)
 
 	// Parse JSON output
-	var result retireResult
+	var result closeResult
 	err = json.Unmarshal(buf.Bytes(), &result)
 	require.NoError(t, err)
 
-	assert.Equal(t, "retired", result.Status)
+	assert.Equal(t, "closed", result.Status)
 	assert.Equal(t, "test-ws", result.Workspace)
 	assert.True(t, result.HistoryPreserved)
 	assert.Empty(t, result.Error)
 }
 
-func TestOutputRetireErrorJSON(t *testing.T) {
+func TestOutputCloseErrorJSON(t *testing.T) {
 	var buf bytes.Buffer
 
-	err := outputRetireErrorJSON(&buf, "test-ws", "something went wrong")
+	err := outputCloseErrorJSON(&buf, "test-ws", "something went wrong")
 	require.NoError(t, err)
 
 	// Parse JSON output
-	var result retireResult
+	var result closeResult
 	err = json.Unmarshal(buf.Bytes(), &result)
 	require.NoError(t, err)
 
@@ -498,7 +498,7 @@ func TestOutputRetireErrorJSON(t *testing.T) {
 	assert.False(t, result.HistoryPreserved)
 }
 
-func TestRunWorkspaceRetire_SuccessMessage(t *testing.T) {
+func TestRunWorkspaceClose_SuccessMessage(t *testing.T) {
 	// Create temp directory for test store
 	tmpDir := t.TempDir()
 	t.Setenv("HOME", tmpDir)
@@ -526,21 +526,21 @@ func TestRunWorkspaceRetire_SuccessMessage(t *testing.T) {
 	// Create a mock command
 	rootCmd := &cobra.Command{Use: "atlas"}
 	AddGlobalFlags(rootCmd, &GlobalFlags{})
-	retireCmd := &cobra.Command{Use: "retire"}
-	rootCmd.AddCommand(retireCmd)
+	closeCmd := &cobra.Command{Use: "close"}
+	rootCmd.AddCommand(closeCmd)
 
-	// Execute retire
-	err = runWorkspaceRetire(context.Background(), retireCmd, &buf, "success-test", true, tmpDir)
+	// Execute close
+	err = runWorkspaceClose(context.Background(), closeCmd, &buf, "success-test", true, tmpDir)
 	require.NoError(t, err)
 
 	// Verify success message format (AC #2)
 	output := buf.String()
-	assert.Contains(t, output, "Workspace 'success-test' retired")
+	assert.Contains(t, output, "Workspace 'success-test' closed")
 	assert.Contains(t, output, "History preserved")
 	assert.Contains(t, output, "✓")
 }
 
-func TestRunWorkspaceRetire_WithValidatingTasks(t *testing.T) {
+func TestRunWorkspaceClose_WithValidatingTasks(t *testing.T) {
 	// Create temp directory for test store
 	tmpDir := t.TempDir()
 	t.Setenv("HOME", tmpDir)
@@ -570,11 +570,11 @@ func TestRunWorkspaceRetire_WithValidatingTasks(t *testing.T) {
 	rootCmd := &cobra.Command{Use: "atlas"}
 	AddGlobalFlags(rootCmd, &GlobalFlags{})
 
-	retireCmd := &cobra.Command{Use: "retire"}
-	rootCmd.AddCommand(retireCmd)
+	closeCmd := &cobra.Command{Use: "close"}
+	rootCmd.AddCommand(closeCmd)
 
-	// Execute retire
-	err = runWorkspaceRetire(context.Background(), retireCmd, &buf, "validating-ws", true, tmpDir)
+	// Execute close
+	err = runWorkspaceClose(context.Background(), closeCmd, &buf, "validating-ws", true, tmpDir)
 
 	// Should fail with running tasks error (validating also blocks)
 	require.Error(t, err)

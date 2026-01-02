@@ -20,25 +20,25 @@ import (
 	"github.com/mrz1836/atlas/internal/workspace"
 )
 
-// addWorkspaceRetireCmd adds the retire subcommand to the workspace command.
-func addWorkspaceRetireCmd(parent *cobra.Command) {
+// addWorkspaceCloseCmd adds the close subcommand to the workspace command.
+func addWorkspaceCloseCmd(parent *cobra.Command) {
 	var force bool
 
 	cmd := &cobra.Command{
-		Use:   "retire <name>",
-		Short: "Retire a workspace, preserving history",
+		Use:   "close <name>",
+		Short: "Close a workspace, preserving history",
 		Long: `Archive a completed workspace by removing its git worktree
 while preserving all task history and the git branch.
 
 Use this when you're done with a workspace but want to keep the history
-for reference. The retired workspace will still appear in 'workspace list'.
+for reference. The closed workspace will still appear in 'workspace list'.
 
 Examples:
-  atlas workspace retire auth          # Confirm and retire
-  atlas workspace retire auth --force  # Retire without confirmation`,
+  atlas workspace close auth          # Confirm and close
+  atlas workspace close auth --force  # Close without confirmation`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			err := runWorkspaceRetire(cmd.Context(), cmd, os.Stdout, args[0], force, "")
+			err := runWorkspaceClose(cmd.Context(), cmd, os.Stdout, args[0], force, "")
 			// If JSON error was already output, silence cobra's error printing
 			// but still return error for non-zero exit code
 			if stderrors.Is(err, errors.ErrJSONErrorOutput) {
@@ -53,8 +53,8 @@ Examples:
 	parent.AddCommand(cmd)
 }
 
-// runWorkspaceRetire executes the workspace retire command.
-func runWorkspaceRetire(ctx context.Context, cmd *cobra.Command, w io.Writer, name string, force bool, storeBaseDir string) error {
+// runWorkspaceClose executes the workspace close command.
+func runWorkspaceClose(ctx context.Context, cmd *cobra.Command, w io.Writer, name string, force bool, storeBaseDir string) error {
 	// Check for cancellation at entry
 	select {
 	case <-ctx.Done():
@@ -65,63 +65,63 @@ func runWorkspaceRetire(ctx context.Context, cmd *cobra.Command, w io.Writer, na
 	// Get output format from global flags
 	output := cmd.Flag("output").Value.String()
 
-	return runWorkspaceRetireWithOutput(ctx, w, name, force, storeBaseDir, output)
+	return runWorkspaceCloseWithOutput(ctx, w, name, force, storeBaseDir, output)
 }
 
-// runWorkspaceRetireWithOutput executes the workspace retire command with explicit output format.
-func runWorkspaceRetireWithOutput(ctx context.Context, w io.Writer, name string, force bool, storeBaseDir, output string) error {
+// runWorkspaceCloseWithOutput executes the workspace close command with explicit output format.
+func runWorkspaceCloseWithOutput(ctx context.Context, w io.Writer, name string, force bool, storeBaseDir, output string) error {
 	logger := GetLogger()
 
 	// Respect NO_COLOR environment variable (UX-7)
 	tui.CheckNoColor()
 
 	// Create store and check workspace existence
-	store, exists, err := checkWorkspaceExistsForRetire(ctx, name, storeBaseDir, output, w)
+	store, exists, err := checkWorkspaceExistsForClose(ctx, name, storeBaseDir, output, w)
 	if err != nil {
 		return err
 	}
 	if !exists {
-		return handleRetireWorkspaceNotFound(name, output, w)
+		return handleCloseWorkspaceNotFound(name, output, w)
 	}
 
-	// Check if workspace is already retired
+	// Check if workspace is already closed
 	ws, err := store.Get(ctx, name)
 	if err != nil {
 		if output == OutputJSON {
-			_ = outputRetireErrorJSON(w, name, fmt.Sprintf("failed to get workspace: %v", err))
+			_ = outputCloseErrorJSON(w, name, fmt.Sprintf("failed to get workspace: %v", err))
 			return errors.ErrJSONErrorOutput
 		}
 		return fmt.Errorf("failed to get workspace '%s': %w", name, err)
 	}
 
-	if ws.Status == constants.WorkspaceStatusRetired {
+	if ws.Status == constants.WorkspaceStatusClosed {
 		if output == OutputJSON {
-			// Return success for already retired (idempotent)
-			return outputRetireSuccessJSON(w, name)
+			// Return success for already closed (idempotent)
+			return outputCloseSuccessJSON(w, name)
 		}
-		_, _ = fmt.Fprintf(w, "Workspace '%s' is already retired.\n", name)
+		_, _ = fmt.Fprintf(w, "Workspace '%s' is already closed.\n", name)
 		return nil
 	}
 
 	// Handle confirmation if needed
-	if err := handleRetireConfirmation(name, force, output, w); err != nil {
+	if err := handleCloseConfirmation(name, force, output, w); err != nil {
 		return err
 	}
 
-	// Execute the retire operation
-	return executeRetire(ctx, store, name, output, w, logger)
+	// Execute the close operation
+	return executeClose(ctx, store, name, output, w, logger)
 }
 
-// checkWorkspaceExistsForRetire creates the store and checks if the workspace exists.
+// checkWorkspaceExistsForClose creates the store and checks if the workspace exists.
 // Returns (store, exists, error). For JSON output errors, returns ErrJSONErrorOutput.
-func checkWorkspaceExistsForRetire(ctx context.Context, name, storeBaseDir, output string, w io.Writer) (*workspace.FileStore, bool, error) {
+func checkWorkspaceExistsForClose(ctx context.Context, name, storeBaseDir, output string, w io.Writer) (*workspace.FileStore, bool, error) {
 	logger := GetLogger()
 
 	store, err := workspace.NewFileStore(storeBaseDir)
 	if err != nil {
 		logger.Debug().Err(err).Msg("failed to create workspace store")
 		if output == OutputJSON {
-			_ = outputRetireErrorJSON(w, name, fmt.Sprintf("failed to create workspace store: %v", err))
+			_ = outputCloseErrorJSON(w, name, fmt.Sprintf("failed to create workspace store: %v", err))
 			return nil, false, errors.ErrJSONErrorOutput
 		}
 		return nil, false, fmt.Errorf("failed to create workspace store: %w", err)
@@ -131,7 +131,7 @@ func checkWorkspaceExistsForRetire(ctx context.Context, name, storeBaseDir, outp
 	if err != nil {
 		logger.Debug().Err(err).Str("workspace", name).Msg("failed to check workspace existence")
 		if output == OutputJSON {
-			_ = outputRetireErrorJSON(w, name, fmt.Sprintf("failed to check workspace: %v", err))
+			_ = outputCloseErrorJSON(w, name, fmt.Sprintf("failed to check workspace: %v", err))
 			return nil, false, errors.ErrJSONErrorOutput
 		}
 		return nil, false, fmt.Errorf("failed to check workspace '%s': %w", name, err)
@@ -140,11 +140,11 @@ func checkWorkspaceExistsForRetire(ctx context.Context, name, storeBaseDir, outp
 	return store, exists, nil
 }
 
-// handleRetireWorkspaceNotFound handles the case when a workspace is not found.
-func handleRetireWorkspaceNotFound(name, output string, w io.Writer) error {
+// handleCloseWorkspaceNotFound handles the case when a workspace is not found.
+func handleCloseWorkspaceNotFound(name, output string, w io.Writer) error {
 	if output == OutputJSON {
 		// Output JSON error and return sentinel so caller knows to silence cobra's error printing
-		_ = outputRetireErrorJSON(w, name, "workspace not found")
+		_ = outputCloseErrorJSON(w, name, "workspace not found")
 		return errors.ErrJSONErrorOutput
 	}
 	// Match AC5 format exactly: "Workspace 'nonexistent' not found"
@@ -153,25 +153,25 @@ func handleRetireWorkspaceNotFound(name, output string, w io.Writer) error {
 	return fmt.Errorf("Workspace '%s' not found: %w", name, errors.ErrWorkspaceNotFound)
 }
 
-// handleRetireConfirmation handles the user confirmation flow.
+// handleCloseConfirmation handles the user confirmation flow.
 // Returns nil if confirmed or force is true, error otherwise.
-func handleRetireConfirmation(name string, force bool, output string, w io.Writer) error {
+func handleCloseConfirmation(name string, force bool, output string, w io.Writer) error {
 	if force {
 		return nil
 	}
 
 	if !terminalCheck() {
 		if output == OutputJSON {
-			_ = outputRetireErrorJSON(w, name, "cannot retire workspace: use --force in non-interactive mode")
+			_ = outputCloseErrorJSON(w, name, "cannot close workspace: use --force in non-interactive mode")
 			return errors.ErrJSONErrorOutput
 		}
-		return fmt.Errorf("cannot retire workspace '%s': %w", name, errors.ErrNonInteractiveMode)
+		return fmt.Errorf("cannot close workspace '%s': %w", name, errors.ErrNonInteractiveMode)
 	}
 
-	confirmed, err := confirmRetire(name)
+	confirmed, err := confirmClose(name)
 	if err != nil {
 		if output == OutputJSON {
-			_ = outputRetireErrorJSON(w, name, fmt.Sprintf("failed to get confirmation: %v", err))
+			_ = outputCloseErrorJSON(w, name, fmt.Sprintf("failed to get confirmation: %v", err))
 			return errors.ErrJSONErrorOutput
 		}
 		return fmt.Errorf("failed to get confirmation: %w", err)
@@ -185,8 +185,8 @@ func handleRetireConfirmation(name string, force bool, output string, w io.Write
 	return nil
 }
 
-// executeRetire performs the actual retire operation.
-func executeRetire(ctx context.Context, store *workspace.FileStore, name, output string, w io.Writer, logger zerolog.Logger) error {
+// executeClose performs the actual close operation.
+func executeClose(ctx context.Context, store *workspace.FileStore, name, output string, w io.Writer, logger zerolog.Logger) error {
 	// Get repo path for worktree runner
 	repoPath, err := detectRepoPath()
 	if err != nil {
@@ -201,65 +201,65 @@ func executeRetire(ctx context.Context, store *workspace.FileStore, name, output
 		//nolint:contextcheck // NewGitWorktreeRunner doesn't take context; it only detects repo root
 		wtRunner, err = workspace.NewGitWorktreeRunner(repoPath)
 		if err != nil {
-			// Log but continue - retire should still update state
+			// Log but continue - close should still update state
 			logger.Debug().Err(err).Msg("could not create worktree runner, worktree cleanup may be limited")
 			wtRunner = nil
 		}
 	}
 
-	// Create manager and retire
+	// Create manager and close
 	mgr := workspace.NewManager(store, wtRunner)
 
-	if retireErr := mgr.Retire(ctx, name); retireErr != nil {
-		return handleRetireError(w, name, output, retireErr)
+	if closeErr := mgr.Close(ctx, name); closeErr != nil {
+		return handleCloseError(w, name, output, closeErr)
 	}
 
 	// Output success
-	return outputRetireSuccess(w, name, output)
+	return outputCloseSuccess(w, name, output)
 }
 
-// handleRetireError handles errors from the retire operation.
-func handleRetireError(w io.Writer, name, output string, retireErr error) error {
+// handleCloseError handles errors from the close operation.
+func handleCloseError(w io.Writer, name, output string, closeErr error) error {
 	// Check for running tasks error (AC #3)
-	if stderrors.Is(retireErr, errors.ErrWorkspaceHasRunningTasks) {
+	if stderrors.Is(closeErr, errors.ErrWorkspaceHasRunningTasks) {
 		if output == OutputJSON {
-			_ = outputRetireErrorJSON(w, name, "cannot retire workspace with running tasks")
+			_ = outputCloseErrorJSON(w, name, "cannot close workspace with running tasks")
 			return errors.ErrJSONErrorOutput
 		}
-		return fmt.Errorf("cannot retire workspace '%s' with running tasks: %w", name, retireErr)
+		return fmt.Errorf("cannot close workspace '%s' with running tasks: %w", name, closeErr)
 	}
 
 	// Other errors
 	if output == OutputJSON {
-		_ = outputRetireErrorJSON(w, name, retireErr.Error())
+		_ = outputCloseErrorJSON(w, name, closeErr.Error())
 		return errors.ErrJSONErrorOutput
 	}
-	return fmt.Errorf("failed to retire workspace '%s': %w", name, retireErr)
+	return fmt.Errorf("failed to close workspace '%s': %w", name, closeErr)
 }
 
-// outputRetireSuccess outputs success message in appropriate format.
-func outputRetireSuccess(w io.Writer, name, output string) error {
+// outputCloseSuccess outputs success message in appropriate format.
+func outputCloseSuccess(w io.Writer, name, output string) error {
 	if output == OutputJSON {
-		return outputRetireSuccessJSON(w, name)
+		return outputCloseSuccessJSON(w, name)
 	}
 
 	// Use lipgloss for styled success message (AC #2)
 	checkmark := lipgloss.NewStyle().Foreground(lipgloss.Color("42")).Render("✓")
-	_, _ = fmt.Fprintf(w, "%s Workspace '%s' retired. History preserved.\n", checkmark, name)
+	_, _ = fmt.Fprintf(w, "%s Workspace '%s' closed. History preserved.\n", checkmark, name)
 
 	return nil
 }
 
-// confirmRetire prompts the user for confirmation before retiring a workspace.
-func confirmRetire(name string) (bool, error) {
+// confirmClose prompts the user for confirmation before closing a workspace.
+func confirmClose(name string) (bool, error) {
 	var confirm bool
 
 	form := huh.NewForm(
 		huh.NewGroup(
 			huh.NewConfirm().
-				Title(fmt.Sprintf("Retire workspace '%s'?", name)).
+				Title(fmt.Sprintf("Close workspace '%s'?", name)).
 				Description("Worktree will be removed but history preserved.").
-				Affirmative("Yes, retire").
+				Affirmative("Yes, close").
 				Negative("No, cancel").
 				Value(&confirm),
 		),
@@ -272,18 +272,18 @@ func confirmRetire(name string) (bool, error) {
 	return confirm, nil
 }
 
-// retireResult represents the JSON output for retire operations.
-type retireResult struct {
+// closeResult represents the JSON output for close operations.
+type closeResult struct {
 	Status           string `json:"status"`
 	Workspace        string `json:"workspace"`
 	HistoryPreserved bool   `json:"history_preserved,omitempty"`
 	Error            string `json:"error,omitempty"`
 }
 
-// outputRetireSuccessJSON outputs a success result as JSON.
-func outputRetireSuccessJSON(w io.Writer, name string) error {
-	result := retireResult{
-		Status:           "retired",
+// outputCloseSuccessJSON outputs a success result as JSON.
+func outputCloseSuccessJSON(w io.Writer, name string) error {
+	result := closeResult{
+		Status:           "closed",
 		Workspace:        name,
 		HistoryPreserved: true,
 	}
@@ -293,10 +293,10 @@ func outputRetireSuccessJSON(w io.Writer, name string) error {
 	return encoder.Encode(result)
 }
 
-// outputRetireErrorJSON outputs an error result as JSON.
+// outputCloseErrorJSON outputs an error result as JSON.
 // Returns nil because the error is encoded in the JSON response.
-func outputRetireErrorJSON(w io.Writer, name, errMsg string) error {
-	result := retireResult{
+func outputCloseErrorJSON(w io.Writer, name, errMsg string) error {
+	result := closeResult{
 		Status:    "error",
 		Workspace: name,
 		Error:     errMsg,
