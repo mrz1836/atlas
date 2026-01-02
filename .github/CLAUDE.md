@@ -20,7 +20,7 @@ This repository uses **`AGENTS.md`** as the single source of truth for:
    They drive Mergify auto‑labeling and CI gates.
 3. **Never tag releases**
 4. **Pass CI**
-   Run `go fmt`, `goimports`, `go vet`, `staticcheck`, and `golangci‑lint` locally before opening a PR.
+   Run `magex format:fix`, `magex lint`, `magex test:race` and `go-pre-commit run --all-files` locally before opening a PR or committing code.
 
 If you encounter conflicting guidance elsewhere, `AGENTS.md` wins.
 Questions or ambiguities? Open a discussion or ping a maintainer instead of guessing.
