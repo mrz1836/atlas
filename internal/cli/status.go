@@ -212,18 +212,13 @@ func buildStatusRows(
 			Status:    constants.TaskStatusPending, // Default
 		}
 
-		// Get most recent task status
-		if len(ws.Tasks) > 0 {
-			row.Status = ws.Tasks[0].Status
-
-			// Load full task to get step info
-			tasks, err := taskStore.List(ctx, ws.Name)
-			if err == nil && len(tasks) > 0 {
-				mostRecent := tasks[0] // Already sorted newest first
-				row.Status = mostRecent.Status
-				row.CurrentStep = mostRecent.CurrentStep + 1 // 1-indexed for display
-				row.TotalSteps = len(mostRecent.Steps)
-			}
+		// Load tasks directly from store (authoritative source)
+		tasks, err := taskStore.List(ctx, ws.Name)
+		if err == nil && len(tasks) > 0 {
+			mostRecent := tasks[0] // Already sorted newest first
+			row.Status = mostRecent.Status
+			row.CurrentStep = mostRecent.CurrentStep + 1 // 1-indexed for display
+			row.TotalSteps = len(mostRecent.Steps)
 		}
 
 		rows = append(rows, row)
