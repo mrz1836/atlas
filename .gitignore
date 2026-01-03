@@ -62,3 +62,6 @@ _bmad/
 _bmad_backup/
 .agent/
 .claude/
+
+# Atlas Files
+/atlas
