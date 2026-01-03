@@ -751,7 +751,7 @@ func TestDefaultManager_Exists_StoreError(t *testing.T) {
 
 func TestDefaultManager_Create_CheckExistenceError(t *testing.T) {
 	store := newMockStore()
-	store.existsErr = atlaserrors.ErrLockTimeout // Use sentinel error
+	store.getErr = atlaserrors.ErrLockTimeout // Use sentinel error
 	runner := newMockWorktreeRunner()
 
 	mgr := NewManager(store, runner)

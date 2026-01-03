@@ -245,7 +245,8 @@ func (sc *startContext) handleTaskStartError(ctx context.Context, ws *domain.Wor
 }
 
 // createWorkspace creates a new workspace or uses an existing one (upsert behavior).
-// If a workspace with the given name already exists, it will be reused.
+// If a workspace with the given name already exists and is active/paused, it will be reused.
+// If a closed workspace with the same name exists, it will be automatically cleaned up and a new workspace created.
 func createWorkspace(ctx context.Context, sc *startContext, wsName, repoPath, branchPrefix, baseBranch string, _ bool) (*domain.Workspace, error) {
 	logger := GetLogger()
 
@@ -267,12 +268,21 @@ func createWorkspace(ctx context.Context, sc *startContext, wsName, repoPath, br
 	// Check if workspace already exists (upsert behavior)
 	existingWs, err := wsMgr.Get(ctx, wsName)
 	if err == nil && existingWs != nil {
-		// Workspace exists - use it
-		logger.Info().
-			Str("workspace_name", wsName).
-			Str("worktree_path", existingWs.WorktreePath).
-			Msg("using existing workspace")
-		return existingWs, nil
+		// Check if workspace is closed (archived)
+		if existingWs.Status == constants.WorkspaceStatusClosed {
+			logger.Info().
+				Str("workspace_name", wsName).
+				Msg("workspace is closed, creating new workspace with same name")
+			// Fall through to create new workspace
+		} else {
+			// Workspace exists and is active/paused - reuse it
+			logger.Info().
+				Str("workspace_name", wsName).
+				Str("worktree_path", existingWs.WorktreePath).
+				Str("status", string(existingWs.Status)).
+				Msg("using existing workspace")
+			return existingWs, nil
+		}
 	}
 
 	// Workspace doesn't exist - create new

@@ -18,7 +18,8 @@ import (
 type Manager interface {
 	// Create creates a new workspace with a git worktree.
 	// If baseBranch is specified, validates it exists (locally or remotely) and creates from it.
-	// Returns ErrWorkspaceExists if workspace already exists.
+	// Returns ErrWorkspaceExists if an active or paused workspace already exists.
+	// Closed workspaces are automatically cleaned up, allowing the name to be reused.
 	// Returns ErrBranchNotFound if baseBranch is specified but doesn't exist.
 	Create(ctx context.Context, name, repoPath, branchType, baseBranch string) (*domain.Workspace, error)
 
@@ -80,12 +81,21 @@ func (m *DefaultManager) Create(ctx context.Context, name, repoPath, branchType,
 	}
 
 	// Check if workspace already exists
-	exists, err := m.store.Exists(ctx, name)
-	if err != nil {
+	existingWs, err := m.store.Get(ctx, name)
+	if err != nil && !errors.Is(err, atlaserrors.ErrWorkspaceNotFound) {
 		return nil, fmt.Errorf("failed to check workspace existence: %w", err)
 	}
-	if exists {
-		return nil, fmt.Errorf("failed to create workspace '%s': %w", name, atlaserrors.ErrWorkspaceExists)
+
+	// Handle existing workspace
+	if existingWs != nil {
+		// Active or paused workspace - cannot overwrite
+		if existingWs.Status != constants.WorkspaceStatusClosed {
+			return nil, fmt.Errorf("failed to create workspace '%s': %w", name, atlaserrors.ErrWorkspaceExists)
+		}
+		// Delete the closed workspace entry to make room for the new one
+		if deleteErr := m.store.Delete(ctx, name); deleteErr != nil {
+			return nil, fmt.Errorf("failed to cleanup closed workspace '%s': %w", name, deleteErr)
+		}
 	}
 
 	// Validate and resolve base branch if specified
