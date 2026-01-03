@@ -382,18 +382,18 @@ func TestRenderApprovalSummary_TerminalWidth(t *testing.T) {
 
 	// Test at different widths
 	t.Run("narrow width 60", func(t *testing.T) {
-		result := RenderApprovalSummaryWithWidth(summary, 60)
+		result := RenderApprovalSummaryWithWidth(summary, 60, false)
 		assert.NotEmpty(t, result)
 		// In narrow mode, paths might be truncated
 	})
 
 	t.Run("standard width 80", func(t *testing.T) {
-		result := RenderApprovalSummaryWithWidth(summary, 80)
+		result := RenderApprovalSummaryWithWidth(summary, 80, false)
 		assert.NotEmpty(t, result)
 	})
 
 	t.Run("expanded width 120", func(t *testing.T) {
-		result := RenderApprovalSummaryWithWidth(summary, 120)
+		result := RenderApprovalSummaryWithWidth(summary, 120, false)
 		assert.NotEmpty(t, result)
 		// Expanded mode shows description
 		assert.Contains(t, result, "Test width adaptation")
@@ -421,15 +421,15 @@ func TestRenderApprovalSummary_TerminalWidth(t *testing.T) {
 		}
 
 		// Compact mode shows max 3 files
-		compactResult := RenderApprovalSummaryWithWidth(manyFiles, 60)
+		compactResult := RenderApprovalSummaryWithWidth(manyFiles, 60, false)
 		assert.Contains(t, compactResult, "... and 5 more files")
 
 		// Standard mode shows max 5 files
-		standardResult := RenderApprovalSummaryWithWidth(manyFiles, 80)
+		standardResult := RenderApprovalSummaryWithWidth(manyFiles, 80, false)
 		assert.Contains(t, standardResult, "... and 3 more files")
 
 		// Expanded mode shows max 10 files (8 files = all shown)
-		expandedResult := RenderApprovalSummaryWithWidth(manyFiles, 120)
+		expandedResult := RenderApprovalSummaryWithWidth(manyFiles, 120, false)
 		assert.NotContains(t, expandedResult, "... and")
 		assert.Contains(t, expandedResult, "file8.go")
 	})
@@ -1247,7 +1247,7 @@ func TestRenderApprovalSummary_WithChecks(t *testing.T) {
 		},
 	}
 
-	result := RenderApprovalSummaryWithWidth(summary, 100)
+	result := RenderApprovalSummaryWithWidth(summary, 100, false)
 
 	assert.Contains(t, result, "Approval Summary")
 	assert.Contains(t, result, "test-ws")
@@ -1258,6 +1258,73 @@ func TestRenderApprovalSummary_WithChecks(t *testing.T) {
 	assert.Contains(t, result, "Test ✓")
 	assert.Contains(t, result, "Pre-commit ✓")
 	assert.Contains(t, result, "CI ✓")
+}
+
+// TestRenderApprovalSummary_VerboseMode tests verbose mode behavior with validation checks.
+func TestRenderApprovalSummary_VerboseMode(t *testing.T) {
+	// Disable colors for consistent test output
+	t.Setenv("NO_COLOR", "1")
+
+	now := time.Now()
+	summary := &ApprovalSummary{
+		TaskID:        "task-test-verbose",
+		WorkspaceName: "test-ws",
+		Status:        constants.TaskStatusAwaitingApproval,
+		CurrentStep:   5,
+		TotalSteps:    6,
+		BranchName:    "feat/verbose",
+		Validation: &ValidationSummary{
+			PassCount: 5,
+			FailCount: 0,
+			Status:    "passed",
+			LastRunAt: &now,
+			Checks: []ValidationCheck{
+				{Name: "Format", Passed: true},
+				{Name: "Lint", Passed: true},
+				{Name: "Test", Passed: true},
+				{Name: "Pre-commit", Passed: true},
+				{Name: "CI", Passed: true},
+			},
+		},
+	}
+
+	t.Run("narrow terminal without verbose hides checks", func(t *testing.T) {
+		result := RenderApprovalSummaryWithWidth(summary, 70, false)
+		assert.Contains(t, result, "Validation:")
+		assert.Contains(t, result, "5/5")
+		// In compact mode without verbose, checks should NOT be displayed
+		assert.NotContains(t, result, "Format ✓")
+	})
+
+	t.Run("narrow terminal with verbose shows checks", func(t *testing.T) {
+		result := RenderApprovalSummaryWithWidth(summary, 70, true)
+		assert.Contains(t, result, "Validation:")
+		assert.Contains(t, result, "5/5")
+		// In compact mode with verbose, checks SHOULD be displayed
+		assert.Contains(t, result, "Format ✓")
+		assert.Contains(t, result, "Lint ✓")
+		assert.Contains(t, result, "Test ✓")
+		assert.Contains(t, result, "Pre-commit ✓")
+		assert.Contains(t, result, "CI ✓")
+	})
+
+	t.Run("standard terminal without verbose shows checks", func(t *testing.T) {
+		result := RenderApprovalSummaryWithWidth(summary, 90, false)
+		assert.Contains(t, result, "Validation:")
+		assert.Contains(t, result, "5/5")
+		// In standard mode, checks should be displayed regardless of verbose
+		assert.Contains(t, result, "Format ✓")
+		assert.Contains(t, result, "Lint ✓")
+	})
+
+	t.Run("standard terminal with verbose shows checks", func(t *testing.T) {
+		result := RenderApprovalSummaryWithWidth(summary, 90, true)
+		assert.Contains(t, result, "Validation:")
+		assert.Contains(t, result, "5/5")
+		// In standard mode, checks should be displayed regardless of verbose
+		assert.Contains(t, result, "Format ✓")
+		assert.Contains(t, result, "Lint ✓")
+	})
 }
 
 // TestRenderValidationSection_BackwardCompatibility tests the deprecated function.
