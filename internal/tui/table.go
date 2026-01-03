@@ -173,6 +173,8 @@ type StatusRow struct {
 	Status      constants.TaskStatus
 	CurrentStep int
 	TotalSteps  int
+	// StepName is the name of the currently executing step (e.g., "ci_wait", "implement").
+	StepName string
 	// Action is the suggested action, if any. If empty, uses SuggestedAction().
 	Action string
 }
@@ -227,11 +229,11 @@ func NewStatusTable(rows []StatusRow, opts ...StatusTableOption) *StatusTable {
 }
 
 // detectTerminalWidth returns the current terminal width.
-// Returns 0 if detection fails (assume wide terminal).
+// Returns 80 if detection fails (assume standard terminal).
 func detectTerminalWidth() int {
 	width, _, err := term.GetSize(int(os.Stdout.Fd()))
 	if err != nil {
-		return 0 // Assume wide if detection fails
+		return 80 // Assume standard terminal if detection fails
 	}
 	return width
 }
@@ -278,7 +280,7 @@ func (t *StatusTable) Render(w io.Writer) error {
 			padRight(row.Workspace, widths.Workspace),
 			padRight(row.Branch, widths.Branch),
 			t.renderStatusCellPadded(row.Status, widths.Status),
-			padRight(t.formatStep(row.CurrentStep, row.TotalSteps), widths.Step),
+			padRight(t.formatStep(row.CurrentStep, row.TotalSteps, row.StepName, row.Status), widths.Step),
 			t.renderActionCellPadded(row.Status, row.Action, widths.Action),
 		}
 		_, err = fmt.Fprintln(w, strings.Join(rowCells, "  "))
@@ -302,7 +304,7 @@ func (t *StatusTable) ToTableData() ([]string, [][]string) {
 			row.Workspace,
 			row.Branch,
 			t.renderStatusCellPlain(row.Status), // Plain for data transfer
-			t.formatStep(row.CurrentStep, row.TotalSteps),
+			t.formatStep(row.CurrentStep, row.TotalSteps, row.StepName, row.Status),
 			t.renderActionCellPlain(row.Status, row.Action), // Plain for data transfer
 		}
 	}
@@ -320,7 +322,7 @@ func (t *StatusTable) ToJSONData() ([]string, [][]string) {
 			row.Workspace,
 			row.Branch,
 			t.renderStatusCellPlain(row.Status),
-			t.formatStep(row.CurrentStep, row.TotalSteps),
+			t.formatStep(row.CurrentStep, row.TotalSteps, row.StepName, row.Status),
 			t.renderActionCellPlain(row.Status, row.Action), // Plain for JSON
 		}
 	}
@@ -387,7 +389,7 @@ func (t *StatusTable) calculateColumnWidths() StatusColumnWidths {
 		}
 
 		// Step
-		stepCell := t.formatStep(row.CurrentStep, row.TotalSteps)
+		stepCell := t.formatStep(row.CurrentStep, row.TotalSteps, row.StepName, row.Status)
 		w = utf8.RuneCountInString(stepCell)
 		if w > widthsSlice[3] {
 			widthsSlice[3] = w
@@ -528,9 +530,38 @@ func (t *StatusTable) renderActionCellPlain(status constants.TaskStatus, customA
 	return action
 }
 
-// formatStep formats the step counter as "current/total".
-func (t *StatusTable) formatStep(current, total int) string {
-	return fmt.Sprintf("%d/%d", current, total)
+// humanizeStepName converts internal step names to user-friendly labels.
+func humanizeStepName(name string) string {
+	mapping := map[string]string{
+		"analyze":     "Analyzing",
+		"implement":   "Implementing",
+		"verify":      "Verifying",
+		"validate":    "Validating",
+		"checklist":   "Checklist",
+		"git_commit":  "Committing",
+		"git_push":    "Pushing",
+		"git_pr":      "Creating PR",
+		"ci_wait":     "Waiting for CI",
+		"review":      "Review",
+		"specify":     "Specifying",
+		"review_spec": "Reviewing Spec",
+		"plan":        "Planning",
+		"tasks":       "Creating Tasks",
+	}
+	if label, ok := mapping[name]; ok {
+		return label
+	}
+	return name // fallback to raw name
+}
+
+// formatStep formats the step counter as "current/total" with optional step name for running tasks.
+func (t *StatusTable) formatStep(current, total int, stepName string, status constants.TaskStatus) string {
+	base := fmt.Sprintf("%d/%d", current, total)
+	// Only show step name for running tasks
+	if stepName != "" && status == constants.TaskStatusRunning {
+		return fmt.Sprintf("%s %s", base, humanizeStepName(stepName))
+	}
+	return base
 }
 
 // renderStatusCellPadded renders the status cell with proper padding.

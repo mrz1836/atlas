@@ -205,12 +205,20 @@ func BuildProgressRowsFromStatus(rows []StatusRow) []ProgressRow {
 			percent = float64(row.CurrentStep) / float64(row.TotalSteps)
 		}
 
+		// Use actual step name if available, otherwise fall back to status-based lookup
+		stepName := row.StepName
+		if stepName != "" {
+			stepName = humanizeStepName(stepName)
+		} else {
+			stepName = StepNameLookup(string(row.Status))
+		}
+
 		progressRows = append(progressRows, ProgressRow{
 			Name:        row.Workspace,
 			Percent:     percent,
 			CurrentStep: row.CurrentStep,
 			TotalSteps:  row.TotalSteps,
-			StepName:    StepNameLookup(string(row.Status)),
+			StepName:    stepName,
 		})
 	}
 

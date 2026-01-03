@@ -219,6 +219,10 @@ func buildStatusRows(
 			row.Status = mostRecent.Status
 			row.CurrentStep = mostRecent.CurrentStep + 1 // 1-indexed for display
 			row.TotalSteps = len(mostRecent.Steps)
+			// Extract current step name for display
+			if mostRecent.CurrentStep >= 0 && mostRecent.CurrentStep < len(mostRecent.Steps) {
+				row.StepName = mostRecent.Steps[mostRecent.CurrentStep].Name
+			}
 		}
 
 		rows = append(rows, row)
