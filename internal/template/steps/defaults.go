@@ -86,6 +86,10 @@ type ExecutorDeps struct {
 	// CIFailureHandler is used for handling CI failures.
 	// If nil, CI failures return simple error without interactive options.
 	CIFailureHandler CIFailureHandlerInterface
+
+	// BaseBranch is the default base branch for PR creation.
+	// Falls back to "main" if not specified.
+	BaseBranch string
 }
 
 // NewDefaultRegistry creates a registry with all built-in executors.
@@ -105,6 +109,9 @@ func NewDefaultRegistry(deps ExecutorDeps) *ExecutorRegistry {
 	gitExecutorOpts := []GitExecutorOption{
 		WithGitLogger(deps.Logger),
 		WithArtifactsDir(deps.ArtifactsDir),
+	}
+	if deps.BaseBranch != "" {
+		gitExecutorOpts = append(gitExecutorOpts, WithBaseBranch(deps.BaseBranch))
 	}
 	if deps.SmartCommitter != nil {
 		gitExecutorOpts = append(gitExecutorOpts, WithSmartCommitter(deps.SmartCommitter))

@@ -350,6 +350,7 @@ func startTaskExecution(ctx context.Context, ws *domain.Workspace, tmpl *domain.
 		PRDescriptionGenerator: prDescGen,
 		GitRunner:              gitRunner,
 		CIFailureHandler:       ciFailureHandler,
+		BaseBranch:             cfg.Git.BaseBranch,
 	})
 
 	engineCfg := task.DefaultEngineConfig()

@@ -91,7 +91,13 @@ Features:
 			// Initialize logger based on flags (protected by mutex for thread safety)
 			globalLoggerMu.Lock()
 			globalLogger = InitLogger(flags.Verbose, flags.Quiet)
+			logger := globalLogger // Get a copy while holding the lock
 			globalLoggerMu.Unlock()
+
+			// Log verbose mode status (only visible when verbose is enabled)
+			if flags.Verbose {
+				logger.Debug().Msg("verbose mode enabled")
+			}
 
 			return nil
 		},

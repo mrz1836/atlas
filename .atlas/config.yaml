@@ -8,6 +8,8 @@ ai:
   api_key_env_var: ANTHROPIC_API_KEY
   timeout: 30m
   max_turns: 10
+git:
+  base_branch: master
 validation:
   commands:
     format:

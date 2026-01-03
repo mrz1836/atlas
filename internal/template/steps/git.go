@@ -50,6 +50,7 @@ type GitExecutor struct {
 	gitRunner      git.Runner
 	workDir        string
 	artifactsDir   string
+	baseBranch     string
 	logger         zerolog.Logger
 }
 
@@ -114,6 +115,13 @@ func WithGitLogger(logger zerolog.Logger) GitExecutorOption {
 func WithArtifactsDir(dir string) GitExecutorOption {
 	return func(e *GitExecutor) {
 		e.artifactsDir = dir
+	}
+}
+
+// WithBaseBranch sets the default base branch for PR creation.
+func WithBaseBranch(branch string) GitExecutorOption {
+	return func(e *GitExecutor) {
+		e.baseBranch = branch
 	}
 }
 
@@ -423,7 +431,10 @@ func (e *GitExecutor) getBranchesForPR(step *domain.StepDefinition, task *domain
 		return "", "", fmt.Errorf("head branch not configured: %w", atlaserrors.ErrEmptyValue)
 	}
 
-	baseBranch := "main"
+	baseBranch := e.baseBranch
+	if baseBranch == "" {
+		baseBranch = "main"
+	}
 	if b, ok := step.Config["base_branch"].(string); ok && b != "" {
 		baseBranch = b
 	}
