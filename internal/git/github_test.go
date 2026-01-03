@@ -15,6 +15,13 @@ import (
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 )
 
+// Test error variables for err113 compliance.
+var (
+	errNoChecksReportedGH    = errors.New("gh failed [no checks reported on the 'main' branch]: github operation failed")
+	errNoChecksReportedLower = errors.New("no checks reported")
+	errNoChecksReportedMixed = errors.New("no checks reported on branch")
+)
+
 // mockCommandExecutor is a test double for CommandExecutor.
 type mockCommandExecutor struct {
 	executeFunc func(ctx context.Context, workDir, name string, args ...string) ([]byte, error)
@@ -1759,4 +1766,206 @@ func TestCLIGitHubRunner_ConvertToDraft_OtherError(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to convert PR to draft")
+}
+
+// Tests for grace period and "no checks reported" handling
+
+func TestClassifyGHError_NoChecksReported(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		expected PRErrorType
+	}{
+		{
+			name:     "no checks reported error",
+			err:      errNoChecksReportedGH,
+			expected: PRErrorNoChecksYet,
+		},
+		{
+			name:     "no checks reported lowercase",
+			err:      errNoChecksReportedLower,
+			expected: PRErrorNoChecksYet,
+		},
+		{
+			name:     "no checks reported mixed case",
+			err:      errNoChecksReportedMixed,
+			expected: PRErrorNoChecksYet,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := classifyGHError(tt.err)
+			assert.Equal(t, tt.expected, got)
+		})
+	}
+}
+
+func TestPRErrorType_NoChecksYet_String(t *testing.T) {
+	assert.Equal(t, "no_checks_yet", PRErrorNoChecksYet.String())
+}
+
+func TestIsGHNoChecksReportedError(t *testing.T) {
+	tests := []struct {
+		name     string
+		errStr   string
+		expected bool
+	}{
+		{"exact match", "no checks reported", true},
+		{"with branch name", "no checks reported on the 'main' branch", true},
+		{"full gh error", "gh failed [no checks reported on the 'task/foo' branch]: github operation failed", true},
+		{"unrelated error", "authentication required", false},
+		{"empty string", "", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isGHNoChecksReportedError(tt.errStr)
+			assert.Equal(t, tt.expected, got)
+		})
+	}
+}
+
+func TestCLIGitHubRunner_WatchPRChecks_NoChecksYetDuringGracePeriod(t *testing.T) {
+	callCount := 0
+	mock := &mockCommandExecutor{
+		executeFunc: func(_ context.Context, _, _ string, _ ...string) ([]byte, error) {
+			callCount++
+			if callCount < 3 {
+				// First two calls return "no checks reported" error
+				return nil, fmt.Errorf("gh failed [no checks reported on the 'main' branch]: %w", atlaserrors.ErrGitHubOperation)
+			}
+			// Third call returns actual checks
+			return []byte(`[{"name":"CI","state":"SUCCESS","bucket":"pass"}]`), nil
+		},
+	}
+
+	runner := NewCLIGitHubRunner("/test/dir", WithGHCommandExecutor(mock))
+
+	result, err := runner.WatchPRChecks(context.Background(), CIWatchOptions{
+		PRNumber:           42,
+		InitialGracePeriod: 1 * time.Second, // Short grace period for test
+		GracePollInterval:  10 * time.Millisecond,
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, CIStatusSuccess, result.Status)
+	assert.GreaterOrEqual(t, callCount, 3) // Should have polled multiple times
+}
+
+func TestCLIGitHubRunner_WatchPRChecks_ChecksAppearAfterDelay(t *testing.T) {
+	callCount := 0
+	mock := &mockCommandExecutor{
+		executeFunc: func(_ context.Context, _, _ string, _ ...string) ([]byte, error) {
+			callCount++
+			if callCount < 3 {
+				// First two calls return "no checks reported" error (checks not registered yet)
+				return nil, fmt.Errorf("gh failed [no checks reported on the 'main' branch]: %w", atlaserrors.ErrGitHubOperation)
+			}
+			// Third call returns pending checks
+			if callCount == 3 {
+				return []byte(`[{"name":"CI","state":"PENDING","bucket":"pending"}]`), nil
+			}
+			// Subsequent calls return success
+			return []byte(`[{"name":"CI","state":"SUCCESS","bucket":"pass"}]`), nil
+		},
+	}
+
+	runner := NewCLIGitHubRunner("/test/dir", WithGHCommandExecutor(mock))
+
+	result, err := runner.WatchPRChecks(context.Background(), CIWatchOptions{
+		PRNumber:           42,
+		Interval:           10 * time.Millisecond,
+		InitialGracePeriod: 1 * time.Second,
+		GracePollInterval:  10 * time.Millisecond,
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, CIStatusSuccess, result.Status)
+	assert.GreaterOrEqual(t, callCount, 3)
+}
+
+func TestCLIGitHubRunner_WatchPRChecks_NoChecksAfterGracePeriod(t *testing.T) {
+	mock := &mockCommandExecutor{
+		executeFunc: func(_ context.Context, _, _ string, _ ...string) ([]byte, error) {
+			// Always return "no checks reported" error
+			return nil, fmt.Errorf("gh failed [no checks reported on the 'main' branch]: %w", atlaserrors.ErrGitHubOperation)
+		},
+	}
+
+	runner := NewCLIGitHubRunner("/test/dir", WithGHCommandExecutor(mock))
+
+	result, err := runner.WatchPRChecks(context.Background(), CIWatchOptions{
+		PRNumber:           42,
+		InitialGracePeriod: 50 * time.Millisecond, // Very short grace period
+		GracePollInterval:  10 * time.Millisecond,
+	})
+
+	require.NoError(t, err)
+	// After grace period, no checks = no CI configured = success
+	assert.Equal(t, CIStatusSuccess, result.Status)
+}
+
+func TestCLIGitHubRunner_WatchPRChecks_EmptyChecksImmediateSuccess(t *testing.T) {
+	callCount := 0
+	mock := &mockCommandExecutor{
+		executeFunc: func(_ context.Context, _, _ string, _ ...string) ([]byte, error) {
+			callCount++
+			// Always return empty checks
+			return []byte(`[]`), nil
+		},
+	}
+
+	runner := NewCLIGitHubRunner("/test/dir", WithGHCommandExecutor(mock))
+
+	result, err := runner.WatchPRChecks(context.Background(), CIWatchOptions{
+		PRNumber:           42,
+		InitialGracePeriod: 1 * time.Second, // Grace period doesn't matter for empty checks
+		GracePollInterval:  10 * time.Millisecond,
+	})
+
+	require.NoError(t, err)
+	// Empty checks (not error) = no CI configured = immediate success
+	assert.Equal(t, CIStatusSuccess, result.Status)
+	assert.Equal(t, 1, callCount) // Should return immediately after first successful fetch
+}
+
+func TestCLIGitHubRunner_WatchPRChecks_GracePeriodRespectsTimeout(t *testing.T) {
+	mock := &mockCommandExecutor{
+		executeFunc: func(_ context.Context, _, _ string, _ ...string) ([]byte, error) {
+			// Always return "no checks reported" error
+			return nil, fmt.Errorf("gh failed [no checks reported on the 'main' branch]: %w", atlaserrors.ErrGitHubOperation)
+		},
+	}
+
+	runner := NewCLIGitHubRunner("/test/dir", WithGHCommandExecutor(mock))
+
+	result, err := runner.WatchPRChecks(context.Background(), CIWatchOptions{
+		PRNumber:           42,
+		Timeout:            30 * time.Millisecond, // Timeout before grace period ends
+		InitialGracePeriod: 1 * time.Second,
+		GracePollInterval:  10 * time.Millisecond,
+	})
+
+	require.NoError(t, err)
+	// Should timeout, not wait for full grace period
+	assert.Equal(t, CIStatusTimeout, result.Status)
+}
+
+func TestCLIGitHubRunner_WatchPRChecks_GracePeriodDefaults(t *testing.T) {
+	mock := &mockCommandExecutor{
+		executeFunc: func(_ context.Context, _, _ string, _ ...string) ([]byte, error) {
+			return []byte(`[{"name":"CI","state":"SUCCESS","bucket":"pass"}]`), nil
+		},
+	}
+
+	runner := NewCLIGitHubRunner("/test/dir", WithGHCommandExecutor(mock))
+
+	// Don't set grace period options, verify defaults are applied
+	result, err := runner.WatchPRChecks(context.Background(), CIWatchOptions{
+		PRNumber: 42,
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, CIStatusSuccess, result.Status)
 }

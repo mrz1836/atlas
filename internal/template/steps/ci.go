@@ -127,14 +127,18 @@ func (e *CIExecutor) Execute(ctx context.Context, task *domain.Task, step *domai
 		timeout = constants.DefaultCITimeout
 	}
 	workflows := extractStringSlice(step.Config, "workflows")
+	gracePeriod := extractDuration(step.Config, "grace_period", constants.CIInitialGracePeriod)
+	gracePollInterval := extractDuration(step.Config, "grace_poll_interval", constants.CIGracePollInterval)
 
 	// Build watch options
 	watchOpts := git.CIWatchOptions{
-		PRNumber:       prNumber,
-		Interval:       pollInterval,
-		Timeout:        timeout,
-		RequiredChecks: workflows,
-		BellEnabled:    true, // Always enable bell for CI completion
+		PRNumber:           prNumber,
+		Interval:           pollInterval,
+		Timeout:            timeout,
+		RequiredChecks:     workflows,
+		BellEnabled:        true, // Always enable bell for CI completion
+		InitialGracePeriod: gracePeriod,
+		GracePollInterval:  gracePollInterval,
 		ProgressCallback: func(elapsed time.Duration, checks []git.CheckResult) {
 			e.logger.Debug().
 				Dur("elapsed", elapsed).
@@ -147,6 +151,7 @@ func (e *CIExecutor) Execute(ctx context.Context, task *domain.Task, step *domai
 		Int("pr_number", prNumber).
 		Dur("poll_interval", pollInterval).
 		Dur("timeout", timeout).
+		Dur("grace_period", gracePeriod).
 		Strs("workflows", workflows).
 		Msg("starting CI monitoring")
 

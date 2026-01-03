@@ -20,6 +20,9 @@ import (
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 )
 
+// errContinuePolling is a sentinel error used internally to signal that polling should continue.
+var errContinuePolling = errors.New("continue polling")
+
 // PRErrorType classifies GitHub PR operation failures for appropriate handling.
 type PRErrorType int
 
@@ -34,6 +37,9 @@ const (
 	PRErrorNetwork
 	// PRErrorNotFound indicates resource not found - don't retry.
 	PRErrorNotFound
+	// PRErrorNoChecksYet indicates CI checks haven't been registered yet - transient, retry.
+	// This occurs immediately after PR creation before GitHub Actions workflows start.
+	PRErrorNoChecksYet
 	// PRErrorOther indicates an unknown error - don't retry.
 	PRErrorOther
 )
@@ -51,6 +57,8 @@ func (t PRErrorType) String() string {
 		return "network"
 	case PRErrorNotFound:
 		return "not_found"
+	case PRErrorNoChecksYet:
+		return "no_checks_yet"
 	case PRErrorOther:
 		return "other"
 	}
@@ -168,6 +176,15 @@ type CIWatchOptions struct {
 	ProgressCallback CIProgressCallback
 	// BellEnabled emits terminal bell on status change.
 	BellEnabled bool
+	// InitialGracePeriod is the time to wait for CI checks to appear after PR creation.
+	// During this period, "no checks reported" is treated as expected (keep polling).
+	// After this period, if no checks appear, it's treated as "no CI configured" (success).
+	// Default: 2 minutes.
+	InitialGracePeriod time.Duration
+	// GracePollInterval is the polling interval during the initial grace period.
+	// This is typically faster than the normal Interval since we're waiting for checks to appear.
+	// Default: 10 seconds.
+	GracePollInterval time.Duration
 }
 
 // CIWatchResult contains the outcome of CI monitoring.
@@ -330,6 +347,8 @@ func buildPRFinalError(result *PRResult) error {
 		return fmt.Errorf("network error after %d attempts: %w", result.Attempts, atlaserrors.ErrPRCreationFailed)
 	case PRErrorNotFound:
 		return fmt.Errorf("resource not found: %w", atlaserrors.ErrPRCreationFailed)
+	case PRErrorNoChecksYet:
+		return fmt.Errorf("no checks reported yet: %w", atlaserrors.ErrPRCreationFailed)
 	case PRErrorOther:
 		return fmt.Errorf("failed to create PR: %w", result.FinalErr)
 	}
@@ -363,6 +382,12 @@ func classifyGHError(err error) PRErrorType {
 
 	if isGHNotFoundError(errStr) {
 		return PRErrorNotFound
+	}
+
+	// Check for "no checks reported" before falling through to PRErrorOther
+	// This is a transient condition when CI checks haven't started yet
+	if isGHNoChecksReportedError(errStr) {
+		return PRErrorNoChecksYet
 	}
 
 	return PRErrorOther
@@ -437,6 +462,12 @@ func isGHNotFoundError(errStr string) bool {
 		}
 	}
 	return false
+}
+
+// isGHNoChecksReportedError checks if the error indicates CI checks haven't been registered yet.
+// This is a transient condition that occurs immediately after PR creation before workflows start.
+func isGHNoChecksReportedError(errStr string) bool {
+	return strings.Contains(errStr, "no checks reported")
 }
 
 // parsePRCreateOutput extracts the PR URL and number from gh pr create output.
@@ -573,9 +604,14 @@ const (
 	DefaultCIWatchInterval = 2 * time.Minute
 	// DefaultCIWatchTimeout is the default timeout (30 minutes).
 	DefaultCIWatchTimeout = 30 * time.Minute
+	// DefaultCIGracePeriod is the default grace period for checks to appear (2 minutes).
+	DefaultCIGracePeriod = 2 * time.Minute
+	// DefaultCIGracePollInterval is the default polling interval during grace period (10 seconds).
+	DefaultCIGracePollInterval = 10 * time.Second
 )
 
 // WatchPRChecks monitors CI checks until completion or timeout.
+// It implements a grace period for newly created PRs where CI checks may not have started yet.
 func (r *CLIGitHubRunner) WatchPRChecks(ctx context.Context, opts CIWatchOptions) (*CIWatchResult, error) {
 	// Check for cancellation at entry
 	select {
@@ -584,17 +620,9 @@ func (r *CLIGitHubRunner) WatchPRChecks(ctx context.Context, opts CIWatchOptions
 	default:
 	}
 
-	// Validate options
-	if err := validateCIWatchOptions(&opts); err != nil {
+	// Validate and apply defaults
+	if err := r.initializeCIWatchOptions(&opts); err != nil {
 		return nil, err
-	}
-
-	// Apply defaults
-	if opts.Interval == 0 {
-		opts.Interval = DefaultCIWatchInterval
-	}
-	if opts.Timeout == 0 {
-		opts.Timeout = DefaultCIWatchTimeout
 	}
 
 	result := &CIWatchResult{}
@@ -605,85 +633,19 @@ func (r *CLIGitHubRunner) WatchPRChecks(ctx context.Context, opts CIWatchOptions
 		Int("pr_number", opts.PRNumber).
 		Dur("interval", opts.Interval).
 		Dur("timeout", opts.Timeout).
+		Dur("grace_period", opts.InitialGracePeriod).
 		Strs("required_checks", opts.RequiredChecks).
 		Msg("starting CI watch")
 
 	for {
-		// Check timeout
-		elapsed := time.Since(startTime)
-		if elapsed > opts.Timeout {
-			result.Status = CIStatusTimeout
-			result.ElapsedTime = elapsed
-			result.Error = atlaserrors.ErrCITimeout
-			r.emitBellIfEnabled(opts.BellEnabled, &bellEmitted)
-			r.logger.Warn().
-				Dur("elapsed", elapsed).
-				Dur("timeout", opts.Timeout).
-				Msg("CI watch timed out")
-			return result, nil
+		pollResult, err := r.pollCIStatus(ctx, time.Since(startTime), opts, result, &bellEmitted, startTime)
+		if errors.Is(err, errContinuePolling) {
+			continue
 		}
-
-		// Fetch current check status with retry
-		checks, err := r.fetchPRChecksWithRetry(ctx, opts.PRNumber)
 		if err != nil {
 			return nil, err
 		}
-
-		// Filter to required checks if specified
-		filteredChecks := filterChecks(checks, opts.RequiredChecks)
-		result.CheckResults = filteredChecks
-
-		// Validate that required checks were found (if specified)
-		if len(opts.RequiredChecks) > 0 && len(filteredChecks) == 0 && len(checks) > 0 {
-			// Required checks were specified but none matched - this is an error
-			return nil, fmt.Errorf("no checks matched required patterns %v: %w",
-				opts.RequiredChecks, atlaserrors.ErrCICheckNotFound)
-		}
-
-		// Determine overall status
-		status := determineOverallCIStatus(filteredChecks)
-		result.Status = status
-		result.ElapsedTime = time.Since(startTime)
-
-		// Call progress callback
-		if opts.ProgressCallback != nil {
-			opts.ProgressCallback(result.ElapsedTime, filteredChecks)
-		}
-
-		r.logger.Debug().
-			Str("status", status.String()).
-			Int("check_count", len(filteredChecks)).
-			Dur("elapsed", result.ElapsedTime).
-			Msg("CI poll completed")
-
-		// Check for terminal states
-		switch status {
-		case CIStatusSuccess:
-			r.emitBellIfEnabled(opts.BellEnabled, &bellEmitted)
-			r.logger.Info().
-				Dur("elapsed", result.ElapsedTime).
-				Int("checks_passed", len(filteredChecks)).
-				Msg("CI checks passed")
-			return result, nil
-		case CIStatusFailure:
-			result.Error = atlaserrors.ErrCIFailed
-			r.emitBellIfEnabled(opts.BellEnabled, &bellEmitted)
-			r.logger.Warn().
-				Dur("elapsed", result.ElapsedTime).
-				Msg("CI checks failed")
-			return result, nil
-		case CIStatusPending:
-			// Wait for next poll
-			select {
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			case <-time.After(opts.Interval):
-				// Continue polling
-			}
-		case CIStatusTimeout:
-			// This case is handled at the top of the loop, but included for exhaustive switch
-			return result, nil
-		}
+		return pollResult, nil
 	}
 }
 
@@ -712,6 +674,9 @@ func (r *CLIGitHubRunner) ConvertToDraft(ctx context.Context, prNumber int) erro
 			return nil
 		case PRErrorAuth:
 			return fmt.Errorf("failed to convert PR to draft: %w", atlaserrors.ErrGHAuthFailed)
+		case PRErrorNoChecksYet:
+			// Not applicable for draft conversion, treat as other error
+			return fmt.Errorf("failed to convert PR to draft: %w", err)
 		case PRErrorRateLimit, PRErrorNetwork, PRErrorOther:
 			// Check if already draft or merged (not an error for our use case)
 			errStr := strings.ToLower(err.Error())
@@ -729,6 +694,253 @@ func (r *CLIGitHubRunner) ConvertToDraft(ctx context.Context, prNumber int) erro
 	}
 
 	r.logger.Info().Int("pr_number", prNumber).Msg("converted PR to draft")
+	return nil
+}
+
+// pollCIStatus performs a single CI status poll iteration.
+// Returns (result, nil) when done, (nil, errContinuePolling) to continue polling, or (nil, error) on error.
+func (r *CLIGitHubRunner) pollCIStatus(
+	ctx context.Context,
+	elapsed time.Duration,
+	opts CIWatchOptions,
+	result *CIWatchResult,
+	bellEmitted *bool,
+	startTime time.Time,
+) (*CIWatchResult, error) {
+	inGracePeriod := elapsed <= opts.InitialGracePeriod
+
+	// Check timeout
+	if timeoutResult := r.checkCITimeout(elapsed, opts.Timeout, result, bellEmitted); timeoutResult != nil {
+		return timeoutResult, nil
+	}
+
+	// Fetch and process checks
+	checks, err := r.fetchPRChecksWithRetry(ctx, opts.PRNumber)
+	if err != nil {
+		fetchResult, fetchErr := r.handleCIFetchError(ctx, err, inGracePeriod, elapsed, opts, result, bellEmitted)
+		if errors.Is(fetchErr, errContinuePolling) {
+			return nil, errContinuePolling
+		}
+		if fetchErr != nil {
+			return nil, fetchErr
+		}
+		return fetchResult, nil
+	}
+
+	// Handle no CI configured
+	if len(checks) == 0 {
+		return r.handleNoCIConfigured(elapsed, result, bellEmitted), nil
+	}
+
+	// Process check results and determine status
+	if err := r.processCheckResults(checks, opts, result, startTime); err != nil {
+		return nil, err
+	}
+
+	// Handle terminal states
+	terminalResult := r.handleTerminalState(ctx, result, opts, bellEmitted)
+	if terminalResult != nil {
+		if terminalResult.Error != nil && errors.Is(terminalResult.Error, context.Canceled) {
+			return nil, terminalResult.Error
+		}
+		return terminalResult, nil
+	}
+
+	return nil, errContinuePolling
+}
+
+// initializeCIWatchOptions validates options and applies defaults.
+func (r *CLIGitHubRunner) initializeCIWatchOptions(opts *CIWatchOptions) error {
+	if err := validateCIWatchOptions(opts); err != nil {
+		return err
+	}
+
+	if opts.Interval == 0 {
+		opts.Interval = DefaultCIWatchInterval
+	}
+	if opts.Timeout == 0 {
+		opts.Timeout = DefaultCIWatchTimeout
+	}
+	if opts.InitialGracePeriod == 0 {
+		opts.InitialGracePeriod = DefaultCIGracePeriod
+	}
+	if opts.GracePollInterval == 0 {
+		opts.GracePollInterval = DefaultCIGracePollInterval
+	}
+	return nil
+}
+
+// checkCITimeout checks if the timeout has been exceeded and returns a timeout result if so.
+func (r *CLIGitHubRunner) checkCITimeout(
+	elapsed, timeout time.Duration,
+	result *CIWatchResult,
+	bellEmitted *bool,
+) *CIWatchResult {
+	if elapsed <= timeout {
+		return nil
+	}
+
+	result.Status = CIStatusTimeout
+	result.ElapsedTime = elapsed
+	result.Error = atlaserrors.ErrCITimeout
+	r.emitBellIfEnabled(true, bellEmitted)
+	r.logger.Warn().
+		Dur("elapsed", elapsed).
+		Dur("timeout", timeout).
+		Msg("CI watch timed out")
+	return result
+}
+
+// handleCIFetchError handles errors from fetching CI checks.
+func (r *CLIGitHubRunner) handleCIFetchError(
+	ctx context.Context,
+	err error,
+	inGracePeriod bool,
+	elapsed time.Duration,
+	opts CIWatchOptions,
+	result *CIWatchResult,
+	bellEmitted *bool,
+) (*CIWatchResult, error) {
+	errType := classifyGHError(err)
+
+	if errType == PRErrorNoChecksYet {
+		handledResult, shouldContinue, handleErr := r.handleNoChecksError(
+			ctx, inGracePeriod, elapsed, opts, result, bellEmitted)
+		if handleErr != nil {
+			return nil, handleErr
+		}
+		if shouldContinue {
+			return nil, errContinuePolling // Signal to continue loop
+		}
+		return handledResult, nil
+	}
+
+	return nil, err
+}
+
+// handleNoCIConfigured handles the case when no CI checks are configured.
+func (r *CLIGitHubRunner) handleNoCIConfigured(
+	elapsed time.Duration,
+	result *CIWatchResult,
+	bellEmitted *bool,
+) *CIWatchResult {
+	r.logger.Info().
+		Dur("elapsed", elapsed).
+		Msg("no CI checks configured - treating as success")
+	result.Status = CIStatusSuccess
+	result.ElapsedTime = elapsed
+	r.emitBellIfEnabled(true, bellEmitted)
+	return result
+}
+
+// handleTerminalState handles terminal CI states (success/failure/timeout).
+func (r *CLIGitHubRunner) handleTerminalState(
+	ctx context.Context,
+	result *CIWatchResult,
+	opts CIWatchOptions,
+	bellEmitted *bool,
+) *CIWatchResult {
+	switch result.Status {
+	case CIStatusSuccess:
+		r.emitBellIfEnabled(opts.BellEnabled, bellEmitted)
+		r.logger.Info().
+			Dur("elapsed", result.ElapsedTime).
+			Int("checks_passed", len(result.CheckResults)).
+			Msg("CI checks passed")
+		return result
+	case CIStatusFailure:
+		result.Error = atlaserrors.ErrCIFailed
+		r.emitBellIfEnabled(opts.BellEnabled, bellEmitted)
+		r.logger.Warn().
+			Dur("elapsed", result.ElapsedTime).
+			Msg("CI checks failed")
+		return result
+	case CIStatusPending:
+		// Wait for next poll
+		select {
+		case <-ctx.Done():
+			// Return error result
+			return &CIWatchResult{Error: ctx.Err()}
+		case <-time.After(opts.Interval):
+			// Continue polling
+			return nil
+		}
+	case CIStatusTimeout:
+		// This case is handled at the top of the loop, but included for exhaustive switch
+		return result
+	}
+	return nil
+}
+
+// handleNoChecksError handles the case when no checks are reported yet.
+// Returns true if the error was handled and polling should continue.
+func (r *CLIGitHubRunner) handleNoChecksError(
+	ctx context.Context,
+	inGracePeriod bool,
+	elapsed time.Duration,
+	opts CIWatchOptions,
+	result *CIWatchResult,
+	bellEmitted *bool,
+) (*CIWatchResult, bool, error) {
+	if inGracePeriod {
+		// During grace period, this is expected - keep polling
+		r.logger.Debug().
+			Dur("elapsed", elapsed).
+			Dur("grace_remaining", opts.InitialGracePeriod-elapsed).
+			Msg("CI checks not yet registered, waiting during grace period")
+
+		select {
+		case <-ctx.Done():
+			return nil, false, ctx.Err()
+		case <-time.After(opts.GracePollInterval):
+			return nil, true, nil // Continue polling
+		}
+	}
+
+	// After grace period, no checks means no CI is configured
+	r.logger.Info().
+		Dur("elapsed", elapsed).
+		Msg("grace period ended with no CI checks - treating as no CI configured")
+	result.Status = CIStatusSuccess
+	result.ElapsedTime = elapsed
+	r.emitBellIfEnabled(opts.BellEnabled, bellEmitted)
+	return result, false, nil
+}
+
+// processCheckResults processes the fetched check results and determines status.
+func (r *CLIGitHubRunner) processCheckResults(
+	checks []CheckResult,
+	opts CIWatchOptions,
+	result *CIWatchResult,
+	startTime time.Time,
+) error {
+	// Filter to required checks if specified
+	filteredChecks := filterChecks(checks, opts.RequiredChecks)
+	result.CheckResults = filteredChecks
+
+	// Validate that required checks were found (if specified)
+	if len(opts.RequiredChecks) > 0 && len(filteredChecks) == 0 && len(checks) > 0 {
+		// Required checks were specified but none matched - this is an error
+		return fmt.Errorf("no checks matched required patterns %v: %w",
+			opts.RequiredChecks, atlaserrors.ErrCICheckNotFound)
+	}
+
+	// Determine overall status
+	status := determineOverallCIStatus(filteredChecks)
+	result.Status = status
+	result.ElapsedTime = time.Since(startTime)
+
+	// Call progress callback
+	if opts.ProgressCallback != nil {
+		opts.ProgressCallback(result.ElapsedTime, filteredChecks)
+	}
+
+	r.logger.Debug().
+		Str("status", status.String()).
+		Int("check_count", len(filteredChecks)).
+		Dur("elapsed", result.ElapsedTime).
+		Msg("CI poll completed")
+
 	return nil
 }
 

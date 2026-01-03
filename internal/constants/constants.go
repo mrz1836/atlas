@@ -45,6 +45,14 @@ const (
 
 	// CIPollInterval is the interval at which ATLAS polls CI status.
 	CIPollInterval = 2 * time.Minute
+
+	// CIInitialGracePeriod is the time to wait for CI checks to appear after PR creation.
+	// GitHub Actions typically start within 30 seconds but can take up to 2 minutes.
+	CIInitialGracePeriod = 2 * time.Minute
+
+	// CIGracePollInterval is the polling interval during the initial grace period.
+	// More frequent than normal polling since we're waiting for checks to appear.
+	CIGracePollInterval = 10 * time.Second
 )
 
 // Retry configuration defaults for recoverable operations.
