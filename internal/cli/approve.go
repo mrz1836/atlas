@@ -181,8 +181,11 @@ func runApprove(ctx context.Context, cmd *cobra.Command, w io.Writer, opts appro
 		return runAutoApprove(ctx, out, taskStore, selectedWS, selectedTask, notifier, opts.closeWS)
 	}
 
+	// Get verbose flag from global flags
+	verbose := cmd.Flag("verbose").Value.String() == "true"
+
 	// Interactive approval flow
-	return runInteractiveApproval(ctx, out, taskStore, selectedWS, selectedTask, notifier)
+	return runInteractiveApproval(ctx, out, taskStore, selectedWS, selectedTask, notifier, verbose)
 }
 
 // findAndSelectTask finds awaiting tasks and selects one based on options.
@@ -355,19 +358,19 @@ func runAutoApprove(ctx context.Context, out tui.Output, taskStore task.Store, w
 }
 
 // runInteractiveApproval runs the interactive approval flow with action menu.
-func runInteractiveApproval(ctx context.Context, out tui.Output, taskStore task.Store, ws *domain.Workspace, t *domain.Task, notifier *tui.Notifier) error {
+func runInteractiveApproval(ctx context.Context, out tui.Output, taskStore task.Store, ws *domain.Workspace, t *domain.Task, notifier *tui.Notifier, verbose bool) error {
 	// Display approval summary (AC: #2)
 	summary := tui.NewApprovalSummary(t, ws)
 	_ = out // Mark out as used - printApprovalSummary writes to stdout directly for styled output
-	printApprovalSummary(summary)
+	printApprovalSummary(summary, verbose)
 
 	// Action menu loop (AC: #3, #4)
 	return runApprovalActionLoop(ctx, out, taskStore, ws, t, notifier)
 }
 
 // printApprovalSummary prints the approval summary to stdout.
-func printApprovalSummary(summary *tui.ApprovalSummary) {
-	rendered := tui.RenderApprovalSummary(summary)
+func printApprovalSummary(summary *tui.ApprovalSummary, verbose bool) {
+	rendered := tui.RenderApprovalSummaryWithWidth(summary, 0, verbose)
 	_, _ = os.Stdout.WriteString(rendered + "\n")
 }
 

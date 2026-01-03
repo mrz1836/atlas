@@ -410,7 +410,7 @@ func FormatHyperlink(url, displayText string) string {
 // RenderApprovalSummary renders the approval summary using the BoxStyle (AC: #1, #2, #3, #4).
 // Uses semantic colors from styles.go and adapts to terminal width.
 func RenderApprovalSummary(summary *ApprovalSummary) string {
-	return RenderApprovalSummaryWithWidth(summary, 0)
+	return RenderApprovalSummaryWithWidth(summary, 0, false)
 }
 
 // displayMode represents the terminal width display mode.
@@ -435,11 +435,13 @@ func getDisplayMode(width int) displayMode {
 
 // RenderApprovalSummaryWithWidth renders the approval summary at a specific width (AC: #5).
 // Width of 0 means auto-detect from terminal.
+// Verbose mode forces showing validation checks regardless of terminal width.
 // Display modes:
 //   - Compact (<80 cols): Abbreviated labels, truncated paths, max 3 files
 //   - Standard (80-119 cols): Normal display, max 5 files
 //   - Expanded (>=120 cols): Full paths, per-file stats, max 10 files
-func RenderApprovalSummaryWithWidth(summary *ApprovalSummary, width int) string {
+//   - Verbose mode: Always show validation checks even in compact mode
+func RenderApprovalSummaryWithWidth(summary *ApprovalSummary, width int, verbose bool) string {
 	if summary == nil {
 		return ""
 	}
@@ -454,6 +456,12 @@ func RenderApprovalSummaryWithWidth(summary *ApprovalSummary, width int) string 
 
 	// Determine display mode based on width
 	mode := getDisplayMode(width)
+
+	// In verbose mode, override compact mode to show validation checks
+	effectiveMode := mode
+	if verbose && mode == displayModeCompact {
+		effectiveMode = displayModeStandard
+	}
 
 	// Build content sections
 	var content strings.Builder
@@ -488,7 +496,7 @@ func RenderApprovalSummaryWithWidth(summary *ApprovalSummary, width int) string 
 
 	// Validation section (AC: #4)
 	if summary.Validation != nil {
-		content.WriteString(renderValidationSectionWithMode(summary.Validation, width, mode))
+		content.WriteString(renderValidationSectionWithMode(summary.Validation, width, effectiveMode))
 		content.WriteString("\n")
 	}
 
