@@ -30,6 +30,13 @@ type BuildInfo struct {
 var (
 	globalLogger   zerolog.Logger //nolint:gochecknoglobals // CLI logger requires global access
 	globalLoggerMu sync.RWMutex   //nolint:gochecknoglobals // Protects globalLogger
+
+	// globalLogFlags stores the verbose/quiet flags used to initialize the logger.
+	// These are needed to create task-specific loggers with the same settings.
+	globalLogFlags struct { //nolint:gochecknoglobals // CLI flags require global access
+		verbose bool
+		quiet   bool
+	}
 )
 
 // GetLogger returns the initialized logger for use by subcommands.
@@ -51,6 +58,17 @@ func GetLogger() zerolog.Logger {
 	globalLoggerMu.RLock()
 	defer globalLoggerMu.RUnlock()
 	return globalLogger
+}
+
+// GetLoggerWithTaskStore returns a logger configured to persist task-specific logs.
+// Log entries containing workspace_name and task_id fields will be written to
+// the task's log file in addition to the console and global log.
+//
+// This function is safe for concurrent use.
+func GetLoggerWithTaskStore(store TaskLogAppender) zerolog.Logger {
+	globalLoggerMu.RLock()
+	defer globalLoggerMu.RUnlock()
+	return InitLoggerWithTaskStore(globalLogFlags.verbose, globalLogFlags.quiet, store)
 }
 
 // newRootCmd creates and returns the root command for the atlas CLI.
@@ -91,6 +109,8 @@ Features:
 			// Initialize logger based on flags (protected by mutex for thread safety)
 			globalLoggerMu.Lock()
 			globalLogger = InitLogger(flags.Verbose, flags.Quiet)
+			globalLogFlags.verbose = flags.Verbose
+			globalLogFlags.quiet = flags.Quiet
 			logger := globalLogger // Get a copy while holding the lock
 			globalLoggerMu.Unlock()
 
