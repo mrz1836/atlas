@@ -10,6 +10,10 @@ ai:
   max_turns: 10
 git:
   base_branch: master
+ci:
+  poll_interval: 30s
+  grace_period: 1m
+  timeout: 20m
 validation:
   commands:
     format:
@@ -17,7 +21,7 @@ validation:
     lint:
       - magex lint
     test:
-      - magex test
+      - magex test:race
     pre_commit:
       - go-pre-commit run --all-files
   template_overrides:
