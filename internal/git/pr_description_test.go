@@ -728,16 +728,30 @@ func TestWriteMetadataSection(t *testing.T) {
 			TemplateName:  "bugfix",
 			WorkspaceName: "fix/test",
 		})
-		assert.Contains(t, sb.String(), "ATLAS Metadata")
-		assert.Contains(t, sb.String(), "task-abc-xyz")
-		assert.Contains(t, sb.String(), "bugfix")
-		assert.Contains(t, sb.String(), "fix/test")
+		result := sb.String()
+		assert.Contains(t, result, "<!-- ATLAS_METADATA:")
+		assert.Contains(t, result, "-->")
+		assert.Contains(t, result, `"task_id":"task-abc-xyz"`)
+		assert.Contains(t, result, `"template":"bugfix"`)
+		assert.Contains(t, result, `"workspace":"fix/test"`)
 	})
 
 	t.Run("no fields", func(t *testing.T) {
 		var sb strings.Builder
 		writeMetadataSection(&sb, PRDescOptions{})
 		assert.Empty(t, sb.String())
+	})
+
+	t.Run("partial fields", func(t *testing.T) {
+		var sb strings.Builder
+		writeMetadataSection(&sb, PRDescOptions{
+			TaskID: "task-only",
+		})
+		result := sb.String()
+		assert.Contains(t, result, "<!-- ATLAS_METADATA:")
+		assert.Contains(t, result, `"task_id":"task-only"`)
+		assert.NotContains(t, result, `"template"`)
+		assert.NotContains(t, result, `"workspace"`)
 	})
 }
 

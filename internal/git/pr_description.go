@@ -4,6 +4,7 @@ package git
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"regexp"
@@ -485,21 +486,31 @@ func writeTestPlanSection(sb *strings.Builder, opts PRDescOptions) {
 	sb.WriteString("\n\n")
 }
 
-// writeMetadataSection writes the ATLAS Metadata section if any fields are present.
+// writeMetadataSection writes the ATLAS metadata as a hidden HTML comment with JSON.
+// Format: <!-- ATLAS_METADATA: {"task_id":"...","template":"...","workspace":"..."} -->
 func writeMetadataSection(sb *strings.Builder, opts PRDescOptions) {
 	if opts.TaskID == "" && opts.TemplateName == "" && opts.WorkspaceName == "" {
 		return
 	}
-	sb.WriteString("## ATLAS Metadata\n\n")
+
+	meta := make(map[string]string)
 	if opts.TaskID != "" {
-		_, _ = fmt.Fprintf(sb, "- Task: %s\n", opts.TaskID)
+		meta["task_id"] = opts.TaskID
 	}
 	if opts.TemplateName != "" {
-		_, _ = fmt.Fprintf(sb, "- Template: %s\n", opts.TemplateName)
+		meta["template"] = opts.TemplateName
 	}
 	if opts.WorkspaceName != "" {
-		_, _ = fmt.Fprintf(sb, "- Workspace: %s\n", opts.WorkspaceName)
+		meta["workspace"] = opts.WorkspaceName
 	}
+
+	jsonBytes, err := json.Marshal(meta)
+	if err != nil {
+		// If metadata marshaling fails, skip the metadata comment
+		// This is non-critical metadata, so we don't want to fail the entire operation
+		return
+	}
+	_, _ = fmt.Fprintf(sb, "<!-- ATLAS_METADATA: %s -->\n", string(jsonBytes))
 }
 
 // typeFromTemplate derives the conventional commit type from template name.
