@@ -92,6 +92,10 @@ func (m *mockStore) AppendLog(_ context.Context, _, _ string, _ []byte) error {
 	return nil
 }
 
+func (m *mockStore) ReadLog(_ context.Context, _, _ string) ([]byte, error) {
+	return nil, nil
+}
+
 func (m *mockStore) SaveArtifact(_ context.Context, _, _, _ string, _ []byte) error {
 	return nil
 }
@@ -1385,6 +1389,10 @@ func (s *conditionalFailStore) Delete(ctx context.Context, workspaceName, taskID
 
 func (s *conditionalFailStore) AppendLog(ctx context.Context, workspaceName, taskID string, entry []byte) error {
 	return s.mockStore.AppendLog(ctx, workspaceName, taskID, entry)
+}
+
+func (s *conditionalFailStore) ReadLog(ctx context.Context, workspaceName, taskID string) ([]byte, error) {
+	return s.mockStore.ReadLog(ctx, workspaceName, taskID)
 }
 
 func (s *conditionalFailStore) SaveArtifact(ctx context.Context, workspaceName, taskID, filename string, data []byte) error {

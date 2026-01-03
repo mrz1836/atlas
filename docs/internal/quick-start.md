@@ -495,7 +495,7 @@ atlas upgrade --yes
 
 # Upgrade specific tool
 atlas upgrade speckit
-atlas upgrade mage-x
+atlas upgrade magex
 atlas upgrade go-pre-commit
 ```
 
@@ -1137,3 +1137,8 @@ atlas config --help
 ---
 
 *This document was generated for ATLAS MVP. For detailed architecture information, see [docs/external/vision.md](../external/vision.md).*
+
+---
+
+**Version:** 1.0.0
+**Last Updated:** 2026-01-03

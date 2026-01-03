@@ -433,3 +433,241 @@ func TestValidationExecutor_MaxRetryAttempts_WithoutHandler(t *testing.T) {
 
 	assert.Equal(t, 0, executor.MaxRetryAttempts())
 }
+
+// TestBuildValidationChecks tests the buildValidationChecks function.
+func TestBuildValidationChecks(t *testing.T) {
+	t.Run("all passing", func(t *testing.T) {
+		result := &validation.PipelineResult{
+			Success: true,
+			FormatResults: []validation.Result{
+				{Command: "magex format:fix", Success: true},
+			},
+			LintResults: []validation.Result{
+				{Command: "magex lint", Success: true},
+			},
+			TestResults: []validation.Result{
+				{Command: "magex test", Success: true},
+			},
+			PreCommitResults: []validation.Result{
+				{Command: "go-pre-commit", Success: true},
+			},
+		}
+
+		checks := buildValidationChecks(result)
+
+		require.Len(t, checks, 4)
+		assert.Equal(t, "Format", checks[0]["name"])
+		assert.True(t, checks[0]["passed"].(bool))
+		assert.Equal(t, "Lint", checks[1]["name"])
+		assert.True(t, checks[1]["passed"].(bool))
+		assert.Equal(t, "Test", checks[2]["name"])
+		assert.True(t, checks[2]["passed"].(bool))
+		assert.Equal(t, "Pre-commit", checks[3]["name"])
+		assert.True(t, checks[3]["passed"].(bool))
+	})
+
+	t.Run("lint fails", func(t *testing.T) {
+		result := &validation.PipelineResult{
+			Success:        false,
+			FailedStepName: "lint",
+			FormatResults: []validation.Result{
+				{Command: "magex format:fix", Success: true},
+			},
+			LintResults: []validation.Result{
+				{Command: "magex lint", Success: false, ExitCode: 1},
+			},
+			TestResults: []validation.Result{
+				{Command: "magex test", Success: true},
+			},
+		}
+
+		checks := buildValidationChecks(result)
+
+		require.Len(t, checks, 4)
+		assert.True(t, checks[0]["passed"].(bool))  // Format passed
+		assert.False(t, checks[1]["passed"].(bool)) // Lint failed
+		assert.True(t, checks[2]["passed"].(bool))  // Test passed
+		assert.True(t, checks[3]["passed"].(bool))  // Pre-commit passed (no results = passed)
+	})
+
+	t.Run("pre-commit skipped", func(t *testing.T) {
+		result := &validation.PipelineResult{
+			Success: true,
+			FormatResults: []validation.Result{
+				{Command: "magex format:fix", Success: true},
+			},
+			LintResults: []validation.Result{
+				{Command: "magex lint", Success: true},
+			},
+			TestResults: []validation.Result{
+				{Command: "magex test", Success: true},
+			},
+			SkippedSteps: []string{"pre-commit"},
+			SkipReasons:  map[string]string{"pre-commit": "go-pre-commit not installed"},
+		}
+
+		checks := buildValidationChecks(result)
+
+		require.Len(t, checks, 4)
+		assert.True(t, checks[0]["passed"].(bool))
+		assert.True(t, checks[1]["passed"].(bool))
+		assert.True(t, checks[2]["passed"].(bool))
+		assert.True(t, checks[3]["passed"].(bool))
+		assert.True(t, checks[3]["skipped"].(bool)) // Pre-commit is marked as skipped
+	})
+
+	t.Run("multiple lint failures", func(t *testing.T) {
+		result := &validation.PipelineResult{
+			Success:        false,
+			FailedStepName: "lint",
+			FormatResults: []validation.Result{
+				{Command: "gofmt", Success: true},
+			},
+			LintResults: []validation.Result{
+				{Command: "golangci-lint", Success: false},
+				{Command: "go vet", Success: true},
+			},
+		}
+
+		checks := buildValidationChecks(result)
+
+		assert.True(t, checks[0]["passed"].(bool))  // Format passed
+		assert.False(t, checks[1]["passed"].(bool)) // Lint failed (one failure)
+	})
+
+	t.Run("empty results treated as passed", func(t *testing.T) {
+		result := &validation.PipelineResult{
+			Success:       true,
+			FormatResults: []validation.Result{}, // Empty
+			LintResults:   nil,                   // Nil
+			TestResults:   []validation.Result{}, // Empty
+		}
+
+		checks := buildValidationChecks(result)
+
+		require.Len(t, checks, 4)
+		assert.True(t, checks[0]["passed"].(bool)) // Format passed (empty)
+		assert.True(t, checks[1]["passed"].(bool)) // Lint passed (nil)
+		assert.True(t, checks[2]["passed"].(bool)) // Test passed (empty)
+		assert.True(t, checks[3]["passed"].(bool)) // Pre-commit passed (nil)
+	})
+}
+
+// TestHasFailedResult tests the hasFailedResult function.
+func TestHasFailedResult(t *testing.T) {
+	t.Run("empty slice returns false", func(t *testing.T) {
+		assert.False(t, hasFailedResult(nil))
+		assert.False(t, hasFailedResult([]validation.Result{}))
+	})
+
+	t.Run("all passing returns false", func(t *testing.T) {
+		results := []validation.Result{
+			{Command: "cmd1", Success: true},
+			{Command: "cmd2", Success: true},
+		}
+		assert.False(t, hasFailedResult(results))
+	})
+
+	t.Run("one failure returns true", func(t *testing.T) {
+		results := []validation.Result{
+			{Command: "cmd1", Success: true},
+			{Command: "cmd2", Success: false},
+			{Command: "cmd3", Success: true},
+		}
+		assert.True(t, hasFailedResult(results))
+	})
+
+	t.Run("all failures returns true", func(t *testing.T) {
+		results := []validation.Result{
+			{Command: "cmd1", Success: false},
+			{Command: "cmd2", Success: false},
+		}
+		assert.True(t, hasFailedResult(results))
+	})
+}
+
+// TestValidationExecutor_Execute_IncludesMetadata tests that validation checks are stored in metadata.
+func TestValidationExecutor_Execute_IncludesMetadata(t *testing.T) {
+	ctx := context.Background()
+	runner := newMockCommandRunner()
+	runner.SetDefaultSuccess()
+	toolChecker := &mockToolChecker{installed: true, version: "1.0.0"}
+	executor := NewValidationExecutorWithAll("/tmp/work", runner, toolChecker, nil, nil, nil)
+
+	task := &domain.Task{
+		ID:          "task-123",
+		WorkspaceID: "ws-123",
+		CurrentStep: 0,
+		Config:      domain.TaskConfig{},
+	}
+	step := &domain.StepDefinition{Name: "validate", Type: domain.StepTypeValidation}
+
+	result, err := executor.Execute(ctx, task, step)
+
+	require.NoError(t, err)
+	assert.Equal(t, "success", result.Status)
+
+	// Verify metadata contains validation_checks
+	require.NotNil(t, result.Metadata)
+	checksData, ok := result.Metadata["validation_checks"]
+	require.True(t, ok, "Metadata should contain validation_checks")
+
+	checks, ok := checksData.([]map[string]any)
+	require.True(t, ok, "validation_checks should be []map[string]any")
+	require.Len(t, checks, 4)
+
+	// Verify check names
+	assert.Equal(t, "Format", checks[0]["name"])
+	assert.Equal(t, "Lint", checks[1]["name"])
+	assert.Equal(t, "Test", checks[2]["name"])
+	assert.Equal(t, "Pre-commit", checks[3]["name"])
+
+	// Verify all passed
+	for _, check := range checks {
+		assert.True(t, check["passed"].(bool), "Check %s should pass", check["name"])
+	}
+}
+
+// TestValidationExecutor_Execute_MetadataOnFailure tests that metadata is included on failure.
+func TestValidationExecutor_Execute_MetadataOnFailure(t *testing.T) {
+	ctx := context.Background()
+	runner := newMockCommandRunner()
+	runner.SetDefaultSuccess()
+	// Make lint fail
+	runner.SetResult("magex lint", mockCommandResult{
+		exitCode: 1,
+	})
+	executor := NewValidationExecutorWithRunner("/tmp/work", runner)
+
+	task := &domain.Task{
+		ID:          "task-123",
+		WorkspaceID: "ws-123",
+		CurrentStep: 0,
+		Config:      domain.TaskConfig{},
+	}
+	step := &domain.StepDefinition{Name: "validate", Type: domain.StepTypeValidation}
+
+	result, err := executor.Execute(ctx, task, step)
+
+	require.Error(t, err)
+	assert.Equal(t, "failed", result.Status)
+
+	// Verify metadata contains validation_checks even on failure
+	require.NotNil(t, result.Metadata)
+	checksData, ok := result.Metadata["validation_checks"]
+	require.True(t, ok, "Metadata should contain validation_checks on failure")
+
+	checks, ok := checksData.([]map[string]any)
+	require.True(t, ok, "validation_checks should be []map[string]any")
+
+	// Find lint check and verify it failed
+	var lintCheck map[string]any
+	for _, check := range checks {
+		if check["name"] == "Lint" {
+			lintCheck = check
+			break
+		}
+	}
+	require.NotNil(t, lintCheck, "should have Lint check")
+	assert.False(t, lintCheck["passed"].(bool), "Lint should be marked as failed")
+}

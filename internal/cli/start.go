@@ -354,7 +354,9 @@ func startTaskExecution(ctx context.Context, ws *domain.Workspace, tmpl *domain.
 	})
 
 	engineCfg := task.DefaultEngineConfig()
-	engine := task.NewEngine(taskStore, execRegistry, engineCfg, GetLogger(),
+	// Create logger with task store for persisting task-specific logs
+	taskLogger := GetLoggerWithTaskStore(taskStore)
+	engine := task.NewEngine(taskStore, execRegistry, engineCfg, taskLogger,
 		task.WithNotifier(stateNotifier),
 	)
 

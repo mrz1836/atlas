@@ -533,14 +533,9 @@ func viewDiff(ctx context.Context, worktreePath string) error {
 
 // viewLogs displays the task log in a pager.
 func viewLogs(ctx context.Context, taskStore task.Store, workspaceName, taskID string) error {
-	// Try to get the log artifact
-	logData, err := taskStore.GetArtifact(ctx, workspaceName, taskID, "task.log")
+	logData, err := taskStore.ReadLog(ctx, workspaceName, taskID)
 	if err != nil {
-		// Try alternate log filename
-		logData, err = taskStore.GetArtifact(ctx, workspaceName, taskID, constants.TaskLogFileName)
-		if err != nil {
-			return fmt.Errorf("no log file found: %w", err)
-		}
+		return fmt.Errorf("no log file found: %w", err)
 	}
 
 	if len(logData) == 0 {

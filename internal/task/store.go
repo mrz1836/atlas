@@ -55,6 +55,9 @@ type Store interface {
 	// AppendLog appends a log entry to the task's log file (JSON-lines format).
 	AppendLog(ctx context.Context, workspaceName, taskID string, entry []byte) error
 
+	// ReadLog reads the task's log file.
+	ReadLog(ctx context.Context, workspaceName, taskID string) ([]byte, error)
+
 	// SaveArtifact saves an artifact file for the task.
 	SaveArtifact(ctx context.Context, workspaceName, taskID, filename string, data []byte) error
 
@@ -411,6 +414,36 @@ func (s *FileStore) AppendLog(ctx context.Context, workspaceName, taskID string,
 	}
 
 	return nil
+}
+
+// ReadLog reads the task's log file.
+func (s *FileStore) ReadLog(ctx context.Context, workspaceName, taskID string) ([]byte, error) {
+	// Check for cancellation at entry
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+
+	// Validate inputs
+	if workspaceName == "" {
+		return nil, fmt.Errorf("failed to read log: workspace name %w", atlaserrors.ErrEmptyValue)
+	}
+	if taskID == "" {
+		return nil, fmt.Errorf("failed to read log: task ID %w", atlaserrors.ErrEmptyValue)
+	}
+
+	logPath := s.logFilePath(workspaceName, taskID)
+
+	data, err := os.ReadFile(logPath) //#nosec G304 -- path is constructed internally
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, fmt.Errorf("log file: %w", atlaserrors.ErrArtifactNotFound)
+		}
+		return nil, fmt.Errorf("failed to read log: %w", err)
+	}
+
+	return data, nil
 }
 
 // SaveArtifact saves an artifact file for the task.

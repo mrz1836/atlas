@@ -269,6 +269,10 @@ Fixed null pointer exception when parsing configuration with nil options.
 		assert.Contains(t, desc.Body, "## Summary")
 		assert.Equal(t, "fix", desc.ConventionalType)
 		assert.Equal(t, "config", desc.Scope)
+		// Verify hidden metadata is appended
+		assert.Contains(t, desc.Body, "<!-- ATLAS_METADATA:")
+		assert.Contains(t, desc.Body, `"task_id":"task-test-abc"`)
+		assert.Contains(t, desc.Body, `"workspace":"fix/null"`)
 	})
 
 	t.Run("empty response fallback to template", func(t *testing.T) {

@@ -91,6 +91,15 @@ type FileChange struct {
 	Deletions int
 }
 
+// ValidationCheck represents a single validation check result.
+type ValidationCheck struct {
+	// Name is the category name (e.g., "Format", "Lint", "Test", "Pre-commit", "CI").
+	Name string
+
+	// Passed indicates if this check passed.
+	Passed bool
+}
+
 // ValidationSummary holds validation results (AC: #4).
 type ValidationSummary struct {
 	// PassCount is the number of passing validations.
@@ -104,6 +113,9 @@ type ValidationSummary struct {
 
 	// LastRunAt is when validation was last executed.
 	LastRunAt *time.Time
+
+	// Checks holds individual validation check results for verbose display.
+	Checks []ValidationCheck
 }
 
 // NewApprovalSummary creates an ApprovalSummary from a task and workspace (AC: #1, #5).
@@ -139,6 +151,9 @@ func NewApprovalSummary(task *domain.Task, workspace *domain.Workspace) *Approva
 
 	// Extract validation status (AC: #4)
 	summary.extractValidationStatus(task.StepResults)
+
+	// Extract CI status and add to validation checks
+	summary.extractCIStatus(task.StepResults)
 
 	return summary
 }
@@ -181,27 +196,169 @@ func (s *ApprovalSummary) collectFileChanges(results []domain.StepResult) {
 // extractValidationStatus finds and parses validation results from step results (AC: #4).
 func (s *ApprovalSummary) extractValidationStatus(results []domain.StepResult) {
 	for _, result := range results {
-		// Look for validation step by name
-		if strings.Contains(strings.ToLower(result.StepName), "validate") {
-			completedAt := result.CompletedAt
-			s.Validation = &ValidationSummary{
-				Status:    normalizeValidationStatus(result.Status),
-				LastRunAt: &completedAt,
-			}
+		if !isValidationStep(result.StepName) {
+			continue
+		}
 
-			// Set pass/fail counts based on status
-			switch result.Status {
-			case "success":
-				s.Validation.PassCount = 1
-				s.Validation.FailCount = 0
-			case "failed":
-				s.Validation.PassCount = 0
-				s.Validation.FailCount = 1
-			}
+		s.Validation = buildValidationSummary(result)
+		return // Use first validation result found
+	}
+}
 
-			return // Use first validation result found
+// isValidationStep checks if a step name indicates a validation step.
+func isValidationStep(stepName string) bool {
+	return strings.Contains(strings.ToLower(stepName), "validate")
+}
+
+// buildValidationSummary creates a ValidationSummary from a step result.
+func buildValidationSummary(result domain.StepResult) *ValidationSummary {
+	completedAt := result.CompletedAt
+	vs := &ValidationSummary{
+		Status:    normalizeValidationStatus(result.Status),
+		LastRunAt: &completedAt,
+	}
+
+	// Try to extract individual validation checks from metadata
+	vs.Checks = extractChecksFromMetadata(result.Metadata)
+
+	// Set pass/fail counts
+	if len(vs.Checks) > 0 {
+		vs.PassCount, vs.FailCount = countCheckResults(vs.Checks)
+	} else {
+		vs.PassCount, vs.FailCount = legacyPassFailCounts(result.Status)
+	}
+
+	return vs
+}
+
+// extractChecksFromMetadata extracts validation checks from step metadata.
+func extractChecksFromMetadata(metadata map[string]any) []ValidationCheck {
+	if metadata == nil {
+		return nil
+	}
+	checksData, ok := metadata["validation_checks"]
+	if !ok {
+		return nil
+	}
+	return parseValidationChecks(checksData)
+}
+
+// countCheckResults counts passed and failed checks.
+func countCheckResults(checks []ValidationCheck) (passCount, failCount int) {
+	for _, check := range checks {
+		if check.Passed {
+			passCount++
+		} else {
+			failCount++
 		}
 	}
+	return passCount, failCount
+}
+
+// legacyPassFailCounts returns pass/fail counts based on overall status.
+func legacyPassFailCounts(status string) (passCount, failCount int) {
+	if status == "success" {
+		return 1, 0
+	}
+	if status == "failed" {
+		return 0, 1
+	}
+	return 0, 0
+}
+
+// extractCIStatus finds CI step results and adds CI check to validation checks.
+func (s *ApprovalSummary) extractCIStatus(results []domain.StepResult) {
+	for _, result := range results {
+		if !isCIStep(result.StepName) {
+			continue
+		}
+
+		s.ensureValidationSummary(result)
+		s.addCICheck(result)
+		return // Use first CI result found
+	}
+}
+
+// isCIStep checks if a step name indicates a CI step.
+func isCIStep(stepName string) bool {
+	stepNameLower := strings.ToLower(stepName)
+	return strings.Contains(stepNameLower, "ci") || strings.Contains(stepNameLower, "checks")
+}
+
+// ensureValidationSummary creates a validation summary if it doesn't exist.
+func (s *ApprovalSummary) ensureValidationSummary(result domain.StepResult) {
+	if s.Validation != nil {
+		return
+	}
+	completedAt := result.CompletedAt
+	s.Validation = &ValidationSummary{
+		Status:    normalizeValidationStatus(result.Status),
+		LastRunAt: &completedAt,
+	}
+}
+
+// addCICheck adds the CI check to the validation summary and updates counts.
+func (s *ApprovalSummary) addCICheck(result domain.StepResult) {
+	ciPassed := result.Status == "success"
+
+	s.Validation.Checks = append(s.Validation.Checks, ValidationCheck{
+		Name:   "CI",
+		Passed: ciPassed,
+	})
+
+	if ciPassed {
+		s.Validation.PassCount++
+	} else {
+		s.Validation.FailCount++
+		// Update overall status if CI failed
+		if s.Validation.Status == "passed" {
+			s.Validation.Status = "failed"
+		}
+	}
+}
+
+// parseValidationChecks converts metadata validation checks to ValidationCheck slice.
+func parseValidationChecks(data any) []ValidationCheck {
+	checksSlice, ok := data.([]any)
+	if !ok {
+		// Try typed slice (from direct struct assignment)
+		if typedSlice, ok := data.([]map[string]any); ok {
+			checks := make([]ValidationCheck, 0, len(typedSlice))
+			for _, checkMap := range typedSlice {
+				check := parseCheckMap(checkMap)
+				if check.Name != "" {
+					checks = append(checks, check)
+				}
+			}
+			return checks
+		}
+		return nil
+	}
+
+	checks := make([]ValidationCheck, 0, len(checksSlice))
+	for _, item := range checksSlice {
+		checkMap, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		check := parseCheckMap(checkMap)
+		if check.Name != "" {
+			checks = append(checks, check)
+		}
+	}
+	return checks
+}
+
+// parseCheckMap extracts a ValidationCheck from a map.
+func parseCheckMap(checkMap map[string]any) ValidationCheck {
+	check := ValidationCheck{}
+	if name, ok := checkMap["name"].(string); ok {
+		check.Name = name
+	}
+	if passed, ok := checkMap["passed"].(bool); ok {
+		check.Passed = passed
+	}
+	return check
 }
 
 // normalizeValidationStatus converts step status to validation status string.
@@ -317,17 +474,9 @@ func RenderApprovalSummaryWithWidth(summary *ApprovalSummary, width int) string 
 	content.WriteString("\n")
 
 	// PR section if available (AC: #2)
+	// Uses dedicated renderPRLine to avoid truncating ANSI escape sequences
 	if summary.PRURL != "" {
-		prDisplay := extractPRNumber(summary.PRURL)
-		// In expanded mode, show full URL
-		if mode == displayModeExpanded {
-			prDisplay = prDisplay + " (" + summary.PRURL + ")"
-		}
-		prText := FormatHyperlink(summary.PRURL, prDisplay)
-		if !SupportsHyperlinks() {
-			prText = StyleUnderline.Render(prDisplay)
-		}
-		content.WriteString(renderInfoLineWithMode("PR", prText, width, mode))
+		content.WriteString(renderPRLine(summary.PRURL, mode))
 		content.WriteString("\n")
 	}
 
@@ -339,7 +488,7 @@ func RenderApprovalSummaryWithWidth(summary *ApprovalSummary, width int) string 
 
 	// Validation section (AC: #4)
 	if summary.Validation != nil {
-		content.WriteString(renderValidationSection(summary.Validation, width))
+		content.WriteString(renderValidationSectionWithMode(summary.Validation, width, mode))
 		content.WriteString("\n")
 	}
 
@@ -390,6 +539,32 @@ func renderProgressLine(current, total, _ int) string {
 	progressText.WriteString(intToString(total))
 
 	return "  " + padRight("Progress:", 12) + progressText.String() + "\n"
+}
+
+// renderPRLine renders the PR link without truncation (PR numbers are inherently short).
+// This avoids truncating ANSI escape sequences used for hyperlinks/underlines.
+func renderPRLine(prURL string, mode displayMode) string {
+	prDisplay := extractPRNumber(prURL)
+	if mode == displayModeExpanded {
+		prDisplay = prDisplay + " (" + prURL + ")"
+	}
+
+	prText := FormatHyperlink(prURL, prDisplay)
+	if !SupportsHyperlinks() {
+		prText = StyleUnderline.Render(prDisplay)
+	}
+
+	// Format label based on mode (no truncation needed for PR)
+	switch mode {
+	case displayModeCompact:
+		return "  " + abbreviateLabel("PR") + ": " + prText + "\n"
+	case displayModeExpanded:
+		return "  " + padRight("PR:", 14) + prText + "\n"
+	case displayModeStandard:
+		return "  " + padRight("PR:", 12) + prText + "\n"
+	default:
+		return "  " + padRight("PR:", 12) + prText + "\n"
+	}
 }
 
 // renderFileChangesSectionWithMode renders the file changes based on display mode (AC: #3).
@@ -469,8 +644,8 @@ func renderFileStats(insertions, deletions int) string {
 	return "+" + intToString(insertions) + " -" + intToString(deletions)
 }
 
-// renderValidationSection renders the validation status (AC: #4).
-func renderValidationSection(validation *ValidationSummary, _ int) string {
+// renderValidationSectionWithMode renders the validation status with individual checks (AC: #4).
+func renderValidationSectionWithMode(validation *ValidationSummary, _ int, mode displayMode) string {
 	var result strings.Builder
 
 	icon := "○"
@@ -496,7 +671,46 @@ func renderValidationSection(validation *ValidationSummary, _ int) string {
 
 	result.WriteString("  " + padRight("Validation:", 12) + icon + " " + statusText + passFailText + "\n")
 
+	// Show individual checks in standard and expanded mode
+	if len(validation.Checks) > 0 && mode != displayModeCompact {
+		result.WriteString(renderChecksLine(validation.Checks))
+	}
+
 	return result.String()
+}
+
+// renderChecksLine renders the individual validation checks in compact format.
+// Format: "  Format ✓ | Lint ✓ | Test ✓ | Pre-commit ✓ | CI ✓"
+func renderChecksLine(checks []ValidationCheck) string {
+	parts := make([]string, 0, len(checks))
+	for _, check := range checks {
+		parts = append(parts, formatCheckItem(check))
+	}
+	return "    " + strings.Join(parts, " | ") + "\n"
+}
+
+// formatCheckItem formats a single validation check item with icon.
+func formatCheckItem(check ValidationCheck) string {
+	icon := "✓"
+	if !check.Passed {
+		icon = "✗"
+	}
+
+	if !HasColorSupport() {
+		return check.Name + " " + icon
+	}
+
+	color := ColorSuccess
+	if !check.Passed {
+		color = ColorError
+	}
+	return check.Name + " " + lipgloss.NewStyle().Foreground(color).Render(icon)
+}
+
+// renderValidationSection is kept for backward compatibility.
+// Deprecated: Use renderValidationSectionWithMode instead.
+func renderValidationSection(validation *ValidationSummary, width int) string {
+	return renderValidationSectionWithMode(validation, width, displayModeStandard)
 }
 
 // Helper functions

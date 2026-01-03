@@ -367,17 +367,29 @@ func (u *upgradeCmd) displayUpdateTable(result *UpdateCheckResult) {
 
 	for _, tool := range result.Tools {
 		statusStr := u.formatToolStatus(tool)
-		name := fmt.Sprintf("  %-17s", tool.Name)
 		version := tool.CurrentVersion
 		if version == "" {
 			version = "(not installed)"
 		}
 
-		_, _ = fmt.Fprintf(u.w, "%s %s  %s\n",
-			u.styles.toolName.Render(name),
-			u.styles.version.Render(fmt.Sprintf("%-12s", version)),
-			statusStr)
+		// Check if version contains multiple lines (e.g., ASCII art from --version)
+		if strings.Contains(version, "\n") {
+			// Print tool name on its own line
+			_, _ = fmt.Fprintf(u.w, "  %s\n", u.styles.toolName.Render(tool.Name))
+			// Print multi-line version info
+			_, _ = fmt.Fprintln(u.w, u.styles.version.Render(version))
+			// Print status
+			_, _ = fmt.Fprintln(u.w, statusStr)
+		} else {
+			// Single-line version: print on same line as tool name
+			name := fmt.Sprintf("  %-17s", tool.Name)
+			_, _ = fmt.Fprintf(u.w, "%s %s  %s\n",
+				u.styles.toolName.Render(name),
+				u.styles.version.Render(fmt.Sprintf("%-12s", version)),
+				statusStr)
+		}
 	}
+	_, _ = fmt.Fprintln(u.w)
 }
 
 // formatToolStatus returns a styled status string for a tool.
@@ -612,7 +624,7 @@ func getUpgradableTools() []upgradableToolConfig {
 		{
 			name:        constants.ToolSpeckit,
 			command:     constants.ToolSpeckit,
-			versionFlag: constants.VersionFlagStandard,
+			versionFlag: constants.VersionFlagSpeckit,
 			installPath: constants.InstallPathSpeckit,
 		},
 	}
@@ -668,29 +680,71 @@ func parseVersionFromOutput(tool, output string) string {
 	output = strings.TrimSpace(output)
 	switch tool {
 	case constants.ToolAtlas:
-		// Parse "X.Y.Z (commit: abc, built: 2024-01-01)" → "X.Y.Z"
-		if idx := strings.Index(output, " "); idx > 0 {
-			return output[:idx]
+		return parseAtlasVersion(output)
+	case constants.ToolSpeckit:
+		if version := parseSpeckitVersion(output); version != "" {
+			return version
 		}
-		return output
+		// Fallthrough to generic parser if format changes
+		return parseGenericVersion(output)
 	default:
-		// Extract version pattern from output
-		lines := strings.Split(output, "\n")
-		for _, line := range lines {
-			line = strings.TrimSpace(line)
-			// Look for version patterns like "v1.2.3" or "1.2.3"
-			for _, word := range strings.Fields(line) {
-				word = strings.TrimPrefix(word, "v")
-				if len(word) > 0 && word[0] >= '0' && word[0] <= '9' {
-					// Check if it looks like a version
-					if strings.Contains(word, ".") {
-						return word
-					}
+		return parseGenericVersion(output)
+	}
+}
+
+// parseAtlasVersion extracts version from atlas version output.
+func parseAtlasVersion(output string) string {
+	// Parse "atlas version X.Y.Z (commit: abc, built: 2024-01-01)" → "X.Y.Z"
+	if strings.HasPrefix(output, "atlas version ") {
+		rest := strings.TrimPrefix(output, "atlas version ")
+		if idx := strings.Index(rest, " "); idx > 0 {
+			return rest[:idx]
+		}
+		return rest
+	}
+	// Fallback: first word
+	if idx := strings.Index(output, " "); idx > 0 {
+		return output[:idx]
+	}
+	return output
+}
+
+// parseSpeckitVersion extracts version from speckit version output.
+func parseSpeckitVersion(output string) string {
+	// Parse specify version output
+	// Example: "CLI Version    1.0.0"
+	lines := strings.Split(output, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(strings.ToLower(line), "cli version") {
+			// Extract version from "CLI Version    1.0.0"
+			fields := strings.Fields(line)
+			if len(fields) >= 3 {
+				return fields[2] // Return "1.0.0"
+			}
+		}
+	}
+	return ""
+}
+
+// parseGenericVersion extracts version pattern from generic output.
+func parseGenericVersion(output string) string {
+	// Extract version pattern from output
+	lines := strings.Split(output, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		// Look for version patterns like "v1.2.3" or "1.2.3"
+		for _, word := range strings.Fields(line) {
+			word = strings.TrimPrefix(word, "v")
+			if len(word) > 0 && word[0] >= '0' && word[0] <= '9' {
+				// Check if it looks like a version
+				if strings.Contains(word, ".") {
+					return word
 				}
 			}
 		}
-		return output
 	}
+	return output
 }
 
 // DefaultUpgradeExecutor implements UpgradeExecutor.
@@ -723,22 +777,13 @@ func (e *DefaultUpgradeExecutor) UpgradeTool(ctx context.Context, tool string) (
 		defer e.handleSpeckitRestore(result, constitutionPath)
 	}
 
-	// Execute the upgrade via go install
-	_, err := e.executor.Run(ctx, "go", "install", toolConfig.installPath)
-	if err != nil {
-		result.Success = false
-		result.Error = err.Error()
+	// Try tool-specific upgrade methods first
+	if e.tryToolSpecificUpgrade(ctx, tool, toolConfig, result) {
 		return result, nil
 	}
 
-	result.Success = true
-
-	// Get new version after upgrade
-	output, err := e.executor.Run(ctx, toolConfig.command, toolConfig.versionFlag)
-	if err == nil {
-		result.NewVersion = parseVersionFromOutput(tool, output)
-	}
-
+	// Execute the upgrade via go install
+	e.upgradeViaGoInstall(ctx, tool, toolConfig, result)
 	return result, nil
 }
 
@@ -787,6 +832,68 @@ func (e *DefaultUpgradeExecutor) CleanupConstitutionBackup(originalPath string) 
 
 	backupPath := originalPath + ".backup"
 	return os.Remove(backupPath)
+}
+
+// tryToolSpecificUpgrade attempts to upgrade using tool-specific commands.
+// Returns true if a tool-specific upgrade was attempted (regardless of success).
+func (e *DefaultUpgradeExecutor) tryToolSpecificUpgrade(ctx context.Context, tool string, toolConfig *upgradableToolConfig, result *UpgradeResult) bool {
+	switch tool {
+	case constants.ToolMageX:
+		if _, lookErr := e.executor.LookPath(constants.ToolMageX); lookErr == nil {
+			e.upgradeMagex(ctx, tool, toolConfig, result)
+			return true
+		}
+	case constants.ToolGoPreCommit:
+		if _, lookErr := e.executor.LookPath(constants.ToolGoPreCommit); lookErr == nil {
+			e.upgradeGoPreCommit(ctx, tool, toolConfig, result)
+			return true
+		}
+	}
+	return false
+}
+
+// upgradeMagex upgrades magex using its built-in update command.
+func (e *DefaultUpgradeExecutor) upgradeMagex(ctx context.Context, tool string, toolConfig *upgradableToolConfig, result *UpgradeResult) {
+	_, err := e.executor.Run(ctx, constants.ToolMageX, "update:install")
+	if err != nil {
+		result.Success = false
+		result.Error = err.Error()
+		return
+	}
+	result.Success = true
+	e.updateResultVersion(ctx, tool, toolConfig, result)
+}
+
+// upgradeGoPreCommit upgrades go-pre-commit using its built-in upgrade command.
+func (e *DefaultUpgradeExecutor) upgradeGoPreCommit(ctx context.Context, tool string, toolConfig *upgradableToolConfig, result *UpgradeResult) {
+	_, err := e.executor.Run(ctx, constants.ToolGoPreCommit, "upgrade", "--force")
+	if err != nil {
+		result.Success = false
+		result.Error = err.Error()
+		return
+	}
+	result.Success = true
+	e.updateResultVersion(ctx, tool, toolConfig, result)
+}
+
+// upgradeViaGoInstall upgrades a tool using go install.
+func (e *DefaultUpgradeExecutor) upgradeViaGoInstall(ctx context.Context, tool string, toolConfig *upgradableToolConfig, result *UpgradeResult) {
+	_, err := e.executor.Run(ctx, "go", "install", toolConfig.installPath)
+	if err != nil {
+		result.Success = false
+		result.Error = err.Error()
+		return
+	}
+	result.Success = true
+	e.updateResultVersion(ctx, tool, toolConfig, result)
+}
+
+// updateResultVersion updates the result with the new version after upgrade.
+func (e *DefaultUpgradeExecutor) updateResultVersion(ctx context.Context, tool string, toolConfig *upgradableToolConfig, result *UpgradeResult) {
+	output, err := e.executor.Run(ctx, toolConfig.command, toolConfig.versionFlag)
+	if err == nil {
+		result.NewVersion = parseVersionFromOutput(tool, output)
+	}
 }
 
 // handleSpeckitBackup backs up constitution.md for Speckit upgrades.

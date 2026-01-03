@@ -471,6 +471,92 @@ func TestDefaultUpgradeExecutor_UpgradeTool_UnknownTool(t *testing.T) {
 	assert.ErrorIs(t, err, errors.ErrUnknownTool)
 }
 
+func TestDefaultUpgradeExecutor_UpgradeTool_MageX_UsesUpdateInstall(t *testing.T) {
+	t.Parallel()
+
+	executor := &mockCommandExecutor{
+		runResults: map[string]string{
+			"magex update:install": "",
+			"magex --version":      "v1.2.0",
+		},
+		lookPathResults: map[string]string{
+			"magex": "/go/bin/magex",
+		},
+	}
+
+	upgradeExec := NewDefaultUpgradeExecutor(executor)
+	result, err := upgradeExec.UpgradeTool(context.Background(), constants.ToolMageX)
+
+	require.NoError(t, err)
+	assert.True(t, result.Success)
+	assert.Equal(t, constants.ToolMageX, result.Tool)
+	assert.Equal(t, "1.2.0", result.NewVersion)
+}
+
+func TestDefaultUpgradeExecutor_UpgradeTool_MageX_NotInstalled_UsesGoInstall(t *testing.T) {
+	t.Parallel()
+
+	executor := &mockCommandExecutor{
+		runResults: map[string]string{
+			"go install " + constants.InstallPathMageX: "",
+			"magex --version":                          "v1.2.0",
+		},
+		lookPathErrors: map[string]error{
+			"magex": exec.ErrNotFound,
+		},
+	}
+
+	upgradeExec := NewDefaultUpgradeExecutor(executor)
+	result, err := upgradeExec.UpgradeTool(context.Background(), constants.ToolMageX)
+
+	require.NoError(t, err)
+	assert.True(t, result.Success)
+	assert.Equal(t, constants.ToolMageX, result.Tool)
+}
+
+func TestDefaultUpgradeExecutor_UpgradeTool_GoPreCommit_UsesUpgradeForce(t *testing.T) {
+	t.Parallel()
+
+	executor := &mockCommandExecutor{
+		runResults: map[string]string{
+			"go-pre-commit upgrade --force": "",
+			"go-pre-commit --version":       "v1.0.0",
+		},
+		lookPathResults: map[string]string{
+			"go-pre-commit": "/go/bin/go-pre-commit",
+		},
+	}
+
+	upgradeExec := NewDefaultUpgradeExecutor(executor)
+	result, err := upgradeExec.UpgradeTool(context.Background(), constants.ToolGoPreCommit)
+
+	require.NoError(t, err)
+	assert.True(t, result.Success)
+	assert.Equal(t, constants.ToolGoPreCommit, result.Tool)
+	assert.Equal(t, "1.0.0", result.NewVersion)
+}
+
+func TestDefaultUpgradeExecutor_UpgradeTool_GoPreCommit_NotInstalled_UsesGoInstall(t *testing.T) {
+	t.Parallel()
+
+	executor := &mockCommandExecutor{
+		runResults: map[string]string{
+			"go install " + constants.InstallPathGoPreCommit: "",
+			"go-pre-commit --version":                        "v1.0.0",
+		},
+		lookPathErrors: map[string]error{
+			"go-pre-commit": exec.ErrNotFound,
+		},
+	}
+
+	upgradeExec := NewDefaultUpgradeExecutor(executor)
+	result, err := upgradeExec.UpgradeTool(context.Background(), constants.ToolGoPreCommit)
+
+	require.NoError(t, err)
+	assert.True(t, result.Success)
+	assert.Equal(t, constants.ToolGoPreCommit, result.Tool)
+}
+
 func TestDefaultUpgradeExecutor_BackupConstitution(t *testing.T) {
 	// Cannot use t.Parallel() because os.Chdir affects the entire process
 
@@ -621,6 +707,18 @@ func TestParseVersionFromOutput(t *testing.T) {
 			name:     "generic version output",
 			tool:     constants.ToolGoPreCommit,
 			output:   "go-pre-commit version 1.0.0",
+			expected: "1.0.0",
+		},
+		{
+			name:     "specify with CLI version",
+			tool:     constants.ToolSpeckit,
+			output:   "CLI Version    1.0.0\nTemplate Version    0.0.90\nReleased    2025-12-04",
+			expected: "1.0.0",
+		},
+		{
+			name:     "specify with minimal output",
+			tool:     constants.ToolSpeckit,
+			output:   "CLI Version    1.0.0",
 			expected: "1.0.0",
 		},
 	}

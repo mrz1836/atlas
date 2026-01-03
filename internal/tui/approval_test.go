@@ -614,3 +614,674 @@ func TestGetDisplayMode(t *testing.T) {
 		})
 	}
 }
+
+// TestRenderPRLine tests PR line rendering across display modes.
+// This specifically tests that PR text is not truncated, avoiding ANSI escape sequence corruption.
+func TestRenderPRLine(t *testing.T) {
+	tests := []struct {
+		name        string
+		prURL       string
+		mode        displayMode
+		expectLabel string
+		expectPR    string
+	}{
+		{
+			name:        "compact mode shows abbreviated label",
+			prURL:       "https://github.com/org/repo/pull/47",
+			mode:        displayModeCompact,
+			expectLabel: "PR:",
+			expectPR:    "#47",
+		},
+		{
+			name:        "standard mode shows full label",
+			prURL:       "https://github.com/org/repo/pull/123",
+			mode:        displayModeStandard,
+			expectLabel: "PR:",
+			expectPR:    "#123",
+		},
+		{
+			name:        "expanded mode shows full URL in parentheses",
+			prURL:       "https://github.com/org/repo/pull/999",
+			mode:        displayModeExpanded,
+			expectLabel: "PR:",
+			expectPR:    "#999",
+		},
+		{
+			name:        "non-github URL shows full URL as display text",
+			prURL:       "https://gitlab.com/org/repo/-/merge_requests/42",
+			mode:        displayModeStandard,
+			expectLabel: "PR:",
+			expectPR:    "https://gitlab.com/org/repo/-/merge_requests/42",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := renderPRLine(tt.prURL, tt.mode)
+
+			// Verify label is present
+			assert.Contains(t, result, tt.expectLabel)
+
+			// Verify PR number/URL is present (may be wrapped in ANSI codes)
+			assert.Contains(t, result, tt.expectPR)
+
+			// Verify not truncated to "..."
+			assert.NotContains(t, result, "...")
+
+			// Verify line ends with newline
+			assert.True(t, len(result) > 0 && result[len(result)-1] == '\n')
+		})
+	}
+}
+
+// TestRenderPRLine_NoTruncation verifies that long PR URLs are not truncated.
+// This is the key fix - the PR line should never be truncated because truncation
+// corrupts ANSI escape sequences used for hyperlinks and underlines.
+func TestRenderPRLine_NoTruncation(t *testing.T) {
+	// Very long URL that would trigger truncation in compact mode
+	longURL := "https://github.com/very-long-organization-name/extremely-long-repository-name/pull/12345"
+
+	modes := []struct {
+		name string
+		mode displayMode
+	}{
+		{"compact", displayModeCompact},
+		{"standard", displayModeStandard},
+		{"expanded", displayModeExpanded},
+	}
+
+	for _, m := range modes {
+		t.Run(m.name, func(t *testing.T) {
+			result := renderPRLine(longURL, m.mode)
+
+			// Should contain the PR number
+			assert.Contains(t, result, "#12345")
+
+			// Should never be truncated
+			assert.NotContains(t, result, "...")
+		})
+	}
+}
+
+// TestValidationCheck_Struct tests the ValidationCheck struct.
+func TestValidationCheck_Struct(t *testing.T) {
+	vc := ValidationCheck{
+		Name:   "Format",
+		Passed: true,
+	}
+
+	assert.Equal(t, "Format", vc.Name)
+	assert.True(t, vc.Passed)
+}
+
+// TestValidationSummary_WithChecks tests ValidationSummary with individual checks.
+func TestValidationSummary_WithChecks(t *testing.T) {
+	now := time.Now()
+	vs := ValidationSummary{
+		PassCount: 4,
+		FailCount: 1,
+		Status:    "failed",
+		LastRunAt: &now,
+		Checks: []ValidationCheck{
+			{Name: "Format", Passed: true},
+			{Name: "Lint", Passed: false},
+			{Name: "Test", Passed: true},
+			{Name: "Pre-commit", Passed: true},
+			{Name: "CI", Passed: true},
+		},
+	}
+
+	assert.Equal(t, 4, vs.PassCount)
+	assert.Equal(t, 1, vs.FailCount)
+	assert.Equal(t, "failed", vs.Status)
+	assert.Len(t, vs.Checks, 5)
+	assert.Equal(t, "Lint", vs.Checks[1].Name)
+	assert.False(t, vs.Checks[1].Passed)
+}
+
+// TestExtractValidationStatus_WithMetadata tests extraction with validation_checks metadata.
+func TestExtractValidationStatus_WithMetadata(t *testing.T) {
+	t.Run("extracts checks from metadata", func(t *testing.T) {
+		task := &domain.Task{
+			ID:          "task-val-checks",
+			WorkspaceID: "ws-test",
+			Status:      constants.TaskStatusAwaitingApproval,
+			CurrentStep: 2,
+			Steps: []domain.Step{
+				{Name: "implement", Status: "completed"},
+				{Name: "validate", Status: "completed"},
+				{Name: "approval", Status: "pending"},
+			},
+			StepResults: []domain.StepResult{
+				{
+					StepName: "validate",
+					Status:   "success",
+					Metadata: map[string]any{
+						"validation_checks": []map[string]any{
+							{"name": "Format", "passed": true},
+							{"name": "Lint", "passed": true},
+							{"name": "Test", "passed": true},
+							{"name": "Pre-commit", "passed": true},
+						},
+					},
+				},
+			},
+		}
+
+		workspace := &domain.Workspace{Name: "test", Branch: "feat/x"}
+		summary := NewApprovalSummary(task, workspace)
+
+		require.NotNil(t, summary.Validation)
+		assert.Equal(t, "passed", summary.Validation.Status)
+		assert.Len(t, summary.Validation.Checks, 4)
+		assert.Equal(t, 4, summary.Validation.PassCount)
+		assert.Equal(t, 0, summary.Validation.FailCount)
+	})
+
+	t.Run("extracts checks with failures", func(t *testing.T) {
+		task := &domain.Task{
+			ID:          "task-val-fail-checks",
+			WorkspaceID: "ws-test",
+			Status:      constants.TaskStatusValidationFailed,
+			CurrentStep: 1,
+			Steps: []domain.Step{
+				{Name: "implement", Status: "completed"},
+				{Name: "validate", Status: "failed"},
+				{Name: "approval", Status: "pending"},
+			},
+			StepResults: []domain.StepResult{
+				{
+					StepName: "validate",
+					Status:   "failed",
+					Metadata: map[string]any{
+						"validation_checks": []map[string]any{
+							{"name": "Format", "passed": true},
+							{"name": "Lint", "passed": false},
+							{"name": "Test", "passed": true},
+							{"name": "Pre-commit", "passed": false},
+						},
+					},
+				},
+			},
+		}
+
+		workspace := &domain.Workspace{Name: "test", Branch: "feat/x"}
+		summary := NewApprovalSummary(task, workspace)
+
+		require.NotNil(t, summary.Validation)
+		assert.Equal(t, "failed", summary.Validation.Status)
+		assert.Len(t, summary.Validation.Checks, 4)
+		assert.Equal(t, 2, summary.Validation.PassCount)
+		assert.Equal(t, 2, summary.Validation.FailCount)
+	})
+
+	t.Run("fallback without metadata", func(t *testing.T) {
+		task := &domain.Task{
+			ID:          "task-val-no-meta",
+			WorkspaceID: "ws-test",
+			Status:      constants.TaskStatusAwaitingApproval,
+			CurrentStep: 1,
+			Steps: []domain.Step{
+				{Name: "validate", Status: "completed"},
+			},
+			StepResults: []domain.StepResult{
+				{
+					StepName: "validate",
+					Status:   "success",
+					// No Metadata
+				},
+			},
+		}
+
+		workspace := &domain.Workspace{Name: "test", Branch: "feat/x"}
+		summary := NewApprovalSummary(task, workspace)
+
+		require.NotNil(t, summary.Validation)
+		assert.Equal(t, "passed", summary.Validation.Status)
+		assert.Empty(t, summary.Validation.Checks)
+		// Fallback to legacy count
+		assert.Equal(t, 1, summary.Validation.PassCount)
+		assert.Equal(t, 0, summary.Validation.FailCount)
+	})
+}
+
+// TestParseValidationChecks tests parsing validation checks from metadata.
+func TestParseValidationChecks(t *testing.T) {
+	t.Run("parses []any slice", func(t *testing.T) {
+		data := []any{
+			map[string]any{"name": "Format", "passed": true},
+			map[string]any{"name": "Lint", "passed": false},
+		}
+
+		checks := parseValidationChecks(data)
+
+		require.Len(t, checks, 2)
+		assert.Equal(t, "Format", checks[0].Name)
+		assert.True(t, checks[0].Passed)
+		assert.Equal(t, "Lint", checks[1].Name)
+		assert.False(t, checks[1].Passed)
+	})
+
+	t.Run("parses []map[string]any slice", func(t *testing.T) {
+		data := []map[string]any{
+			{"name": "Test", "passed": true},
+			{"name": "Pre-commit", "passed": true},
+		}
+
+		checks := parseValidationChecks(data)
+
+		require.Len(t, checks, 2)
+		assert.Equal(t, "Test", checks[0].Name)
+		assert.True(t, checks[0].Passed)
+	})
+
+	t.Run("returns nil for invalid data", func(t *testing.T) {
+		checks := parseValidationChecks("invalid")
+		assert.Nil(t, checks)
+	})
+
+	t.Run("skips invalid items", func(t *testing.T) {
+		data := []any{
+			map[string]any{"name": "Format", "passed": true},
+			"invalid",
+			map[string]any{"name": "Lint", "passed": false},
+		}
+
+		checks := parseValidationChecks(data)
+
+		require.Len(t, checks, 2)
+	})
+
+	t.Run("skips items without name", func(t *testing.T) {
+		data := []any{
+			map[string]any{"name": "Format", "passed": true},
+			map[string]any{"passed": true}, // No name
+		}
+
+		checks := parseValidationChecks(data)
+
+		require.Len(t, checks, 1)
+		assert.Equal(t, "Format", checks[0].Name)
+	})
+}
+
+// TestParseCheckMap tests parsing a single check map.
+func TestParseCheckMap(t *testing.T) {
+	t.Run("parses complete map", func(t *testing.T) {
+		checkMap := map[string]any{
+			"name":   "Format",
+			"passed": true,
+		}
+
+		check := parseCheckMap(checkMap)
+
+		assert.Equal(t, "Format", check.Name)
+		assert.True(t, check.Passed)
+	})
+
+	t.Run("handles missing name", func(t *testing.T) {
+		checkMap := map[string]any{
+			"passed": true,
+		}
+
+		check := parseCheckMap(checkMap)
+
+		assert.Empty(t, check.Name)
+	})
+
+	t.Run("handles missing passed", func(t *testing.T) {
+		checkMap := map[string]any{
+			"name": "Lint",
+		}
+
+		check := parseCheckMap(checkMap)
+
+		assert.Equal(t, "Lint", check.Name)
+		assert.False(t, check.Passed) // Default to false
+	})
+
+	t.Run("handles wrong type for name", func(t *testing.T) {
+		checkMap := map[string]any{
+			"name":   123, // Wrong type
+			"passed": true,
+		}
+
+		check := parseCheckMap(checkMap)
+
+		assert.Empty(t, check.Name)
+	})
+
+	t.Run("handles wrong type for passed", func(t *testing.T) {
+		checkMap := map[string]any{
+			"name":   "Test",
+			"passed": "yes", // Wrong type
+		}
+
+		check := parseCheckMap(checkMap)
+
+		assert.Equal(t, "Test", check.Name)
+		assert.False(t, check.Passed) // Default to false
+	})
+}
+
+// TestExtractCIStatus tests CI status extraction.
+func TestExtractCIStatus(t *testing.T) {
+	t.Run("extracts CI passed status", func(t *testing.T) {
+		task := &domain.Task{
+			ID:          "task-ci-pass",
+			WorkspaceID: "ws-test",
+			Status:      constants.TaskStatusAwaitingApproval,
+			CurrentStep: 3,
+			Steps: []domain.Step{
+				{Name: "validate", Status: "completed"},
+				{Name: "git", Status: "completed"},
+				{Name: "ci", Status: "completed"},
+			},
+			StepResults: []domain.StepResult{
+				{
+					StepName: "validate",
+					Status:   "success",
+					Metadata: map[string]any{
+						"validation_checks": []map[string]any{
+							{"name": "Format", "passed": true},
+							{"name": "Lint", "passed": true},
+						},
+					},
+				},
+				{
+					StepName: "ci",
+					Status:   "success",
+				},
+			},
+		}
+
+		workspace := &domain.Workspace{Name: "test", Branch: "feat/x"}
+		summary := NewApprovalSummary(task, workspace)
+
+		require.NotNil(t, summary.Validation)
+		assert.Len(t, summary.Validation.Checks, 3) // Format, Lint, CI
+		assert.Equal(t, "CI", summary.Validation.Checks[2].Name)
+		assert.True(t, summary.Validation.Checks[2].Passed)
+		assert.Equal(t, 3, summary.Validation.PassCount)
+	})
+
+	t.Run("extracts CI failed status", func(t *testing.T) {
+		task := &domain.Task{
+			ID:          "task-ci-fail",
+			WorkspaceID: "ws-test",
+			Status:      constants.TaskStatusCIFailed,
+			CurrentStep: 3,
+			Steps: []domain.Step{
+				{Name: "validate", Status: "completed"},
+				{Name: "git", Status: "completed"},
+				{Name: "ci-checks", Status: "failed"},
+			},
+			StepResults: []domain.StepResult{
+				{
+					StepName: "validate",
+					Status:   "success",
+					Metadata: map[string]any{
+						"validation_checks": []map[string]any{
+							{"name": "Format", "passed": true},
+						},
+					},
+				},
+				{
+					StepName: "ci-checks",
+					Status:   "failed",
+				},
+			},
+		}
+
+		workspace := &domain.Workspace{Name: "test", Branch: "feat/x"}
+		summary := NewApprovalSummary(task, workspace)
+
+		require.NotNil(t, summary.Validation)
+		assert.Len(t, summary.Validation.Checks, 2) // Format, CI
+		assert.Equal(t, "CI", summary.Validation.Checks[1].Name)
+		assert.False(t, summary.Validation.Checks[1].Passed)
+		assert.Equal(t, "failed", summary.Validation.Status)
+	})
+
+	t.Run("creates validation summary if none exists", func(t *testing.T) {
+		task := &domain.Task{
+			ID:          "task-ci-only",
+			WorkspaceID: "ws-test",
+			Status:      constants.TaskStatusAwaitingApproval,
+			CurrentStep: 1,
+			Steps: []domain.Step{
+				{Name: "ci", Status: "completed"},
+			},
+			StepResults: []domain.StepResult{
+				{
+					StepName: "ci",
+					Status:   "success",
+				},
+			},
+		}
+
+		workspace := &domain.Workspace{Name: "test", Branch: "feat/x"}
+		summary := NewApprovalSummary(task, workspace)
+
+		require.NotNil(t, summary.Validation)
+		assert.Len(t, summary.Validation.Checks, 1)
+		assert.Equal(t, "CI", summary.Validation.Checks[0].Name)
+	})
+}
+
+// TestRenderChecksLine tests rendering individual checks.
+func TestRenderChecksLine(t *testing.T) {
+	// Disable colors for consistent test output
+	t.Setenv("NO_COLOR", "1")
+
+	t.Run("renders all passing checks", func(t *testing.T) {
+		checks := []ValidationCheck{
+			{Name: "Format", Passed: true},
+			{Name: "Lint", Passed: true},
+			{Name: "Test", Passed: true},
+			{Name: "Pre-commit", Passed: true},
+			{Name: "CI", Passed: true},
+		}
+
+		result := renderChecksLine(checks)
+
+		assert.Contains(t, result, "Format ✓")
+		assert.Contains(t, result, "Lint ✓")
+		assert.Contains(t, result, "Test ✓")
+		assert.Contains(t, result, "Pre-commit ✓")
+		assert.Contains(t, result, "CI ✓")
+		assert.Contains(t, result, " | ")
+	})
+
+	t.Run("renders mixed pass/fail checks", func(t *testing.T) {
+		checks := []ValidationCheck{
+			{Name: "Format", Passed: true},
+			{Name: "Lint", Passed: false},
+			{Name: "Test", Passed: true},
+			{Name: "Pre-commit", Passed: false},
+		}
+
+		result := renderChecksLine(checks)
+
+		assert.Contains(t, result, "Format ✓")
+		assert.Contains(t, result, "Lint ✗")
+		assert.Contains(t, result, "Test ✓")
+		assert.Contains(t, result, "Pre-commit ✗")
+	})
+
+	t.Run("handles empty checks", func(t *testing.T) {
+		checks := []ValidationCheck{}
+
+		result := renderChecksLine(checks)
+
+		assert.Equal(t, "    \n", result)
+	})
+}
+
+// TestRenderValidationSectionWithMode tests validation section rendering with modes.
+func TestRenderValidationSectionWithMode(t *testing.T) {
+	// Disable colors for consistent test output
+	t.Setenv("NO_COLOR", "1")
+
+	now := time.Now()
+
+	t.Run("standard mode shows checks", func(t *testing.T) {
+		validation := &ValidationSummary{
+			PassCount: 5,
+			FailCount: 0,
+			Status:    "passed",
+			LastRunAt: &now,
+			Checks: []ValidationCheck{
+				{Name: "Format", Passed: true},
+				{Name: "Lint", Passed: true},
+				{Name: "Test", Passed: true},
+				{Name: "Pre-commit", Passed: true},
+				{Name: "CI", Passed: true},
+			},
+		}
+
+		result := renderValidationSectionWithMode(validation, 100, displayModeStandard)
+
+		assert.Contains(t, result, "Validation:")
+		assert.Contains(t, result, "passed")
+		assert.Contains(t, result, "5/5")
+		assert.Contains(t, result, "Format ✓")
+		assert.Contains(t, result, "CI ✓")
+	})
+
+	t.Run("compact mode hides checks", func(t *testing.T) {
+		validation := &ValidationSummary{
+			PassCount: 4,
+			FailCount: 0,
+			Status:    "passed",
+			LastRunAt: &now,
+			Checks: []ValidationCheck{
+				{Name: "Format", Passed: true},
+				{Name: "Lint", Passed: true},
+				{Name: "Test", Passed: true},
+				{Name: "Pre-commit", Passed: true},
+			},
+		}
+
+		result := renderValidationSectionWithMode(validation, 60, displayModeCompact)
+
+		assert.Contains(t, result, "Validation:")
+		assert.Contains(t, result, "passed")
+		assert.Contains(t, result, "4/4")
+		// Individual checks should NOT be shown in compact mode
+		assert.NotContains(t, result, "Format ✓")
+	})
+
+	t.Run("expanded mode shows checks", func(t *testing.T) {
+		validation := &ValidationSummary{
+			PassCount: 3,
+			FailCount: 1,
+			Status:    "failed",
+			LastRunAt: &now,
+			Checks: []ValidationCheck{
+				{Name: "Format", Passed: true},
+				{Name: "Lint", Passed: false},
+				{Name: "Test", Passed: true},
+				{Name: "Pre-commit", Passed: true},
+			},
+		}
+
+		result := renderValidationSectionWithMode(validation, 120, displayModeExpanded)
+
+		assert.Contains(t, result, "Validation:")
+		assert.Contains(t, result, "failed")
+		assert.Contains(t, result, "3/4")
+		assert.Contains(t, result, "Format ✓")
+		assert.Contains(t, result, "Lint ✗")
+	})
+
+	t.Run("no checks falls back to legacy display", func(t *testing.T) {
+		validation := &ValidationSummary{
+			PassCount: 1,
+			FailCount: 0,
+			Status:    "passed",
+			LastRunAt: &now,
+			Checks:    nil, // No checks
+		}
+
+		result := renderValidationSectionWithMode(validation, 100, displayModeStandard)
+
+		assert.Contains(t, result, "Validation:")
+		assert.Contains(t, result, "passed")
+		assert.Contains(t, result, "1/1")
+		// No individual check line
+		assert.NotContains(t, result, " | ")
+	})
+}
+
+// TestRenderApprovalSummary_WithChecks tests full approval summary with validation checks.
+func TestRenderApprovalSummary_WithChecks(t *testing.T) {
+	// Disable colors for consistent test output
+	t.Setenv("NO_COLOR", "1")
+
+	now := time.Now()
+	summary := &ApprovalSummary{
+		TaskID:        "task-test-checks",
+		WorkspaceName: "test-ws",
+		Status:        constants.TaskStatusAwaitingApproval,
+		CurrentStep:   5,
+		TotalSteps:    6,
+		Description:   "Test with validation checks",
+		BranchName:    "feat/checks",
+		PRURL:         "https://github.com/org/repo/pull/100",
+		FileChanges: []FileChange{
+			{Path: "file.go"},
+		},
+		Validation: &ValidationSummary{
+			PassCount: 5,
+			FailCount: 0,
+			Status:    "passed",
+			LastRunAt: &now,
+			Checks: []ValidationCheck{
+				{Name: "Format", Passed: true},
+				{Name: "Lint", Passed: true},
+				{Name: "Test", Passed: true},
+				{Name: "Pre-commit", Passed: true},
+				{Name: "CI", Passed: true},
+			},
+		},
+	}
+
+	result := RenderApprovalSummaryWithWidth(summary, 100)
+
+	assert.Contains(t, result, "Approval Summary")
+	assert.Contains(t, result, "test-ws")
+	assert.Contains(t, result, "Validation:")
+	assert.Contains(t, result, "5/5")
+	assert.Contains(t, result, "Format ✓")
+	assert.Contains(t, result, "Lint ✓")
+	assert.Contains(t, result, "Test ✓")
+	assert.Contains(t, result, "Pre-commit ✓")
+	assert.Contains(t, result, "CI ✓")
+}
+
+// TestRenderValidationSection_BackwardCompatibility tests the deprecated function.
+func TestRenderValidationSection_BackwardCompatibility(t *testing.T) {
+	// Disable colors for consistent test output
+	t.Setenv("NO_COLOR", "1")
+
+	now := time.Now()
+	validation := &ValidationSummary{
+		PassCount: 3,
+		FailCount: 0,
+		Status:    "passed",
+		LastRunAt: &now,
+		Checks: []ValidationCheck{
+			{Name: "Format", Passed: true},
+			{Name: "Lint", Passed: true},
+			{Name: "Test", Passed: true},
+		},
+	}
+
+	result := renderValidationSection(validation, 100)
+
+	// Should behave like standard mode
+	assert.Contains(t, result, "Validation:")
+	assert.Contains(t, result, "passed")
+	assert.Contains(t, result, "Format ✓")
+}
