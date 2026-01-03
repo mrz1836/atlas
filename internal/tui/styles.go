@@ -453,23 +453,68 @@ func (b *BoxStyle) Render(title, content string) string {
 
 // stripANSI removes ANSI escape codes from a string.
 // Used to calculate visible character count (excluding color codes).
+// Handles both CSI sequences (\x1b[...letter) and OSC sequences (\x1b]...ST).
 func stripANSI(s string) string {
 	var result strings.Builder
-	inEscape := false
-	for _, r := range s {
-		if r == '\x1b' {
-			inEscape = true
+	runes := []rune(s)
+	i := 0
+	for i < len(runes) {
+		if newI := trySkipANSI(runes, i); newI != i {
+			i = newI
 			continue
 		}
-		if inEscape {
-			if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') {
-				inEscape = false
-			}
-			continue
-		}
-		result.WriteRune(r)
+		result.WriteRune(runes[i])
+		i++
 	}
 	return result.String()
+}
+
+// trySkipANSI attempts to skip an ANSI escape sequence starting at position i.
+// Returns the new position after the sequence, or i if no sequence was found.
+func trySkipANSI(runes []rune, i int) int {
+	if i >= len(runes) || runes[i] != '\x1b' || i+1 >= len(runes) {
+		return i
+	}
+
+	next := runes[i+1]
+	if next == '[' {
+		return skipCSISequence(runes, i)
+	}
+	if next == ']' {
+		return skipOSCSequence(runes, i)
+	}
+	return i
+}
+
+// skipCSISequence skips a CSI sequence: \x1b[...letter
+func skipCSISequence(runes []rune, i int) int {
+	i += 2 // skip \x1b[
+	for i < len(runes) {
+		c := runes[i]
+		i++
+		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') {
+			break // CSI sequence ends with a letter
+		}
+	}
+	return i
+}
+
+// skipOSCSequence skips an OSC sequence: \x1b]...ST (where ST is \x1b\\ or \x07)
+func skipOSCSequence(runes []rune, i int) int {
+	i += 2 // skip \x1b]
+	for i < len(runes) {
+		c := runes[i]
+		if c == '\x07' {
+			i++ // skip BEL terminator
+			break
+		}
+		if c == '\x1b' && i+1 < len(runes) && runes[i+1] == '\\' {
+			i += 2 // skip ST (\x1b\\)
+			break
+		}
+		i++
+	}
+	return i
 }
 
 // padRight pads a string to the right to reach the target width.

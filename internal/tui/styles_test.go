@@ -554,6 +554,21 @@ func TestStripANSI(t *testing.T) {
 			input:    "\x1b[32m✓\x1b[0m passed",
 			expected: "✓ passed",
 		},
+		{
+			name:     "OSC 8 hyperlink with ST terminator",
+			input:    "\x1b]8;;https://github.com/org/repo/pull/11\x1b\\#11\x1b]8;;\x1b\\",
+			expected: "#11",
+		},
+		{
+			name:     "OSC 8 hyperlink with BEL terminator",
+			input:    "\x1b]8;;https://example.com\x07link text\x1b]8;;\x07",
+			expected: "link text",
+		},
+		{
+			name:     "mixed CSI and OSC sequences",
+			input:    "\x1b[32m\x1b]8;;http://url\x1b\\text\x1b]8;;\x1b\\\x1b[0m",
+			expected: "text",
+		},
 	}
 
 	for _, tt := range tests {
