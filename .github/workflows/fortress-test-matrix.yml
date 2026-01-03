@@ -98,9 +98,8 @@ on:
         required: true
         type: string
 
-# Security: Restrictive default permissions with job-level overrides for least privilege access
-permissions:
-  contents: read
+# Security: Restrict default permissions (jobs must explicitly request what they need)
+permissions: {}
 
 jobs:
   # ----------------------------------------------------------------------------------
@@ -170,6 +169,15 @@ jobs:
           magex-version: ${{ env.MAGE_X_VERSION }}
           runner-os: ${{ matrix.os }}
           use-local: ${{ env.MAGE_X_USE_LOCAL }}
+
+      # --------------------------------------------------------------------
+      # Setup benchstat (required for benchmark comparison tests)
+      # --------------------------------------------------------------------
+      - name: 📊 Setup benchstat
+        uses: ./.github/actions/setup-benchstat
+        with:
+          benchstat-version: ${{ env.MAGE_X_BENCHSTAT_VERSION }}
+          runner-os: ${{ matrix.os }}
 
       # --------------------------------------------------------------------
       # Setup Redis service using composite action with caching

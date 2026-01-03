@@ -30,9 +30,8 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
 
-# Security: Restrictive default permissions with job-level overrides for least privilege access
-permissions:
-  contents: read
+# Security: Restrict default permissions (jobs must explicitly request what they need)
+permissions: {}
 
 # --------------------------------------------------------------------
 # Concurrency Control
@@ -53,6 +52,8 @@ jobs:
   load-env:
     name: 🌍 Load Environment Variables
     runs-on: ubuntu-latest
+    permissions:
+      contents: read # Required: Read repository content for sparse checkout
     # Only run on Dependabot PRs
     if: github.event.pull_request.user.login == 'dependabot[bot]'
     outputs:
