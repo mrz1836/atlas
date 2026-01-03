@@ -80,7 +80,7 @@
             "-.mage-cache"
         ],
         "formatting.gofumpt": true,
-        "formatting.local": "github.com/mrz1836/mage-x",
+        "formatting.local": "github.com/mrz1836/atlas",
         "symbolMatcher": "fastfuzzy",
         "symbolStyle": "full",
         "ui.completion.completeFunctionCalls": true,
