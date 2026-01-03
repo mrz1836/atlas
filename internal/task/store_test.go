@@ -400,6 +400,62 @@ func TestFileStore_AppendLog(t *testing.T) {
 	})
 }
 
+func TestFileStore_ReadLog(t *testing.T) {
+	t.Run("reads log entries", func(t *testing.T) {
+		store, _ := setupTestStore(t)
+
+		task := createTestTask("task-20251228-100052")
+		err := store.Create(context.Background(), "test-ws", task)
+		require.NoError(t, err)
+
+		// Append log entries
+		entry1 := []byte(`{"level":"info","msg":"Starting task"}`)
+		entry2 := []byte(`{"level":"info","msg":"Task complete"}`)
+
+		err = store.AppendLog(context.Background(), "test-ws", task.ID, entry1)
+		require.NoError(t, err)
+
+		err = store.AppendLog(context.Background(), "test-ws", task.ID, entry2)
+		require.NoError(t, err)
+
+		// Read log
+		data, err := store.ReadLog(context.Background(), "test-ws", task.ID)
+		require.NoError(t, err)
+
+		assert.Contains(t, string(data), `{"level":"info","msg":"Starting task"}`)
+		assert.Contains(t, string(data), `{"level":"info","msg":"Task complete"}`)
+	})
+
+	t.Run("errors on non-existent log file", func(t *testing.T) {
+		store, _ := setupTestStore(t)
+
+		task := createTestTask("task-20251228-100053")
+		err := store.Create(context.Background(), "test-ws", task)
+		require.NoError(t, err)
+
+		// Task exists but no log file has been written
+		_, err = store.ReadLog(context.Background(), "test-ws", task.ID)
+		require.Error(t, err)
+		assert.ErrorIs(t, err, atlaserrors.ErrArtifactNotFound)
+	})
+
+	t.Run("errors on empty workspace name", func(t *testing.T) {
+		store, _ := setupTestStore(t)
+
+		_, err := store.ReadLog(context.Background(), "", "task-123")
+		require.Error(t, err)
+		assert.ErrorIs(t, err, atlaserrors.ErrEmptyValue)
+	})
+
+	t.Run("errors on empty task ID", func(t *testing.T) {
+		store, _ := setupTestStore(t)
+
+		_, err := store.ReadLog(context.Background(), "test-ws", "")
+		require.Error(t, err)
+		assert.ErrorIs(t, err, atlaserrors.ErrEmptyValue)
+	})
+}
+
 func TestFileStore_Artifacts(t *testing.T) {
 	t.Run("saves and retrieves artifact", func(t *testing.T) {
 		store, _ := setupTestStore(t)

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -408,4 +409,186 @@ func TestInitLogger_RedactsSensitiveDataInFile(t *testing.T) {
 
 	// Non-sensitive parts should be preserved
 	assert.Contains(t, content, "connecting with key", "non-sensitive message part should be preserved")
+}
+
+// mockTaskLogAppender is a test implementation of TaskLogAppender.
+type mockTaskLogAppender struct {
+	entries []mockLogEntry
+}
+
+type mockLogEntry struct {
+	workspaceName string
+	taskID        string
+	entry         []byte
+}
+
+func (m *mockTaskLogAppender) AppendLog(_ context.Context, workspaceName, taskID string, entry []byte) error {
+	m.entries = append(m.entries, mockLogEntry{
+		workspaceName: workspaceName,
+		taskID:        taskID,
+		entry:         entry,
+	})
+	return nil
+}
+
+func TestTaskLogWriter_Write(t *testing.T) {
+	t.Parallel()
+
+	t.Run("passes through to target writer", func(t *testing.T) {
+		t.Parallel()
+
+		var buf bytes.Buffer
+		mock := &mockTaskLogAppender{}
+		writer := newTaskLogWriter(mock, &buf)
+
+		input := []byte(`{"level":"info","event":"test message"}`)
+		n, err := writer.Write(input)
+
+		require.NoError(t, err)
+		assert.Equal(t, len(input), n)
+		assert.Equal(t, input, buf.Bytes())
+	})
+
+	t.Run("persists log with workspace and task context", func(t *testing.T) {
+		t.Parallel()
+
+		var buf bytes.Buffer
+		mock := &mockTaskLogAppender{}
+		writer := newTaskLogWriter(mock, &buf)
+
+		input := []byte(`{"level":"info","event":"test message","workspace_name":"test-ws","task_id":"task-123"}`)
+		n, err := writer.Write(input)
+
+		require.NoError(t, err)
+		assert.Equal(t, len(input), n)
+		assert.Equal(t, input, buf.Bytes())
+
+		// Verify log was persisted via AppendLog
+		require.Len(t, mock.entries, 1)
+		assert.Equal(t, "test-ws", mock.entries[0].workspaceName)
+		assert.Equal(t, "task-123", mock.entries[0].taskID)
+		assert.Equal(t, input, mock.entries[0].entry)
+	})
+
+	t.Run("does not persist log without workspace_name", func(t *testing.T) {
+		t.Parallel()
+
+		var buf bytes.Buffer
+		mock := &mockTaskLogAppender{}
+		writer := newTaskLogWriter(mock, &buf)
+
+		input := []byte(`{"level":"info","event":"test message","task_id":"task-123"}`)
+		n, err := writer.Write(input)
+
+		require.NoError(t, err)
+		assert.Equal(t, len(input), n)
+		assert.Empty(t, mock.entries)
+	})
+
+	t.Run("does not persist log without task_id", func(t *testing.T) {
+		t.Parallel()
+
+		var buf bytes.Buffer
+		mock := &mockTaskLogAppender{}
+		writer := newTaskLogWriter(mock, &buf)
+
+		input := []byte(`{"level":"info","event":"test message","workspace_name":"test-ws"}`)
+		n, err := writer.Write(input)
+
+		require.NoError(t, err)
+		assert.Equal(t, len(input), n)
+		assert.Empty(t, mock.entries)
+	})
+
+	t.Run("handles non-JSON input gracefully", func(t *testing.T) {
+		t.Parallel()
+
+		var buf bytes.Buffer
+		mock := &mockTaskLogAppender{}
+		writer := newTaskLogWriter(mock, &buf)
+
+		input := []byte("not json at all")
+		n, err := writer.Write(input)
+
+		require.NoError(t, err)
+		assert.Equal(t, len(input), n)
+		assert.Equal(t, input, buf.Bytes())
+		assert.Empty(t, mock.entries)
+	})
+
+	t.Run("handles malformed JSON gracefully", func(t *testing.T) {
+		t.Parallel()
+
+		var buf bytes.Buffer
+		mock := &mockTaskLogAppender{}
+		writer := newTaskLogWriter(mock, &buf)
+
+		input := []byte(`{"level":"info", "broken`)
+		n, err := writer.Write(input)
+
+		require.NoError(t, err)
+		assert.Equal(t, len(input), n)
+		assert.Empty(t, mock.entries)
+	})
+}
+
+func TestInitLoggerWithTaskStore(t *testing.T) {
+	// Can't use t.Parallel() with t.Setenv()
+
+	tmpDir := t.TempDir()
+	t.Setenv("ATLAS_HOME", tmpDir)
+
+	// Reset log file writer from any previous tests
+	logFileWriter = nil
+
+	mock := &mockTaskLogAppender{}
+	logger := InitLoggerWithTaskStore(false, false, mock)
+
+	// Log with workspace/task context
+	logger.Info().
+		Str("workspace_name", "test-ws").
+		Str("task_id", "task-456").
+		Msg("step completed")
+
+	// Close the log file to flush
+	CloseLogFile()
+
+	// Verify log was persisted via AppendLog
+	require.Len(t, mock.entries, 1)
+	assert.Equal(t, "test-ws", mock.entries[0].workspaceName)
+	assert.Equal(t, "task-456", mock.entries[0].taskID)
+	assert.Contains(t, string(mock.entries[0].entry), "step completed")
+}
+
+func TestGetLoggerWithTaskStore(t *testing.T) {
+	// Can't use t.Parallel() due to global state access
+
+	// Set up global flags
+	globalLoggerMu.Lock()
+	globalLogFlags.verbose = false
+	globalLogFlags.quiet = false
+	globalLoggerMu.Unlock()
+
+	tmpDir := t.TempDir()
+	t.Setenv("ATLAS_HOME", tmpDir)
+
+	// Reset log file writer from any previous tests
+	logFileWriter = nil
+
+	mock := &mockTaskLogAppender{}
+	logger := GetLoggerWithTaskStore(mock)
+
+	// Log with workspace/task context
+	logger.Info().
+		Str("workspace_name", "test-ws").
+		Str("task_id", "task-789").
+		Msg("test log entry")
+
+	// Close the log file to flush
+	CloseLogFile()
+
+	// Verify log was persisted
+	require.Len(t, mock.entries, 1)
+	assert.Equal(t, "test-ws", mock.entries[0].workspaceName)
+	assert.Equal(t, "task-789", mock.entries[0].taskID)
 }

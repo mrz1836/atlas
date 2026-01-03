@@ -2,6 +2,8 @@
 package cli
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -84,6 +86,97 @@ func InitLoggerWithWriter(verbose, quiet bool, w io.Writer) zerolog.Logger {
 	level := selectLevel(verbose, quiet)
 	hook := logging.NewSensitiveDataHook()
 	return zerolog.New(w).Level(level).Hook(hook).With().Timestamp().Logger()
+}
+
+// TaskLogAppender is a minimal interface for appending logs to task-specific log files.
+// This interface is satisfied by task.Store.
+type TaskLogAppender interface {
+	AppendLog(ctx context.Context, workspaceName, taskID string, entry []byte) error
+}
+
+// InitLoggerWithTaskStore creates a logger that persists task-specific logs.
+// Log entries with workspace_name and task_id fields are written to the task's log file.
+// All logs continue to go to console and global log file as normal.
+func InitLoggerWithTaskStore(verbose, quiet bool, store TaskLogAppender) zerolog.Logger {
+	// Configure zerolog global field names on first call
+	configureZerologGlobals()
+
+	level := selectLevel(verbose, quiet)
+
+	// Create sensitive data filter hook
+	hook := logging.NewSensitiveDataHook()
+
+	// Create file writer for global log with rotation
+	fileWriter, err := createLogFileWriter()
+	if err != nil {
+		// Log file creation failed; continue with console-only output + task logs
+		consoleOutput := selectOutput()
+		taskLogWriter := newTaskLogWriter(store, consoleOutput)
+		return zerolog.New(taskLogWriter).Level(level).Hook(hook).With().Timestamp().Logger()
+	}
+
+	// Store file writer for cleanup
+	logFileWriter = fileWriter
+
+	// Multi-writer: console + file
+	consoleOutput := selectOutput()
+	multi := zerolog.MultiLevelWriter(consoleOutput, fileWriter)
+
+	// Wrap with task log writer to persist task-specific logs
+	taskLogWriter := newTaskLogWriter(store, multi)
+
+	return zerolog.New(taskLogWriter).Level(level).Hook(hook).With().Timestamp().Logger()
+}
+
+// taskLogWriter wraps an io.Writer and persists log entries with workspace_name
+// and task_id fields to the task-specific log file.
+type taskLogWriter struct {
+	store  TaskLogAppender
+	target io.Writer
+}
+
+// newTaskLogWriter creates a taskLogWriter that persists logs with workspace/task
+// context to the task store while passing all writes to the target writer.
+func newTaskLogWriter(store TaskLogAppender, target io.Writer) *taskLogWriter {
+	return &taskLogWriter{
+		store:  store,
+		target: target,
+	}
+}
+
+// logFields represents the minimal fields we need to extract from log entries.
+type logFields struct {
+	WorkspaceName string `json:"workspace_name"`
+	TaskID        string `json:"task_id"`
+}
+
+// Write implements io.Writer. It parses JSON log entries to extract workspace_name
+// and task_id, persisting matching entries to the task log file.
+func (w *taskLogWriter) Write(p []byte) (n int, err error) {
+	// Try to persist to task log if entry has workspace/task context
+	w.persistToTaskLog(p)
+
+	// Always pass through to target writer
+	return w.target.Write(p)
+}
+
+// persistToTaskLog attempts to parse the log entry and persist it to the task log.
+// Failures are silently ignored to avoid disrupting normal logging.
+func (w *taskLogWriter) persistToTaskLog(p []byte) {
+	// Parse JSON to extract workspace_name and task_id
+	var fields logFields
+	if err := json.Unmarshal(p, &fields); err != nil {
+		// Not valid JSON or doesn't have our fields - skip silently
+		return
+	}
+
+	// Only persist if both workspace_name and task_id are present
+	if fields.WorkspaceName == "" || fields.TaskID == "" {
+		return
+	}
+
+	// Persist to task log - errors are ignored to avoid disrupting logging
+	_ = w.store.AppendLog(context.Background(), fields.WorkspaceName, fields.TaskID, p)
 }
 
 // CloseLogFile closes the global log file writer if it was opened.
