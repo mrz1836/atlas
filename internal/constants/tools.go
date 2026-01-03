@@ -63,6 +63,9 @@ const (
 
 	// VersionFlagStandard is the standard version flag used by most tools.
 	VersionFlagStandard = "--version"
+
+	// VersionFlagSpeckit is the version subcommand for Speckit.
+	VersionFlagSpeckit = "version"
 )
 
 // Managed tool install paths for go install command.
@@ -71,7 +74,7 @@ const (
 	InstallPathAtlas = "github.com/mrz1836/atlas@latest"
 
 	// InstallPathMageX is the go install path for mage-x.
-	InstallPathMageX = "github.com/mage-x/magex@latest"
+	InstallPathMageX = "github.com/mrz1836/mage-x/cmd/magex@latest"
 
 	// InstallPathGoPreCommit is the go install path for go-pre-commit.
 	InstallPathGoPreCommit = "github.com/mrz1836/go-pre-commit@latest"

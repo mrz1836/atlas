@@ -133,6 +133,10 @@ func (e *DefaultCommandExecutor) LookPath(file string) (string, error) {
 // Run executes a command and returns its output.
 func (e *DefaultCommandExecutor) Run(ctx context.Context, name string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
+	// Ensure output is captured and not printed to terminal
+	cmd.Stdout = nil
+	cmd.Stderr = nil
+	cmd.Stdin = nil
 	output, err := cmd.CombinedOutput()
 	return string(output), err
 }
