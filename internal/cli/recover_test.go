@@ -328,6 +328,10 @@ func (m *mockRecoverTaskStore) AppendLog(_ context.Context, _, _ string, _ []byt
 	return nil
 }
 
+func (m *mockRecoverTaskStore) ReadLog(_ context.Context, _, _ string) ([]byte, error) {
+	return nil, nil
+}
+
 func (m *mockRecoverTaskStore) SaveArtifact(_ context.Context, _, _, _ string, _ []byte) error {
 	return nil
 }

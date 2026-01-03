@@ -69,10 +69,12 @@ func (m *mockWorkspaceStore) Exists(_ context.Context, name string) (bool, error
 type mockTaskStoreForApprove struct {
 	tasks       map[string][]*domain.Task // workspaceName -> tasks
 	artifacts   map[string][]byte         // "workspace:task:filename" -> data
+	logData     []byte                    // log file data
 	getErr      error
 	listErr     error
 	updateErr   error
 	artifactErr error
+	logErr      error
 }
 
 func (m *mockTaskStoreForApprove) List(_ context.Context, workspaceName string) ([]*domain.Task, error) {
@@ -124,6 +126,16 @@ func (m *mockTaskStoreForApprove) Delete(_ context.Context, _, _ string) error {
 
 func (m *mockTaskStoreForApprove) AppendLog(_ context.Context, _, _ string, _ []byte) error {
 	return nil
+}
+
+func (m *mockTaskStoreForApprove) ReadLog(_ context.Context, _, _ string) ([]byte, error) {
+	if m.logErr != nil {
+		return nil, m.logErr
+	}
+	if m.logData != nil {
+		return m.logData, nil
+	}
+	return nil, atlaserrors.ErrArtifactNotFound
 }
 
 func (m *mockTaskStoreForApprove) SaveArtifact(_ context.Context, _, _, _ string, _ []byte) error {
@@ -577,8 +589,8 @@ func TestViewLogs_NoLogFile(t *testing.T) {
 	t.Parallel()
 
 	mockStore := &mockTaskStoreForApprove{
-		tasks:       map[string][]*domain.Task{},
-		artifactErr: atlaserrors.ErrArtifactNotFound,
+		tasks:  map[string][]*domain.Task{},
+		logErr: atlaserrors.ErrArtifactNotFound,
 	}
 
 	ctx := context.Background()

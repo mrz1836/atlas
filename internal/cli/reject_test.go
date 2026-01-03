@@ -79,6 +79,10 @@ func (m *mockTaskStoreForReject) AppendLog(_ context.Context, _, _ string, _ []b
 	return nil
 }
 
+func (m *mockTaskStoreForReject) ReadLog(_ context.Context, _, _ string) ([]byte, error) {
+	return nil, nil
+}
+
 func (m *mockTaskStoreForReject) SaveArtifact(_ context.Context, workspaceName, taskID, filename string, data []byte) error {
 	if m.saveArtErr != nil {
 		return m.saveArtErr
