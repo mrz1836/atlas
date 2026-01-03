@@ -216,6 +216,13 @@ func (g *AIDescriptionGenerator) Generate(ctx context.Context, opts PRDescOption
 		return NewTemplateDescriptionGenerator().Generate(ctx, opts)
 	}
 
+	// Append hidden metadata to the body
+	var metaSb strings.Builder
+	writeMetadataSection(&metaSb, opts)
+	if metaSb.Len() > 0 {
+		desc.Body = desc.Body + "\n" + metaSb.String()
+	}
+
 	g.logger.Info().
 		Str("title", desc.Title).
 		Str("type", desc.ConventionalType).
@@ -246,9 +253,6 @@ REQUIREMENTS:
 
    ## Test Plan
    How the changes were tested/validated.
-
-   ## ATLAS Metadata (optional)
-   Task and workspace information.
 
 OUTPUT FORMAT:
 Return ONLY the title and body in this exact format:
