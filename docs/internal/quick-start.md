@@ -495,7 +495,7 @@ atlas upgrade --yes
 
 # Upgrade specific tool
 atlas upgrade speckit
-atlas upgrade mage-x
+atlas upgrade magex
 atlas upgrade go-pre-commit
 ```
 
