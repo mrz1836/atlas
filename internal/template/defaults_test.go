@@ -1,10 +1,14 @@
 package template
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/mrz1836/atlas/internal/domain"
 )
 
 func TestNewDefaultRegistry(t *testing.T) {
@@ -102,4 +106,218 @@ func TestDefaultRegistry_TemplatesHaveValidConfiguration(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Helper to create a valid custom template YAML file.
+func createCustomTemplateFile(t *testing.T, dir, filename, content string) string {
+	t.Helper()
+	path := filepath.Join(dir, filename)
+	require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
+	return path
+}
+
+const validCustomTemplate = `
+name: custom-workflow
+description: A custom workflow template
+branch_prefix: custom
+default_model: haiku
+
+steps:
+  - name: implement
+    type: ai
+    required: true
+    timeout: 20m
+
+  - name: validate
+    type: validation
+    required: true
+    timeout: 5m
+`
+
+const customBugfixOverride = `
+name: bugfix
+description: Custom bugfix workflow
+branch_prefix: hotfix
+default_model: opus
+
+steps:
+  - name: quick-fix
+    type: ai
+    required: true
+    timeout: 10m
+`
+
+func TestNewRegistryWithConfig_NoCustom(t *testing.T) {
+	r, err := NewRegistryWithConfig("/tmp", nil)
+	require.NoError(t, err)
+	require.NotNil(t, r)
+
+	// Should have all 4 built-in templates
+	assert.Len(t, r.List(), 4)
+}
+
+func TestNewRegistryWithConfig_EmptyCustom(t *testing.T) {
+	r, err := NewRegistryWithConfig("/tmp", map[string]string{})
+	require.NoError(t, err)
+	require.NotNil(t, r)
+
+	// Should have all 4 built-in templates
+	assert.Len(t, r.List(), 4)
+}
+
+func TestNewRegistryWithConfig_CustomAdded(t *testing.T) {
+	tmpDir := t.TempDir()
+	createCustomTemplateFile(t, tmpDir, "custom.yaml", validCustomTemplate)
+
+	r, err := NewRegistryWithConfig(tmpDir, map[string]string{
+		"custom-workflow": "custom.yaml",
+	})
+	require.NoError(t, err)
+	require.NotNil(t, r)
+
+	// Should have 5 templates (4 built-in + 1 custom)
+	assert.Len(t, r.List(), 5)
+
+	// Verify custom template is available
+	custom, err := r.Get("custom-workflow")
+	require.NoError(t, err)
+	assert.Equal(t, "custom-workflow", custom.Name)
+	assert.Equal(t, "custom", custom.BranchPrefix)
+	assert.Equal(t, "haiku", custom.DefaultModel)
+}
+
+func TestNewRegistryWithConfig_OverrideBuiltin(t *testing.T) {
+	tmpDir := t.TempDir()
+	createCustomTemplateFile(t, tmpDir, "bugfix.yaml", customBugfixOverride)
+
+	r, err := NewRegistryWithConfig(tmpDir, map[string]string{
+		"bugfix": "bugfix.yaml",
+	})
+	require.NoError(t, err)
+	require.NotNil(t, r)
+
+	// Should still have 4 templates (custom replaces built-in)
+	assert.Len(t, r.List(), 4)
+
+	// Verify the bugfix template was replaced
+	bugfix, err := r.Get("bugfix")
+	require.NoError(t, err)
+	assert.Equal(t, "bugfix", bugfix.Name)
+	assert.Equal(t, "Custom bugfix workflow", bugfix.Description)
+	assert.Equal(t, "hotfix", bugfix.BranchPrefix)
+	assert.Equal(t, "opus", bugfix.DefaultModel)
+
+	// Verify other built-ins are unchanged
+	feature, err := r.Get("feature")
+	require.NoError(t, err)
+	assert.Equal(t, "feat", feature.BranchPrefix)
+}
+
+func TestNewRegistryWithConfig_LoadFailure(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Non-existent file
+	_, err := NewRegistryWithConfig(tmpDir, map[string]string{
+		"missing": "nonexistent.yaml",
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to load custom templates")
+}
+
+func TestNewRegistryWithConfig_InvalidTemplate(t *testing.T) {
+	tmpDir := t.TempDir()
+	invalidTemplate := `
+name: invalid
+steps:
+  - name: step1
+    type: unknown_type
+    required: true
+`
+	createCustomTemplateFile(t, tmpDir, "invalid.yaml", invalidTemplate)
+
+	_, err := NewRegistryWithConfig(tmpDir, map[string]string{
+		"invalid": "invalid.yaml",
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "is not valid")
+}
+
+func TestNewRegistryWithConfig_MultipleCustom(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	template1 := `
+name: workflow1
+steps:
+  - name: step1
+    type: ai
+    required: true
+`
+	template2 := `
+name: workflow2
+steps:
+  - name: step1
+    type: validation
+    required: true
+`
+	createCustomTemplateFile(t, tmpDir, "w1.yaml", template1)
+	createCustomTemplateFile(t, tmpDir, "w2.yaml", template2)
+
+	r, err := NewRegistryWithConfig(tmpDir, map[string]string{
+		"workflow1": "w1.yaml",
+		"workflow2": "w2.yaml",
+	})
+	require.NoError(t, err)
+
+	// Should have 6 templates (4 built-in + 2 custom)
+	assert.Len(t, r.List(), 6)
+
+	// Verify both custom templates are available
+	w1, err := r.Get("workflow1")
+	require.NoError(t, err)
+	assert.Equal(t, domain.StepTypeAI, w1.Steps[0].Type)
+
+	w2, err := r.Get("workflow2")
+	require.NoError(t, err)
+	assert.Equal(t, domain.StepTypeValidation, w2.Steps[0].Type)
+}
+
+func TestNewRegistryWithConfig_ConfigNameOverridesFileName(t *testing.T) {
+	tmpDir := t.TempDir()
+	template := `
+name: original-name
+steps:
+  - name: step1
+    type: ai
+    required: true
+`
+	createCustomTemplateFile(t, tmpDir, "template.yaml", template)
+
+	r, err := NewRegistryWithConfig(tmpDir, map[string]string{
+		"config-name": "template.yaml",
+	})
+	require.NoError(t, err)
+
+	// Should be able to get by config name
+	tmpl, err := r.Get("config-name")
+	require.NoError(t, err)
+	assert.Equal(t, "config-name", tmpl.Name)
+
+	// Original name should not exist
+	_, err = r.Get("original-name")
+	require.Error(t, err)
+}
+
+func TestNewRegistryWithConfig_AbsolutePath(t *testing.T) {
+	tmpDir := t.TempDir()
+	absPath := createCustomTemplateFile(t, tmpDir, "template.yaml", validCustomTemplate)
+
+	// Use a different base path to prove absolute path works
+	r, err := NewRegistryWithConfig("/some/other/path", map[string]string{
+		"custom-workflow": absPath,
+	})
+	require.NoError(t, err)
+
+	tmpl, err := r.Get("custom-workflow")
+	require.NoError(t, err)
+	assert.Equal(t, "custom-workflow", tmpl.Name)
 }

@@ -149,3 +149,88 @@ func TestRegistry_Concurrent(t *testing.T) {
 	// If we get here without a race condition panic, the test passes
 	assert.NotEmpty(t, r.List())
 }
+
+func TestRegistry_RegisterOrReplace_New(t *testing.T) {
+	r := NewRegistry()
+	tmpl := &domain.Template{Name: "test", Description: "Test template"}
+
+	err := r.RegisterOrReplace(tmpl)
+	require.NoError(t, err)
+
+	got, err := r.Get("test")
+	require.NoError(t, err)
+	assert.Equal(t, "test", got.Name)
+	assert.Equal(t, "Test template", got.Description)
+}
+
+func TestRegistry_RegisterOrReplace_Override(t *testing.T) {
+	r := NewRegistry()
+	tmpl1 := &domain.Template{Name: "test", Description: "First version"}
+	tmpl2 := &domain.Template{Name: "test", Description: "Second version"}
+
+	// Register first template
+	err := r.Register(tmpl1)
+	require.NoError(t, err)
+
+	// Override with second template using RegisterOrReplace
+	err = r.RegisterOrReplace(tmpl2)
+	require.NoError(t, err)
+
+	// Verify the template was replaced
+	got, err := r.Get("test")
+	require.NoError(t, err)
+	assert.Equal(t, "Second version", got.Description)
+
+	// Verify only one template exists
+	list := r.List()
+	assert.Len(t, list, 1)
+}
+
+func TestRegistry_RegisterOrReplace_Nil(t *testing.T) {
+	r := NewRegistry()
+
+	err := r.RegisterOrReplace(nil)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, atlaserrors.ErrTemplateNil)
+}
+
+func TestRegistry_RegisterOrReplace_EmptyName(t *testing.T) {
+	r := NewRegistry()
+	tmpl := &domain.Template{Name: "", Description: "Test"}
+
+	err := r.RegisterOrReplace(tmpl)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, atlaserrors.ErrTemplateNameEmpty)
+}
+
+func TestRegistry_RegisterOrReplace_WhitespaceOnlyName(t *testing.T) {
+	r := NewRegistry()
+	tmpl := &domain.Template{Name: "   \t\n", Description: "Test"}
+
+	err := r.RegisterOrReplace(tmpl)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, atlaserrors.ErrTemplateNameEmpty)
+}
+
+func TestRegistry_RegisterOrReplace_Concurrent(t *testing.T) {
+	r := NewRegistry()
+	var wg sync.WaitGroup
+
+	// Register and replace templates concurrently
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func(n int) {
+			defer wg.Done()
+			// All templates have the same name to test concurrent replacement
+			tmpl := &domain.Template{Name: "shared", Description: fmt.Sprintf("version-%d", n)}
+			_ = r.RegisterOrReplace(tmpl)
+		}(i)
+	}
+
+	wg.Wait()
+
+	// Should have exactly one template
+	list := r.List()
+	assert.Len(t, list, 1)
+	assert.Equal(t, "shared", list[0].Name)
+}
