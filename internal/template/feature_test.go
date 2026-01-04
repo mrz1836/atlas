@@ -163,7 +163,7 @@ func TestFeatureTemplate_ValidationCommands(t *testing.T) {
 	expectedCommands := []string{
 		"magex format:fix",
 		"magex lint",
-		"magex test",
+		"magex test:race",
 		"go-pre-commit run --all-files",
 	}
 
