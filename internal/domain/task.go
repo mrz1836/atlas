@@ -78,6 +78,11 @@ type Task struct {
 	// Metadata stores arbitrary key-value data associated with the task.
 	Metadata map[string]any `json:"metadata,omitempty"`
 
+	// RunningProcesses tracks PIDs of currently running validation commands.
+	// This enables force-abandoning tasks by killing the underlying processes.
+	// PIDs are added when commands start and removed when they complete/fail.
+	RunningProcesses []int `json:"running_processes,omitempty"`
+
 	// SchemaVersion indicates the version of the Task struct schema.
 	// This enables forward-compatible schema migrations.
 	// Uses string format (e.g., "1.0") for semantic versioning compatibility.

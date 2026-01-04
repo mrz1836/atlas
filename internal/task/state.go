@@ -24,7 +24,7 @@ import (
 // The state machine follows this flow:
 //
 //	Pending → Running
-//	Running → Validating, GHFailed, CIFailed, CITimeout
+//	Running → Validating, GHFailed, CIFailed, CITimeout, Abandoned
 //	Validating → AwaitingApproval, ValidationFailed
 //	ValidationFailed → Running, Abandoned
 //	AwaitingApproval → Completed, Running, Rejected
@@ -40,6 +40,7 @@ var ValidTransitions = map[constants.TaskStatus][]constants.TaskStatus{
 		constants.TaskStatusGHFailed,
 		constants.TaskStatusCIFailed,
 		constants.TaskStatusCITimeout,
+		constants.TaskStatusAbandoned, // Allow force-abandon
 	},
 	constants.TaskStatusValidating:       {constants.TaskStatusAwaitingApproval, constants.TaskStatusValidationFailed},
 	constants.TaskStatusValidationFailed: {constants.TaskStatusRunning, constants.TaskStatusAbandoned},
@@ -116,7 +117,16 @@ func CanRetry(status constants.TaskStatus) bool {
 
 // CanAbandon returns true for states that can transition to Abandoned.
 // This includes all error states that support the abandon path.
+// Running status is NOT included here - use CanForceAbandon for that.
 func CanAbandon(status constants.TaskStatus) bool {
+	// Only allow abandoning error states (not Running)
+	return errorStatuses[status]
+}
+
+// CanForceAbandon returns true for states that can be force-abandoned.
+// This is more permissive than CanAbandon and includes Running status.
+// Use this when the --force flag is provided to allow abandoning running tasks.
+func CanForceAbandon(status constants.TaskStatus) bool {
 	// Check if Abandoned is a valid target from this status
 	validTargets, exists := ValidTransitions[status]
 	if !exists {

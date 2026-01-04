@@ -346,17 +346,21 @@ func (e *Engine) HandleStepResult(ctx context.Context, task *domain.Task, result
 // The task is transitioned to Abandoned status, preserving all artifacts
 // and the workspace worktree for manual work.
 //
+// When force is true, running tasks can be abandoned and any tracked processes
+// will be terminated using SIGTERM followed by SIGKILL if needed.
+//
 // Parameters:
 //   - ctx: Context for cancellation support
 //   - task: The task to abandon (must be in an abandonable state)
 //   - reason: Explanation for the abandonment
+//   - force: If true, allows abandoning running tasks and kills tracked processes
 //
 // Returns an error if:
 //   - ctx is canceled
 //   - task is nil
-//   - task is not in an abandonable state
+//   - task is not in an abandonable state (unless force=true for running tasks)
 //   - state persistence fails
-func (e *Engine) Abandon(ctx context.Context, task *domain.Task, reason string) error {
+func (e *Engine) Abandon(ctx context.Context, task *domain.Task, reason string, force bool) error {
 	// Check for cancellation
 	select {
 	case <-ctx.Done():
@@ -373,13 +377,51 @@ func (e *Engine) Abandon(ctx context.Context, task *domain.Task, reason string) 
 		Str("task_id", task.ID).
 		Str("workspace_name", task.WorkspaceID).
 		Str("current_status", task.Status.String()).
+		Bool("force", force).
 		Logger()
 
 	// Validate task can be abandoned
-	if !CanAbandon(task.Status) {
+	canAbandon := CanAbandon(task.Status)
+	if force {
+		canAbandon = CanForceAbandon(task.Status)
+	}
+
+	if !canAbandon {
 		log.Warn().Msg("task not in abandonable state")
+		if !force && CanForceAbandon(task.Status) {
+			return fmt.Errorf("%w: task status %s cannot be abandoned without --force",
+				atlaserrors.ErrInvalidTransition, task.Status)
+		}
 		return fmt.Errorf("%w: task status %s cannot be abandoned",
 			atlaserrors.ErrInvalidTransition, task.Status)
+	}
+
+	// If force-abandoning a running task, kill any tracked processes
+	if force && task.Status == constants.TaskStatusRunning {
+		log.Warn().
+			Ints("tracked_pids", task.RunningProcesses).
+			Msg("force-abandoning running task, attempting to terminate processes")
+
+		if len(task.RunningProcesses) > 0 {
+			pm := NewProcessManager(log)
+			terminated, errs := pm.TerminateProcesses(task.RunningProcesses, 2*time.Second)
+
+			log.Info().
+				Int("total_processes", len(task.RunningProcesses)).
+				Int("terminated", terminated).
+				Int("errors", len(errs)).
+				Msg("process termination attempted")
+
+			// Log individual errors but don't fail the abandonment
+			for _, err := range errs {
+				log.Warn().Err(err).Msg("failed to terminate process")
+			}
+
+			// Clear the running processes list
+			task.RunningProcesses = nil
+		} else {
+			log.Warn().Msg("no processes tracked - task may still be running in background")
+		}
 	}
 
 	// Transition to abandoned

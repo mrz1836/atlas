@@ -3477,7 +3477,7 @@ func TestEngine_Abandon_Success(t *testing.T) {
 	}
 	store.tasks[task.ID] = task
 
-	err := engine.Abandon(ctx, task, "User requested abandonment")
+	err := engine.Abandon(ctx, task, "User requested abandonment", false)
 
 	require.NoError(t, err)
 	assert.Equal(t, constants.TaskStatusAbandoned, task.Status)
@@ -3504,7 +3504,7 @@ func TestEngine_Abandon_FromGHFailed(t *testing.T) {
 	}
 	store.tasks[task.ID] = task
 
-	err := engine.Abandon(ctx, task, "PR creation failed")
+	err := engine.Abandon(ctx, task, "PR creation failed", false)
 
 	require.NoError(t, err)
 	assert.Equal(t, constants.TaskStatusAbandoned, task.Status)
@@ -3526,7 +3526,7 @@ func TestEngine_Abandon_FromCIFailed(t *testing.T) {
 	}
 	store.tasks[task.ID] = task
 
-	err := engine.Abandon(ctx, task, "CI tests failed repeatedly")
+	err := engine.Abandon(ctx, task, "CI tests failed repeatedly", false)
 
 	require.NoError(t, err)
 	assert.Equal(t, constants.TaskStatusAbandoned, task.Status)
@@ -3548,7 +3548,7 @@ func TestEngine_Abandon_FromCITimeout(t *testing.T) {
 	}
 	store.tasks[task.ID] = task
 
-	err := engine.Abandon(ctx, task, "CI timed out")
+	err := engine.Abandon(ctx, task, "CI timed out", false)
 
 	require.NoError(t, err)
 	assert.Equal(t, constants.TaskStatusAbandoned, task.Status)
@@ -3585,7 +3585,7 @@ func TestEngine_Abandon_RejectsNonAbandonableState(t *testing.T) {
 			}
 			store.tasks[task.ID] = task
 
-			err := engine.Abandon(ctx, task, "trying to abandon")
+			err := engine.Abandon(ctx, task, "trying to abandon", false)
 
 			require.Error(t, err)
 			require.ErrorIs(t, err, atlaserrors.ErrInvalidTransition)
@@ -3601,7 +3601,7 @@ func TestEngine_Abandon_NilTask(t *testing.T) {
 	store := newMockStore()
 	engine := NewEngine(store, nil, DefaultEngineConfig(), testLogger())
 
-	err := engine.Abandon(ctx, nil, "abandon nil task")
+	err := engine.Abandon(ctx, nil, "abandon nil task", false)
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, atlaserrors.ErrInvalidTransition)
@@ -3623,7 +3623,7 @@ func TestEngine_Abandon_ContextCanceled(t *testing.T) {
 	}
 	store.tasks[task.ID] = task
 
-	err := engine.Abandon(ctx, task, "abandoning")
+	err := engine.Abandon(ctx, task, "abandoning", false)
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, context.Canceled)
@@ -3645,7 +3645,7 @@ func TestEngine_Abandon_StoreFails(t *testing.T) {
 	}
 	store.tasks[task.ID] = task
 
-	err := engine.Abandon(ctx, task, "abandoning")
+	err := engine.Abandon(ctx, task, "abandoning", false)
 
 	require.Error(t, err)
 	require.ErrorIs(t, err, atlaserrors.ErrWorkspaceNotFound)
@@ -3676,7 +3676,7 @@ func TestEngine_Abandon_PreservesMetadata(t *testing.T) {
 	}
 	store.tasks[task.ID] = task
 
-	err := engine.Abandon(ctx, task, "giving up after 3 retries")
+	err := engine.Abandon(ctx, task, "giving up after 3 retries", false)
 
 	require.NoError(t, err)
 	// Metadata should be preserved

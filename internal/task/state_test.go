@@ -29,6 +29,7 @@ func TestIsValidTransition_AllValidTransitions(t *testing.T) {
 		{"running to gh_failed", constants.TaskStatusRunning, constants.TaskStatusGHFailed},
 		{"running to ci_failed", constants.TaskStatusRunning, constants.TaskStatusCIFailed},
 		{"running to ci_timeout", constants.TaskStatusRunning, constants.TaskStatusCITimeout},
+		{"running to abandoned", constants.TaskStatusRunning, constants.TaskStatusAbandoned},
 
 		// From Validating
 		{"validating to awaiting_approval", constants.TaskStatusValidating, constants.TaskStatusAwaitingApproval},
@@ -82,10 +83,9 @@ func TestIsValidTransition_InvalidTransitions(t *testing.T) {
 		{"rejected to running", constants.TaskStatusRejected, constants.TaskStatusRunning},
 		{"abandoned to running", constants.TaskStatusAbandoned, constants.TaskStatusRunning},
 
-		// Running cannot go directly to terminal states
+		// Running cannot go directly to most terminal states (abandoned is allowed with force)
 		{"running to completed", constants.TaskStatusRunning, constants.TaskStatusCompleted},
 		{"running to rejected", constants.TaskStatusRunning, constants.TaskStatusRejected},
-		{"running to abandoned", constants.TaskStatusRunning, constants.TaskStatusAbandoned},
 		{"running to pending", constants.TaskStatusRunning, constants.TaskStatusPending},
 
 		// Validating cannot go backwards or to wrong states
@@ -264,6 +264,48 @@ func TestCanAbandon(t *testing.T) {
 	}
 }
 
+// TestCanForceAbandon tests the CanForceAbandon helper function.
+// CanForceAbandon is more permissive than CanAbandon and includes Running status.
+func TestCanForceAbandon(t *testing.T) {
+	forceAbandonableStatuses := []constants.TaskStatus{
+		constants.TaskStatusRunning, // Key difference from CanAbandon
+		constants.TaskStatusValidationFailed,
+		constants.TaskStatusGHFailed,
+		constants.TaskStatusCIFailed,
+		constants.TaskStatusCITimeout,
+	}
+
+	nonForceAbandonableStatuses := []constants.TaskStatus{
+		constants.TaskStatusPending,
+		constants.TaskStatusValidating,
+		constants.TaskStatusAwaitingApproval,
+		constants.TaskStatusCompleted,
+		constants.TaskStatusRejected,
+		constants.TaskStatusAbandoned, // Already abandoned
+	}
+
+	for _, status := range forceAbandonableStatuses {
+		t.Run(status.String()+"_can_force_abandon", func(t *testing.T) {
+			assert.True(t, CanForceAbandon(status), "%s should be force-abandonable", status)
+		})
+	}
+
+	for _, status := range nonForceAbandonableStatuses {
+		t.Run(status.String()+"_cannot_force_abandon", func(t *testing.T) {
+			assert.False(t, CanForceAbandon(status), "%s should not be force-abandonable", status)
+		})
+	}
+}
+
+// TestCanForceAbandon_IncludesRunning verifies that CanForceAbandon allows Running
+// while CanAbandon does not.
+func TestCanForceAbandon_IncludesRunning(t *testing.T) {
+	assert.False(t, CanAbandon(constants.TaskStatusRunning),
+		"CanAbandon should return false for Running")
+	assert.True(t, CanForceAbandon(constants.TaskStatusRunning),
+		"CanForceAbandon should return true for Running")
+}
+
 // TestGetValidTargetStatuses tests the GetValidTargetStatuses helper function.
 func TestGetValidTargetStatuses(t *testing.T) {
 	tests := []struct {
@@ -284,6 +326,7 @@ func TestGetValidTargetStatuses(t *testing.T) {
 				constants.TaskStatusGHFailed,
 				constants.TaskStatusCIFailed,
 				constants.TaskStatusCITimeout,
+				constants.TaskStatusAbandoned,
 			},
 		},
 		{
