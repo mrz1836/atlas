@@ -4,39 +4,141 @@
 # Consider adding .atlas/config.yaml to .gitignore if it contains sensitive data.
 
 ai:
+  # Claude model to use: "sonnet", "opus", or "haiku"
+  # Default: "sonnet"
   model: sonnet
+
+  # Environment variable name containing the Anthropic API key
+  # Default: "ANTHROPIC_API_KEY"
   api_key_env_var: ANTHROPIC_API_KEY
+
+  # Maximum duration for AI operations (e.g., "30m", "1h")
+  # Default: 30m
   timeout: 30m
+
+  # Maximum number of conversation turns (DEPRECATED: use max_budget_usd instead)
+  # Default: 10
   max_turns: 10
+
+  # Maximum dollar amount for AI operations; 0 = unlimited
+  # Default: 0
+  max_budget_usd: 0
+
 git:
+  # Default base branch for creating feature branches
+  # Default: "main"
   base_branch: master
+
+  # Enable automatic git operations without user confirmation
+  # Default: true
+  auto_proceed_git: true
+
+  # Name of the remote repository
+  # Default: "origin"
+  remote: origin
+
+worktree:
+  # Base directory where worktrees are created; empty = default location
+  # Default: ""
+  base_dir: ""
+
+  # Suffix appended to worktree directory names
+  # Default: ""
+  naming_suffix: ""
+
+templates:
+  # Name of the default template when none is specified
+  # Default: ""
+  default_template: ""
+
+  # Map of custom template names to their file paths
+  # Example: { "my-template": "/path/to/template.md" }
+  # Default: {}
+  custom_templates: {}
+
+  # Optional: Override branch prefixes for templates
+  # Default built-ins: bugfix="fix", feature="feat", commit="chore"
+  # branch_prefixes:
+  #   bugfix: fix
+  #   feature: feat
+  #   commit: chore
+
 ci:
+  # How often to check CI status (e.g., "30s", "2m")
+  # Default: 2m
   poll_interval: 30s
+
+  # Initial grace period before starting to poll CI (e.g., "1m", "2m")
+  # Default: 2m
   grace_period: 1m
+
+  # Maximum duration to wait for CI completion (e.g., "20m", "30m")
+  # Default: 30m
   timeout: 20m
+
+  # List of CI workflow names that must pass; empty = all workflows
+  # Example: ["build", "test", "lint"]
+  # Default: []
+  # required_workflows: []
+
 validation:
+  # Maximum duration for each validation command (e.g., "5m", "10m")
+  # Default: 5m
+  timeout: 10m
+
+  # Run validation commands in parallel
+  # Default: true
+  parallel_execution: true
+
+  # Enable AI-assisted retry when validation fails
+  # Default: true
+  ai_retry_enabled: true
+
+  # Maximum number of AI retry attempts
+  # Default: 3
+  max_ai_retry_attempts: 2
+
+  # Validation commands to run at various stages
   commands:
+    # Commands that format code (run with --fix semantics)
+    # Default: []
     format:
       - magex format:fix
+
+    # Commands that lint code
+    # Default: []
     lint:
       - magex lint
+
+    # Commands that run tests
+    # Default: []
     test:
       - magex test:race
+
+    # Commands run before committing
+    # Default: []
     pre_commit:
       - go-pre-commit run --all-files
-  template_overrides:
-    bugfix:
-      skip_test: false
-    docs:
-      skip_test: false
-    feature:
-      skip_test: false
-    refactor:
-      skip_test: false
+
+    # Custom commands to run before creating a PR
+    # Default: []
+    custom_pre_pr: []
+
 notifications:
+  # Enable terminal bell for important events
+  # Default: true
   bell: true
+
+  # Events that trigger notifications
+  # Available: "awaiting_approval", "validation_failed", "ci_failed", "github_failed"
+  # Default: all events
   events:
     - awaiting_approval
     - validation_failed
     - ci_failed
     - github_failed
+
+smart_commit:
+  # Model for commit message generation; empty = uses ai.model setting
+  # Default: ""
+  model: "haiku"
