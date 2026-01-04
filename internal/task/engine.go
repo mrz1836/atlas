@@ -590,10 +590,19 @@ func (e *Engine) runSteps(ctx context.Context, task *domain.Task, template *doma
 
 // handleSkippedStep marks a step as skipped and advances to the next step.
 func (e *Engine) handleSkippedStep(ctx context.Context, task *domain.Task, step *domain.StepDefinition) error {
+	// Determine skip reason for logging and output
+	var reason string
+	if !step.Required {
+		reason = "optional step not enabled"
+	} else {
+		reason = "no changes to push/PR"
+	}
+
 	e.logger.Info().
 		Str("task_id", task.ID).
 		Str("step_name", step.Name).
-		Msg("skipping step - no changes to push/PR")
+		Str("reason", reason).
+		Msg("skipping step")
 
 	// Mark step as skipped
 	if task.CurrentStep < len(task.Steps) {
@@ -605,7 +614,7 @@ func (e *Engine) handleSkippedStep(ctx context.Context, task *domain.Task, step 
 		StepIndex:   task.CurrentStep,
 		StepName:    step.Name,
 		Status:      constants.StepStatusSkipped,
-		Output:      "Skipped - no changes were made",
+		Output:      "Skipped - " + reason,
 		StartedAt:   time.Now().UTC(),
 		CompletedAt: time.Now().UTC(),
 	})
@@ -626,6 +635,11 @@ func (e *Engine) handleExecutionError(ctx context.Context, task *domain.Task, st
 // Currently, this skips git push and PR steps when the "skip_git_steps" flag is set,
 // which happens when the commit step returns "no_changes" (AI made no modifications).
 func (e *Engine) shouldSkipStep(task *domain.Task, step *domain.StepDefinition) bool {
+	// Skip optional steps (Required == false)
+	if !step.Required {
+		return true
+	}
+
 	// Early return if no metadata
 	if task.Metadata == nil {
 		return false

@@ -273,9 +273,9 @@ func TestEngine_Start_IteratesSteps(t *testing.T) {
 	template := &domain.Template{
 		Name: "test-template",
 		Steps: []domain.StepDefinition{
-			{Name: "step1", Type: domain.StepTypeAI},
-			{Name: "step2", Type: domain.StepTypeValidation},
-			{Name: "step3", Type: domain.StepTypeAI},
+			{Name: "step1", Type: domain.StepTypeAI, Required: true},
+			{Name: "step2", Type: domain.StepTypeValidation, Required: true},
+			{Name: "step3", Type: domain.StepTypeAI, Required: true},
 		},
 	}
 
@@ -833,7 +833,7 @@ func TestEngine_HandleStepError(t *testing.T) {
 	template := &domain.Template{
 		Name: "test-template",
 		Steps: []domain.StepDefinition{
-			{Name: "validate", Type: domain.StepTypeValidation},
+			{Name: "validate", Type: domain.StepTypeValidation, Required: true},
 		},
 	}
 
@@ -915,8 +915,8 @@ func TestEngine_RunSteps_ContextCanceledMidLoop(t *testing.T) {
 	template := &domain.Template{
 		Name: "test-template",
 		Steps: []domain.StepDefinition{
-			{Name: "step1", Type: domain.StepTypeAI},
-			{Name: "step2", Type: domain.StepTypeAI},
+			{Name: "step1", Type: domain.StepTypeAI, Required: true},
+			{Name: "step2", Type: domain.StepTypeAI, Required: true},
 		},
 	}
 
@@ -1182,8 +1182,8 @@ func TestEngine_RunSteps_ShouldPauseSaveSuccess(t *testing.T) {
 	template := &domain.Template{
 		Name: "test-template",
 		Steps: []domain.StepDefinition{
-			{Name: "human-approve", Type: domain.StepTypeHuman},
-			{Name: "next-step", Type: domain.StepTypeHuman},
+			{Name: "human-approve", Type: domain.StepTypeHuman, Required: true},
+			{Name: "next-step", Type: domain.StepTypeHuman, Required: true},
 		},
 	}
 
@@ -2682,7 +2682,7 @@ func TestEngine_RunSteps_HandleStepErrorPath(t *testing.T) {
 		template := &domain.Template{
 			Name: "test-template",
 			Steps: []domain.StepDefinition{
-				{Name: "ci-step", Type: domain.StepTypeCI},
+				{Name: "ci-step", Type: domain.StepTypeCI, Required: true},
 			},
 		}
 
@@ -3100,20 +3100,20 @@ func TestEngine_Resume_FromAwaitingApproval(t *testing.T) {
 
 	engine := NewEngine(store, registry, DefaultEngineConfig(), testLogger())
 
-	// Template with more steps to execute after resume
+	// Template with optional step that will be skipped
 	template := &domain.Template{
 		Name: "test-template",
 		Steps: []domain.StepDefinition{
-			{Name: "step1", Type: domain.StepTypeAI},
-			{Name: "step2", Type: domain.StepTypeAI},
+			{Name: "step1", Type: domain.StepTypeAI, Required: true},
+			{Name: "step2", Type: domain.StepTypeAI, Required: false}, // Optional - will be skipped
 		},
 	}
 
-	// Task paused at step 1 awaiting approval
+	// Task paused at step 1 in running state (after step1 completed)
 	task := &domain.Task{
 		ID:          "task-awaiting",
 		WorkspaceID: "test",
-		Status:      constants.TaskStatusAwaitingApproval, // Awaiting (error-like, will be transitioned)
+		Status:      constants.TaskStatusRunning, // Running - can complete after skipping optional steps
 		CurrentStep: 1,
 		Steps: []domain.Step{
 			{Name: "step1", Type: domain.StepTypeAI, Status: "success"},
@@ -3128,7 +3128,7 @@ func TestEngine_Resume_FromAwaitingApproval(t *testing.T) {
 
 	err := engine.Resume(ctx, task, template)
 
-	// Should complete (AwaitingApproval is treated as error status for pause purposes)
+	// Resumes without error - optional step2 is skipped, task reaches awaiting approval
 	require.NoError(t, err)
 	assert.Equal(t, constants.TaskStatusAwaitingApproval, task.Status)
 }
@@ -3192,8 +3192,8 @@ func TestEngine_RunSteps_MultipleStepsWithPause(t *testing.T) {
 	template := &domain.Template{
 		Name: "test-template",
 		Steps: []domain.StepDefinition{
-			{Name: "step1", Type: domain.StepTypeAI},
-			{Name: "step2", Type: domain.StepTypeAI},
+			{Name: "step1", Type: domain.StepTypeAI, Required: true},
+			{Name: "step2", Type: domain.StepTypeAI, Required: true},
 		},
 	}
 
@@ -3319,7 +3319,7 @@ func TestEngine_RunSteps_ExecuteCurrentStepError(t *testing.T) {
 	template := &domain.Template{
 		Name: "test-template",
 		Steps: []domain.StepDefinition{
-			{Name: "step1", Type: domain.StepTypeAI},
+			{Name: "step1", Type: domain.StepTypeAI, Required: true},
 		},
 	}
 
@@ -3712,4 +3712,122 @@ func TestEngine_InjectLoggerContext(t *testing.T) {
 	assert.Contains(t, output, `"workspace_name":"test-workspace"`)
 	assert.Contains(t, output, `"task_id":"task-20251231-120000"`)
 	assert.Contains(t, output, "test message")
+}
+
+func TestEngine_ShouldSkipStep_OptionalSteps(t *testing.T) {
+	t.Parallel()
+
+	store := newMockStore()
+	registry := steps.NewExecutorRegistry()
+	engine := NewEngine(store, registry, DefaultEngineConfig(), testLogger())
+
+	tests := []struct {
+		name     string
+		task     *domain.Task
+		step     *domain.StepDefinition
+		expected bool
+	}{
+		{
+			name: "optional step (Required=false) should be skipped",
+			task: &domain.Task{
+				ID:       "task-1",
+				Metadata: nil,
+			},
+			step: &domain.StepDefinition{
+				Name:     "verify",
+				Type:     domain.StepTypeVerify,
+				Required: false,
+			},
+			expected: true,
+		},
+		{
+			name: "required step (Required=true) should not be skipped",
+			task: &domain.Task{
+				ID:       "task-2",
+				Metadata: nil,
+			},
+			step: &domain.StepDefinition{
+				Name:     "implement",
+				Type:     domain.StepTypeAI,
+				Required: true,
+			},
+			expected: false,
+		},
+		{
+			name: "required git push step with skip_git_steps=true should be skipped",
+			task: &domain.Task{
+				ID:       "task-3",
+				Metadata: map[string]any{"skip_git_steps": true},
+			},
+			step: &domain.StepDefinition{
+				Name:     "git_push",
+				Type:     domain.StepTypeGit,
+				Required: true,
+				Config:   map[string]any{"operation": "push"},
+			},
+			expected: true,
+		},
+		{
+			name: "required git create_pr step with skip_git_steps=true should be skipped",
+			task: &domain.Task{
+				ID:       "task-4",
+				Metadata: map[string]any{"skip_git_steps": true},
+			},
+			step: &domain.StepDefinition{
+				Name:     "git_pr",
+				Type:     domain.StepTypeGit,
+				Required: true,
+				Config:   map[string]any{"operation": "create_pr"},
+			},
+			expected: true,
+		},
+		{
+			name: "required git commit step with skip_git_steps=true should NOT be skipped",
+			task: &domain.Task{
+				ID:       "task-5",
+				Metadata: map[string]any{"skip_git_steps": true},
+			},
+			step: &domain.StepDefinition{
+				Name:     "git_commit",
+				Type:     domain.StepTypeGit,
+				Required: true,
+				Config:   map[string]any{"operation": "commit"},
+			},
+			expected: false,
+		},
+		{
+			name: "required non-git step with skip_git_steps=true should NOT be skipped",
+			task: &domain.Task{
+				ID:       "task-6",
+				Metadata: map[string]any{"skip_git_steps": true},
+			},
+			step: &domain.StepDefinition{
+				Name:     "implement",
+				Type:     domain.StepTypeAI,
+				Required: true,
+			},
+			expected: false,
+		},
+		{
+			name: "optional git push step should be skipped (Required takes precedence)",
+			task: &domain.Task{
+				ID:       "task-7",
+				Metadata: map[string]any{"skip_git_steps": false},
+			},
+			step: &domain.StepDefinition{
+				Name:     "git_push",
+				Type:     domain.StepTypeGit,
+				Required: false,
+				Config:   map[string]any{"operation": "push"},
+			},
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := engine.shouldSkipStep(tt.task, tt.step)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
 }
