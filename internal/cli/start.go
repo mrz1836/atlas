@@ -268,7 +268,7 @@ func createWorkspace(ctx context.Context, sc *startContext, wsName, repoPath, br
 	}
 
 	// Create worktree runner
-	wtRunner, err := workspace.NewGitWorktreeRunner(repoPath)
+	wtRunner, err := workspace.NewGitWorktreeRunner(ctx, repoPath)
 	if err != nil {
 		return nil, sc.handleError(wsName, fmt.Errorf("failed to create worktree runner: %w", err))
 	}
@@ -653,7 +653,7 @@ func cleanupWorkspace(ctx context.Context, wsName, repoPath string) error {
 		return fmt.Errorf("failed to create workspace store: %w", err)
 	}
 
-	wtRunner, err := workspace.NewGitWorktreeRunner(repoPath)
+	wtRunner, err := workspace.NewGitWorktreeRunner(ctx, repoPath)
 	if err != nil {
 		return fmt.Errorf("failed to create worktree runner: %w", err)
 	}

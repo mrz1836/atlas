@@ -180,7 +180,7 @@ func executeDestroy(ctx context.Context, store *workspace.FileStore, name, outpu
 	// Create worktree runner (may be nil if no repo path)
 	var wtRunner workspace.WorktreeRunner
 	if repoPath != "" {
-		wtRunner, err = workspace.NewGitWorktreeRunner(repoPath)
+		wtRunner, err = workspace.NewGitWorktreeRunner(ctx, repoPath)
 		if err != nil {
 			// Log but continue - destroy should still clean up state
 			logger.Debug().Err(err).Msg("could not create worktree runner, worktree cleanup may be limited")

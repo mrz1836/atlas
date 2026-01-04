@@ -58,7 +58,7 @@ func TestNewGitWorktreeRunner(t *testing.T) {
 	t.Run("with valid git repo", func(t *testing.T) {
 		repoPath := createTestRepo(t)
 
-		runner, err := NewGitWorktreeRunner(repoPath)
+		runner, err := NewGitWorktreeRunner(context.Background(), repoPath)
 		require.NoError(t, err)
 		assert.NotNil(t, runner)
 
@@ -71,7 +71,7 @@ func TestNewGitWorktreeRunner(t *testing.T) {
 	t.Run("with non-git directory", func(t *testing.T) {
 		tmpDir := t.TempDir()
 
-		runner, err := NewGitWorktreeRunner(tmpDir)
+		runner, err := NewGitWorktreeRunner(context.Background(), tmpDir)
 		require.Error(t, err)
 		assert.Nil(t, runner)
 		assert.ErrorIs(t, err, atlaserrors.ErrNotGitRepo)
@@ -85,7 +85,7 @@ func TestNewGitWorktreeRunner(t *testing.T) {
 		err := os.MkdirAll(subdir, 0o750)
 		require.NoError(t, err)
 
-		runner, err := NewGitWorktreeRunner(subdir)
+		runner, err := NewGitWorktreeRunner(context.Background(), subdir)
 		require.NoError(t, err)
 		assert.NotNil(t, runner)
 
@@ -296,7 +296,7 @@ locked
 func TestGitWorktreeRunner_Create(t *testing.T) {
 	t.Run("creates new worktree successfully", func(t *testing.T) {
 		repoPath := createTestRepo(t)
-		runner, err := NewGitWorktreeRunner(repoPath)
+		runner, err := NewGitWorktreeRunner(context.Background(), repoPath)
 		require.NoError(t, err)
 
 		info, err := runner.Create(context.Background(), WorktreeCreateOptions{
@@ -321,7 +321,7 @@ func TestGitWorktreeRunner_Create(t *testing.T) {
 
 	t.Run("creates worktree with sibling path", func(t *testing.T) {
 		repoPath := createTestRepo(t)
-		runner, err := NewGitWorktreeRunner(repoPath)
+		runner, err := NewGitWorktreeRunner(context.Background(), repoPath)
 		require.NoError(t, err)
 
 		info, err := runner.Create(context.Background(), WorktreeCreateOptions{
@@ -340,7 +340,7 @@ func TestGitWorktreeRunner_Create(t *testing.T) {
 
 	t.Run("appends numeric suffix for existing path", func(t *testing.T) {
 		repoPath := createTestRepo(t)
-		runner, err := NewGitWorktreeRunner(repoPath)
+		runner, err := NewGitWorktreeRunner(context.Background(), repoPath)
 		require.NoError(t, err)
 
 		// Create first worktree
@@ -367,7 +367,7 @@ func TestGitWorktreeRunner_Create(t *testing.T) {
 
 	t.Run("appends timestamp for existing branch", func(t *testing.T) {
 		repoPath := createTestRepo(t)
-		runner, err := NewGitWorktreeRunner(repoPath)
+		runner, err := NewGitWorktreeRunner(context.Background(), repoPath)
 		require.NoError(t, err)
 
 		// Create first worktree
@@ -392,7 +392,7 @@ func TestGitWorktreeRunner_Create(t *testing.T) {
 
 	t.Run("returns error for empty workspace name", func(t *testing.T) {
 		repoPath := createTestRepo(t)
-		runner, err := NewGitWorktreeRunner(repoPath)
+		runner, err := NewGitWorktreeRunner(context.Background(), repoPath)
 		require.NoError(t, err)
 
 		_, err = runner.Create(context.Background(), WorktreeCreateOptions{
@@ -405,7 +405,7 @@ func TestGitWorktreeRunner_Create(t *testing.T) {
 
 	t.Run("returns error for empty branch type", func(t *testing.T) {
 		repoPath := createTestRepo(t)
-		runner, err := NewGitWorktreeRunner(repoPath)
+		runner, err := NewGitWorktreeRunner(context.Background(), repoPath)
 		require.NoError(t, err)
 
 		_, err = runner.Create(context.Background(), WorktreeCreateOptions{
@@ -419,7 +419,7 @@ func TestGitWorktreeRunner_Create(t *testing.T) {
 
 	t.Run("returns error for workspace name exceeding max length", func(t *testing.T) {
 		repoPath := createTestRepo(t)
-		runner, err := NewGitWorktreeRunner(repoPath)
+		runner, err := NewGitWorktreeRunner(context.Background(), repoPath)
 		require.NoError(t, err)
 
 		longName := strings.Repeat("a", 256) // exceeds maxWorkspaceNameLength (255)
@@ -434,7 +434,7 @@ func TestGitWorktreeRunner_Create(t *testing.T) {
 
 	t.Run("respects context cancellation", func(t *testing.T) {
 		repoPath := createTestRepo(t)
-		runner, err := NewGitWorktreeRunner(repoPath)
+		runner, err := NewGitWorktreeRunner(context.Background(), repoPath)
 		require.NoError(t, err)
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -449,7 +449,7 @@ func TestGitWorktreeRunner_Create(t *testing.T) {
 
 	t.Run("creates worktree from base branch", func(t *testing.T) {
 		repoPath := createTestRepo(t)
-		runner, err := NewGitWorktreeRunner(repoPath)
+		runner, err := NewGitWorktreeRunner(context.Background(), repoPath)
 		require.NoError(t, err)
 
 		// Create a branch to use as base
@@ -467,7 +467,7 @@ func TestGitWorktreeRunner_Create(t *testing.T) {
 
 	t.Run("cleans up on failure (atomic creation)", func(t *testing.T) {
 		repoPath := createTestRepo(t)
-		runner, err := NewGitWorktreeRunner(repoPath)
+		runner, err := NewGitWorktreeRunner(context.Background(), repoPath)
 		require.NoError(t, err)
 
 		// Get the expected worktree path
@@ -494,7 +494,7 @@ func TestGitWorktreeRunner_Create(t *testing.T) {
 func TestGitWorktreeRunner_List(t *testing.T) {
 	t.Run("lists main worktree only", func(t *testing.T) {
 		repoPath := createTestRepo(t)
-		runner, err := NewGitWorktreeRunner(repoPath)
+		runner, err := NewGitWorktreeRunner(context.Background(), repoPath)
 		require.NoError(t, err)
 
 		worktrees, err := runner.List(context.Background())
@@ -509,7 +509,7 @@ func TestGitWorktreeRunner_List(t *testing.T) {
 
 	t.Run("lists multiple worktrees", func(t *testing.T) {
 		repoPath := createTestRepo(t)
-		runner, err := NewGitWorktreeRunner(repoPath)
+		runner, err := NewGitWorktreeRunner(context.Background(), repoPath)
 		require.NoError(t, err)
 
 		// Create some worktrees
@@ -540,7 +540,7 @@ func TestGitWorktreeRunner_List(t *testing.T) {
 
 	t.Run("respects context cancellation", func(t *testing.T) {
 		repoPath := createTestRepo(t)
-		runner, err := NewGitWorktreeRunner(repoPath)
+		runner, err := NewGitWorktreeRunner(context.Background(), repoPath)
 		require.NoError(t, err)
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -554,7 +554,7 @@ func TestGitWorktreeRunner_List(t *testing.T) {
 func TestGitWorktreeRunner_Remove(t *testing.T) {
 	t.Run("removes clean worktree", func(t *testing.T) {
 		repoPath := createTestRepo(t)
-		runner, err := NewGitWorktreeRunner(repoPath)
+		runner, err := NewGitWorktreeRunner(context.Background(), repoPath)
 		require.NoError(t, err)
 
 		// Create worktree
@@ -575,7 +575,7 @@ func TestGitWorktreeRunner_Remove(t *testing.T) {
 
 	t.Run("returns error for dirty worktree without force", func(t *testing.T) {
 		repoPath := createTestRepo(t)
-		runner, err := NewGitWorktreeRunner(repoPath)
+		runner, err := NewGitWorktreeRunner(context.Background(), repoPath)
 		require.NoError(t, err)
 
 		// Create worktree
@@ -598,7 +598,7 @@ func TestGitWorktreeRunner_Remove(t *testing.T) {
 
 	t.Run("removes dirty worktree with force", func(t *testing.T) {
 		repoPath := createTestRepo(t)
-		runner, err := NewGitWorktreeRunner(repoPath)
+		runner, err := NewGitWorktreeRunner(context.Background(), repoPath)
 		require.NoError(t, err)
 
 		// Create worktree
@@ -624,7 +624,7 @@ func TestGitWorktreeRunner_Remove(t *testing.T) {
 
 	t.Run("returns error for main repo", func(t *testing.T) {
 		repoPath := createTestRepo(t)
-		runner, err := NewGitWorktreeRunner(repoPath)
+		runner, err := NewGitWorktreeRunner(context.Background(), repoPath)
 		require.NoError(t, err)
 
 		err = runner.Remove(context.Background(), repoPath, false)
@@ -634,7 +634,7 @@ func TestGitWorktreeRunner_Remove(t *testing.T) {
 
 	t.Run("returns error for non-worktree path", func(t *testing.T) {
 		repoPath := createTestRepo(t)
-		runner, err := NewGitWorktreeRunner(repoPath)
+		runner, err := NewGitWorktreeRunner(context.Background(), repoPath)
 		require.NoError(t, err)
 
 		tmpDir := t.TempDir()
@@ -647,7 +647,7 @@ func TestGitWorktreeRunner_Remove(t *testing.T) {
 func TestGitWorktreeRunner_Prune(t *testing.T) {
 	t.Run("prunes stale worktrees", func(t *testing.T) {
 		repoPath := createTestRepo(t)
-		runner, err := NewGitWorktreeRunner(repoPath)
+		runner, err := NewGitWorktreeRunner(context.Background(), repoPath)
 		require.NoError(t, err)
 
 		// Create worktree
@@ -673,7 +673,7 @@ func TestGitWorktreeRunner_Prune(t *testing.T) {
 
 	t.Run("succeeds when nothing to prune", func(t *testing.T) {
 		repoPath := createTestRepo(t)
-		runner, err := NewGitWorktreeRunner(repoPath)
+		runner, err := NewGitWorktreeRunner(context.Background(), repoPath)
 		require.NoError(t, err)
 
 		err = runner.Prune(context.Background())
@@ -682,7 +682,7 @@ func TestGitWorktreeRunner_Prune(t *testing.T) {
 
 	t.Run("respects context cancellation", func(t *testing.T) {
 		repoPath := createTestRepo(t)
-		runner, err := NewGitWorktreeRunner(repoPath)
+		runner, err := NewGitWorktreeRunner(context.Background(), repoPath)
 		require.NoError(t, err)
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -696,7 +696,7 @@ func TestGitWorktreeRunner_Prune(t *testing.T) {
 func TestGitWorktreeRunner_BranchExists(t *testing.T) {
 	t.Run("returns true for existing branch", func(t *testing.T) {
 		repoPath := createTestRepo(t)
-		runner, err := NewGitWorktreeRunner(repoPath)
+		runner, err := NewGitWorktreeRunner(context.Background(), repoPath)
 		require.NoError(t, err)
 
 		// Create a branch
@@ -709,7 +709,7 @@ func TestGitWorktreeRunner_BranchExists(t *testing.T) {
 
 	t.Run("returns false for non-existing branch", func(t *testing.T) {
 		repoPath := createTestRepo(t)
-		runner, err := NewGitWorktreeRunner(repoPath)
+		runner, err := NewGitWorktreeRunner(context.Background(), repoPath)
 		require.NoError(t, err)
 
 		exists, err := runner.BranchExists(context.Background(), "nonexistent")
@@ -719,7 +719,7 @@ func TestGitWorktreeRunner_BranchExists(t *testing.T) {
 
 	t.Run("handles branches with slashes", func(t *testing.T) {
 		repoPath := createTestRepo(t)
-		runner, err := NewGitWorktreeRunner(repoPath)
+		runner, err := NewGitWorktreeRunner(context.Background(), repoPath)
 		require.NoError(t, err)
 
 		// Create a branch with slash
@@ -732,7 +732,7 @@ func TestGitWorktreeRunner_BranchExists(t *testing.T) {
 
 	t.Run("respects context cancellation", func(t *testing.T) {
 		repoPath := createTestRepo(t)
-		runner, err := NewGitWorktreeRunner(repoPath)
+		runner, err := NewGitWorktreeRunner(context.Background(), repoPath)
 		require.NoError(t, err)
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -746,7 +746,7 @@ func TestGitWorktreeRunner_BranchExists(t *testing.T) {
 func TestGitWorktreeRunner_DeleteBranch(t *testing.T) {
 	t.Run("deletes merged branch", func(t *testing.T) {
 		repoPath := createTestRepo(t)
-		runner, err := NewGitWorktreeRunner(repoPath)
+		runner, err := NewGitWorktreeRunner(context.Background(), repoPath)
 		require.NoError(t, err)
 
 		// Create and checkout a branch
@@ -763,7 +763,7 @@ func TestGitWorktreeRunner_DeleteBranch(t *testing.T) {
 
 	t.Run("force deletes unmerged branch", func(t *testing.T) {
 		repoPath := createTestRepo(t)
-		runner, err := NewGitWorktreeRunner(repoPath)
+		runner, err := NewGitWorktreeRunner(context.Background(), repoPath)
 		require.NoError(t, err)
 
 		// Create a branch with a commit
@@ -786,7 +786,7 @@ func TestGitWorktreeRunner_DeleteBranch(t *testing.T) {
 
 	t.Run("respects context cancellation", func(t *testing.T) {
 		repoPath := createTestRepo(t)
-		runner, err := NewGitWorktreeRunner(repoPath)
+		runner, err := NewGitWorktreeRunner(context.Background(), repoPath)
 		require.NoError(t, err)
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -822,7 +822,7 @@ func TestGitWorktreeRunner_Fetch(t *testing.T) {
 		runGit(t, localDir, "commit", "-m", "Initial commit")
 		runGit(t, localDir, "push", "-u", "origin", "master")
 
-		runner, err := NewGitWorktreeRunner(localDir)
+		runner, err := NewGitWorktreeRunner(context.Background(), localDir)
 		require.NoError(t, err)
 
 		// Fetch should succeed
@@ -852,7 +852,7 @@ func TestGitWorktreeRunner_Fetch(t *testing.T) {
 		runGit(t, localDir, "commit", "-m", "Initial")
 		runGit(t, localDir, "push", "-u", "origin", "master")
 
-		runner, err := NewGitWorktreeRunner(localDir)
+		runner, err := NewGitWorktreeRunner(context.Background(), localDir)
 		require.NoError(t, err)
 
 		// Fetch with empty remote should default to origin
@@ -862,7 +862,7 @@ func TestGitWorktreeRunner_Fetch(t *testing.T) {
 
 	t.Run("returns error for non-existent remote", func(t *testing.T) {
 		repoPath := createTestRepo(t)
-		runner, err := NewGitWorktreeRunner(repoPath)
+		runner, err := NewGitWorktreeRunner(context.Background(), repoPath)
 		require.NoError(t, err)
 
 		err = runner.Fetch(context.Background(), "nonexistent-remote")
@@ -872,7 +872,7 @@ func TestGitWorktreeRunner_Fetch(t *testing.T) {
 
 	t.Run("respects context cancellation", func(t *testing.T) {
 		repoPath := createTestRepo(t)
-		runner, err := NewGitWorktreeRunner(repoPath)
+		runner, err := NewGitWorktreeRunner(context.Background(), repoPath)
 		require.NoError(t, err)
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -911,7 +911,7 @@ func TestGitWorktreeRunner_RemoteBranchExists(t *testing.T) {
 		runGit(t, localDir, "push", "-u", "origin", "develop")
 		runGit(t, localDir, "checkout", "master")
 
-		runner, err := NewGitWorktreeRunner(localDir)
+		runner, err := NewGitWorktreeRunner(context.Background(), localDir)
 		require.NoError(t, err)
 
 		// Fetch to get remote refs
@@ -946,7 +946,7 @@ func TestGitWorktreeRunner_RemoteBranchExists(t *testing.T) {
 		runGit(t, localDir, "commit", "-m", "Initial")
 		runGit(t, localDir, "push", "-u", "origin", "master")
 
-		runner, err := NewGitWorktreeRunner(localDir)
+		runner, err := NewGitWorktreeRunner(context.Background(), localDir)
 		require.NoError(t, err)
 
 		// Fetch to get remote refs
@@ -981,7 +981,7 @@ func TestGitWorktreeRunner_RemoteBranchExists(t *testing.T) {
 		runGit(t, localDir, "commit", "-m", "Initial")
 		runGit(t, localDir, "push", "-u", "origin", "master")
 
-		runner, err := NewGitWorktreeRunner(localDir)
+		runner, err := NewGitWorktreeRunner(context.Background(), localDir)
 		require.NoError(t, err)
 
 		// Fetch
@@ -996,7 +996,7 @@ func TestGitWorktreeRunner_RemoteBranchExists(t *testing.T) {
 
 	t.Run("respects context cancellation", func(t *testing.T) {
 		repoPath := createTestRepo(t)
-		runner, err := NewGitWorktreeRunner(repoPath)
+		runner, err := NewGitWorktreeRunner(context.Background(), repoPath)
 		require.NoError(t, err)
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -1043,7 +1043,7 @@ func TestGitWorktreeRunner_Create_WithRemoteBaseBranch(t *testing.T) {
 		runGit(t, localDir, "checkout", "master")
 		runGit(t, localDir, "branch", "-D", "develop")
 
-		runner, err := NewGitWorktreeRunner(localDir)
+		runner, err := NewGitWorktreeRunner(context.Background(), localDir)
 		require.NoError(t, err)
 
 		// Fetch to get remote refs

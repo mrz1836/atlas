@@ -692,7 +692,7 @@ func closeWorkspace(ctx context.Context, workspaceName string) error {
 	// Create worktree runner (may be nil if no repo path)
 	var wtRunner workspace.WorktreeRunner
 	if repoPath != "" {
-		wtRunner, err = workspace.NewGitWorktreeRunner(repoPath)
+		wtRunner, err = workspace.NewGitWorktreeRunner(ctx, repoPath)
 		if err != nil {
 			// Continue without worktree runner - close should still update state
 			wtRunner = nil

@@ -198,7 +198,7 @@ func executeClose(ctx context.Context, store *workspace.FileStore, name, output 
 	// Create worktree runner (may be nil if no repo path)
 	var wtRunner workspace.WorktreeRunner
 	if repoPath != "" {
-		wtRunner, err = workspace.NewGitWorktreeRunner(repoPath)
+		wtRunner, err = workspace.NewGitWorktreeRunner(ctx, repoPath)
 		if err != nil {
 			// Log but continue - close should still update state
 			logger.Debug().Err(err).Msg("could not create worktree runner, worktree cleanup may be limited")

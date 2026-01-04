@@ -120,7 +120,7 @@ func setupWorkspace(ctx context.Context, workspaceName, storeBaseDir, outputForm
 		return nil, nil, handleAbandonError(outputFormat, w, workspaceName, "", fmt.Errorf("not in a git repository: %w", err))
 	}
 
-	wtRunner, err := workspace.NewGitWorktreeRunner(repoPath)
+	wtRunner, err := workspace.NewGitWorktreeRunner(ctx, repoPath)
 	if err != nil {
 		return nil, nil, handleAbandonError(outputFormat, w, workspaceName, "", fmt.Errorf("failed to create worktree runner: %w", err))
 	}

@@ -70,9 +70,9 @@ type GitWorktreeRunner struct {
 }
 
 // NewGitWorktreeRunner creates a new GitWorktreeRunner.
-func NewGitWorktreeRunner(repoPath string) (*GitWorktreeRunner, error) {
+func NewGitWorktreeRunner(ctx context.Context, repoPath string) (*GitWorktreeRunner, error) {
 	// Detect repo root to ensure we're in a git repo
-	root, err := detectRepoRoot(context.Background(), repoPath)
+	root, err := detectRepoRoot(ctx, repoPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to detect git repository: %w", err)
 	}
