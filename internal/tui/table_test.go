@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -601,5 +602,123 @@ func TestStatusTable_ProportionalExpansion(t *testing.T) {
 	t.Run("Rows returns nil for nil input", func(t *testing.T) {
 		st := NewStatusTable(nil, WithTerminalWidth(120))
 		assert.Nil(t, st.Rows())
+	})
+}
+
+func TestStatusTable_ConstrainToTerminalWidth(t *testing.T) {
+	t.Run("constrains table to fit within narrow terminal", func(t *testing.T) {
+		// Create rows with long branch names that would exceed 80 columns
+		rows := []StatusRow{
+			{Workspace: "task-workspace", Branch: "task/task-workspace-20260103-165907", Status: constants.TaskStatusCompleted, CurrentStep: 5, TotalSteps: 5},
+		}
+		// Use 80 column terminal
+		st := NewStatusTable(rows, WithTerminalWidth(80))
+		var buf bytes.Buffer
+		err := st.Render(&buf)
+		require.NoError(t, err)
+
+		output := buf.String()
+		// All 5 columns should be present in header
+		assert.Contains(t, output, "WORKSPACE")
+		assert.Contains(t, output, "BRANCH")
+		assert.Contains(t, output, "STATUS")
+		assert.Contains(t, output, "STEP")
+		assert.Contains(t, output, "ACTION")
+
+		// Check each line doesn't exceed terminal width
+		lines := strings.Split(output, "\n")
+		for _, line := range lines {
+			if line != "" {
+				// Count visible characters (excluding ANSI codes)
+				// Use rune count, not byte count, for proper Unicode handling
+				visible := stripANSI(line)
+				runeCount := utf8.RuneCountInString(visible)
+				assert.LessOrEqual(t, runeCount, 80,
+					"Line should fit within 80 columns (got %d runes): %s", runeCount, line)
+			}
+		}
+	})
+
+	t.Run("truncates branch column first when exceeding terminal width", func(t *testing.T) {
+		rows := []StatusRow{
+			{Workspace: "ws", Branch: "very-long-branch-name-that-exceeds-limits", Status: constants.TaskStatusRunning, CurrentStep: 1, TotalSteps: 5},
+		}
+		st := NewStatusTable(rows, WithTerminalWidth(80))
+		var buf bytes.Buffer
+		err := st.Render(&buf)
+		require.NoError(t, err)
+
+		output := buf.String()
+		// Branch should be truncated, but workspace should remain intact
+		assert.Contains(t, output, "ws")
+		// Full branch name shouldn't appear (truncated)
+		assert.NotContains(t, output, "very-long-branch-name-that-exceeds-limits")
+	})
+
+	t.Run("respects minimum column widths", func(t *testing.T) {
+		// Very long content in a very narrow terminal
+		rows := []StatusRow{
+			{Workspace: "very-long-workspace-name-here", Branch: "very-long-branch-name-here", Status: constants.TaskStatusRunning, CurrentStep: 1, TotalSteps: 5},
+		}
+		// Use a terminal width that would require truncation
+		st := NewStatusTable(rows, WithTerminalWidth(80))
+		var buf bytes.Buffer
+		err := st.Render(&buf)
+		require.NoError(t, err)
+
+		// Should render without error - columns won't go below minimum
+		output := buf.String()
+		assert.NotEmpty(t, output)
+		// Header should still be present
+		assert.Contains(t, output, "STATUS")
+		assert.Contains(t, output, "STEP")
+		assert.Contains(t, output, "ACTION")
+	})
+
+	t.Run("no constraint needed for wide terminal", func(t *testing.T) {
+		rows := []StatusRow{
+			{Workspace: "auth", Branch: "feat/auth", Status: constants.TaskStatusRunning, CurrentStep: 1, TotalSteps: 5},
+		}
+		// Wide terminal - no constraint needed
+		st := NewStatusTable(rows, WithTerminalWidth(200))
+		var buf bytes.Buffer
+		err := st.Render(&buf)
+		require.NoError(t, err)
+
+		output := buf.String()
+		// Full content should be visible
+		assert.Contains(t, output, "auth")
+		assert.Contains(t, output, "feat/auth")
+	})
+
+	t.Run("handles zero terminal width gracefully", func(t *testing.T) {
+		rows := []StatusRow{
+			{Workspace: "auth", Branch: "feat/auth", Status: constants.TaskStatusRunning, CurrentStep: 1, TotalSteps: 5},
+		}
+		// Zero width should not apply constraints
+		st := NewStatusTable(rows, WithTerminalWidth(0))
+		var buf bytes.Buffer
+		err := st.Render(&buf)
+		require.NoError(t, err)
+
+		output := buf.String()
+		assert.Contains(t, output, "auth")
+		assert.Contains(t, output, "feat/auth")
+	})
+
+	t.Run("preserves all five columns even with very long branch names", func(t *testing.T) {
+		// This is the key bug scenario - long branch names causing columns to be cut off
+		rows := []StatusRow{
+			{Workspace: "task-test-ws", Branch: "task/task-workspace-20260103-165907", Status: constants.TaskStatusAbandoned, CurrentStep: 0, TotalSteps: 0},
+			{Workspace: "task-workspace", Branch: "task/task-workspace-20260103-165907", Status: constants.TaskStatusCompleted, CurrentStep: 0, TotalSteps: 0},
+		}
+		st := NewStatusTable(rows, WithTerminalWidth(80))
+		_, dataRows := st.ToTableData()
+
+		require.Len(t, dataRows, 2)
+		// Each row should have exactly 5 columns
+		for i, row := range dataRows {
+			assert.Len(t, row, 5, "Row %d should have 5 columns", i)
+		}
 	})
 }

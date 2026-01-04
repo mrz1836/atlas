@@ -403,6 +403,9 @@ func (t *StatusTable) calculateColumnWidths() StatusColumnWidths {
 		}
 	}
 
+	// Constrain to terminal width first to ensure all columns are visible
+	widthsSlice = t.constrainToTerminalWidth(widthsSlice)
+
 	// Apply proportional width expansion for wide terminals (120+ cols) (Task 2.5)
 	if t.config.TerminalWidth >= WideTerminalThreshold {
 		widthsSlice = t.applyProportionalExpansion(widthsSlice)
@@ -461,6 +464,63 @@ func (t *StatusTable) applyProportionalExpansion(widths []int) []int {
 		}
 
 		result[idx] = widths[idx] + expansion
+	}
+
+	return result
+}
+
+// constrainToTerminalWidth reduces column widths to fit within terminal width.
+// Prioritizes reducing variable-width columns (Branch, Workspace) while preserving
+// fixed-width columns (Status, Step, Action) to ensure all columns are visible.
+func (t *StatusTable) constrainToTerminalWidth(widths []int) []int {
+	// Calculate total width (columns + separators)
+	// 5 columns with 2-space separators = 4 separators * 2 chars = 8 chars
+	const separatorWidth = 8
+	totalContentWidth := 0
+	for _, w := range widths {
+		totalContentWidth += w
+	}
+	totalWidth := totalContentWidth + separatorWidth
+
+	// If fits within terminal, no changes needed
+	if t.config.TerminalWidth <= 0 || totalWidth <= t.config.TerminalWidth {
+		return widths
+	}
+
+	// Calculate overflow amount
+	overflow := totalWidth - t.config.TerminalWidth
+
+	result := make([]int, len(widths))
+	copy(result, widths)
+
+	// Reduce Branch column first (index 1), then Workspace (index 0) if needed
+	// These are variable-width columns that can be truncated
+	reduceableIndices := []int{1, 0} // Branch first, then Workspace
+
+	for _, idx := range reduceableIndices {
+		if overflow <= 0 {
+			break
+		}
+
+		// Calculate maximum reduction (current width - minimum width)
+		minWidth := MinColumnWidths.Branch
+		if idx == 0 {
+			minWidth = MinColumnWidths.Workspace
+		}
+
+		maxReduction := result[idx] - minWidth
+		if maxReduction <= 0 {
+			continue // Already at minimum
+		}
+
+		// Apply reduction (up to max allowed)
+		reduction := overflow
+		if reduction > maxReduction {
+			reduction = maxReduction
+		}
+
+		result[idx] -= reduction
+		overflow -= reduction
 	}
 
 	return result
