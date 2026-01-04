@@ -671,3 +671,227 @@ func TestValidationExecutor_Execute_MetadataOnFailure(t *testing.T) {
 	require.NotNil(t, lintCheck, "should have Lint check")
 	assert.False(t, lintCheck["passed"].(bool), "Lint should be marked as failed")
 }
+
+func TestNewValidationExecutorFull(t *testing.T) {
+	commands := ValidationCommands{
+		Format:    []string{"custom-format"},
+		Lint:      []string{"custom-lint"},
+		Test:      []string{"custom-test"},
+		PreCommit: []string{"custom-precommit"},
+	}
+	executor := NewValidationExecutorFull("/tmp/work", nil, nil, nil, commands)
+
+	require.NotNil(t, executor)
+	assert.Equal(t, "/tmp/work", executor.workDir)
+	assert.Equal(t, []string{"custom-format"}, executor.formatCommands)
+	assert.Equal(t, []string{"custom-lint"}, executor.lintCommands)
+	assert.Equal(t, []string{"custom-test"}, executor.testCommands)
+	assert.Equal(t, []string{"custom-precommit"}, executor.preCommitCommands)
+}
+
+func TestValidationExecutor_Execute_UsesCustomCommands(t *testing.T) {
+	ctx := context.Background()
+	runner := newMockCommandRunner()
+	runner.SetDefaultSuccess()
+	toolChecker := &mockToolChecker{installed: true, version: "1.0.0"}
+
+	// Create executor with custom commands from config
+	commands := ValidationCommands{
+		Format:    []string{"my-formatter --fix"},
+		Lint:      []string{"my-linter ./..."},
+		Test:      []string{"my-test:race"},
+		PreCommit: []string{"my-precommit run"},
+	}
+
+	// Create executor with custom commands
+	executor := &ValidationExecutor{
+		workDir:           "/tmp/work",
+		runner:            runner,
+		toolChecker:       toolChecker,
+		formatCommands:    commands.Format,
+		lintCommands:      commands.Lint,
+		testCommands:      commands.Test,
+		preCommitCommands: commands.PreCommit,
+	}
+
+	task := &domain.Task{
+		ID:          "task-123",
+		WorkspaceID: "ws-123",
+		CurrentStep: 0,
+		Config:      domain.TaskConfig{},
+	}
+	step := &domain.StepDefinition{Name: "validate", Type: domain.StepTypeValidation}
+
+	result, err := executor.Execute(ctx, task, step)
+
+	require.NoError(t, err)
+	assert.Equal(t, "success", result.Status)
+
+	// Verify custom commands were run instead of defaults
+	calls := runner.GetCalls()
+	hasCustomFormat := false
+	hasCustomLint := false
+	hasCustomTest := false
+	hasCustomPreCommit := false
+	hasDefaultFormat := false
+	hasDefaultLint := false
+	hasDefaultTest := false
+	hasDefaultPreCommit := false
+
+	for _, call := range calls {
+		switch call {
+		case "my-formatter --fix":
+			hasCustomFormat = true
+		case "my-linter ./...":
+			hasCustomLint = true
+		case "my-test:race":
+			hasCustomTest = true
+		case "my-precommit run":
+			hasCustomPreCommit = true
+		case "magex format:fix":
+			hasDefaultFormat = true
+		case "magex lint":
+			hasDefaultLint = true
+		case "magex test":
+			hasDefaultTest = true
+		case "go-pre-commit run --all-files":
+			hasDefaultPreCommit = true
+		}
+	}
+
+	// Should use custom commands
+	assert.True(t, hasCustomFormat, "should run custom format command")
+	assert.True(t, hasCustomLint, "should run custom lint command")
+	assert.True(t, hasCustomTest, "should run custom test command")
+	assert.True(t, hasCustomPreCommit, "should run custom pre-commit command")
+
+	// Should NOT use default commands
+	assert.False(t, hasDefaultFormat, "should NOT run default format command")
+	assert.False(t, hasDefaultLint, "should NOT run default lint command")
+	assert.False(t, hasDefaultTest, "should NOT run default test command")
+	assert.False(t, hasDefaultPreCommit, "should NOT run default pre-commit command")
+}
+
+func TestValidationExecutor_Execute_UsesTestRaceFromConfig(t *testing.T) {
+	// This test specifically verifies the bug fix where "magex test:race"
+	// from config was being ignored in favor of the default "magex test"
+	ctx := context.Background()
+	runner := newMockCommandRunner()
+	runner.SetDefaultSuccess()
+	toolChecker := &mockToolChecker{installed: true, version: "1.0.0"}
+
+	// Simulate config with "magex test:race" - this was the reported bug
+	commands := ValidationCommands{
+		Format:    []string{"magex format:fix"},
+		Lint:      []string{"magex lint"},
+		Test:      []string{"magex test:race"}, // The key config value that was being ignored
+		PreCommit: []string{"go-pre-commit run --all-files"},
+	}
+
+	executor := &ValidationExecutor{
+		workDir:           "/tmp/work",
+		runner:            runner,
+		toolChecker:       toolChecker,
+		formatCommands:    commands.Format,
+		lintCommands:      commands.Lint,
+		testCommands:      commands.Test,
+		preCommitCommands: commands.PreCommit,
+	}
+
+	task := &domain.Task{
+		ID:          "task-123",
+		WorkspaceID: "ws-123",
+		CurrentStep: 0,
+		Config:      domain.TaskConfig{},
+	}
+	step := &domain.StepDefinition{Name: "validate", Type: domain.StepTypeValidation}
+
+	result, err := executor.Execute(ctx, task, step)
+
+	require.NoError(t, err)
+	assert.Equal(t, "success", result.Status)
+
+	// Verify that "magex test:race" was called, not "magex test"
+	calls := runner.GetCalls()
+	hasTestRace := false
+	hasTestDefault := false
+
+	for _, call := range calls {
+		if call == "magex test:race" {
+			hasTestRace = true
+		}
+		if call == "magex test" {
+			hasTestDefault = true
+		}
+	}
+
+	assert.True(t, hasTestRace, "should run 'magex test:race' from config")
+	assert.False(t, hasTestDefault, "should NOT run default 'magex test'")
+}
+
+func TestValidationExecutor_BuildRunnerConfig(t *testing.T) {
+	t.Run("uses executor commands when task has none", func(t *testing.T) {
+		executor := &ValidationExecutor{
+			workDir:           "/tmp/work",
+			formatCommands:    []string{"custom-format"},
+			lintCommands:      []string{"custom-lint"},
+			testCommands:      []string{"custom-test"},
+			preCommitCommands: []string{"custom-precommit"},
+		}
+
+		task := &domain.Task{
+			Config: domain.TaskConfig{},
+		}
+
+		config := executor.buildRunnerConfig(task)
+
+		assert.Equal(t, []string{"custom-format"}, config.FormatCommands)
+		assert.Equal(t, []string{"custom-lint"}, config.LintCommands)
+		assert.Equal(t, []string{"custom-test"}, config.TestCommands)
+		assert.Equal(t, []string{"custom-precommit"}, config.PreCommitCommands)
+	})
+
+	t.Run("task validation commands override lint only for backward compatibility", func(t *testing.T) {
+		executor := &ValidationExecutor{
+			workDir:           "/tmp/work",
+			formatCommands:    []string{"custom-format"},
+			lintCommands:      []string{"custom-lint"},
+			testCommands:      []string{"custom-test"},
+			preCommitCommands: []string{"custom-precommit"},
+		}
+
+		task := &domain.Task{
+			Config: domain.TaskConfig{
+				ValidationCommands: []string{"task-specific-lint"}, // Legacy field
+			},
+		}
+
+		config := executor.buildRunnerConfig(task)
+
+		// Lint should be overridden by task config for backward compatibility
+		assert.Equal(t, []string{"task-specific-lint"}, config.LintCommands)
+		// Other commands should still use executor's config commands
+		assert.Equal(t, []string{"custom-format"}, config.FormatCommands)
+		assert.Equal(t, []string{"custom-test"}, config.TestCommands)
+		assert.Equal(t, []string{"custom-precommit"}, config.PreCommitCommands)
+	})
+
+	t.Run("empty executor commands let defaults apply", func(t *testing.T) {
+		executor := &ValidationExecutor{
+			workDir: "/tmp/work",
+			// No custom commands - empty slices
+		}
+
+		task := &domain.Task{
+			Config: domain.TaskConfig{},
+		}
+
+		config := executor.buildRunnerConfig(task)
+
+		// Empty slices are passed through; the validation.Runner applies defaults
+		assert.Empty(t, config.FormatCommands)
+		assert.Empty(t, config.LintCommands)
+		assert.Empty(t, config.TestCommands)
+		assert.Empty(t, config.PreCommitCommands)
+	})
+}

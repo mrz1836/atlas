@@ -7,6 +7,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/mrz1836/atlas/internal/ai"
+	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/git"
 )
 
@@ -90,6 +91,17 @@ type ExecutorDeps struct {
 	// BaseBranch is the default base branch for PR creation.
 	// Falls back to "main" if not specified.
 	BaseBranch string
+
+	// CIConfig contains CI polling and timeout configuration from project config.
+	// If nil, CI executor will use default constant values.
+	CIConfig *config.CIConfig
+
+	// Validation command configuration from project config.
+	// These commands override the defaults when running validation during task execution.
+	FormatCommands    []string
+	LintCommands      []string
+	TestCommands      []string
+	PreCommitCommands []string
 }
 
 // NewDefaultRegistry creates a registry with all built-in executors.
@@ -102,8 +114,13 @@ func NewDefaultRegistry(deps ExecutorDeps) *ExecutorRegistry {
 		r.Register(NewAIExecutorWithWorkingDir(deps.AIRunner, deps.WorkDir))
 	}
 
-	// Register validation executor with optional artifact saving, notifications, and retry
-	r.Register(NewValidationExecutorWithDeps(deps.WorkDir, deps.ArtifactSaver, deps.Notifier, deps.RetryHandler))
+	// Register validation executor with optional artifact saving, notifications, retry, and commands
+	r.Register(NewValidationExecutorFull(deps.WorkDir, deps.ArtifactSaver, deps.Notifier, deps.RetryHandler, ValidationCommands{
+		Format:    deps.FormatCommands,
+		Lint:      deps.LintCommands,
+		Test:      deps.TestCommands,
+		PreCommit: deps.PreCommitCommands,
+	}))
 
 	// Register git executor with dependencies for commit, push, and PR creation
 	gitExecutorOpts := []GitExecutorOption{
@@ -147,6 +164,9 @@ func NewDefaultRegistry(deps ExecutorDeps) *ExecutorRegistry {
 	}
 	if deps.CIFailureHandler != nil {
 		ciExecutorOpts = append(ciExecutorOpts, WithCIFailureHandlerInterface(deps.CIFailureHandler))
+	}
+	if deps.CIConfig != nil {
+		ciExecutorOpts = append(ciExecutorOpts, WithCIConfig(deps.CIConfig))
 	}
 	r.Register(NewCIExecutor(ciExecutorOpts...))
 

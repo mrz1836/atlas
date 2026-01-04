@@ -29,7 +29,12 @@ func DefaultConfig() *Config {
 
 			// MaxTurns: 10 provides reasonable conversation depth
 			// while preventing runaway AI sessions.
+			// DEPRECATED: Kept for backward compatibility.
 			MaxTurns: 10,
+
+			// MaxBudgetUSD: 0 means unlimited budget.
+			// Users can set a positive value to limit AI spending per session.
+			MaxBudgetUSD: 0.0,
 		},
 		Git: GitConfig{
 			// BaseBranch: "main" is the modern Git default.
@@ -60,6 +65,9 @@ func DefaultConfig() *Config {
 			// PollInterval: 2 minutes is a reasonable balance between
 			// responsiveness and API rate limiting.
 			PollInterval: constants.CIPollInterval,
+
+			// GracePeriod: 2 minutes gives CI time to start before polling.
+			GracePeriod: constants.CIInitialGracePeriod,
 
 			// RequiredWorkflows: empty means all workflows are considered.
 			// Can be set to specific workflow names to check.
@@ -93,9 +101,6 @@ func DefaultConfig() *Config {
 			// Commands run concurrently when possible.
 			ParallelExecution: true,
 
-			// TemplateOverrides: empty by default.
-			TemplateOverrides: nil,
-
 			// AIRetryEnabled: true enables AI-assisted validation retry.
 			// When validation fails, AI can attempt to fix the issues.
 			AIRetryEnabled: true,
@@ -111,7 +116,14 @@ func DefaultConfig() *Config {
 
 			// Events: default events that trigger notifications.
 			// Per Story 7.6: all attention states should trigger bells by default.
-			Events: []string{"awaiting_approval", "validation_failed", "error"},
+			// Using granular events for better control (ci_failed, github_failed instead of legacy "error").
+			Events: []string{"awaiting_approval", "validation_failed", "ci_failed", "github_failed"},
+		},
+		SmartCommit: SmartCommitConfig{
+			// Model: empty means use AI.Model setting.
+			// Can be overridden to use a different model for commit messages,
+			// e.g., "haiku" for faster/cheaper commit message generation.
+			Model: "",
 		},
 	}
 }

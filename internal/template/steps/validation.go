@@ -31,6 +31,12 @@ type ValidationExecutor struct {
 	artifactSaver ArtifactSaver
 	notifier      Notifier
 	retryHandler  RetryHandler
+
+	// Validation commands from project config (override defaults)
+	formatCommands    []string
+	lintCommands      []string
+	testCommands      []string
+	preCommitCommands []string
 }
 
 // NewValidationExecutor creates a new validation executor.
@@ -50,8 +56,17 @@ func NewValidationExecutorWithRunner(workDir string, runner validation.CommandRu
 	}
 }
 
+// ValidationCommands holds the validation command configuration from project config.
+type ValidationCommands struct {
+	Format    []string
+	Lint      []string
+	Test      []string
+	PreCommit []string
+}
+
 // NewValidationExecutorWithDeps creates a validation executor with full dependencies.
 // The artifactSaver, notifier, and retryHandler may be nil if those features are not needed.
+// Deprecated: Use NewValidationExecutorFull to include validation commands from config.
 func NewValidationExecutorWithDeps(workDir string, artifactSaver ArtifactSaver, notifier Notifier, retryHandler RetryHandler) *ValidationExecutor {
 	return &ValidationExecutor{
 		workDir:       workDir,
@@ -59,6 +74,22 @@ func NewValidationExecutorWithDeps(workDir string, artifactSaver ArtifactSaver, 
 		artifactSaver: artifactSaver,
 		notifier:      notifier,
 		retryHandler:  retryHandler,
+	}
+}
+
+// NewValidationExecutorFull creates a validation executor with all dependencies including
+// validation commands from project config. The commands override the defaults.
+func NewValidationExecutorFull(workDir string, artifactSaver ArtifactSaver, notifier Notifier, retryHandler RetryHandler, commands ValidationCommands) *ValidationExecutor {
+	return &ValidationExecutor{
+		workDir:           workDir,
+		runner:            &validation.DefaultCommandRunner{},
+		artifactSaver:     artifactSaver,
+		notifier:          notifier,
+		retryHandler:      retryHandler,
+		formatCommands:    commands.Format,
+		lintCommands:      commands.Lint,
+		testCommands:      commands.Test,
+		preCommitCommands: commands.PreCommit,
 	}
 }
 
@@ -213,10 +244,14 @@ func (e *ValidationExecutor) MaxRetryAttempts() int {
 	return e.retryHandler.MaxAttempts()
 }
 
-// buildRunnerConfig creates a RunnerConfig from task config.
+// buildRunnerConfig creates a RunnerConfig from task config and executor's stored commands.
 func (e *ValidationExecutor) buildRunnerConfig(task *domain.Task) *validation.RunnerConfig {
 	config := &validation.RunnerConfig{
-		ToolChecker: e.toolChecker,
+		ToolChecker:       e.toolChecker,
+		FormatCommands:    e.formatCommands,
+		LintCommands:      e.lintCommands,
+		TestCommands:      e.testCommands,
+		PreCommitCommands: e.preCommitCommands,
 	}
 
 	// If task has explicit validation commands, use them for lint step
