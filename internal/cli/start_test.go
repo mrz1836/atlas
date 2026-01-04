@@ -694,3 +694,77 @@ func TestDisplayTaskStatus_WithError(t *testing.T) {
 	output := buf.String()
 	assert.Contains(t, output, "Execution paused")
 }
+
+func TestSelectTemplate_CustomTemplate(t *testing.T) {
+	// Create temp directory with custom template
+	tmpDir := t.TempDir()
+	customTemplate := `
+name: custom-deploy
+steps:
+  - name: implement
+    type: ai
+    required: true
+`
+	tmpFile := filepath.Join(tmpDir, "deploy.yaml")
+	require.NoError(t, os.WriteFile(tmpFile, []byte(customTemplate), 0o600))
+
+	// Create registry with custom template
+	registry, err := template.NewRegistryWithConfig(tmpDir, map[string]string{
+		"custom-deploy": "deploy.yaml",
+	})
+	require.NoError(t, err)
+
+	// Verify custom template is selectable
+	tmpl, err := selectTemplate(context.Background(), registry, "custom-deploy", false, "text")
+	require.NoError(t, err)
+	assert.Equal(t, "custom-deploy", tmpl.Name)
+}
+
+func TestSelectTemplate_CustomOverridesBuiltin(t *testing.T) {
+	tmpDir := t.TempDir()
+	// Custom template with same name as built-in
+	customBugfix := `
+name: bugfix
+description: Custom bugfix workflow
+branch_prefix: hotfix
+steps:
+  - name: custom-step
+    type: ai
+    required: true
+`
+	tmpFile := filepath.Join(tmpDir, "bugfix.yaml")
+	require.NoError(t, os.WriteFile(tmpFile, []byte(customBugfix), 0o600))
+
+	registry, err := template.NewRegistryWithConfig(tmpDir, map[string]string{
+		"bugfix": "bugfix.yaml",
+	})
+	require.NoError(t, err)
+
+	// Select bugfix - should get custom version
+	tmpl, err := selectTemplate(context.Background(), registry, "bugfix", false, "text")
+	require.NoError(t, err)
+	assert.Equal(t, "bugfix", tmpl.Name)
+	assert.Equal(t, "hotfix", tmpl.BranchPrefix) // Custom uses "hotfix", built-in uses "fix"
+	assert.Equal(t, "Custom bugfix workflow", tmpl.Description)
+}
+
+func TestNewRegistryWithConfig_InvalidTemplateError(t *testing.T) {
+	tmpDir := t.TempDir()
+	// Invalid template - missing required step type
+	invalidTemplate := `
+name: invalid
+steps:
+  - name: step1
+    type: unknown_invalid_type
+    required: true
+`
+	tmpFile := filepath.Join(tmpDir, "invalid.yaml")
+	require.NoError(t, os.WriteFile(tmpFile, []byte(invalidTemplate), 0o600))
+
+	_, err := template.NewRegistryWithConfig(tmpDir, map[string]string{
+		"invalid": "invalid.yaml",
+	})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to load custom templates")
+}

@@ -180,7 +180,6 @@ func executeDestroy(ctx context.Context, store *workspace.FileStore, name, outpu
 	// Create worktree runner (may be nil if no repo path)
 	var wtRunner workspace.WorktreeRunner
 	if repoPath != "" {
-		//nolint:contextcheck // NewGitWorktreeRunner doesn't take context; it only detects repo root
 		wtRunner, err = workspace.NewGitWorktreeRunner(repoPath)
 		if err != nil {
 			// Log but continue - destroy should still clean up state

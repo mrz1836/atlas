@@ -163,8 +163,19 @@ func runStart(ctx context.Context, cmd *cobra.Command, w io.Writer, description 
 
 	logger.Debug().Str("repo_path", repoPath).Msg("found git repository")
 
-	// Load template registry
-	registry := template.NewDefaultRegistry()
+	// Load config for custom templates
+	cfg, cfgErr := config.Load(ctx)
+	if cfgErr != nil {
+		// Log warning but continue with defaults - don't fail task start for config issues
+		logger.Warn().Err(cfgErr).Msg("failed to load config, using default templates")
+		cfg = config.DefaultConfig()
+	}
+
+	// Load template registry with custom templates from config
+	registry, err := template.NewRegistryWithConfig(repoPath, cfg.Templates.CustomTemplates)
+	if err != nil {
+		return sc.handleError("", fmt.Errorf("failed to load templates: %w", err))
+	}
 
 	// Select template
 	tmpl, err := selectTemplate(ctx, registry, opts.templateName, opts.noInteractive, outputFormat)
@@ -257,7 +268,7 @@ func createWorkspace(ctx context.Context, sc *startContext, wsName, repoPath, br
 	}
 
 	// Create worktree runner
-	wtRunner, err := workspace.NewGitWorktreeRunner(repoPath) //nolint:contextcheck // NewGitWorktreeRunner doesn't accept context
+	wtRunner, err := workspace.NewGitWorktreeRunner(repoPath)
 	if err != nil {
 		return nil, sc.handleError(wsName, fmt.Errorf("failed to create worktree runner: %w", err))
 	}
@@ -642,7 +653,7 @@ func cleanupWorkspace(ctx context.Context, wsName, repoPath string) error {
 		return fmt.Errorf("failed to create workspace store: %w", err)
 	}
 
-	wtRunner, err := workspace.NewGitWorktreeRunner(repoPath) //nolint:contextcheck // NewGitWorktreeRunner doesn't accept context
+	wtRunner, err := workspace.NewGitWorktreeRunner(repoPath)
 	if err != nil {
 		return fmt.Errorf("failed to create worktree runner: %w", err)
 	}
