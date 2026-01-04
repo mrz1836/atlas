@@ -2,6 +2,7 @@ package git
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -178,8 +179,8 @@ func TestSmartCommitRunner_Commit_DryRun(t *testing.T) {
 	assert.Equal(t, "(dry-run)", result.Commits[0].Hash)
 	assert.Contains(t, result.Commits[0].Message, "feat(git)")
 	assert.Equal(t, 1, result.TotalFiles)
-	assert.Equal(t, "task-xyz", result.Commits[0].Trailers["ATLAS-Task"])
-	assert.Equal(t, "feature", result.Commits[0].Trailers["ATLAS-Template"])
+	// Trailers are deprecated - now always empty
+	assert.Empty(t, result.Commits[0].Trailers)
 }
 
 func TestSmartCommitRunner_Commit_SingleCommit(t *testing.T) {
@@ -336,9 +337,10 @@ func TestSmartCommitRunner_GenerateSimpleMessage(t *testing.T) {
 	runner := &SmartCommitRunner{}
 
 	tests := []struct {
-		name     string
-		group    FileGroup
-		expected string
+		name            string
+		group           FileGroup
+		expectedSubject string
+		expectedBody    string
 	}{
 		{
 			name: "single file added",
@@ -347,7 +349,8 @@ func TestSmartCommitRunner_GenerateSimpleMessage(t *testing.T) {
 				Files:      []FileChange{{Path: "internal/git/runner.go", Status: ChangeAdded}},
 				CommitType: CommitTypeFeat,
 			},
-			expected: "feat(git): add runner.go",
+			expectedSubject: "feat(git): add runner.go",
+			expectedBody:    "Updated runner.go in internal/git.",
 		},
 		{
 			name: "single file modified",
@@ -356,7 +359,8 @@ func TestSmartCommitRunner_GenerateSimpleMessage(t *testing.T) {
 				Files:      []FileChange{{Path: "internal/config/parser.go", Status: ChangeModified}},
 				CommitType: CommitTypeFix,
 			},
-			expected: "fix(config): update parser.go",
+			expectedSubject: "fix(config): update parser.go",
+			expectedBody:    "Updated parser.go in internal/config.",
 		},
 		{
 			name: "single file deleted",
@@ -365,7 +369,8 @@ func TestSmartCommitRunner_GenerateSimpleMessage(t *testing.T) {
 				Files:      []FileChange{{Path: "internal/task/old.go", Status: ChangeDeleted}},
 				CommitType: CommitTypeChore,
 			},
-			expected: "chore(task): remove old.go",
+			expectedSubject: "chore(task): remove old.go",
+			expectedBody:    "Updated old.go in internal/task.",
 		},
 		{
 			name: "multiple files",
@@ -377,7 +382,8 @@ func TestSmartCommitRunner_GenerateSimpleMessage(t *testing.T) {
 				},
 				CommitType: CommitTypeFeat,
 			},
-			expected: "feat(git): update 2 files",
+			expectedSubject: "feat(git): update 2 files",
+			expectedBody:    "Updated 2 files in internal/git.",
 		},
 		{
 			name: "docs group no scope",
@@ -386,14 +392,20 @@ func TestSmartCommitRunner_GenerateSimpleMessage(t *testing.T) {
 				Files:      []FileChange{{Path: "README.md", Status: ChangeModified}},
 				CommitType: CommitTypeDocs,
 			},
-			expected: "docs: update README.md",
+			expectedSubject: "docs: update README.md",
+			expectedBody:    "Updated README.md in docs.",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			message := runner.generateSimpleMessage(tt.group)
-			assert.Equal(t, tt.expected, message)
+			// Message should be: subject + blank line + synopsis body
+			expected := fmt.Sprintf("%s\n\n%s", tt.expectedSubject, tt.expectedBody)
+			assert.Equal(t, expected, message)
+			// Also verify it contains both parts
+			assert.Contains(t, message, tt.expectedSubject)
+			assert.Contains(t, message, tt.expectedBody)
 		})
 	}
 }
@@ -426,6 +438,8 @@ func TestIsValidConventionalCommit(t *testing.T) {
 }
 
 func TestBuildTrailers(t *testing.T) {
+	// buildTrailers is deprecated and now always returns an empty map.
+	// Commit messages now include an AI-generated synopsis body instead.
 	runner := &SmartCommitRunner{
 		taskID:       "task-abc",
 		templateName: "bugfix",
@@ -435,9 +449,25 @@ func TestBuildTrailers(t *testing.T) {
 		"Custom-Trailer": "value",
 	})
 
-	assert.Equal(t, "task-abc", trailers["ATLAS-Task"])
-	assert.Equal(t, "bugfix", trailers["ATLAS-Template"])
-	assert.Equal(t, "value", trailers["Custom-Trailer"])
+	// Trailers are deprecated - buildTrailers now returns empty map
+	assert.Empty(t, trailers)
+}
+
+func TestWithModel(t *testing.T) {
+	gitRunner := &MockRunner{}
+	runner := NewSmartCommitRunner(gitRunner, "/tmp", nil,
+		WithModel("haiku"),
+	)
+
+	assert.Equal(t, "haiku", runner.model)
+}
+
+func TestWithModel_Empty(t *testing.T) {
+	gitRunner := &MockRunner{}
+	runner := NewSmartCommitRunner(gitRunner, "/tmp", nil)
+
+	// Default should be empty string (uses AIRunner's default)
+	assert.Empty(t, runner.model)
 }
 
 func TestFormatArtifactMarkdown(t *testing.T) {
@@ -449,11 +479,11 @@ func TestFormatArtifactMarkdown(t *testing.T) {
 		Commits: []CommitInfo{
 			{
 				Hash:         "abc1234",
-				Message:      "feat(git): add smart commit",
+				Message:      "feat(git): add smart commit\n\nAdded smart commit functionality for automatic message generation.",
 				FileCount:    2,
 				Package:      "internal/git",
 				CommitType:   CommitTypeFeat,
-				Trailers:     map[string]string{"ATLAS-Task": "task-test"},
+				Trailers:     map[string]string{}, // Deprecated: always empty
 				FilesChanged: []string{"internal/git/smart_commit.go", "internal/git/smart_commit_test.go"},
 			},
 		},
@@ -466,8 +496,10 @@ func TestFormatArtifactMarkdown(t *testing.T) {
 	assert.Contains(t, content, "**Template:** feature")
 	assert.Contains(t, content, "abc1234")
 	assert.Contains(t, content, "feat(git): add smart commit")
+	assert.Contains(t, content, "smart commit functionality") // Synopsis body
 	assert.Contains(t, content, "internal/git/smart_commit.go")
-	assert.Contains(t, content, "ATLAS-Task: task-test")
+	// Trailers are no longer displayed in artifact markdown
+	assert.NotContains(t, content, "**Trailers:**")
 }
 
 func TestSmartCommitRunner_BuildAIPrompt(t *testing.T) {
@@ -646,14 +678,14 @@ func TestSmartCommitRunner_GenerateAIMessage_InvalidFormat(t *testing.T) {
 	assert.ErrorIs(t, err, atlaserrors.ErrAIInvalidFormat)
 }
 
-func TestSmartCommitRunner_GenerateAIMessage_ExtractsFirstLine(t *testing.T) {
+func TestSmartCommitRunner_GenerateAIMessage_ReturnsFullMessageWithBody(t *testing.T) {
 	tmpDir := t.TempDir()
 	initGitRepo(t, tmpDir)
 
 	gitRunner, err := NewRunner(context.Background(), tmpDir)
 	require.NoError(t, err)
 
-	// AI returns message with extra lines/explanation
+	// AI returns message with subject and synopsis body
 	mockAI := &mockAIRunner{
 		response: &domain.AIResult{
 			Success: true,
@@ -670,7 +702,9 @@ func TestSmartCommitRunner_GenerateAIMessage_ExtractsFirstLine(t *testing.T) {
 
 	message, err := runner.generateAIMessage(context.Background(), group)
 	require.NoError(t, err)
-	assert.Equal(t, "feat(git): add runner", message)
+	// Full message including body is now returned
+	assert.Contains(t, message, "feat(git): add runner")
+	assert.Contains(t, message, "This commit adds the runner implementation.")
 }
 
 // Test for IncludeGarbage option
@@ -839,8 +873,9 @@ func TestSmartCommitRunner_GenerateCommitMessage_FallbackOnAIError(t *testing.T)
 	}
 
 	message := runner.generateCommitMessage(context.Background(), group)
-	// Should fallback to simple message
-	assert.Equal(t, "feat(git): add runner.go", message)
+	// Should fallback to simple message with synopsis body
+	assert.Contains(t, message, "feat(git): add runner.go")
+	assert.Contains(t, message, "Updated runner.go in internal/git.")
 }
 
 func TestSmartCommitRunner_GenerateCommitMessage_UsesSuggestedMessage(t *testing.T) {

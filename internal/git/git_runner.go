@@ -78,8 +78,9 @@ func (r *CLIRunner) Add(ctx context.Context, paths []string) error {
 	return nil
 }
 
-// Commit creates a commit with the given message and trailers.
-func (r *CLIRunner) Commit(ctx context.Context, message string, trailers map[string]string) error {
+// Commit creates a commit with the given message.
+// The trailers parameter is deprecated and ignored - commit messages now include a synopsis body instead.
+func (r *CLIRunner) Commit(ctx context.Context, message string, _ map[string]string) error {
 	// Check for cancellation at entry
 	select {
 	case <-ctx.Done():
@@ -91,17 +92,8 @@ func (r *CLIRunner) Commit(ctx context.Context, message string, trailers map[str
 		return fmt.Errorf("commit message cannot be empty: %w", atlaserrors.ErrEmptyValue)
 	}
 
-	// Build commit message with trailers in footer
-	fullMsg := message
-	if len(trailers) > 0 {
-		fullMsg += "\n\n"
-		for k, v := range trailers {
-			fullMsg += fmt.Sprintf("%s: %s\n", k, v)
-		}
-	}
-
 	// Use --cleanup=strip to handle formatting (removes trailing whitespace, leading/trailing blank lines)
-	_, err := r.runGitCommand(ctx, "commit", "-m", fullMsg, "--cleanup=strip")
+	_, err := r.runGitCommand(ctx, "commit", "-m", message, "--cleanup=strip")
 	if err != nil {
 		return fmt.Errorf("failed to commit: %w", err)
 	}

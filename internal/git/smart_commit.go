@@ -26,9 +26,10 @@ type SmartCommitRunner struct {
 	aiRunner        ai.Runner        // AI runner for commit message generation
 	garbageDetector *GarbageDetector // Garbage file detector
 	workDir         string           // Working directory
-	taskID          string           // Current task ID for trailers
-	templateName    string           // Template name for trailers
+	taskID          string           // Current task ID (kept for artifact metadata)
+	templateName    string           // Template name (kept for artifact metadata)
 	artifactsDir    string           // Directory for saving artifacts
+	model           string           // AI model for commit message generation
 }
 
 // SmartCommitRunnerOption configures a SmartCommitRunner.
@@ -59,6 +60,14 @@ func WithArtifactsDir(dir string) SmartCommitRunnerOption {
 func WithGarbageConfig(config *GarbageConfig) SmartCommitRunnerOption {
 	return func(r *SmartCommitRunner) {
 		r.garbageDetector = NewGarbageDetector(config)
+	}
+}
+
+// WithModel sets the AI model for commit message generation.
+// If not set, the AIRunner's default model is used.
+func WithModel(model string) SmartCommitRunnerOption {
+	return func(r *SmartCommitRunner) {
+		r.model = model
 	}
 }
 
@@ -299,7 +308,7 @@ func (r *SmartCommitRunner) generateCommitMessage(ctx context.Context, group Fil
 	return r.generateSimpleMessage(group)
 }
 
-// generateAIMessage uses the AI runner to generate a commit message.
+// generateAIMessage uses the AI runner to generate a commit message with subject and synopsis body.
 func (r *SmartCommitRunner) generateAIMessage(ctx context.Context, group FileGroup) (string, error) {
 	// Get diff summary for better commit messages
 	diffSummary := r.getDiffSummary(ctx, group)
@@ -307,9 +316,10 @@ func (r *SmartCommitRunner) generateAIMessage(ctx context.Context, group FileGro
 	// Build the prompt with diff context
 	prompt := r.buildAIPromptWithDiff(group, diffSummary)
 
-	// Create AI request
+	// Create AI request with optional model override
 	req := &domain.AIRequest{
 		Prompt:     prompt,
+		Model:      r.model, // Use configured model (empty string uses AIRunner's default)
 		MaxTurns:   1,
 		Timeout:    30 * time.Second,
 		WorkingDir: r.workDir,
@@ -331,16 +341,17 @@ func (r *SmartCommitRunner) generateAIMessage(ctx context.Context, group FileGro
 		return "", atlaserrors.ErrAIEmptyResponse
 	}
 
-	// Extract first line (commit subject) - ignore any body/footer
+	// Extract first line for validation
 	lines := strings.Split(message, "\n")
 	firstLine := strings.TrimSpace(lines[0])
 
-	// Validate conventional commits format
+	// Validate conventional commits format for subject line
 	if !isValidConventionalCommit(firstLine) {
 		return "", atlaserrors.ErrAIInvalidFormat
 	}
 
-	return firstLine, nil
+	// Return full message including body (subject + synopsis)
+	return message, nil
 }
 
 // getDiffSummary retrieves a summary of changes for the given file group.
@@ -454,12 +465,16 @@ Requirements:
 2. Type must be one of: feat, fix, docs, style, refactor, test, chore, build, ci
 3. Scope should be: %s
 4. Description should be lowercase, no period at end
-5. Keep under 72 characters for the first line
-6. Do NOT include any AI attribution or mention of Claude/Anthropic
-7. Focus on WHAT changed and WHY, not HOW
-8. Be specific about the actual changes
+5. Keep subject line under 72 characters
+6. Include a blank line followed by a 1-2 sentence synopsis (under 150 chars)
+7. Synopsis should explain WHAT changed and WHY
+8. Do NOT include any AI attribution or mention of Claude/Anthropic
+9. Be specific about the actual changes
 
-Return ONLY the commit message, no explanations or formatting.`,
+Return format (no extra formatting or explanations):
+<type>(<scope>): <description>
+
+<synopsis>`,
 		group.Package,
 		fileList.String(),
 		diffSection,
@@ -507,23 +522,31 @@ func (r *SmartCommitRunner) addGarbageToGroups(analysis *CommitAnalysis) *Commit
 	return analysis
 }
 
-// generateSimpleMessage creates a fallback commit message.
+// generateSimpleMessage creates a fallback commit message with subject and synopsis body.
 func (r *SmartCommitRunner) generateSimpleMessage(group FileGroup) string {
 	scope := GetScopeFromPackage(group.Package)
 	commitType := group.CommitType
 
 	var description string
+	var synopsis string
 	switch {
 	case len(group.Files) == 1:
 		description = getFileDescription(group.Files[0])
+		synopsis = fmt.Sprintf("Updated %s in %s.", filepath.Base(group.Files[0].Path), group.Package)
 	default:
 		description = fmt.Sprintf("update %d files", len(group.Files))
+		synopsis = fmt.Sprintf("Updated %d files in %s.", len(group.Files), group.Package)
 	}
 
+	var subject string
 	if scope != "" {
-		return fmt.Sprintf("%s(%s): %s", commitType, scope, description)
+		subject = fmt.Sprintf("%s(%s): %s", commitType, scope, description)
+	} else {
+		subject = fmt.Sprintf("%s: %s", commitType, description)
 	}
-	return fmt.Sprintf("%s: %s", commitType, description)
+
+	// Return subject + synopsis body
+	return fmt.Sprintf("%s\n\n%s", subject, synopsis)
 }
 
 // getFileDescription creates a description based on file change.
@@ -559,13 +582,11 @@ func isValidConventionalCommit(message string) bool {
 	return false
 }
 
-// buildTrailers merges default and custom trailers.
-func (r *SmartCommitRunner) buildTrailers(custom map[string]string) map[string]string {
-	trailers := DefaultTrailers(r.taskID, r.templateName)
-	for k, v := range custom {
-		trailers[k] = v
-	}
-	return trailers
+// buildTrailers returns an empty map.
+// Trailers are deprecated - commit messages now include a synopsis body instead.
+// This function is kept for backward compatibility with callers.
+func (r *SmartCommitRunner) buildTrailers(_ map[string]string) map[string]string {
+	return make(map[string]string)
 }
 
 // getHeadShortHash returns the short hash of HEAD.
@@ -623,7 +644,10 @@ func formatArtifactMarkdown(artifact *CommitArtifact) string {
 
 	for i, commit := range artifact.Commits {
 		sb.WriteString(fmt.Sprintf("### %d. %s\n\n", i+1, commit.Hash))
-		sb.WriteString(fmt.Sprintf("**Message:** `%s`\n\n", commit.Message))
+		// Show full message (subject + body) in a code block
+		sb.WriteString("**Message:**\n```\n")
+		sb.WriteString(commit.Message)
+		sb.WriteString("\n```\n\n")
 		sb.WriteString(fmt.Sprintf("**Package:** %s\n\n", commit.Package))
 		sb.WriteString(fmt.Sprintf("**Type:** %s\n\n", commit.CommitType))
 		sb.WriteString("**Files:**\n")
@@ -631,14 +655,6 @@ func formatArtifactMarkdown(artifact *CommitArtifact) string {
 			sb.WriteString(fmt.Sprintf("- %s\n", f))
 		}
 		sb.WriteString("\n")
-
-		if len(commit.Trailers) > 0 {
-			sb.WriteString("**Trailers:**\n")
-			for k, v := range commit.Trailers {
-				sb.WriteString(fmt.Sprintf("- %s: %s\n", k, v))
-			}
-			sb.WriteString("\n")
-		}
 	}
 
 	return sb.String()

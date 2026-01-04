@@ -13,8 +13,8 @@ type Runner interface {
 	// Add stages files for commit. If paths is empty, stages all changes.
 	Add(ctx context.Context, paths []string) error
 
-	// Commit creates a commit with the given message and optional trailers.
-	// Trailers are appended to the commit message footer (e.g., ATLAS-Task: taskID).
+	// Commit creates a commit with the given message.
+	// The trailers parameter is deprecated and ignored - messages now include a synopsis body instead.
 	Commit(ctx context.Context, message string, trailers map[string]string) error
 
 	// Push pushes commits to the remote repository.

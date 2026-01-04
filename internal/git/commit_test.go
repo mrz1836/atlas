@@ -7,49 +7,39 @@ import (
 )
 
 func TestDefaultTrailers(t *testing.T) {
+	// DefaultTrailers is deprecated and now always returns an empty map.
+	// Commit messages now include an AI-generated synopsis body instead of trailers.
 	tests := []struct {
 		name         string
 		taskID       string
 		templateName string
-		expected     map[string]string
 	}{
 		{
-			name:         "both values",
+			name:         "both values returns empty",
 			taskID:       "task-abc-xyz",
 			templateName: "bugfix",
-			expected: map[string]string{
-				"ATLAS-Task":     "task-abc-xyz",
-				"ATLAS-Template": "bugfix",
-			},
 		},
 		{
-			name:         "only task ID",
+			name:         "only task ID returns empty",
 			taskID:       "task-abc-xyz",
 			templateName: "",
-			expected: map[string]string{
-				"ATLAS-Task": "task-abc-xyz",
-			},
 		},
 		{
-			name:         "only template",
+			name:         "only template returns empty",
 			taskID:       "",
 			templateName: "feature",
-			expected: map[string]string{
-				"ATLAS-Template": "feature",
-			},
 		},
 		{
-			name:         "empty values",
+			name:         "empty values returns empty",
 			taskID:       "",
 			templateName: "",
-			expected:     map[string]string{},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			trailers := DefaultTrailers(tt.taskID, tt.templateName)
-			assert.Equal(t, tt.expected, trailers)
+			assert.Empty(t, trailers)
 		})
 	}
 }
@@ -252,25 +242,25 @@ func TestCommitResult_Fields(t *testing.T) {
 }
 
 func TestCommitInfo_Fields(t *testing.T) {
+	// Trailers is deprecated and typically empty in new code.
+	// Messages now include a synopsis body instead.
 	info := CommitInfo{
-		Hash:       "def5678",
-		Message:    "fix(config): handle nil pointer",
-		FileCount:  1,
-		Package:    "internal/config",
-		CommitType: CommitTypeFix,
-		Trailers: map[string]string{
-			"ATLAS-Task":     "task-xyz",
-			"ATLAS-Template": "bugfix",
-		},
+		Hash:         "def5678",
+		Message:      "fix(config): handle nil pointer\n\nFixed null pointer exception in config parser.",
+		FileCount:    1,
+		Package:      "internal/config",
+		CommitType:   CommitTypeFix,
+		Trailers:     map[string]string{}, // Deprecated: always empty
 		FilesChanged: []string{"internal/config/parser.go"},
 	}
 
 	assert.Equal(t, "def5678", info.Hash)
-	assert.Equal(t, "fix(config): handle nil pointer", info.Message)
+	assert.Contains(t, info.Message, "fix(config): handle nil pointer")
+	assert.Contains(t, info.Message, "Fixed null pointer") // Message now includes body
 	assert.Equal(t, 1, info.FileCount)
 	assert.Equal(t, "internal/config", info.Package)
 	assert.Equal(t, CommitTypeFix, info.CommitType)
-	assert.Len(t, info.Trailers, 2)
+	assert.Empty(t, info.Trailers) // Trailers are deprecated
 	assert.Len(t, info.FilesChanged, 1)
 }
 

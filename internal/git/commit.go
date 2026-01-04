@@ -60,7 +60,7 @@ type CommitOptions struct {
 	SingleCommit     bool              // If true, create one commit for all changes
 	SkipGarbageCheck bool              // If true, skip garbage detection
 	IncludeGarbage   bool              // If true, include garbage files anyway
-	Trailers         map[string]string // Additional trailers (e.g., ATLAS-Task, ATLAS-Template)
+	Trailers         map[string]string // Deprecated: trailers are no longer used, commit messages now include a synopsis body
 	DryRun           bool              // If true, don't actually create commits
 }
 
@@ -74,11 +74,11 @@ type CommitResult struct {
 // CommitInfo contains information about a single commit.
 type CommitInfo struct {
 	Hash         string            // Git commit hash (short form)
-	Message      string            // Full commit message
+	Message      string            // Full commit message (subject + synopsis body)
 	FileCount    int               // Number of files in this commit
 	Package      string            // Package/directory this commit covers
 	CommitType   CommitType        // Type of commit (feat, fix, etc.)
-	Trailers     map[string]string // Trailers included in this commit
+	Trailers     map[string]string // Deprecated: always empty, kept for backward compatibility
 	FilesChanged []string          // List of file paths that were committed
 }
 
@@ -92,15 +92,11 @@ type CommitArtifact struct {
 }
 
 // DefaultTrailers returns the standard ATLAS trailers.
-func DefaultTrailers(taskID, templateName string) map[string]string {
-	trailers := make(map[string]string)
-	if taskID != "" {
-		trailers["ATLAS-Task"] = taskID
-	}
-	if templateName != "" {
-		trailers["ATLAS-Template"] = templateName
-	}
-	return trailers
+// Deprecated: Trailers are no longer used in commit messages.
+// Commit messages now include an AI-generated synopsis body instead.
+// This function is kept for backward compatibility but returns empty trailers.
+func DefaultTrailers(_, _ string) map[string]string {
+	return make(map[string]string)
 }
 
 // InferCommitType infers the commit type from file changes.

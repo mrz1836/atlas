@@ -298,7 +298,7 @@ func TestCLIRunner_Commit(t *testing.T) {
 		assert.True(t, status.IsClean())
 	})
 
-	t.Run("commit with trailers", func(t *testing.T) {
+	t.Run("commit with trailers (deprecated - ignored)", func(t *testing.T) {
 		repoPath := setupTestRepo(t)
 		createFile(t, repoPath, "file.txt", "content")
 
@@ -308,6 +308,7 @@ func TestCLIRunner_Commit(t *testing.T) {
 		err = runner.Add(context.Background(), nil)
 		require.NoError(t, err)
 
+		// Trailers are deprecated and ignored - they should NOT appear in commit message
 		trailers := map[string]string{
 			"ATLAS-Task":     "task-abc-xyz",
 			"ATLAS-Template": "bugfix",
@@ -315,14 +316,16 @@ func TestCLIRunner_Commit(t *testing.T) {
 		err = runner.Commit(context.Background(), "fix: resolve issue", trailers)
 		require.NoError(t, err)
 
-		// Verify trailers in commit message
+		// Verify commit succeeded but trailers are NOT present (deprecated behavior)
 		cmd := exec.CommandContext(context.Background(), "git", "log", "-1", "--format=%B")
 		cmd.Dir = repoPath
 		output, cmdErr := cmd.Output()
 		require.NoError(t, cmdErr)
 		commitMsg := string(output)
-		assert.Contains(t, commitMsg, "ATLAS-Task: task-abc-xyz")
-		assert.Contains(t, commitMsg, "ATLAS-Template: bugfix")
+		assert.Contains(t, commitMsg, "fix: resolve issue")
+		// Trailers should NOT be present since they are deprecated
+		assert.NotContains(t, commitMsg, "ATLAS-Task:")
+		assert.NotContains(t, commitMsg, "ATLAS-Template:")
 	})
 
 	t.Run("empty commit message error", func(t *testing.T) {
