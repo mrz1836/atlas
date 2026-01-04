@@ -126,7 +126,7 @@ func TestRunner_Run_FormatFailureSkipsRest(t *testing.T) {
 	assert.Empty(t, result.PreCommitResults)
 }
 
-func TestRunner_Run_LintFailureCollectsTestResults(t *testing.T) {
+func TestRunner_Run_LintFailureCollectsPreCommitResults(t *testing.T) {
 	mockRunner := NewMockCommandRunner()
 	mockRunner.SetResponse("fmt", "formatted", "", 0, nil)
 	mockRunner.SetResponse("lint", "", "lint error", 1, atlaserrors.ErrCommandFailed)
@@ -139,6 +139,10 @@ func TestRunner_Run_LintFailureCollectsTestResults(t *testing.T) {
 		LintCommands:      []string{"lint"},
 		TestCommands:      []string{"test"},
 		PreCommitCommands: []string{"precommit"},
+		ToolChecker: &MockToolChecker{
+			Installed: true,
+			Version:   "1.0.0",
+		},
 	}
 	runner := validation.NewRunner(executor, config)
 
@@ -151,42 +155,13 @@ func TestRunner_Run_LintFailureCollectsTestResults(t *testing.T) {
 	assert.Equal(t, "lint", result.FailedStep())
 	assert.Len(t, result.FormatResults, 1)
 	assert.Len(t, result.LintResults, 1)
-	// Test results should be collected even when lint fails
-	assert.Len(t, result.TestResults, 1)
-	assert.Empty(t, result.PreCommitResults)
+	// Pre-commit results should be collected even when lint fails (parallel execution)
+	assert.Len(t, result.PreCommitResults, 1)
+	// Test should NOT run when parallel phase fails
+	assert.Empty(t, result.TestResults)
 }
 
-func TestRunner_Run_TestFailureCollectsLintResults(t *testing.T) {
-	mockRunner := NewMockCommandRunner()
-	mockRunner.SetResponse("fmt", "formatted", "", 0, nil)
-	mockRunner.SetResponse("lint", "lint ok", "", 0, nil)
-	mockRunner.SetResponse("test", "", "test error", 1, atlaserrors.ErrCommandFailed)
-	mockRunner.SetResponse("precommit", "precommit ok", "", 0, nil)
-
-	executor := validation.NewExecutorWithRunner(time.Minute, mockRunner)
-	config := &validation.RunnerConfig{
-		FormatCommands:    []string{"fmt"},
-		LintCommands:      []string{"lint"},
-		TestCommands:      []string{"test"},
-		PreCommitCommands: []string{"precommit"},
-	}
-	runner := validation.NewRunner(executor, config)
-
-	ctx := testContext()
-	result, err := runner.Run(ctx, "/tmp")
-
-	require.Error(t, err)
-	require.NotNil(t, result)
-	assert.False(t, result.Success)
-	assert.Equal(t, "test", result.FailedStep())
-	assert.Len(t, result.FormatResults, 1)
-	// Lint results should be collected even when test fails
-	assert.Len(t, result.LintResults, 1)
-	assert.Len(t, result.TestResults, 1)
-	assert.Empty(t, result.PreCommitResults)
-}
-
-func TestRunner_Run_PreCommitFailure(t *testing.T) {
+func TestRunner_Run_PreCommitFailureCollectsLintResults(t *testing.T) {
 	mockRunner := NewMockCommandRunner()
 	mockRunner.SetResponse("fmt", "formatted", "", 0, nil)
 	mockRunner.SetResponse("lint", "lint ok", "", 0, nil)
@@ -214,9 +189,45 @@ func TestRunner_Run_PreCommitFailure(t *testing.T) {
 	assert.False(t, result.Success)
 	assert.Equal(t, "pre-commit", result.FailedStep())
 	assert.Len(t, result.FormatResults, 1)
+	// Lint results should be collected even when pre-commit fails (parallel execution)
 	assert.Len(t, result.LintResults, 1)
-	assert.Len(t, result.TestResults, 1)
 	assert.Len(t, result.PreCommitResults, 1)
+	// Test should NOT run when parallel phase fails
+	assert.Empty(t, result.TestResults)
+}
+
+func TestRunner_Run_TestFailure(t *testing.T) {
+	// Test now runs last (after parallel lint+pre-commit phase)
+	mockRunner := NewMockCommandRunner()
+	mockRunner.SetResponse("fmt", "formatted", "", 0, nil)
+	mockRunner.SetResponse("lint", "lint ok", "", 0, nil)
+	mockRunner.SetResponse("precommit", "precommit ok", "", 0, nil)
+	mockRunner.SetResponse("test", "", "test error", 1, atlaserrors.ErrCommandFailed)
+
+	executor := validation.NewExecutorWithRunner(time.Minute, mockRunner)
+	config := &validation.RunnerConfig{
+		FormatCommands:    []string{"fmt"},
+		LintCommands:      []string{"lint"},
+		TestCommands:      []string{"test"},
+		PreCommitCommands: []string{"precommit"},
+		ToolChecker: &MockToolChecker{
+			Installed: true,
+			Version:   "1.0.0",
+		},
+	}
+	runner := validation.NewRunner(executor, config)
+
+	ctx := testContext()
+	result, err := runner.Run(ctx, "/tmp")
+
+	require.Error(t, err)
+	require.NotNil(t, result)
+	assert.False(t, result.Success)
+	assert.Equal(t, "test", result.FailedStep())
+	assert.Len(t, result.FormatResults, 1)
+	assert.Len(t, result.LintResults, 1)
+	assert.Len(t, result.PreCommitResults, 1)
+	assert.Len(t, result.TestResults, 1)
 }
 
 func TestRunner_Run_ContextCancellationBeforeStart(t *testing.T) {
@@ -341,6 +352,10 @@ func TestRunner_Run_ProgressCallbackIncludesStepCounts(t *testing.T) {
 		LintCommands:      []string{"lint"},
 		TestCommands:      []string{"test"},
 		PreCommitCommands: []string{"precommit"},
+		ToolChecker: &MockToolChecker{
+			Installed: true,
+			Version:   "1.0.0",
+		},
 		ProgressCallback: func(step, status string, info *validation.ProgressInfo) {
 			mu.Lock()
 			progressCalls = append(progressCalls, struct {
@@ -393,9 +408,9 @@ func TestRunner_Run_ProgressCallbackIncludesStepCounts(t *testing.T) {
 		}
 	}
 
-	// Find test starting call and verify step number
+	// Find pre-commit starting call and verify step number
 	for _, call := range progressCalls {
-		if call.step == "test" && call.status == "starting" {
+		if call.step == "pre-commit" && call.status == "starting" {
 			require.NotNil(t, call.info)
 			assert.Equal(t, 3, call.info.CurrentStep)
 			assert.Equal(t, 4, call.info.TotalSteps)
@@ -403,9 +418,9 @@ func TestRunner_Run_ProgressCallbackIncludesStepCounts(t *testing.T) {
 		}
 	}
 
-	// Find pre-commit starting call and verify step number
+	// Find test starting call and verify step number
 	for _, call := range progressCalls {
-		if call.step == "pre-commit" && call.status == "starting" {
+		if call.step == "test" && call.status == "starting" {
 			require.NotNil(t, call.info)
 			assert.Equal(t, 4, call.info.CurrentStep)
 			assert.Equal(t, 4, call.info.TotalSteps)
@@ -554,13 +569,13 @@ func TestRunner_Run_MultipleCommandsPerStep(t *testing.T) {
 	assert.Len(t, result.PreCommitResults, 1)
 }
 
-func TestRunner_Run_ParallelLintAndTestExecution(t *testing.T) {
-	// Test that lint and test actually run in parallel
+func TestRunner_Run_ParallelLintAndPreCommitExecution(t *testing.T) {
+	// Test that lint and pre-commit actually run in parallel
 	mockRunner := NewMockCommandRunner()
 	mockRunner.SetResponse("fmt", "formatted", "", 0, nil)
 	mockRunner.SetResponseWithDelay("lint", "lint ok", "", 0, nil, 50*time.Millisecond)
-	mockRunner.SetResponseWithDelay("test", "test ok", "", 0, nil, 50*time.Millisecond)
-	mockRunner.SetResponse("precommit", "precommit ok", "", 0, nil)
+	mockRunner.SetResponseWithDelay("precommit", "precommit ok", "", 0, nil, 50*time.Millisecond)
+	mockRunner.SetResponse("test", "test ok", "", 0, nil)
 
 	executor := validation.NewExecutorWithRunner(time.Minute, mockRunner)
 	config := &validation.RunnerConfig{
@@ -568,6 +583,10 @@ func TestRunner_Run_ParallelLintAndTestExecution(t *testing.T) {
 		LintCommands:      []string{"lint"},
 		TestCommands:      []string{"test"},
 		PreCommitCommands: []string{"precommit"},
+		ToolChecker: &MockToolChecker{
+			Installed: true,
+			Version:   "1.0.0",
+		},
 	}
 	runner := validation.NewRunner(executor, config)
 
@@ -580,23 +599,29 @@ func TestRunner_Run_ParallelLintAndTestExecution(t *testing.T) {
 	require.NotNil(t, result)
 	assert.True(t, result.Success)
 
-	// If lint and test run in parallel (50ms each), total should be ~50ms for parallel part
+	// If lint and pre-commit run in parallel (50ms each), total should be ~50ms for parallel part
 	// If sequential, it would be ~100ms for that part
 	// Allow some margin for overhead
-	assert.Less(t, totalDuration, 150*time.Millisecond, "lint and test should run in parallel")
+	assert.Less(t, totalDuration, 150*time.Millisecond, "lint and pre-commit should run in parallel")
 }
 
-func TestRunner_Run_BothLintAndTestFail(t *testing.T) {
+func TestRunner_Run_BothLintAndPreCommitFail(t *testing.T) {
 	mockRunner := NewMockCommandRunner()
 	mockRunner.SetResponse("fmt", "formatted", "", 0, nil)
 	mockRunner.SetResponse("lint", "", "lint error", 1, atlaserrors.ErrCommandFailed)
-	mockRunner.SetResponse("test", "", "test error", 1, atlaserrors.ErrCommandFailed)
+	mockRunner.SetResponse("precommit", "", "precommit error", 1, atlaserrors.ErrCommandFailed)
+	mockRunner.SetResponse("test", "test ok", "", 0, nil)
 
 	executor := validation.NewExecutorWithRunner(time.Minute, mockRunner)
 	config := &validation.RunnerConfig{
-		FormatCommands: []string{"fmt"},
-		LintCommands:   []string{"lint"},
-		TestCommands:   []string{"test"},
+		FormatCommands:    []string{"fmt"},
+		LintCommands:      []string{"lint"},
+		TestCommands:      []string{"test"},
+		PreCommitCommands: []string{"precommit"},
+		ToolChecker: &MockToolChecker{
+			Installed: true,
+			Version:   "1.0.0",
+		},
 	}
 	runner := validation.NewRunner(executor, config)
 
@@ -606,11 +631,13 @@ func TestRunner_Run_BothLintAndTestFail(t *testing.T) {
 	require.Error(t, err)
 	require.NotNil(t, result)
 	assert.False(t, result.Success)
-	// FailedStep should be the first failure detected (either lint or test)
+	// FailedStep should be the first failure detected (either lint or pre-commit)
 	assert.NotEmpty(t, result.FailedStep())
-	// Both results should be collected
+	// Both parallel results should be collected
 	assert.Len(t, result.LintResults, 1)
-	assert.Len(t, result.TestResults, 1)
+	assert.Len(t, result.PreCommitResults, 1)
+	// Test should NOT run when parallel phase fails
+	assert.Empty(t, result.TestResults)
 }
 
 func TestRunner_SetProgressCallback(t *testing.T) {
