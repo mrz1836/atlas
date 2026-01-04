@@ -266,8 +266,8 @@ func TestGitExecutor_ExecuteCommit_Success(t *testing.T) {
 			}, nil
 		},
 		commitFunc: func(_ context.Context, opts git.CommitOptions) (*git.CommitResult, error) {
-			// Verify trailers are passed
-			assert.Equal(t, "task-123", opts.Trailers["ATLAS-Task"])
+			// Trailers are deprecated - opts.Trailers should be empty now
+			assert.Empty(t, opts.Trailers)
 			return &git.CommitResult{
 				Commits: []git.CommitInfo{
 					{Hash: "abc123", Message: "feat: test", FileCount: 1, FilesChanged: []string{"file.go"}},

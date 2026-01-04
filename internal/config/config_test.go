@@ -41,6 +41,9 @@ func TestDefaultConfig_ReturnsValidConfig(t *testing.T) {
 	assert.True(t, cfg.Notifications.Bell, "default bell notification")
 	assert.Contains(t, cfg.Notifications.Events, "awaiting_approval", "default events")
 
+	// Verify SmartCommit defaults
+	assert.Empty(t, cfg.SmartCommit.Model, "default smart commit model should be empty (uses AI.Model)")
+
 	// Validate the default config passes validation
 	err := Validate(cfg)
 	assert.NoError(t, err, "default config should pass validation")
@@ -90,6 +93,9 @@ func TestConfig_YAMLSerialization(t *testing.T) {
 			Bell:   false,
 			Events: []string{"error", "task_complete"},
 		},
+		SmartCommit: SmartCommitConfig{
+			Model: "haiku",
+		},
 	}
 
 	// Serialize to YAML
@@ -129,6 +135,8 @@ func TestConfig_YAMLSerialization(t *testing.T) {
 
 	assert.Equal(t, original.Notifications.Bell, restored.Notifications.Bell)
 	assert.Equal(t, original.Notifications.Events, restored.Notifications.Events)
+
+	assert.Equal(t, original.SmartCommit.Model, restored.SmartCommit.Model)
 }
 
 func TestValidate_InvalidValues(t *testing.T) {
@@ -284,6 +292,18 @@ func TestValidate_ValidConfig(t *testing.T) {
 			modify: func(c *Config) {
 				c.Validation.AIRetryEnabled = true
 				c.Validation.MaxAIRetryAttempts = 5
+			},
+		},
+		{
+			name: "smart commit with custom model",
+			modify: func(c *Config) {
+				c.SmartCommit.Model = "haiku"
+			},
+		},
+		{
+			name: "smart commit with empty model (uses AI.Model)",
+			modify: func(c *Config) {
+				c.SmartCommit.Model = ""
 			},
 		},
 	}

@@ -12,6 +12,7 @@ import (
 
 	"github.com/rs/zerolog"
 
+	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/domain"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
@@ -29,6 +30,7 @@ type CIFailureHandlerInterface interface {
 type CIExecutor struct {
 	hubRunner        git.HubRunner
 	ciFailureHandler CIFailureHandlerInterface
+	ciConfig         *config.CIConfig
 	logger           zerolog.Logger
 }
 
@@ -64,6 +66,13 @@ func WithCIFailureHandlerInterface(handler CIFailureHandlerInterface) CIExecutor
 func WithCILogger(logger zerolog.Logger) CIExecutorOption {
 	return func(e *CIExecutor) {
 		e.logger = logger
+	}
+}
+
+// WithCIConfig sets the CI configuration from project config.
+func WithCIConfig(cfg *config.CIConfig) CIExecutorOption {
+	return func(e *CIExecutor) {
+		e.ciConfig = cfg
 	}
 }
 
@@ -120,15 +129,24 @@ func (e *CIExecutor) Execute(ctx context.Context, task *domain.Task, step *domai
 		return e.buildErrorResult(task, step, startTime, err.Error()), err
 	}
 
-	// Extract configuration from step
-	pollInterval := extractDuration(step.Config, "poll_interval", constants.CIPollInterval)
+	// Extract configuration with precedence: step.Config > runtime config > constants
+	var runtimePollInterval, runtimeGracePeriod time.Duration
+	var runtimeTimeout time.Duration
+	if e.ciConfig != nil {
+		runtimePollInterval = e.ciConfig.PollInterval
+		runtimeGracePeriod = e.ciConfig.GracePeriod
+		runtimeTimeout = e.ciConfig.Timeout
+	}
+
+	pollInterval := e.getConfigDuration("poll_interval", step.Config, runtimePollInterval, constants.CIPollInterval)
+	gracePeriod := e.getConfigDuration("grace_period", step.Config, runtimeGracePeriod, constants.CIInitialGracePeriod)
+	gracePollInterval := extractDuration(step.Config, "grace_poll_interval", constants.CIGracePollInterval)
+
 	timeout := step.Timeout
 	if timeout == 0 {
-		timeout = constants.DefaultCITimeout
+		timeout = e.getConfigDuration("timeout", step.Config, runtimeTimeout, constants.DefaultCITimeout)
 	}
 	workflows := extractStringSlice(step.Config, "workflows")
-	gracePeriod := extractDuration(step.Config, "grace_period", constants.CIInitialGracePeriod)
-	gracePollInterval := extractDuration(step.Config, "grace_poll_interval", constants.CIGracePollInterval)
 
 	// Build watch options
 	watchOpts := git.CIWatchOptions{
@@ -432,6 +450,23 @@ func extractDuration(config map[string]any, key string, defaultVal time.Duration
 	default:
 		return defaultVal
 	}
+}
+
+// getConfigDuration extracts duration with precedence: step.Config > runtime config > constants.
+// This enables proper configuration override hierarchy for CI timing values.
+func (e *CIExecutor) getConfigDuration(key string, stepConfig map[string]any, runtimeConfig, defaultValue time.Duration) time.Duration {
+	// 1. Check step.Config (highest priority - template override)
+	if val := extractDuration(stepConfig, key, 0); val > 0 {
+		return val
+	}
+
+	// 2. Check runtime config (from .atlas/config.yaml)
+	if runtimeConfig > 0 {
+		return runtimeConfig
+	}
+
+	// 3. Fall back to constant default
+	return defaultValue
 }
 
 // extractStringSlice extracts a string slice from step config.

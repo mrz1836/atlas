@@ -43,7 +43,8 @@ type NotificationConfig struct {
 	Quiet bool
 
 	// Events is the list of event types that trigger notifications.
-	// Supported: "awaiting_approval", "validation_failed", "task_complete", "error"
+	// Supported: "awaiting_approval", "validation_failed", "ci_failed", "github_failed"
+	// Legacy: "error" (matches both ci_failed and github_failed for backward compatibility)
 	Events []string
 }
 
@@ -53,7 +54,7 @@ func DefaultNotificationConfig() NotificationConfig {
 	return NotificationConfig{
 		BellEnabled: true,
 		Quiet:       false,
-		Events:      []string{"awaiting_approval", "validation_failed", "error"},
+		Events:      []string{"awaiting_approval", "validation_failed", "ci_failed", "github_failed"},
 	}
 }
 
@@ -138,7 +139,13 @@ func (n *StateChangeNotifier) shouldNotifyForStatus(status constants.TaskStatus)
 	}
 
 	for _, event := range n.config.Events {
+		// Direct match (granular events)
 		if event == eventType {
+			return true
+		}
+
+		// Backward compatibility: "error" matches any failure type
+		if event == "error" && (eventType == "ci_failed" || eventType == "github_failed") {
 			return true
 		}
 	}
@@ -160,8 +167,10 @@ func statusToEventType(status constants.TaskStatus) string {
 		return "awaiting_approval"
 	case constants.TaskStatusValidationFailed:
 		return "validation_failed"
-	case constants.TaskStatusGHFailed, constants.TaskStatusCIFailed, constants.TaskStatusCITimeout:
-		return "error"
+	case constants.TaskStatusGHFailed:
+		return "github_failed"
+	case constants.TaskStatusCIFailed, constants.TaskStatusCITimeout:
+		return "ci_failed"
 	default:
 		return ""
 	}

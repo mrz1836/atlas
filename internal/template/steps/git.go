@@ -258,12 +258,8 @@ func (e *GitExecutor) executeCommit(ctx context.Context, step *domain.StepDefini
 	}
 
 	// Step 2: Execute smart commit with file grouping
-	commitOpts := git.CommitOptions{
-		Trailers: map[string]string{
-			"ATLAS-Task":     task.ID,
-			"ATLAS-Template": task.TemplateID,
-		},
-	}
+	// Trailers are deprecated - commit messages now include an AI-generated synopsis body
+	commitOpts := git.CommitOptions{}
 
 	result, err := e.smartCommitter.Commit(ctx, commitOpts)
 	if err != nil {

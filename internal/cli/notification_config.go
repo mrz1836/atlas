@@ -14,6 +14,7 @@ const (
 	NotifyEventValidationFailed = "validation_failed"
 	NotifyEventCIFailed         = "ci_failed"
 	NotifyEventGitHubFailed     = "github_failed"
+	NotifyEventError            = "error" // Legacy catch-all for CI and GitHub failures (deprecated, use granular events)
 )
 
 // AllNotificationEvents returns all supported notification event types.
@@ -23,6 +24,7 @@ func AllNotificationEvents() []string {
 		NotifyEventValidationFailed,
 		NotifyEventCIFailed,
 		NotifyEventGitHubFailed,
+		NotifyEventError, // Legacy support
 	}
 }
 
@@ -36,19 +38,30 @@ type NotificationProviderConfig struct {
 }
 
 // NotificationConfigDefaults returns the default values for notification configuration.
+// Uses granular events only (no legacy "error" event).
 func NotificationConfigDefaults() NotificationProviderConfig {
 	return NotificationProviderConfig{
 		BellEnabled: true,
-		Events:      AllNotificationEvents(),
+		Events: []string{
+			NotifyEventAwaitingApproval,
+			NotifyEventValidationFailed,
+			NotifyEventCIFailed,
+			NotifyEventGitHubFailed,
+		},
 	}
 }
 
 // DefaultNotificationConfig returns a NotificationConfig with sensible defaults.
-// Bell is enabled and all events are selected.
+// Bell is enabled and granular events are selected (no legacy "error" event).
 func DefaultNotificationConfig() NotificationConfig {
 	return NotificationConfig{
 		BellEnabled: true,
-		Events:      AllNotificationEvents(),
+		Events: []string{
+			NotifyEventAwaitingApproval,
+			NotifyEventValidationFailed,
+			NotifyEventCIFailed,
+			NotifyEventGitHubFailed,
+		},
 	}
 }
 

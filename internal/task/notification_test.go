@@ -48,9 +48,9 @@ func TestStatusToEventType(t *testing.T) {
 	}{
 		{"AwaitingApproval maps to awaiting_approval", constants.TaskStatusAwaitingApproval, "awaiting_approval"},
 		{"ValidationFailed maps to validation_failed", constants.TaskStatusValidationFailed, "validation_failed"},
-		{"GHFailed maps to error", constants.TaskStatusGHFailed, "error"},
-		{"CIFailed maps to error", constants.TaskStatusCIFailed, "error"},
-		{"CITimeout maps to error", constants.TaskStatusCITimeout, "error"},
+		{"GHFailed maps to github_failed", constants.TaskStatusGHFailed, "github_failed"},
+		{"CIFailed maps to ci_failed", constants.TaskStatusCIFailed, "ci_failed"},
+		{"CITimeout maps to ci_failed", constants.TaskStatusCITimeout, "ci_failed"},
 		{"Running maps to empty", constants.TaskStatusRunning, ""},
 		{"Completed maps to empty", constants.TaskStatusCompleted, ""},
 	}
@@ -305,7 +305,10 @@ func TestDefaultNotificationConfig(t *testing.T) {
 	assert.False(t, cfg.Quiet)
 	assert.Contains(t, cfg.Events, "awaiting_approval")
 	assert.Contains(t, cfg.Events, "validation_failed")
-	assert.Contains(t, cfg.Events, "error")
+	assert.Contains(t, cfg.Events, "ci_failed")
+	assert.Contains(t, cfg.Events, "github_failed")
+	assert.NotContains(t, cfg.Events, "error", "Default should not include legacy error event")
+	assert.Len(t, cfg.Events, 4, "Should have 4 default events (granular only)")
 }
 
 func TestStateChangeNotifier_ShouldNotifyForStatus(t *testing.T) {
