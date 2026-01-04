@@ -85,3 +85,15 @@ const (
 
 // ToolAtlas is the ATLAS CLI tool name (for upgrade command).
 const ToolAtlas = "atlas"
+
+// GitHub repository information for atlas releases.
+const (
+	// GitHubOwner is the GitHub owner/organization for atlas repository.
+	GitHubOwner = "mrz1836"
+
+	// GitHubRepo is the GitHub repository name for atlas.
+	GitHubRepo = "atlas"
+
+	// GitHubAPIBaseURL is the base URL for GitHub API requests.
+	GitHubAPIBaseURL = "https://api.github.com"
+)

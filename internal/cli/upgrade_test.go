@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/errors"
 )
@@ -442,22 +443,50 @@ func TestDefaultUpgradeChecker_CheckToolUpdate_UnknownTool(t *testing.T) {
 func TestDefaultUpgradeExecutor_UpgradeTool(t *testing.T) {
 	t.Parallel()
 
+	// Test atlas upgrade when already on latest version (no download needed)
 	executor := &mockCommandExecutor{
 		runResults: map[string]string{
-			"go install " + constants.InstallPathAtlas: "",
-			"atlas --version":                          "0.2.0 (commit: def, built: 2024-02-01)",
+			"atlas --version": "atlas version 1.0.0 (commit: def, built: 2024-02-01)",
 		},
 		lookPathResults: map[string]string{
 			"atlas": "/usr/bin/atlas",
 		},
 	}
 
-	upgradeExec := NewDefaultUpgradeExecutor(executor)
+	// Create a mock upgrader function that returns "already on latest"
+	mockUpgraderFunc := func(_ config.CommandExecutor) *AtlasReleaseUpgrader {
+		return NewAtlasReleaseUpgraderWithDeps(
+			&mockReleaseClientForUpgrade{
+				release: &GitHubRelease{
+					TagName: "v1.0.0", // Same version as current
+				},
+			},
+			nil,
+			executor,
+		)
+	}
+
+	upgradeExec := NewDefaultUpgradeExecutorWithUpgrader(executor, mockUpgraderFunc)
 	result, err := upgradeExec.UpgradeTool(context.Background(), constants.ToolAtlas)
 
 	require.NoError(t, err)
 	assert.True(t, result.Success)
 	assert.Equal(t, constants.ToolAtlas, result.Tool)
+	// When already on latest, returns current version
+	assert.Equal(t, "1.0.0", result.NewVersion)
+}
+
+// mockReleaseClientForUpgrade is a mock that supports the full upgrade flow.
+type mockReleaseClientForUpgrade struct {
+	release *GitHubRelease
+	err     error
+}
+
+func (m *mockReleaseClientForUpgrade) GetLatestRelease(_ context.Context, _, _ string) (*GitHubRelease, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	return m.release, nil
 }
 
 func TestDefaultUpgradeExecutor_UpgradeTool_UnknownTool(t *testing.T) {

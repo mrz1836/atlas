@@ -291,6 +291,36 @@ var (
 
 	// ErrRebaseConflict indicates that a rebase operation has conflicts that need manual resolution.
 	ErrRebaseConflict = errors.New("rebase has conflicts")
+
+	// ErrUpgradeDownloadFailed indicates the binary download failed during upgrade.
+	ErrUpgradeDownloadFailed = errors.New("upgrade download failed")
+
+	// ErrUpgradeChecksumMismatch indicates checksum verification failed during upgrade.
+	ErrUpgradeChecksumMismatch = errors.New("checksum verification failed")
+
+	// ErrUpgradeReplaceFailed indicates binary replacement failed during upgrade.
+	ErrUpgradeReplaceFailed = errors.New("binary replacement failed")
+
+	// ErrUpgradeNoRelease indicates no GitHub release was found for upgrade.
+	ErrUpgradeNoRelease = errors.New("no release found")
+
+	// ErrUpgradeAssetNotFound indicates the required binary asset was not found in the release.
+	ErrUpgradeAssetNotFound = errors.New("binary asset not found for platform")
+
+	// ErrMockFileNotFound indicates a mock file was not found (used in tests).
+	ErrMockFileNotFound = errors.New("file not found")
+
+	// ErrMockGHFailed indicates a mock gh command failed (used in tests).
+	ErrMockGHFailed = errors.New("gh command failed")
+
+	// ErrMockAPIError indicates a mock API error occurred (used in tests).
+	ErrMockAPIError = errors.New("API error")
+
+	// ErrMockNotFound indicates a mock resource was not found (used in tests).
+	ErrMockNotFound = errors.New("not found")
+
+	// ErrMockNetwork indicates a mock network error occurred (used in tests).
+	ErrMockNetwork = errors.New("network error")
 )
 
 // ExitCode2Error wraps an error to indicate exit code 2 should be used.

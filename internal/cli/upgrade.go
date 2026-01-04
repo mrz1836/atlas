@@ -667,7 +667,18 @@ func (c *DefaultUpgradeChecker) checkToolUpdate(ctx context.Context, tool upgrad
 
 	info.CurrentVersion = parseVersionFromOutput(tool.name, output)
 
-	// For MVP, we assume an update is potentially available if the tool is installed
+	// For atlas, fetch the latest version from GitHub
+	if tool.name == constants.ToolAtlas {
+		upgrader := NewAtlasReleaseUpgrader(c.executor)
+		if latestVersion, err := upgrader.GetLatestVersion(ctx); err == nil {
+			info.LatestVersion = latestVersion
+			info.UpdateAvailable = isNewerVersion(info.CurrentVersion, latestVersion)
+			return info
+		}
+		// If we can't fetch latest, fall through to default behavior
+	}
+
+	// For other tools, we assume an update is potentially available if the tool is installed
 	// A more sophisticated approach would query the package registry
 	// For now, we'll mark it as "check available" and let the actual upgrade determine if there was a change
 	info.UpdateAvailable = true
@@ -747,14 +758,31 @@ func parseGenericVersion(output string) string {
 	return output
 }
 
+// AtlasUpgraderFunc is a function type that creates an AtlasReleaseUpgrader.
+// This allows injection of custom upgraders for testing.
+type AtlasUpgraderFunc func(executor config.CommandExecutor) *AtlasReleaseUpgrader
+
 // DefaultUpgradeExecutor implements UpgradeExecutor.
 type DefaultUpgradeExecutor struct {
-	executor config.CommandExecutor
+	executor          config.CommandExecutor
+	atlasUpgraderFunc AtlasUpgraderFunc // For testing injection
 }
 
 // NewDefaultUpgradeExecutor creates a new DefaultUpgradeExecutor.
 func NewDefaultUpgradeExecutor(executor config.CommandExecutor) *DefaultUpgradeExecutor {
-	return &DefaultUpgradeExecutor{executor: executor}
+	return &DefaultUpgradeExecutor{
+		executor:          executor,
+		atlasUpgraderFunc: NewAtlasReleaseUpgrader,
+	}
+}
+
+// NewDefaultUpgradeExecutorWithUpgrader creates a new DefaultUpgradeExecutor with a custom atlas upgrader.
+// This is used for testing.
+func NewDefaultUpgradeExecutorWithUpgrader(executor config.CommandExecutor, upgraderFunc AtlasUpgraderFunc) *DefaultUpgradeExecutor {
+	return &DefaultUpgradeExecutor{
+		executor:          executor,
+		atlasUpgraderFunc: upgraderFunc,
+	}
 }
 
 // UpgradeTool upgrades a specific tool.
@@ -838,6 +866,10 @@ func (e *DefaultUpgradeExecutor) CleanupConstitutionBackup(originalPath string) 
 // Returns true if a tool-specific upgrade was attempted (regardless of success).
 func (e *DefaultUpgradeExecutor) tryToolSpecificUpgrade(ctx context.Context, tool string, toolConfig *upgradableToolConfig, result *UpgradeResult) bool {
 	switch tool {
+	case constants.ToolAtlas:
+		// Atlas uses GitHub releases for upgrades
+		e.upgradeAtlasViaRelease(ctx, toolConfig, result)
+		return true
 	case constants.ToolMageX:
 		if _, lookErr := e.executor.LookPath(constants.ToolMageX); lookErr == nil {
 			e.upgradeMagex(ctx, tool, toolConfig, result)
@@ -874,6 +906,28 @@ func (e *DefaultUpgradeExecutor) upgradeGoPreCommit(ctx context.Context, tool st
 	}
 	result.Success = true
 	e.updateResultVersion(ctx, tool, toolConfig, result)
+}
+
+// upgradeAtlasViaRelease upgrades atlas using GitHub releases.
+func (e *DefaultUpgradeExecutor) upgradeAtlasViaRelease(ctx context.Context, toolConfig *upgradableToolConfig, result *UpgradeResult) {
+	// Get current version
+	output, err := e.executor.Run(ctx, toolConfig.command, toolConfig.versionFlag)
+	currentVersion := "unknown"
+	if err == nil {
+		currentVersion = parseVersionFromOutput(constants.ToolAtlas, output)
+	}
+
+	// Create upgrader and perform upgrade
+	upgrader := e.atlasUpgraderFunc(e.executor)
+	newVersion, err := upgrader.UpgradeAtlas(ctx, currentVersion)
+	if err != nil {
+		result.Success = false
+		result.Error = err.Error()
+		return
+	}
+
+	result.Success = true
+	result.NewVersion = newVersion
 }
 
 // upgradeViaGoInstall upgrades a tool using go install.
