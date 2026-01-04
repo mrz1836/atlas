@@ -1,6 +1,21 @@
-version: "1"
-targets:
-  build:
-    description: "Build binary"
-    commands:
-      - go build -o bin/atlas ./cmd/atlas
+project:
+  name: atlas
+  binary: atlas
+  module: github.com/mrz1836/atlas
+  main: ./cmd/atlas/main.go
+
+build:
+  # Custom ldflags with version injection
+  ldflags:
+    - "-s -w"
+    - "-X main.version={{.Version}}"
+    - "-X main.commit={{.Commit}}"
+    - "-X main.buildDate={{.Date}}"
+  flags:
+    - "-trimpath"
+  output: "./cmd/atlas"
+
+test:
+  # Match CI timeout configuration (TEST_TIMEOUT_RACE_COVER in .env.base)
+  # Default magex timeout is 10m which was killing tests prematurely
+  timeout: 30m
