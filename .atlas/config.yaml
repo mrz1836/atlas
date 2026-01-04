@@ -52,7 +52,7 @@ templates:
   default_template: "task"
 
   # Map of custom template names to their file paths
-  # Example: { "my-template": "/path/to/template.md" }
+  # Example: { "my-template": "/path/to/template.yaml" }
   # Default: {}
   custom_templates: {}
 

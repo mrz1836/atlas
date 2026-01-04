@@ -200,6 +200,7 @@ atlas start "fix bug" -t bugfix --no-interactive
 | `--template` | `-t` | Template to use | `bugfix`, `feature`, `task`, `commit` |
 | `--workspace` | `-w` | Custom workspace name | Any string (sanitized) |
 | `--model` | `-m` | AI model to use | `sonnet`, `opus`, `haiku` |
+| `--branch` | `-b` | Base branch to create workspace from | Branch name |
 | `--verify` | | Enable AI verification step | |
 | `--no-verify` | | Disable AI verification step | |
 | `--no-interactive` | | Disable interactive prompts | |
@@ -501,10 +502,10 @@ atlas upgrade go-pre-commit
 
 **Flags:**
 
-| Flag | Description |
-|------|-------------|
-| `--check` | Dry run - show updates without installing |
-| `--yes` | Skip confirmation prompts |
+| Flag | Short | Description |
+|------|-------|-------------|
+| `--check` | `-c` | Dry run - show updates without installing |
+| `--yes` | `-y` | Skip confirmation prompts |
 
 **Managed Tools:**
 - mage-x (magex command)
@@ -562,7 +563,11 @@ atlas config ai --no-interactive
 Configure validation commands.
 
 ```bash
+# Interactive configuration
 atlas config validation
+
+# Show current values without prompting
+atlas config validation --no-interactive
 ```
 
 **Configurable Commands:**
@@ -577,7 +582,11 @@ atlas config validation
 Configure notification preferences.
 
 ```bash
+# Interactive configuration
 atlas config notifications
+
+# Show current values without prompting
+atlas config notifications --no-interactive
 ```
 
 **Configurable Settings:**
@@ -661,7 +670,7 @@ atlas workspace logs my-workspace --follow
 atlas workspace logs my-workspace --step validate
 
 # Filter by task ID
-atlas workspace logs my-workspace --task-id task-20251226-100000
+atlas workspace logs my-workspace --task task-20251226-100000
 
 # Show last N lines
 atlas workspace logs my-workspace --tail 50
@@ -676,8 +685,8 @@ atlas workspace logs my-workspace --follow --step validate --tail 100
 |------|-------|-------------|
 | `--follow` | `-f` | Stream new logs as they appear |
 | `--step` | | Filter by step name |
-| `--task-id` | | Filter by task ID |
-| `--tail` | | Show last N lines |
+| `--task` | | Filter by task ID |
+| `--tail` | `-n` | Show last N lines |
 
 **Log Features:**
 - Color-coded by log level (info/warn/error/debug)
@@ -709,6 +718,117 @@ ATLAS provides pre-defined workflow templates:
 - `lint` - Run linters only
 - `test` - Run tests only
 - `validate` - Full validation suite
+
+### Custom Templates
+
+ATLAS supports custom templates defined in YAML or JSON files. Custom templates can extend or override built-in templates.
+
+**Configuring Custom Templates:**
+
+Add custom templates to your `.atlas/config.yaml`:
+
+```yaml
+templates:
+  default_template: "my-workflow"  # Optional: set your custom template as default
+  custom_templates:
+    my-workflow: /path/to/my-workflow.yaml
+    deploy: ./templates/deploy.json  # JSON also supported
+    hotfix: ./templates/hotfix.yml   # Relative paths supported
+```
+
+File format is auto-detected from extension (`.yaml`, `.yml`, or `.json`).
+
+**Custom Template File Format (YAML):**
+
+```yaml
+name: my-workflow
+description: A custom workflow template
+branch_prefix: custom
+default_model: sonnet
+
+# Optional: Enable/disable verification
+verify: false
+verify_model: opus  # Model for cross-validation (different family)
+
+# Optional: Template variables
+variables:
+  ticket_id:
+    description: JIRA ticket ID
+    required: true
+  component:
+    description: Component name
+    default: core
+    required: false
+
+steps:
+  - name: implement
+    type: ai
+    description: Implement the requested changes
+    required: true
+    timeout: 20m
+    retry_count: 3
+    config:
+      permission_mode: default
+      prompt_template: implement_task
+
+  - name: validate
+    type: validation
+    description: Run format, lint, and test commands
+    required: true
+    timeout: 10m
+
+  - name: git_commit
+    type: git
+    required: true
+    timeout: 1m
+    config:
+      operation: commit
+
+  - name: git_push
+    type: git
+    required: true
+    timeout: 2m
+    config:
+      operation: push
+
+  - name: git_pr
+    type: git
+    required: true
+    timeout: 2m
+    config:
+      operation: create_pr
+```
+
+**Step Types:**
+
+| Type | Purpose |
+|------|---------|
+| `ai` | AI-powered code generation/modification |
+| `validation` | Format, lint, and test execution |
+| `git` | Git operations (commit, push, PR creation) |
+| `human` | Human approval/intervention |
+| `sdd` | Speckit spec-driven development |
+| `ci` | CI pipeline monitoring |
+| `verify` | AI cross-model verification |
+
+**Template Variables:**
+
+Use `{{variable}}` syntax in descriptions and prompts for dynamic customization:
+
+```yaml
+description: "Implement {{ticket_id}}: {{component}} changes"
+```
+
+**Override Built-in Templates:**
+
+Custom templates with the same name as built-in templates will override them:
+
+```yaml
+# In config.yaml
+templates:
+  custom_templates:
+    bugfix: ./templates/my-bugfix.yaml  # Overrides built-in bugfix
+```
 
 ---
 
@@ -926,102 +1046,160 @@ export ATLAS_QUIET=false
 # AI Configuration
 #------------------------------------------------------------------------------
 ai:
-  # Default model for AI operations
-  # Options: sonnet, opus, haiku (or full model ID)
-  default_model: sonnet
+  # Claude model to use: "sonnet", "opus", or "haiku"
+  # Default: "sonnet"
+  model: sonnet
 
-  # Maximum duration for AI operations
+  # Environment variable name containing the Anthropic API key
+  # Default: "ANTHROPIC_API_KEY"
+  api_key_env_var: ANTHROPIC_API_KEY
+
+  # Maximum duration for AI operations (e.g., "30m", "1h")
+  # Default: 30m
   timeout: 30m
 
-  # Maximum agentic turns per invocation
+  # DEPRECATED: Maximum conversation turns (use max_budget_usd instead)
+  # Will be removed in v2.0
+  # Default: 10
   max_turns: 10
 
-  # Environment variable containing API key
-  api_key_env: ANTHROPIC_API_KEY
+  # Maximum dollar amount for AI operations; 0 = unlimited
+  # Default: 0
+  max_budget_usd: 0
 
 #------------------------------------------------------------------------------
-# Validation Commands
+# Git Configuration
 #------------------------------------------------------------------------------
-validation:
-  # Code formatting command
-  format: magex format:fix
+git:
+  # Default base branch for creating feature branches
+  # Default: "main"
+  base_branch: main
 
-  # Linting command
-  lint: magex lint
+  # Enable automatic git operations without user confirmation
+  # Default: true
+  auto_proceed_git: true
 
-  # Test command
-  test: magex test
-
-  # Pre-commit hooks command
-  pre_commit: go-pre-commit run --all-files
-
-  # Custom pre-PR hook (optional)
-  # custom_pre_pr: magex integration-test
-
-#------------------------------------------------------------------------------
-# Notification Settings
-#------------------------------------------------------------------------------
-notifications:
-  # Enable terminal bell on attention-required states
-  bell: true
-
-  # Events that trigger notifications
-  events:
-    - awaiting_approval
-    - validation_failed
-    - gh_failed
-    - ci_failed
-    - ci_timeout
-
-#------------------------------------------------------------------------------
-# Template Overrides
-#------------------------------------------------------------------------------
-templates:
-  bugfix:
-    # AI model for bugfix tasks
-    model: sonnet
-    # Branch prefix for bugfix branches
-    branch_prefix: fix
-    # Auto-proceed on git operations
-    auto_proceed_git: true
-
-  feature:
-    model: opus
-    branch_prefix: feat
-    auto_proceed_git: false
-
-  task:
-    model: sonnet
-    branch_prefix: task
-    auto_proceed_git: true
-
-  commit:
-    branch_prefix: chore
-
-#------------------------------------------------------------------------------
-# CI Configuration
-#------------------------------------------------------------------------------
-ci:
-  # GitHub Actions workflows to wait for
-  workflows:
-    - name: "CI"
-      required: true
-    - name: "Lint"
-      required: true
-
-  # How often to poll CI status
-  poll_interval: 2m
-
-  # Maximum time to wait for CI
-  timeout: 30m
+  # Name of the remote repository
+  # Default: "origin"
+  remote: origin
 
 #------------------------------------------------------------------------------
 # Worktree Configuration
 #------------------------------------------------------------------------------
 worktree:
-  # Base directory for worktrees
-  # Empty = sibling to repo (e.g., ../myrepo-auth)
+  # Base directory where worktrees are created; empty = default location
+  # Default: ""
   base_dir: ""
+
+  # Suffix appended to worktree directory names
+  # Default: ""
+  naming_suffix: ""
+
+#------------------------------------------------------------------------------
+# Templates Configuration
+#------------------------------------------------------------------------------
+templates:
+  # Name of the default template when none is specified
+  # Default: "task"
+  default_template: task
+
+  # Map of custom template names to their file paths
+  # Example: { "my-template": "/path/to/template.yaml" }
+  # Default: {}
+  custom_templates: {}
+
+  # Optional: Override branch prefixes for templates
+  # branch_prefixes:
+  #   bugfix: fix
+  #   feature: feat
+  #   commit: chore
+
+#------------------------------------------------------------------------------
+# CI Configuration
+#------------------------------------------------------------------------------
+ci:
+  # How often to check CI status (e.g., "30s", "2m")
+  # Default: 2m
+  poll_interval: 2m
+
+  # Initial grace period before starting to poll CI
+  # Default: 2m
+  grace_period: 2m
+
+  # Maximum duration to wait for CI completion
+  # Default: 30m
+  timeout: 30m
+
+  # List of CI workflow names that must pass; empty = all workflows
+  # Example: ["build", "test", "lint"]
+  # Default: []
+  required_workflows: []
+
+#------------------------------------------------------------------------------
+# Validation Configuration
+#------------------------------------------------------------------------------
+validation:
+  # Maximum duration for each validation command
+  # Default: 5m
+  timeout: 5m
+
+  # Run validation commands in parallel
+  # Default: true
+  parallel_execution: true
+
+  # Enable AI-assisted retry when validation fails
+  # Default: true
+  ai_retry_enabled: true
+
+  # Maximum number of AI retry attempts
+  # Default: 3
+  max_ai_retry_attempts: 3
+
+  # Validation commands to run at various stages
+  commands:
+    # Commands that format code
+    format:
+      - magex format:fix
+
+    # Commands that lint code
+    lint:
+      - magex lint
+
+    # Commands that run tests
+    test:
+      - magex test:race
+
+    # Commands run before committing
+    pre_commit:
+      - go-pre-commit run --all-files
+
+    # Custom commands to run before creating a PR
+    custom_pre_pr: []
+
+#------------------------------------------------------------------------------
+# Notification Settings
+#------------------------------------------------------------------------------
+notifications:
+  # Enable terminal bell for important events
+  # Default: true
+  bell: true
+
+  # Events that trigger notifications
+  # Available: "awaiting_approval", "validation_failed", "ci_failed", "github_failed"
+  # Default: all events
+  events:
+    - awaiting_approval
+    - validation_failed
+    - ci_failed
+    - github_failed
+
+#------------------------------------------------------------------------------
+# Smart Commit Configuration
+#------------------------------------------------------------------------------
+smart_commit:
+  # Model for commit message generation; empty = uses ai.model setting
+  # Default: ""
+  model: ""
 ```
 
 ---
@@ -1140,5 +1318,5 @@ atlas config --help
 
 ---
 
-**Version:** 1.0.3
-**Last Updated:** 2026-01-03
+**Version:** 1.0.4
+**Last Updated:** 2026-01-04
