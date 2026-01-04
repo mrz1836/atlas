@@ -192,6 +192,18 @@ var (
 	// ErrTemplateRequired indicates a template flag is required in non-interactive mode.
 	ErrTemplateRequired = errors.New("template flag required in non-interactive mode")
 
+	// ErrTemplateInvalid indicates a template failed validation.
+	ErrTemplateInvalid = errors.New("invalid template")
+
+	// ErrTemplateLoadFailed indicates a template file could not be loaded.
+	ErrTemplateLoadFailed = errors.New("template load failed")
+
+	// ErrTemplateFileMissing indicates the template file does not exist.
+	ErrTemplateFileMissing = errors.New("template file not found")
+
+	// ErrTemplateParseError indicates the template file has invalid YAML/JSON syntax.
+	ErrTemplateParseError = errors.New("template parse error")
+
 	// ErrOperationCanceled indicates the user canceled an operation.
 	ErrOperationCanceled = errors.New("operation canceled by user")
 
