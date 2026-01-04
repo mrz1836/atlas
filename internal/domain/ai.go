@@ -28,7 +28,11 @@ type AIRequest struct {
 	Model string `json:"model"`
 
 	// MaxTurns limits the number of conversation turns.
-	MaxTurns int `json:"max_turns"`
+	// DEPRECATED: Not supported by Claude CLI.
+	MaxTurns int `json:"max_turns,omitempty"`
+
+	// MaxBudgetUSD limits AI spending for this request.
+	MaxBudgetUSD float64 `json:"max_budget_usd,omitempty"`
 
 	// Timeout is the maximum duration for the AI session.
 	Timeout time.Duration `json:"timeout"`

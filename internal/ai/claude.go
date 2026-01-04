@@ -200,6 +200,15 @@ func (r *ClaudeCodeRunner) buildCommand(ctx context.Context, req *domain.AIReque
 		args = append(args, "--model", model)
 	}
 
+	// Budget limiting: request > config (0 = unlimited)
+	budgetUSD := req.MaxBudgetUSD
+	if budgetUSD == 0 && r.config != nil {
+		budgetUSD = r.config.MaxBudgetUSD
+	}
+	if budgetUSD > 0 {
+		args = append(args, "--max-budget-usd", fmt.Sprintf("%.2f", budgetUSD))
+	}
+
 	// Add permission mode if specified
 	if req.PermissionMode != "" {
 		args = append(args, "--permission-mode", req.PermissionMode)

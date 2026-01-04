@@ -331,7 +331,15 @@ func startTaskExecution(ctx context.Context, ws *domain.Workspace, tmpl *domain.
 		return nil, fmt.Errorf("failed to create git runner: %w", err)
 	}
 
-	smartCommitter := git.NewSmartCommitRunner(gitRunner, ws.WorktreePath, aiRunner)
+	// Determine model for smart commit: smart_commit.model > ai.model
+	commitModel := cfg.SmartCommit.Model
+	if commitModel == "" {
+		commitModel = cfg.AI.Model
+	}
+
+	smartCommitter := git.NewSmartCommitRunner(gitRunner, ws.WorktreePath, aiRunner,
+		git.WithModel(commitModel),
+	)
 	pusher := git.NewPushRunner(gitRunner)
 	hubRunner := git.NewCLIGitHubRunner(ws.WorktreePath)
 	prDescGen := git.NewAIDescriptionGenerator(aiRunner)
@@ -351,6 +359,11 @@ func startTaskExecution(ctx context.Context, ws *domain.Workspace, tmpl *domain.
 		GitRunner:              gitRunner,
 		CIFailureHandler:       ciFailureHandler,
 		BaseBranch:             cfg.Git.BaseBranch,
+		CIConfig:               &cfg.CI,
+		FormatCommands:         cfg.Validation.Commands.Format,
+		LintCommands:           cfg.Validation.Commands.Lint,
+		TestCommands:           cfg.Validation.Commands.Test,
+		PreCommitCommands:      cfg.Validation.Commands.PreCommit,
 	})
 
 	engineCfg := task.DefaultEngineConfig()
