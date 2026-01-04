@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/mrz1836/atlas/internal/constants"
@@ -401,8 +400,8 @@ func (s *FileStore) acquireLock(ctx context.Context, name string) (*os.File, err
 		default:
 		}
 
-		// LOCK_EX = exclusive lock, LOCK_NB = non-blocking
-		err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+		// Attempt to acquire exclusive non-blocking lock
+		err := flockExclusive(f.Fd())
 		if err == nil {
 			return f, nil
 		}
@@ -424,7 +423,7 @@ func (s *FileStore) releaseLock(f *os.File) error {
 	}
 
 	// Release the lock
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_UN); err != nil {
+	if err := flockUnlock(f.Fd()); err != nil {
 		// Still try to close the file
 		_ = f.Close()
 		return fmt.Errorf("failed to release lock: %w", err)

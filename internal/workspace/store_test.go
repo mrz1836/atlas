@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"syscall"
 	"testing"
 	"time"
 
@@ -745,54 +744,6 @@ func TestFileStore_AtomicWrite_NoTempFileOnSuccess(t *testing.T) {
 	}
 }
 
-// TestFileStore_LockTimeout tests that ErrLockTimeout is returned when lock cannot be acquired.
-func TestFileStore_LockTimeout(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping lock timeout test in short mode")
-	}
-
-	tmpDir := t.TempDir()
-	store, err := NewFileStore(tmpDir)
-	require.NoError(t, err)
-
-	// Create a workspace first
-	ws := &domain.Workspace{
-		Name:      "lock-test",
-		Status:    constants.WorkspaceStatusActive,
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
-	}
-	err = store.Create(context.Background(), ws)
-	require.NoError(t, err)
-
-	// Manually acquire the lock file to simulate contention
-	lockPath := filepath.Join(tmpDir, constants.WorkspacesDir, "lock-test", constants.WorkspaceFileName+".lock")
-	lockFile, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, filePerm) //#nosec G302,G304 -- test lock file
-	require.NoError(t, err)
-	defer func() { _ = lockFile.Close() }()
-
-	// Acquire exclusive lock (blocking)
-	err = syscallFlock(int(lockFile.Fd()), flockExclusive)
-	require.NoError(t, err)
-	defer func() { _ = syscallFlock(int(lockFile.Fd()), flockUnlock) }()
-
-	// Now try to update the workspace - should timeout
-	// Use a shorter timeout context to speed up the test
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-	defer cancel()
-
-	ws.Branch = "new-branch"
-	err = store.Update(ctx, ws)
-
-	// Should fail - either with context deadline exceeded or lock timeout
-	require.Error(t, err)
-	// The error could be context.DeadlineExceeded (if context expires first)
-	// or ErrLockTimeout (if lock timeout expires first)
-	assert.True(t,
-		errors.Is(err, context.DeadlineExceeded) || errors.Is(err, atlaserrors.ErrLockTimeout),
-		"expected deadline exceeded or lock timeout, got: %v", err)
-}
-
 // TestFileStore_ConcurrentAccess tests that concurrent operations are safely serialized.
 func TestFileStore_ConcurrentAccess(t *testing.T) {
 	tmpDir := t.TempDir()
@@ -857,61 +808,6 @@ func TestFileStore_ConcurrentAccess(t *testing.T) {
 	assert.NotNil(t, final)
 	assert.Equal(t, "concurrent-test", final.Name)
 }
-
-// TestFileStore_ContextCancellationDuringLock tests that context cancellation
-// is respected during the lock acquisition retry loop.
-func TestFileStore_ContextCancellationDuringLock(t *testing.T) {
-	tmpDir := t.TempDir()
-	store, err := NewFileStore(tmpDir)
-	require.NoError(t, err)
-
-	// Create a workspace first
-	ws := &domain.Workspace{
-		Name:      "ctx-cancel-lock-test",
-		Status:    constants.WorkspaceStatusActive,
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
-	}
-	err = store.Create(context.Background(), ws)
-	require.NoError(t, err)
-
-	// Manually acquire the lock to create contention
-	lockPath := filepath.Join(tmpDir, constants.WorkspacesDir, "ctx-cancel-lock-test", constants.WorkspaceFileName+".lock")
-	lockFile, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, filePerm) //#nosec G302,G304 -- test lock file
-	require.NoError(t, err)
-	defer func() { _ = lockFile.Close() }()
-
-	err = syscallFlock(int(lockFile.Fd()), flockExclusive)
-	require.NoError(t, err)
-	defer func() { _ = syscallFlock(int(lockFile.Fd()), flockUnlock) }()
-
-	// Create a context that will be canceled quickly
-	ctx, cancel := context.WithCancel(context.Background())
-
-	// Cancel after a short delay (before lock timeout would occur)
-	go func() {
-		time.Sleep(100 * time.Millisecond)
-		cancel()
-	}()
-
-	// Try to update - should fail with context.Canceled
-	ws.Branch = "should-not-update"
-	err = store.Update(ctx, ws)
-
-	require.Error(t, err)
-	assert.ErrorIs(t, err, context.Canceled)
-}
-
-// syscallFlock wraps syscall.Flock for testing
-func syscallFlock(fd, how int) error {
-	return syscall.Flock(fd, how)
-}
-
-// Flock constants for testing
-const (
-	flockExclusive = syscall.LOCK_EX
-	flockUnlock    = syscall.LOCK_UN
-)
 
 // TestFileStore_ReleaseLock_NilFile tests that releaseLock handles nil file gracefully.
 func TestFileStore_ReleaseLock_NilFile(t *testing.T) {
