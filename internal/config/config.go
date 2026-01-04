@@ -38,6 +38,9 @@ type Config struct {
 
 	// Notifications contains settings for user notifications.
 	Notifications NotificationsConfig `yaml:"notifications" mapstructure:"notifications"`
+
+	// SmartCommit contains settings for smart commit message generation.
+	SmartCommit SmartCommitConfig `yaml:"smart_commit" mapstructure:"smart_commit"`
 }
 
 // AIConfig contains settings for AI/LLM operations.
@@ -48,6 +51,10 @@ type AIConfig struct {
 	Model string `yaml:"model" mapstructure:"model"`
 
 	// APIKeyEnvVar is the name of the environment variable containing the API key.
+	// This is metadata only - Claude CLI automatically reads from this env var.
+	// Atlas uses this value to:
+	//   1. Validate the env var is set before running tasks
+	//   2. Provide helpful error messages when the API key is missing
 	// Default: "ANTHROPIC_API_KEY"
 	APIKeyEnvVar string `yaml:"api_key_env_var" mapstructure:"api_key_env_var"`
 
@@ -56,9 +63,15 @@ type AIConfig struct {
 	Timeout time.Duration `yaml:"timeout" mapstructure:"timeout"`
 
 	// MaxTurns is the maximum number of conversation turns with the AI.
-	// This prevents runaway AI sessions.
+	// DEPRECATED: Claude CLI does not support turn limiting.
+	// Use MaxBudgetUSD instead. This field will be removed in v2.0.
 	// Default: 10, Valid range: 1-100
-	MaxTurns int `yaml:"max_turns" mapstructure:"max_turns"`
+	MaxTurns int `yaml:"max_turns,omitempty" mapstructure:"max_turns"`
+
+	// MaxBudgetUSD limits the maximum dollar amount for AI operations.
+	// Set to 0 for no budget limit.
+	// Default: 0 (unlimited)
+	MaxBudgetUSD float64 `yaml:"max_budget_usd,omitempty" mapstructure:"max_budget_usd"`
 }
 
 // GitConfig contains settings for git operations.
@@ -100,6 +113,10 @@ type CIConfig struct {
 	// PollInterval is how often to check CI status.
 	// Default: 2 minutes, Valid range: 1 second to 10 minutes
 	PollInterval time.Duration `yaml:"poll_interval" mapstructure:"poll_interval"`
+
+	// GracePeriod is the initial grace period before starting to poll.
+	// Default: 2 minutes
+	GracePeriod time.Duration `yaml:"grace_period" mapstructure:"grace_period"`
 
 	// RequiredWorkflows is the list of CI workflow names that must pass.
 	// If empty, all workflows are considered.
@@ -151,9 +168,6 @@ type ValidationConfig struct {
 	// Default: true
 	ParallelExecution bool `yaml:"parallel_execution" mapstructure:"parallel_execution"`
 
-	// TemplateOverrides allows per-template validation settings.
-	TemplateOverrides map[string]TemplateOverrideConfig `yaml:"template_overrides,omitempty" mapstructure:"template_overrides"`
-
 	// AIRetryEnabled enables AI-assisted retry when validation fails.
 	// When true and validation fails, the system can invoke AI to fix issues.
 	// Default: true
@@ -163,14 +177,6 @@ type ValidationConfig struct {
 	// After this many attempts, the task enters a failed state requiring manual intervention.
 	// Default: 3
 	MaxAIRetryAttempts int `yaml:"max_ai_retry_attempts" mapstructure:"max_ai_retry_attempts"`
-}
-
-// TemplateOverrideConfig holds per-template validation overrides.
-type TemplateOverrideConfig struct {
-	// SkipTest indicates whether to skip tests for this template type.
-	SkipTest bool `yaml:"skip_test" mapstructure:"skip_test"`
-	// SkipLint indicates whether to skip linting for this template type.
-	SkipLint bool `yaml:"skip_lint,omitempty" mapstructure:"skip_lint"`
 }
 
 // NotificationsConfig contains settings for user notifications.
@@ -184,4 +190,14 @@ type NotificationsConfig struct {
 	// Events is the list of event types that trigger notifications.
 	// Supported events: "awaiting_approval", "validation_failed", "task_complete", "error"
 	Events []string `yaml:"events" mapstructure:"events"`
+}
+
+// SmartCommitConfig contains settings for smart commit message generation.
+// These settings control AI-powered commit message creation.
+type SmartCommitConfig struct {
+	// Model overrides the AI model for commit message generation.
+	// If empty, falls back to AI.Model setting.
+	// Common values: "sonnet", "opus", "haiku"
+	// Default: "" (uses AI.Model)
+	Model string `yaml:"model,omitempty" mapstructure:"model"`
 }

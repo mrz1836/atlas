@@ -689,9 +689,6 @@ func TestApplyOverrides_AllFields(t *testing.T) {
 				CustomPrePR: []string{"custom-check"},
 			},
 			Timeout: 10 * time.Minute,
-			TemplateOverrides: map[string]TemplateOverrideConfig{
-				"docs": {SkipTest: true, SkipLint: true},
-			},
 		},
 		Notifications: NotificationsConfig{
 			Events: []string{"completed", "failed"},
@@ -731,8 +728,6 @@ func TestApplyOverrides_AllFields(t *testing.T) {
 	assert.Equal(t, []string{"pre-commit run"}, cfg.Validation.Commands.PreCommit)
 	assert.Equal(t, []string{"custom-check"}, cfg.Validation.Commands.CustomPrePR)
 	assert.Equal(t, 10*time.Minute, cfg.Validation.Timeout)
-	assert.True(t, cfg.Validation.TemplateOverrides["docs"].SkipTest)
-	assert.True(t, cfg.Validation.TemplateOverrides["docs"].SkipLint)
 
 	// Verify Notifications overrides
 	assert.Equal(t, []string{"completed", "failed"}, cfg.Notifications.Events)
@@ -812,48 +807,4 @@ templates:
 	// Both templates should be present (merged)
 	assert.Equal(t, "path/to/existing", cfg.Templates.CustomTemplates["existing"])
 	assert.Equal(t, "path/to/new", cfg.Templates.CustomTemplates["new"])
-}
-
-// TestApplyOverrides_MergesTemplateOverrides tests that template overrides are merged.
-func TestApplyOverrides_MergesTemplateOverrides(t *testing.T) {
-	ctx := context.Background()
-
-	// Create temp directory with config that has template overrides
-	tempDir := t.TempDir()
-	atlasDir := filepath.Join(tempDir, ".atlas")
-	err := os.MkdirAll(atlasDir, 0o750)
-	require.NoError(t, err)
-
-	configPath := filepath.Join(atlasDir, "config.yaml")
-	err = os.WriteFile(configPath, []byte(`
-validation:
-  template_overrides:
-    bugfix:
-      skip_test: true
-`), 0o600)
-	require.NoError(t, err)
-
-	// Change to the temp directory
-	oldWd, err := os.Getwd()
-	require.NoError(t, err)
-	err = os.Chdir(tempDir)
-	require.NoError(t, err)
-	defer func() {
-		_ = os.Chdir(oldWd)
-	}()
-
-	overrides := &Config{
-		Validation: ValidationConfig{
-			TemplateOverrides: map[string]TemplateOverrideConfig{
-				"docs": {SkipLint: true},
-			},
-		},
-	}
-
-	cfg, err := LoadWithOverrides(ctx, overrides)
-	require.NoError(t, err)
-
-	// Both overrides should be present (merged)
-	assert.True(t, cfg.Validation.TemplateOverrides["bugfix"].SkipTest)
-	assert.True(t, cfg.Validation.TemplateOverrides["docs"].SkipLint)
 }

@@ -26,16 +26,12 @@ type ValidationProviderConfig struct {
 	PreCommitCmds string
 	// CustomPrePR is the multiline string of custom pre-PR hook commands (one per line).
 	CustomPrePR string
-	// TemplateOverrides holds per-template validation overrides.
-	TemplateOverrides map[string]TemplateOverrideConfig
 }
 
 // ValidationConfigDefaults returns the default values for validation configuration.
 // Defaults are empty as commands should be suggested based on detected tools.
 func ValidationConfigDefaults() ValidationProviderConfig {
-	return ValidationProviderConfig{
-		TemplateOverrides: make(map[string]TemplateOverrideConfig),
-	}
+	return ValidationProviderConfig{}
 }
 
 // SuggestValidationDefaults suggests validation commands based on detected tools.
@@ -145,76 +141,6 @@ func CollectValidationConfigInteractive(ctx context.Context, cfg *ValidationProv
 		return err
 	}
 
-	// Ask if user wants to configure template-specific overrides
-	var configureOverrides bool
-	overrideForm := huh.NewForm(
-		huh.NewGroup(
-			huh.NewConfirm().
-				Title("Configure Per-Template Overrides?").
-				Description("Skip tests/lint for specific template types (bugfix, feature, etc.)").
-				Affirmative("Yes").
-				Negative("No (use defaults)").
-				Value(&configureOverrides),
-		),
-	).WithTheme(huh.ThemeCharm())
-
-	if err := overrideForm.Run(); err != nil {
-		return err
-	}
-
-	if configureOverrides {
-		if err := CollectTemplateOverrides(ctx, cfg); err != nil {
-			return err
-		}
-	} else {
-		// Initialize with defaults (all validations enabled)
-		cfg.TemplateOverrides = InitializeDefaultTemplateOverrides()
-	}
-
-	return nil
-}
-
-// CollectTemplateOverrides collects per-template validation override settings.
-func CollectTemplateOverrides(ctx context.Context, cfg *ValidationProviderConfig) error {
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
-	}
-
-	// Initialize overrides map if nil
-	if cfg.TemplateOverrides == nil {
-		cfg.TemplateOverrides = make(map[string]TemplateOverrideConfig)
-	}
-
-	// Collect overrides for each template type
-	for _, tmplType := range DefaultTemplateTypes() {
-		override := TemplateOverrideConfig{}
-
-		form := huh.NewForm(
-			huh.NewGroup(
-				huh.NewConfirm().
-					Title(fmt.Sprintf("Skip tests for '%s' template?", tmplType)).
-					Description("When using this template type, skip running tests").
-					Affirmative("Skip tests").
-					Negative("Run tests").
-					Value(&override.SkipTest),
-				huh.NewConfirm().
-					Title(fmt.Sprintf("Skip linting for '%s' template?", tmplType)).
-					Description("When using this template type, skip running linters").
-					Affirmative("Skip lint").
-					Negative("Run lint").
-					Value(&override.SkipLint),
-			).Title(fmt.Sprintf("Template: %s", tmplType)),
-		).WithTheme(huh.ThemeCharm())
-
-		if err := form.Run(); err != nil {
-			return err
-		}
-
-		cfg.TemplateOverrides[tmplType] = override
-	}
-
 	return nil
 }
 
@@ -223,7 +149,6 @@ func CollectTemplateOverrides(ctx context.Context, cfg *ValidationProviderConfig
 func CollectValidationConfigNonInteractive(toolResult *config.ToolDetectionResult) ValidationProviderConfig {
 	cfg := ValidationConfigDefaults()
 	PopulateValidationConfigDefaults(&cfg, toolResult)
-	cfg.TemplateOverrides = InitializeDefaultTemplateOverrides()
 	return cfg
 }
 
@@ -256,27 +181,8 @@ func (cfg *ValidationProviderConfig) ToValidationCommands() ValidationCommands {
 // ToValidationConfig converts the provider config to ValidationConfig struct.
 func (cfg *ValidationProviderConfig) ToValidationConfig() ValidationConfig {
 	return ValidationConfig{
-		Commands:          cfg.ToValidationCommands(),
-		TemplateOverrides: cfg.TemplateOverrides,
+		Commands: cfg.ToValidationCommands(),
 	}
-}
-
-// DefaultTemplateTypes returns the list of default template types for validation overrides.
-func DefaultTemplateTypes() []string {
-	return []string{"bugfix", "feature", "refactor", "docs"}
-}
-
-// InitializeDefaultTemplateOverrides creates default template override configs.
-// By default, all template types run all validations (no skipping).
-func InitializeDefaultTemplateOverrides() map[string]TemplateOverrideConfig {
-	overrides := make(map[string]TemplateOverrideConfig)
-	for _, tmpl := range DefaultTemplateTypes() {
-		overrides[tmpl] = TemplateOverrideConfig{
-			SkipTest: false,
-			SkipLint: false,
-		}
-	}
-	return overrides
 }
 
 // extractBaseCommand extracts the base command from a full command string.

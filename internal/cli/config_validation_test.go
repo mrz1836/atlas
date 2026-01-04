@@ -99,9 +99,6 @@ func TestDisplayCurrentValidationConfig(t *testing.T) {
 				PreCommit:   []string{"go-pre-commit run --all-files"},
 				CustomPrePR: []string{"custom-hook"},
 			},
-			TemplateOverrides: map[string]TemplateOverrideConfig{
-				"bugfix": {SkipTest: true, SkipLint: false},
-			},
 		},
 	}
 
@@ -114,8 +111,6 @@ func TestDisplayCurrentValidationConfig(t *testing.T) {
 	assert.Contains(t, output, "Test Commands")
 	assert.Contains(t, output, "Pre-commit Commands")
 	assert.Contains(t, output, "Custom Pre-PR Hooks")
-	assert.Contains(t, output, "Template Overrides")
-	assert.Contains(t, output, "bugfix")
 }
 
 func TestNewConfigValidationStyles(t *testing.T) {

@@ -350,14 +350,6 @@ func applyValidationOverrides(cfg, overrides *Config) {
 	if overrides.Validation.Timeout != 0 {
 		cfg.Validation.Timeout = overrides.Validation.Timeout
 	}
-	if len(overrides.Validation.TemplateOverrides) > 0 {
-		if cfg.Validation.TemplateOverrides == nil {
-			cfg.Validation.TemplateOverrides = make(map[string]TemplateOverrideConfig)
-		}
-		for k, v := range overrides.Validation.TemplateOverrides {
-			cfg.Validation.TemplateOverrides[k] = v
-		}
-	}
 }
 
 // LoadWithWorktree loads configuration with worktree inheritance.

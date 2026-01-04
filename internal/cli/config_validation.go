@@ -7,7 +7,6 @@ import (
 	"io"
 	"strings"
 
-	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 
@@ -137,11 +136,6 @@ func collectValidationConfigStandalone(ctx context.Context, w io.Writer, existin
 		return nil, fmt.Errorf("validation configuration failed: %w", err)
 	}
 
-	// Handle template overrides
-	if err := promptAndCollectTemplateOverrides(ctx, valCfg); err != nil {
-		return nil, err
-	}
-
 	return valCfg, nil
 }
 
@@ -154,41 +148,10 @@ func prepareValidationProviderConfig(existingCfg *AtlasConfig, toolResult *confi
 		valCfg.TestCmds = strings.Join(existingCfg.Validation.Commands.Test, "\n")
 		valCfg.PreCommitCmds = strings.Join(existingCfg.Validation.Commands.PreCommit, "\n")
 		valCfg.CustomPrePR = strings.Join(existingCfg.Validation.Commands.CustomPrePR, "\n")
-		valCfg.TemplateOverrides = existingCfg.Validation.TemplateOverrides
 	} else {
 		PopulateValidationConfigDefaults(valCfg, toolResult)
-		valCfg.TemplateOverrides = InitializeDefaultTemplateOverrides()
 	}
 	return valCfg
-}
-
-// promptAndCollectTemplateOverrides asks user about template overrides and collects them if desired.
-func promptAndCollectTemplateOverrides(ctx context.Context, valCfg *ValidationProviderConfig) error {
-	var configureOverrides bool
-	overrideForm := huh.NewForm(
-		huh.NewGroup(
-			huh.NewConfirm().
-				Title("Configure Per-Template Overrides?").
-				Description("Skip tests/lint for specific template types (bugfix, feature, etc.)").
-				Affirmative("Yes").
-				Negative("No (keep current)").
-				Value(&configureOverrides),
-		),
-	).WithTheme(huh.ThemeCharm())
-
-	if err := overrideForm.Run(); err != nil {
-		return fmt.Errorf("template override prompt failed: %w", err)
-	}
-
-	if configureOverrides {
-		if err := CollectTemplateOverrides(ctx, valCfg); err != nil {
-			return fmt.Errorf("template override configuration failed: %w", err)
-		}
-	} else if valCfg.TemplateOverrides == nil {
-		valCfg.TemplateOverrides = InitializeDefaultTemplateOverrides()
-	}
-
-	return nil
 }
 
 // displayCommandWarnings shows validation warnings for configured commands.
@@ -250,40 +213,6 @@ func displayCurrentValidationConfig(w io.Writer, cfg *AtlasConfig, styles *confi
 	displayCommandCategory(w, "Test Commands", cfg.Validation.Commands.Test, styles)
 	displayCommandCategory(w, "Pre-commit Commands", cfg.Validation.Commands.PreCommit, styles)
 	displayCommandCategory(w, "Custom Pre-PR Hooks", cfg.Validation.Commands.CustomPrePR, styles)
-
-	// Display template overrides if configured
-	displayTemplateOverrides(w, cfg.Validation.TemplateOverrides, styles)
-}
-
-// displayTemplateOverrides shows per-template validation overrides.
-func displayTemplateOverrides(w io.Writer, overrides map[string]TemplateOverrideConfig, styles *configValidationStyles) {
-	if len(overrides) == 0 {
-		return
-	}
-
-	_, _ = fmt.Fprintln(w)
-	_, _ = fmt.Fprintf(w, "%s:\n", styles.key.Render("Template Overrides"))
-
-	for tmpl, override := range overrides {
-		skipInfo := formatSkipInfo(override)
-		if len(skipInfo) == 0 {
-			_, _ = fmt.Fprintf(w, "  %s: %s\n", tmpl, styles.dim.Render("(all validations enabled)"))
-		} else {
-			_, _ = fmt.Fprintf(w, "  %s: %s\n", tmpl, styles.warning.Render(strings.Join(skipInfo, ", ")))
-		}
-	}
-}
-
-// formatSkipInfo returns a list of skipped validation types for display.
-func formatSkipInfo(override TemplateOverrideConfig) []string {
-	var skipInfo []string
-	if override.SkipTest {
-		skipInfo = append(skipInfo, "skip-test")
-	}
-	if override.SkipLint {
-		skipInfo = append(skipInfo, "skip-lint")
-	}
-	return skipInfo
 }
 
 // displayCommandCategory displays a category of commands.
