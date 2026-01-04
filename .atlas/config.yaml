@@ -49,7 +49,7 @@ worktree:
 templates:
   # Name of the default template when none is specified
   # Default: ""
-  default_template: ""
+  default_template: "task"
 
   # Map of custom template names to their file paths
   # Example: { "my-template": "/path/to/template.md" }
