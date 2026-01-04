@@ -150,9 +150,9 @@ func TestRunAbandon_TaskNotAbandonable(t *testing.T) {
 
 	now := time.Now()
 	ws := &domain.Workspace{
-		Name:         "running-ws",
-		WorktreePath: "/tmp/running-ws",
-		Branch:       "feat/running",
+		Name:         "completed-ws",
+		WorktreePath: "/tmp/completed-ws",
+		Branch:       "feat/completed",
 		Status:       constants.WorkspaceStatusActive,
 		Tasks:        []domain.TaskRef{{ID: taskID}},
 		CreatedAt:    now,
@@ -160,23 +160,23 @@ func TestRunAbandon_TaskNotAbandonable(t *testing.T) {
 	}
 	require.NoError(t, wsStore.Create(context.Background(), ws))
 
-	// Create task store and task in running state (not abandonable)
+	// Create task store and task in completed state (not abandonable even with force)
 	taskStore, err := task.NewFileStore(tmpDir)
 	require.NoError(t, err)
 
-	runningTask := &domain.Task{
+	completedTask := &domain.Task{
 		ID:          taskID,
-		WorkspaceID: "running-ws",
-		Status:      constants.TaskStatusRunning, // Not abandonable
+		WorkspaceID: "completed-ws",
+		Status:      constants.TaskStatusCompleted, // Terminal state - cannot be abandoned
 		CreatedAt:   now,
 		UpdatedAt:   now,
 	}
-	require.NoError(t, taskStore.Create(context.Background(), "running-ws", runningTask))
+	require.NoError(t, taskStore.Create(context.Background(), "completed-ws", completedTask))
 
 	var buf bytes.Buffer
 
-	// Execute abandon - task is in running state
-	err = runAbandonWithOutput(context.Background(), &buf, "running-ws", true, tmpDir, "text")
+	// Execute abandon - task is in completed state (terminal state)
+	err = runAbandonWithOutput(context.Background(), &buf, "completed-ws", true, tmpDir, "text")
 
 	// Should return ErrInvalidTransition
 	require.Error(t, err)

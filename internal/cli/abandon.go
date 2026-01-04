@@ -10,9 +10,11 @@ import (
 	"os"
 
 	"github.com/charmbracelet/huh"
+	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
 
 	"github.com/mrz1836/atlas/internal/constants"
+	"github.com/mrz1836/atlas/internal/domain"
 	"github.com/mrz1836/atlas/internal/errors"
 	"github.com/mrz1836/atlas/internal/task"
 	"github.com/mrz1836/atlas/internal/tui"
@@ -33,12 +35,16 @@ func newAbandonCmd() *cobra.Command {
 		Short: "Abandon a failed task while preserving the branch and worktree",
 		Long: `Abandon a task that is in an error state (validation_failed, gh_failed, ci_failed, ci_timeout).
 
+Use --force to:
+  - Skip the confirmation prompt
+  - Force-abandon running tasks (terminates tracked processes and marks task as abandoned)
+
 The task will be marked as abandoned, but the git branch and worktree will be preserved
 for manual work. You can still access the code at the worktree path.
 
 Examples:
   atlas abandon auth-fix           # Abandon task with confirmation
-  atlas abandon auth-fix --force   # Abandon without confirmation`,
+  atlas abandon auth-fix --force   # Force-abandon without confirmation or force-abandon running task`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			err := runAbandon(cmd.Context(), cmd, os.Stdout, args[0], force, "")
@@ -74,123 +80,163 @@ func runAbandon(ctx context.Context, cmd *cobra.Command, w io.Writer, workspaceN
 // runAbandonWithOutput executes the abandon command with explicit output format.
 func runAbandonWithOutput(ctx context.Context, w io.Writer, workspaceName string, force bool, storeBaseDir, outputFormat string) error {
 	logger := GetLogger()
-
-	// Respect NO_COLOR environment variable
 	tui.CheckNoColor()
 
-	out := tui.NewOutput(w, outputFormat)
-
-	// Create workspace store
-	wsStore, err := workspace.NewFileStore(storeBaseDir)
+	// Set up workspace and task stores
+	wsMgr, ws, err := setupWorkspace(ctx, workspaceName, storeBaseDir, outputFormat, w)
 	if err != nil {
-		return handleAbandonError(outputFormat, w, workspaceName, "", fmt.Errorf("failed to create workspace store: %w", err))
+		return err
 	}
 
-	// Find git repository for worktree runner
+	taskStore, currentTask, err := getLatestTask(ctx, workspaceName, storeBaseDir, outputFormat, w, logger)
+	if err != nil {
+		return err
+	}
+
+	// Validate and confirm abandonment
+	if err := validateAbandonability(currentTask.Status, force, outputFormat, w, workspaceName, currentTask.ID); err != nil {
+		return err
+	}
+
+	if !force {
+		if err := confirmAbandonmentInteractive(workspaceName, currentTask, outputFormat, w); err != nil {
+			return err
+		}
+	}
+
+	// Execute abandonment
+	return executeAbandon(ctx, w, wsMgr, taskStore, currentTask, ws, workspaceName, force, outputFormat, logger)
+}
+
+// setupWorkspace creates workspace manager and retrieves workspace.
+func setupWorkspace(ctx context.Context, workspaceName, storeBaseDir, outputFormat string, w io.Writer) (workspace.Manager, *domain.Workspace, error) {
+	wsStore, err := workspace.NewFileStore(storeBaseDir)
+	if err != nil {
+		return nil, nil, handleAbandonError(outputFormat, w, workspaceName, "", fmt.Errorf("failed to create workspace store: %w", err))
+	}
+
 	repoPath, err := detectRepoPath()
 	if err != nil {
-		return handleAbandonError(outputFormat, w, workspaceName, "", fmt.Errorf("not in a git repository: %w", err))
+		return nil, nil, handleAbandonError(outputFormat, w, workspaceName, "", fmt.Errorf("not in a git repository: %w", err))
 	}
 
 	wtRunner, err := workspace.NewGitWorktreeRunner(repoPath) //nolint:contextcheck // NewGitWorktreeRunner doesn't accept context
 	if err != nil {
-		return handleAbandonError(outputFormat, w, workspaceName, "", fmt.Errorf("failed to create worktree runner: %w", err))
+		return nil, nil, handleAbandonError(outputFormat, w, workspaceName, "", fmt.Errorf("failed to create worktree runner: %w", err))
 	}
 
 	wsMgr := workspace.NewManager(wsStore, wtRunner)
-
-	// Get workspace
 	ws, err := wsMgr.Get(ctx, workspaceName)
 	if err != nil {
-		return handleAbandonError(outputFormat, w, workspaceName, "", fmt.Errorf("failed to get workspace: %w", err))
+		return nil, nil, handleAbandonError(outputFormat, w, workspaceName, "", fmt.Errorf("failed to get workspace: %w", err))
 	}
 
-	// Create task store
+	return wsMgr, ws, nil
+}
+
+// getLatestTask retrieves the latest task for the workspace.
+func getLatestTask(ctx context.Context, workspaceName, storeBaseDir, outputFormat string, w io.Writer, logger zerolog.Logger) (*task.FileStore, *domain.Task, error) {
 	taskStore, err := task.NewFileStore(storeBaseDir)
 	if err != nil {
-		return handleAbandonError(outputFormat, w, workspaceName, "", fmt.Errorf("failed to create task store: %w", err))
+		return nil, nil, handleAbandonError(outputFormat, w, workspaceName, "", fmt.Errorf("failed to create task store: %w", err))
 	}
 
-	// Get latest task for this workspace
 	tasks, err := taskStore.List(ctx, workspaceName)
 	if err != nil {
-		return handleAbandonError(outputFormat, w, workspaceName, "", fmt.Errorf("failed to list tasks: %w", err))
+		return nil, nil, handleAbandonError(outputFormat, w, workspaceName, "", fmt.Errorf("failed to list tasks: %w", err))
 	}
 
 	if len(tasks) == 0 {
-		return handleAbandonError(outputFormat, w, workspaceName, "", fmt.Errorf("no tasks found in workspace '%s': %w", workspaceName, errors.ErrNoTasksFound))
+		return nil, nil, handleAbandonError(outputFormat, w, workspaceName, "", fmt.Errorf("no tasks found in workspace '%s': %w", workspaceName, errors.ErrNoTasksFound))
 	}
 
-	// Get the latest task (list returns newest first)
 	currentTask := tasks[0]
-
 	logger.Debug().
 		Str("workspace_name", workspaceName).
 		Str("task_id", currentTask.ID).
 		Str("status", string(currentTask.Status)).
 		Msg("found task to abandon")
 
-	// Validate task is in abandonable state
-	if !task.CanAbandon(currentTask.Status) {
+	return taskStore, currentTask, nil
+}
+
+// validateAbandonability checks if the task can be abandoned.
+func validateAbandonability(status constants.TaskStatus, force bool, outputFormat string, w io.Writer, workspaceName, taskID string) error {
+	if !task.CanAbandon(status) {
+		if !force && task.CanForceAbandon(status) {
+			return handleAbandonError(outputFormat, w, workspaceName, taskID,
+				fmt.Errorf("%w: task status %s cannot be abandoned without --force",
+					errors.ErrInvalidTransition, status))
+		}
+		if !task.CanForceAbandon(status) {
+			return handleAbandonError(outputFormat, w, workspaceName, taskID,
+				fmt.Errorf("%w: task status %s cannot be abandoned",
+					errors.ErrInvalidTransition, status))
+		}
+	}
+	return nil
+}
+
+// confirmAbandonmentInteractive handles interactive confirmation.
+func confirmAbandonmentInteractive(workspaceName string, currentTask *domain.Task, outputFormat string, w io.Writer) error {
+	if !terminalCheck() {
 		return handleAbandonError(outputFormat, w, workspaceName, currentTask.ID,
-			fmt.Errorf("%w: task status %s cannot be abandoned", errors.ErrInvalidTransition, currentTask.Status))
+			fmt.Errorf("cannot abandon task: %w", errors.ErrNonInteractiveMode))
 	}
 
-	// Handle confirmation if needed
-	if !force {
-		if !terminalCheck() {
-			return handleAbandonError(outputFormat, w, workspaceName, currentTask.ID,
-				fmt.Errorf("cannot abandon task: %w", errors.ErrNonInteractiveMode))
-		}
-
-		confirmed, err := confirmAbandon(workspaceName)
-		if err != nil {
-			return handleAbandonError(outputFormat, w, workspaceName, currentTask.ID,
-				fmt.Errorf("failed to get confirmation: %w", err))
-		}
-
-		if !confirmed {
-			out.Info("Abandonment canceled")
-			return nil
-		}
+	confirmed, err := confirmAbandon(workspaceName, currentTask.Status == constants.TaskStatusRunning)
+	if err != nil {
+		return handleAbandonError(outputFormat, w, workspaceName, currentTask.ID,
+			fmt.Errorf("failed to get confirmation: %w", err))
 	}
 
-	// Create task engine (minimal - we only need store and logger)
+	if !confirmed {
+		out := tui.NewOutput(w, outputFormat)
+		out.Info("Abandonment canceled")
+		return nil
+	}
+	return nil
+}
+
+// executeAbandon performs the actual abandonment and updates workspace.
+func executeAbandon(ctx context.Context, w io.Writer, wsMgr workspace.Manager, taskStore *task.FileStore,
+	currentTask *domain.Task, ws *domain.Workspace, workspaceName string, force bool, outputFormat string, logger zerolog.Logger,
+) error {
 	engine := task.NewEngine(taskStore, nil, task.DefaultEngineConfig(), logger)
 
-	// Abandon the task
 	reason := "User requested abandonment"
-	if err := engine.Abandon(ctx, currentTask, reason); err != nil {
+	if err := engine.Abandon(ctx, currentTask, reason, force); err != nil {
 		return handleAbandonError(outputFormat, w, workspaceName, currentTask.ID,
 			fmt.Errorf("failed to abandon task: %w", err))
 	}
 
-	// Update workspace status to paused
 	if err := wsMgr.UpdateStatus(ctx, workspaceName, constants.WorkspaceStatusPaused); err != nil {
-		// Log warning but don't fail - task is already abandoned
 		logger.Warn().Err(err).Str("workspace_name", workspaceName).Msg("failed to update workspace status to paused")
 	}
 
-	// Handle JSON output format
 	if outputFormat == OutputJSON {
 		return outputAbandonSuccessJSON(w, workspaceName, currentTask.ID, ws.Branch, ws.WorktreePath)
 	}
 
-	// Display success
+	out := tui.NewOutput(w, outputFormat)
 	tui.DisplayAbandonmentSuccess(out, currentTask, ws)
-
 	return nil
 }
 
 // confirmAbandon prompts the user for confirmation before abandoning a task.
-func confirmAbandon(workspaceName string) (bool, error) {
+func confirmAbandon(workspaceName string, isRunning bool) (bool, error) {
 	var confirm bool
+
+	description := "Branch and worktree will be preserved for manual work."
+	if isRunning {
+		description = "⚠️  WARNING: Task is currently running. This will attempt to terminate processes and mark the task as abandoned.\n\n" + description
+	}
 
 	form := huh.NewForm(
 		huh.NewGroup(
 			huh.NewConfirm().
 				Title(fmt.Sprintf("Abandon task in workspace '%s'?", workspaceName)).
-				Description("Branch and worktree will be preserved for manual work.").
+				Description(description).
 				Affirmative("Yes, abandon").
 				Negative("No, cancel").
 				Value(&confirm),
