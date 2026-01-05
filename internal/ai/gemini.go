@@ -104,11 +104,8 @@ func (r *GeminiRunner) sleepChan(d interface{ Nanoseconds() int64 }) <-chan stru
 
 // execute performs a single AI request execution.
 func (r *GeminiRunner) execute(ctx context.Context, req *domain.AIRequest) (*domain.AIResult, error) {
-	// Build the command
+	// Build the command (prompt is passed as positional argument)
 	cmd := r.buildCommand(ctx, req)
-
-	// Pass prompt via stdin for large prompts
-	cmd.Stdin = strings.NewReader(req.Prompt)
 
 	// Execute the command
 	stdout, stderr, err := r.executor.Execute(ctx, cmd)
@@ -154,14 +151,25 @@ func (r *GeminiRunner) tryParseErrorResponse(execErr error, stdout, stderr []byt
 	}
 
 	result := resp.toAIResult(string(stderr))
-	result.Error = fmt.Sprintf("%s: %s", execErr.Error(), string(stderr))
+
+	// Preserve parsed error if available, enhance with execution context
+	if result.Error != "" {
+		result.Error = fmt.Sprintf("%s (exit: %s)", result.Error, execErr.Error())
+	} else {
+		// Fall back to execution error + stderr if no parsed error
+		stderrStr := strings.TrimSpace(string(stderr))
+		if stderrStr != "" {
+			result.Error = fmt.Sprintf("%s: %s", execErr.Error(), stderrStr)
+		} else {
+			result.Error = execErr.Error()
+		}
+	}
 	return result, true
 }
 
 // buildCommand constructs the gemini CLI command with appropriate flags.
 func (r *GeminiRunner) buildCommand(ctx context.Context, req *domain.AIRequest) *exec.Cmd {
 	args := []string{
-		"-p",                      // Print mode (non-interactive)
 		"--output-format", "json", // JSON output format
 	}
 
@@ -179,6 +187,10 @@ func (r *GeminiRunner) buildCommand(ctx context.Context, req *domain.AIRequest) 
 
 	// Gemini CLI may not support all the same flags as Claude CLI.
 	// Add additional flags here as Gemini CLI supports them.
+
+	// Add prompt as positional argument (required for one-shot mode)
+	// The -p/--prompt flag is deprecated in favor of positional arguments
+	args = append(args, req.Prompt)
 
 	cmd := exec.CommandContext(ctx, "gemini", args...)
 

@@ -188,19 +188,20 @@ func TestGeminiRunner_BuildCommand(t *testing.T) {
 		runner := NewGeminiRunner(cfg, &MockExecutor{})
 
 		req := &domain.AIRequest{
-			Prompt: "test",
+			Prompt: "test prompt here",
 			Model:  "flash",
 		}
 
 		cmd := runner.buildCommand(context.Background(), req)
 
 		assert.Equal(t, "gemini", cmd.Path[len(cmd.Path)-6:]) // Ends with "gemini"
-		assert.Contains(t, cmd.Args, "-p")
 		assert.Contains(t, cmd.Args, "--output-format")
 		assert.Contains(t, cmd.Args, "json")
 		assert.Contains(t, cmd.Args, "-m")
 		// Model should be resolved to full name
 		assert.Contains(t, cmd.Args, "gemini-3-flash-preview")
+		// Prompt should be passed as positional argument (last arg)
+		assert.Contains(t, cmd.Args, "test prompt here")
 	})
 
 	t.Run("resolves model alias to full name", func(t *testing.T) {
