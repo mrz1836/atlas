@@ -119,6 +119,7 @@ type AIDescriptionGenerator struct {
 	aiRunner ai.Runner
 	logger   zerolog.Logger
 	timeout  time.Duration
+	model    string // AI model for PR description generation
 }
 
 // AIDescGenOption configures an AIDescriptionGenerator.
@@ -151,6 +152,14 @@ func WithAIDescTimeout(timeout time.Duration) AIDescGenOption {
 	}
 }
 
+// WithAIDescModel sets the AI model for PR description generation.
+// If not set, the AIRunner's default model is used.
+func WithAIDescModel(model string) AIDescGenOption {
+	return func(g *AIDescriptionGenerator) {
+		g.model = model
+	}
+}
+
 // Generate creates a PR description using AI.
 func (g *AIDescriptionGenerator) Generate(ctx context.Context, opts PRDescOptions) (*PRDescription, error) {
 	// Check for cancellation at entry
@@ -168,6 +177,7 @@ func (g *AIDescriptionGenerator) Generate(ctx context.Context, opts PRDescOption
 	g.logger.Info().
 		Str("task_id", opts.TaskID).
 		Str("template", opts.TemplateName).
+		Str("model", g.model).
 		Int("commit_count", len(opts.CommitMessages)).
 		Int("file_count", len(opts.FilesChanged)).
 		Msg("generating PR description with AI")
@@ -181,7 +191,8 @@ func (g *AIDescriptionGenerator) Generate(ctx context.Context, opts PRDescOption
 
 	req := &domain.AIRequest{
 		Prompt:         prompt,
-		PermissionMode: "plan", // Read-only for description generation
+		Model:          g.model, // Use configured model (empty string uses AIRunner's default)
+		PermissionMode: "plan",  // Read-only for description generation
 		MaxTurns:       1,
 		Timeout:        g.timeout,
 	}

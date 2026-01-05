@@ -331,6 +331,13 @@ func (r *SmartCommitRunner) generateAIMessage(ctx context.Context, group FileGro
 		WorkingDir: r.workDir,
 	}
 
+	// Log AI call with model info
+	log.Info().
+		Str("model", r.model).
+		Str("package", group.Package).
+		Int("files", len(group.Files)).
+		Msg("generating commit message with AI")
+
 	// Run AI
 	result, err := r.aiRunner.Run(ctx, req)
 	if err != nil {

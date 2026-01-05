@@ -402,9 +402,11 @@ func (e *GitExecutor) executeCreatePR(ctx context.Context, step *domain.StepDefi
 
 	e.storePRMetadata(task, prResult)
 
+	// Format output with PR number and URL on separate lines for better display
+	// The UI layer can detect the URL and make it clickable
 	return &domain.StepResult{
 		Status:       "success",
-		Output:       fmt.Sprintf("Created PR #%d: %s", prResult.Number, prResult.URL),
+		Output:       fmt.Sprintf("Created PR #%d\n%s", prResult.Number, prResult.URL),
 		ArtifactPath: joinArtifactPaths(artifactPaths),
 	}, nil
 }
