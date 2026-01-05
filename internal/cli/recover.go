@@ -215,22 +215,58 @@ func findAndSelectErrorTask(ctx context.Context, outputFormat string, w io.Write
 
 	// Handle case where no tasks are in error states
 	if len(errorTasks) == 0 {
-		if outputFormat == OutputJSON {
-			return nil, nil, handleRecoverError(outputFormat, w, "", atlaserrors.ErrNoTasksFound)
-		}
-		out.Info("No tasks in error states.")
-		out.Info("Run 'atlas status' to see all workspace statuses.")
-		return nil, nil, nil
+		return handleNoErrorTasks(ctx, outputFormat, w, out, wsStore, taskStore)
 	}
 
+	// Select or find the appropriate error task
+	return selectErrorTask(errorTasks, outputFormat, w, out, opts)
+}
+
+// handleNoErrorTasks handles the case when no tasks are in error states.
+func handleNoErrorTasks(ctx context.Context, outputFormat string, w io.Writer, out tui.Output, wsStore workspace.Store, taskStore task.Store) (*domain.Workspace, *domain.Task, error) {
+	if outputFormat == OutputJSON {
+		return nil, nil, handleRecoverError(outputFormat, w, "", atlaserrors.ErrNoTasksFound)
+	}
+
+	out.Info("No tasks in error states.")
+	displayRunningTasksHint(ctx, out, wsStore, taskStore)
+	out.Info("Run 'atlas status' to see all workspace statuses.")
+
+	return nil, nil, nil
+}
+
+// displayRunningTasksHint checks for and displays hints about potentially stuck running tasks.
+func displayRunningTasksHint(ctx context.Context, out tui.Output, wsStore workspace.Store, taskStore task.Store) {
+	runningTasks, findErr := findRunningTasks(ctx, wsStore, taskStore)
+	if findErr != nil || len(runningTasks) == 0 {
+		return
+	}
+
+	out.Info("")
+	if len(runningTasks) == 1 {
+		out.Info("Found 1 workspace with a running task that may be stuck:")
+	} else {
+		out.Info(fmt.Sprintf("Found %d workspaces with running tasks that may be stuck:", len(runningTasks)))
+	}
+
+	for _, rt := range runningTasks {
+		stepInfo := fmt.Sprintf("step %d/%d", rt.task.CurrentStep+1, len(rt.task.Steps))
+		out.Info(fmt.Sprintf("  %s: running at %s", rt.workspace.Name, stepInfo))
+	}
+
+	out.Info("")
+	out.Info("If a task is stuck, you can force-abandon it:")
+	for _, rt := range runningTasks {
+		out.Info(fmt.Sprintf("  atlas abandon %s --force", rt.workspace.Name))
+	}
+	out.Info("")
+}
+
+// selectErrorTask selects an error task based on provided options or user input.
+func selectErrorTask(errorTasks []errorTask, outputFormat string, w io.Writer, out tui.Output, opts *recoverOptions) (*domain.Workspace, *domain.Task, error) {
 	// If workspace provided, find it directly
 	if opts.workspace != "" {
-		for _, et := range errorTasks {
-			if et.workspace.Name == opts.workspace {
-				return et.workspace, et.task, nil
-			}
-		}
-		return nil, nil, handleRecoverError(outputFormat, w, opts.workspace, fmt.Errorf("workspace '%s' not found or not in error state: %w", opts.workspace, atlaserrors.ErrWorkspaceNotFound))
+		return findErrorTaskByName(errorTasks, opts.workspace, outputFormat, w)
 	}
 
 	// Auto-select if only one task
@@ -239,6 +275,21 @@ func findAndSelectErrorTask(ctx context.Context, outputFormat string, w io.Write
 	}
 
 	// Present selection menu
+	return selectErrorTaskFromMenu(errorTasks, outputFormat, w, out)
+}
+
+// findErrorTaskByName finds an error task by workspace name.
+func findErrorTaskByName(errorTasks []errorTask, workspaceName, outputFormat string, w io.Writer) (*domain.Workspace, *domain.Task, error) {
+	for _, et := range errorTasks {
+		if et.workspace.Name == workspaceName {
+			return et.workspace, et.task, nil
+		}
+	}
+	return nil, nil, handleRecoverError(outputFormat, w, workspaceName, fmt.Errorf("workspace '%s' not found or not in error state: %w", workspaceName, atlaserrors.ErrWorkspaceNotFound))
+}
+
+// selectErrorTaskFromMenu presents a menu for the user to select an error task.
+func selectErrorTaskFromMenu(errorTasks []errorTask, outputFormat string, w io.Writer, out tui.Output) (*domain.Workspace, *domain.Task, error) {
 	selected, err := selectWorkspaceForRecovery(errorTasks)
 	if err != nil {
 		if errors.Is(err, tui.ErrMenuCanceled) {
@@ -280,6 +331,53 @@ func findErrorTasks(ctx context.Context, wsStore workspace.Store, taskStore task
 		for _, t := range tasks {
 			if task.IsErrorStatus(t.Status) {
 				result = append(result, errorTask{
+					workspace: ws,
+					task:      t,
+				})
+				break // Only count the latest task per workspace
+			}
+		}
+	}
+
+	return result, nil
+}
+
+// runningTask holds a workspace and its task in running state.
+type runningTask struct {
+	workspace *domain.Workspace
+	task      *domain.Task
+}
+
+// findRunningTasks finds all tasks in running state.
+// These tasks may be stuck if the process executing them crashed.
+func findRunningTasks(ctx context.Context, wsStore workspace.Store, taskStore task.Store) ([]runningTask, error) {
+	// List all workspaces
+	workspaces, err := wsStore.List(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list workspaces: %w", err)
+	}
+
+	var result []runningTask
+
+	for _, ws := range workspaces {
+		// Check context cancellation
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
+
+		// List tasks for this workspace
+		tasks, err := taskStore.List(ctx, ws.Name)
+		if err != nil {
+			// Skip workspaces with no tasks or errors
+			continue
+		}
+
+		// Find the latest task in running state
+		for _, t := range tasks {
+			if t.Status == constants.TaskStatusRunning {
+				result = append(result, runningTask{
 					workspace: ws,
 					task:      t,
 				})

@@ -847,3 +847,92 @@ func TestSelectWorkspaceForRecovery(t *testing.T) {
 	assert.Equal(t, "ws-one", tasks[0].workspace.Name)
 	assert.Equal(t, "ws-two", tasks[1].workspace.Name)
 }
+
+// TestFindRunningTasks verifies running task discovery.
+func TestFindRunningTasks(t *testing.T) {
+	ctx := context.Background()
+
+	// Create mock workspace store
+	wsStore := &mockWorkspaceStore{
+		workspaces: []*domain.Workspace{
+			{Name: "ws-running", Branch: "feat/running"},
+			{Name: "ws-error", Branch: "feat/error"},
+			{Name: "ws-completed", Branch: "feat/done"},
+		},
+	}
+
+	// Create mock task store with various states
+	taskStore := &mockRecoverTaskStore{
+		tasks: map[string][]*domain.Task{
+			"ws-running": {{
+				ID:          "task-running",
+				Status:      constants.TaskStatusRunning,
+				CurrentStep: 3,
+				Steps:       []domain.Step{{}, {}, {}, {}, {}, {}, {}, {}}, // 8 steps
+			}},
+			"ws-error": {{
+				ID:     "task-error",
+				Status: constants.TaskStatusValidationFailed,
+			}},
+			"ws-completed": {{
+				ID:     "task-done",
+				Status: constants.TaskStatusCompleted,
+			}},
+		},
+	}
+
+	result, err := findRunningTasks(ctx, wsStore, taskStore)
+	require.NoError(t, err)
+
+	// Should only find the running task
+	require.Len(t, result, 1)
+	assert.Equal(t, "ws-running", result[0].workspace.Name)
+	assert.Equal(t, constants.TaskStatusRunning, result[0].task.Status)
+	assert.Equal(t, 3, result[0].task.CurrentStep)
+}
+
+// TestFindRunningTasks_ContextCancellation tests context cancellation during discovery.
+func TestFindRunningTasks_ContextCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately
+
+	wsStore := &mockWorkspaceStore{
+		workspaces: []*domain.Workspace{
+			{Name: "ws-one", Branch: "feat/one"},
+			{Name: "ws-two", Branch: "feat/two"},
+		},
+	}
+
+	taskStore := &mockRecoverTaskStore{
+		tasks: map[string][]*domain.Task{
+			"ws-one": {{ID: "task-one", Status: constants.TaskStatusRunning}},
+			"ws-two": {{ID: "task-two", Status: constants.TaskStatusRunning}},
+		},
+	}
+
+	_, err := findRunningTasks(ctx, wsStore, taskStore)
+	assert.ErrorIs(t, err, context.Canceled)
+}
+
+// TestFindRunningTasks_NoRunningTasks verifies empty result when no running tasks.
+func TestFindRunningTasks_NoRunningTasks(t *testing.T) {
+	ctx := context.Background()
+
+	wsStore := &mockWorkspaceStore{
+		workspaces: []*domain.Workspace{
+			{Name: "ws-error", Branch: "feat/error"},
+			{Name: "ws-completed", Branch: "feat/done"},
+		},
+	}
+
+	taskStore := &mockRecoverTaskStore{
+		tasks: map[string][]*domain.Task{
+			"ws-error":     {{ID: "task-error", Status: constants.TaskStatusValidationFailed}},
+			"ws-completed": {{ID: "task-done", Status: constants.TaskStatusCompleted}},
+		},
+	}
+
+	result, err := findRunningTasks(ctx, wsStore, taskStore)
+	require.NoError(t, err)
+	assert.Empty(t, result)
+}
