@@ -4,13 +4,24 @@
 # Consider adding .atlas/config.yaml to .gitignore if it contains sensitive data.
 
 ai:
-  # Claude model to use: "sonnet", "opus", or "haiku"
-  # Default: "sonnet"
+  # AI agent/CLI to use: "claude", "gemini", or "codex"
+  # Default: "claude"
+  agent: claude
+
+  # AI model to use
+  # Claude: "sonnet", "opus", or "haiku"
+  # Gemini: "flash" or "pro"
+  # Codex: "codex", "max", or "mini"
+  # Default: "sonnet" for claude, "flash" for gemini, "codex" for codex
   model: sonnet
 
-  # Environment variable name containing the Anthropic API key
-  # Default: "ANTHROPIC_API_KEY"
-  api_key_env_var: ANTHROPIC_API_KEY
+  # Environment variable names containing API keys per provider
+  # You can override the default env var for each provider
+  # Defaults: claude=ANTHROPIC_API_KEY, gemini=GEMINI_API_KEY, codex=OPENAI_API_KEY
+  api_key_env_vars:
+    claude: ANTHROPIC_API_KEY
+    gemini: GEMINI_API_KEY
+    codex: OPENAI_API_KEY
 
   # Maximum duration for AI operations (e.g., "30m", "1h")
   # Default: 30m
