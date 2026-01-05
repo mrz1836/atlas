@@ -458,11 +458,16 @@ func (e *Engine) executeStepInternal(ctx context.Context, task *domain.Task, ste
 		return nil, fmt.Errorf("no executor for step type %s: %w", step.Type, err)
 	}
 
-	e.logger.Info().
+	logEvent := e.logger.Info().
 		Str("task_id", task.ID).
 		Str("step_name", step.Name).
-		Str("step_type", string(step.Type)).
-		Msg("executing step")
+		Str("step_type", string(step.Type))
+	if step.Type == domain.StepTypeAI {
+		logEvent = logEvent.
+			Str("agent", string(task.Config.Agent)).
+			Str("model", task.Config.Model)
+	}
+	logEvent.Msg("executing step")
 
 	// Record start time
 	startTime := time.Now()
@@ -474,23 +479,33 @@ func (e *Engine) executeStepInternal(ctx context.Context, task *domain.Task, ste
 	duration := time.Since(startTime)
 
 	if err != nil {
-		e.logger.Error().
+		errLogEvent := e.logger.Error().
 			Err(err).
 			Str("task_id", task.ID).
 			Str("step_name", step.Name).
-			Int64("duration_ms", duration.Milliseconds()).
-			Msg("step execution failed")
+			Int64("duration_ms", duration.Milliseconds())
+		if step.Type == domain.StepTypeAI {
+			errLogEvent = errLogEvent.
+				Str("agent", string(task.Config.Agent)).
+				Str("model", task.Config.Model)
+		}
+		errLogEvent.Msg("step execution failed")
 		// Return result WITH error - result may contain useful output (e.g., validation errors)
 		return result, err
 	}
 
 	// Log completion
-	e.logger.Info().
+	completeLogEvent := e.logger.Info().
 		Str("task_id", task.ID).
 		Str("step_name", step.Name).
 		Str("status", result.Status).
-		Int64("duration_ms", duration.Milliseconds()).
-		Msg("step completed")
+		Int64("duration_ms", duration.Milliseconds())
+	if step.Type == domain.StepTypeAI {
+		completeLogEvent = completeLogEvent.
+			Str("agent", string(task.Config.Agent)).
+			Str("model", task.Config.Model)
+	}
+	completeLogEvent.Msg("step completed")
 
 	return result, nil
 }
