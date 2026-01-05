@@ -482,15 +482,15 @@ atlas validate --quiet
 ```
 
 **Execution Order:**
-1. Format (sequential)
-2. Lint + Test (parallel)
-3. Pre-commit (sequential)
+1. Pre-commit (sequential)
+2. Format (sequential)
+3. Lint + Test (parallel)
 
 **Default Commands:**
+- `go-pre-commit run --all-files`
 - `magex format:fix`
 - `magex lint`
 - `magex test`
-- `go-pre-commit run --all-files`
 
 ---
 

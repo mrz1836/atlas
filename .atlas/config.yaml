@@ -110,7 +110,13 @@ validation:
   max_ai_retry_attempts: 2
 
   # Validation commands to run at various stages
+  # Fields ordered by execution: pre_commit → format → lint → test → custom_pre_pr
   commands:
+    # Commands run before committing (runs first)
+    # Default: []
+    pre_commit:
+      - go-pre-commit run --all-files
+
     # Commands that format code (run with --fix semantics)
     # Default: []
     format:
@@ -125,11 +131,6 @@ validation:
     # Default: []
     test:
       - magex test:race
-
-    # Commands run before committing
-    # Default: []
-    pre_commit:
-      - go-pre-commit run --all-files
 
     # Custom commands to run before creating a PR
     # Default: []
