@@ -119,6 +119,9 @@ type MockWorktreeRunner struct {
 	deleteBranchCallCount int
 	pruneCallCount        int
 	fetchCallCount        int
+
+	// Track operation order for sequencing tests
+	operationOrder []string
 }
 
 func newMockWorktreeRunner() *MockWorktreeRunner {
@@ -147,6 +150,7 @@ func (m *MockWorktreeRunner) List(_ context.Context) ([]*WorktreeInfo, error) {
 
 func (m *MockWorktreeRunner) Remove(_ context.Context, _ string, force bool) error {
 	m.removeCallCount++
+	m.operationOrder = append(m.operationOrder, "remove")
 	if force {
 		m.removeForceCallCount++
 	}
@@ -155,6 +159,7 @@ func (m *MockWorktreeRunner) Remove(_ context.Context, _ string, force bool) err
 
 func (m *MockWorktreeRunner) Prune(_ context.Context) error {
 	m.pruneCallCount++
+	m.operationOrder = append(m.operationOrder, "prune")
 	return m.pruneErr
 }
 
@@ -167,6 +172,7 @@ func (m *MockWorktreeRunner) BranchExists(_ context.Context, _ string) (bool, er
 
 func (m *MockWorktreeRunner) DeleteBranch(_ context.Context, _ string, _ bool) error {
 	m.deleteBranchCallCount++
+	m.operationOrder = append(m.operationOrder, "deleteBranch")
 	return m.deleteBranchErr
 }
 
@@ -501,6 +507,32 @@ func TestDefaultManager_Destroy_NilWorktreeRunner(t *testing.T) {
 	// Workspace state should still be deleted
 	_, exists := store.workspaces["test"]
 	assert.False(t, exists)
+}
+
+func TestDefaultManager_Destroy_PrunesBeforeBranchDelete(t *testing.T) {
+	// This test verifies that prune is called BEFORE deleteBranch.
+	// When worktree removal fails and falls back to direct directory deletion,
+	// git still thinks the worktree exists. Pruning must happen first to clean
+	// up stale worktree metadata, otherwise deleteBranch fails with
+	// "cannot delete branch used by worktree".
+	store := newMockStore()
+	store.workspaces["test"] = &domain.Workspace{
+		Name:         "test",
+		WorktreePath: "/tmp/repo-test",
+		Branch:       "feat/test",
+	}
+	runner := newMockWorktreeRunner()
+	runner.removeErr = atlaserrors.ErrNotAWorktree // Simulate worktree remove failure
+
+	mgr := NewManager(store, runner)
+	err := mgr.Destroy(context.Background(), "test")
+
+	require.NoError(t, err)
+	// Verify correct order: remove -> prune -> deleteBranch
+	require.Len(t, runner.operationOrder, 3)
+	assert.Equal(t, "remove", runner.operationOrder[0])
+	assert.Equal(t, "prune", runner.operationOrder[1])
+	assert.Equal(t, "deleteBranch", runner.operationOrder[2])
 }
 
 func TestRemoveOrphanedDirectory(t *testing.T) {

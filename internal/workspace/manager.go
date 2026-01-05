@@ -191,11 +191,12 @@ func (m *DefaultManager) Destroy(ctx context.Context, name string) error {
 	// Try to remove worktree
 	m.removeWorktree(ctx, ws, &warnings)
 
+	// Prune stale worktrees (must happen BEFORE deleteBranch so git doesn't
+	// think a stale worktree is still using the branch)
+	m.pruneWorktrees(ctx, &warnings)
+
 	// Try to delete branch
 	m.deleteBranch(ctx, ws, &warnings)
-
-	// Prune stale worktrees
-	m.pruneWorktrees(ctx, &warnings)
 
 	// Delete workspace state
 	m.deleteWorkspaceState(ctx, name, &warnings)
