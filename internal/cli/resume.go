@@ -181,12 +181,20 @@ func runResume(ctx context.Context, cmd *cobra.Command, w io.Writer, workspaceNa
 		commitModel = cfg.AI.Model
 	}
 
+	// Determine model for PR description: pr_description.model > ai.model
+	prDescModel := cfg.PRDescription.Model
+	if prDescModel == "" {
+		prDescModel = cfg.AI.Model
+	}
+
 	smartCommitter := git.NewSmartCommitRunner(gitRunner, ws.WorktreePath, aiRunner,
 		git.WithModel(commitModel),
 	)
 	pusher := git.NewPushRunner(gitRunner)
 	hubRunner := git.NewCLIGitHubRunner(ws.WorktreePath)
-	prDescGen := git.NewAIDescriptionGenerator(aiRunner)
+	prDescGen := git.NewAIDescriptionGenerator(aiRunner,
+		git.WithAIDescModel(prDescModel),
+	)
 	ciFailureHandler := task.NewCIFailureHandler(hubRunner)
 
 	// Create executor registry with full dependencies

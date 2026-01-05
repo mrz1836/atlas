@@ -238,7 +238,7 @@ func runStart(ctx context.Context, cmd *cobra.Command, w io.Writer, description 
 		Msg("workspace created")
 
 	// Start task execution
-	t, err := startTaskExecution(ctx, ws, tmpl, description, opts.agent, opts.model, logger)
+	t, err := startTaskExecution(ctx, ws, tmpl, description, opts.agent, opts.model, logger, out)
 	if err != nil {
 		sc.handleTaskStartError(ctx, ws, repoPath, t, logger)
 		if t != nil {
@@ -271,9 +271,18 @@ func (sc *startContext) handleError(wsName string, err error) error {
 func (sc *startContext) handleTaskStartError(ctx context.Context, ws *domain.Workspace, repoPath string, t *domain.Task, logger zerolog.Logger) {
 	// If task was created, workspace should be preserved for resume
 	if t != nil {
+		logger.Debug().
+			Str("workspace_name", ws.Name).
+			Str("task_id", t.ID).
+			Str("task_status", string(t.Status)).
+			Msg("preserving workspace for resume (task exists)")
 		return
 	}
+
 	// Only cleanup if task creation failed entirely (no task to preserve)
+	logger.Debug().
+		Str("workspace_name", ws.Name).
+		Msg("task was never created, destroying workspace")
 	cleanupErr := cleanupWorkspace(ctx, ws.Name, repoPath)
 	if cleanupErr != nil {
 		logger.Warn().Err(cleanupErr).
@@ -333,65 +342,109 @@ func createWorkspace(ctx context.Context, sc *startContext, wsName, repoPath, br
 }
 
 // startTaskExecution creates and starts the task engine.
-func startTaskExecution(ctx context.Context, ws *domain.Workspace, tmpl *domain.Template, description, agent, model string, logger zerolog.Logger) (*domain.Task, error) {
-	// Create task store
-	taskStore, err := task.NewFileStore("")
+func startTaskExecution(ctx context.Context, ws *domain.Workspace, tmpl *domain.Template, description, agent, model string, logger zerolog.Logger, out tui.Output) (*domain.Task, error) {
+	// Create task store and load config
+	taskStore, cfg, err := setupTaskStoreAndConfig(ctx, logger)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create task store: %w", err)
+		return nil, err
 	}
 
-	// Load config for notification settings
+	// Create notifiers
+	notifier, stateNotifier := createNotifiers(cfg)
+
+	// Create AI runner
+	aiRunner := createAIRunner(cfg)
+
+	// Create git services
+	gitRunner, smartCommitter, pusher, hubRunner, prDescGen, ciFailureHandler, err := createGitServices(ctx, ws.WorktreePath, cfg, aiRunner)
+	if err != nil {
+		return nil, err
+	}
+
+	// Create executor registry
+	execRegistry := createExecutorRegistry(ws.WorktreePath, taskStore, notifier, aiRunner, logger,
+		smartCommitter, pusher, hubRunner, prDescGen, gitRunner, ciFailureHandler, cfg)
+
+	// Create engine with progress callback
+	engine := createEngine(ctx, taskStore, execRegistry, logger, stateNotifier, out, ws.Name)
+
+	// Apply agent and model overrides to template
+	applyAgentModelOverrides(tmpl, agent, model)
+
+	// Start task
+	return startTask(ctx, engine, ws, tmpl, description, logger)
+}
+
+// setupTaskStoreAndConfig creates the task store and loads configuration.
+func setupTaskStoreAndConfig(ctx context.Context, logger zerolog.Logger) (*task.FileStore, *config.Config, error) {
+	taskStore, err := task.NewFileStore("")
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create task store: %w", err)
+	}
+
 	cfg, err := config.Load(ctx)
 	if err != nil {
-		// Log warning but continue with defaults - don't fail task start for config issues
 		logger.Warn().Err(err).Msg("failed to load config, using default notification settings")
 		cfg = config.DefaultConfig()
 	}
 
-	// Create notifier from config (bell enabled by config).
-	// The quiet flag is not currently passed through to this function.
-	notifier := tui.NewNotifier(cfg.Notifications.Bell, false)
+	return taskStore, cfg, nil
+}
 
-	// Create state change notifier for engine-level notifications (Story 7.6).
-	// This emits bell on task state transitions to attention-required states.
+// createNotifiers creates UI and state change notifiers.
+func createNotifiers(cfg *config.Config) (*tui.Notifier, *task.StateChangeNotifier) {
+	notifier := tui.NewNotifier(cfg.Notifications.Bell, false)
 	stateNotifier := task.NewStateChangeNotifier(task.NotificationConfig{
 		BellEnabled: cfg.Notifications.Bell,
 		Quiet:       false, // TODO: Pass quiet flag through when available
 		Events:      cfg.Notifications.Events,
 	})
+	return notifier, stateNotifier
+}
 
-	// Create AI runner registry with Claude, Gemini, and Codex runners
+// createAIRunner creates and configures the AI runner with all supported agents.
+func createAIRunner(cfg *config.Config) ai.Runner {
 	runnerRegistry := ai.NewRunnerRegistry()
 	runnerRegistry.Register(domain.AgentClaude, ai.NewClaudeCodeRunner(&cfg.AI, nil))
 	runnerRegistry.Register(domain.AgentGemini, ai.NewGeminiRunner(&cfg.AI, nil))
 	runnerRegistry.Register(domain.AgentCodex, ai.NewCodexRunner(&cfg.AI, nil))
+	return ai.NewMultiRunner(runnerRegistry)
+}
 
-	// Create multi-runner that dispatches to the appropriate runner
-	aiRunner := ai.NewMultiRunner(runnerRegistry)
-
-	// Create git services for commit, push, and PR operations
-	gitRunner, err := git.NewRunner(ctx, ws.WorktreePath)
+// createGitServices creates all git-related services.
+func createGitServices(ctx context.Context, worktreePath string, cfg *config.Config, aiRunner ai.Runner) (git.Runner, *git.SmartCommitRunner, *git.PushRunner, *git.CLIGitHubRunner, *git.AIDescriptionGenerator, *task.CIFailureHandler, error) {
+	gitRunner, err := git.NewRunner(ctx, worktreePath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create git runner: %w", err)
+		return nil, nil, nil, nil, nil, nil, fmt.Errorf("failed to create git runner: %w", err)
 	}
 
-	// Determine model for smart commit: smart_commit.model > ai.model
 	commitModel := cfg.SmartCommit.Model
 	if commitModel == "" {
 		commitModel = cfg.AI.Model
 	}
 
-	smartCommitter := git.NewSmartCommitRunner(gitRunner, ws.WorktreePath, aiRunner,
+	prDescModel := cfg.PRDescription.Model
+	if prDescModel == "" {
+		prDescModel = cfg.AI.Model
+	}
+
+	smartCommitter := git.NewSmartCommitRunner(gitRunner, worktreePath, aiRunner,
 		git.WithModel(commitModel),
 	)
 	pusher := git.NewPushRunner(gitRunner)
-	hubRunner := git.NewCLIGitHubRunner(ws.WorktreePath)
-	prDescGen := git.NewAIDescriptionGenerator(aiRunner)
+	hubRunner := git.NewCLIGitHubRunner(worktreePath)
+	prDescGen := git.NewAIDescriptionGenerator(aiRunner,
+		git.WithAIDescModel(prDescModel),
+	)
 	ciFailureHandler := task.NewCIFailureHandler(hubRunner)
 
-	// Create executor registry with full dependencies for artifact saving and notifications
-	execRegistry := steps.NewDefaultRegistry(steps.ExecutorDeps{
-		WorkDir:                ws.WorktreePath,
+	return gitRunner, smartCommitter, pusher, hubRunner, prDescGen, ciFailureHandler, nil
+}
+
+// createExecutorRegistry creates the step executor registry with all dependencies.
+func createExecutorRegistry(workDir string, taskStore *task.FileStore, notifier *tui.Notifier, aiRunner ai.Runner, logger zerolog.Logger, smartCommitter *git.SmartCommitRunner, pusher *git.PushRunner, hubRunner *git.CLIGitHubRunner, prDescGen *git.AIDescriptionGenerator, gitRunner git.Runner, ciFailureHandler *task.CIFailureHandler, cfg *config.Config) *steps.ExecutorRegistry {
+	return steps.NewDefaultRegistry(steps.ExecutorDeps{
+		WorkDir:                workDir,
 		ArtifactSaver:          taskStore,
 		Notifier:               notifier,
 		AIRunner:               aiRunner,
@@ -409,25 +462,97 @@ func startTaskExecution(ctx context.Context, ws *domain.Workspace, tmpl *domain.
 		TestCommands:           cfg.Validation.Commands.Test,
 		PreCommitCommands:      cfg.Validation.Commands.PreCommit,
 	})
+}
 
+// createEngine creates the task engine with progress callback.
+func createEngine(ctx context.Context, taskStore *task.FileStore, execRegistry *steps.ExecutorRegistry, _ zerolog.Logger, stateNotifier *task.StateChangeNotifier, out tui.Output, wsName string) *task.Engine {
 	engineCfg := task.DefaultEngineConfig()
-	// Create logger with task store for persisting task-specific logs
+	engineCfg.ProgressCallback = createProgressCallback(ctx, out, wsName)
+
 	taskLogger := GetLoggerWithTaskStore(taskStore)
-	engine := task.NewEngine(taskStore, execRegistry, engineCfg, taskLogger,
+	return task.NewEngine(taskStore, execRegistry, engineCfg, taskLogger,
 		task.WithNotifier(stateNotifier),
 	)
+}
 
-	// Apply agent override if specified
+// createProgressCallback creates the progress callback for UI feedback.
+func createProgressCallback(_ context.Context, out tui.Output, _ string) func(task.StepProgressEvent) {
+	logPathShown := false
+
+	return func(event task.StepProgressEvent) {
+		switch event.Type {
+		case "start":
+			handleProgressStart(out, event, &logPathShown)
+		case "complete":
+			handleProgressComplete(out, event)
+		}
+	}
+}
+
+// handleProgressStart handles the start event of a step progress.
+func handleProgressStart(out tui.Output, event task.StepProgressEvent, logPathShown *bool) {
+	// Show log path on first step start
+	if !*logPathShown && event.TaskID != "" {
+		logPath := fmt.Sprintf("~/.atlas/workspaces/%s/tasks/%s/task.log", event.WorkspaceName, event.TaskID)
+		out.Info("Logs: " + logPath)
+		*logPathShown = true
+	}
+
+	// Print step start message (static, not animated spinner, to avoid conflicts with log output)
+	msg := buildStepStartMessage(event)
+	out.Info(msg)
+}
+
+// buildStepStartMessage builds the step start message based on the event.
+func buildStepStartMessage(event task.StepProgressEvent) string {
+	if event.Agent != "" && event.Model != "" {
+		return fmt.Sprintf("Step %d/%d: %s (%s/%s)...", event.StepIndex+1, event.TotalSteps, event.StepName, event.Agent, event.Model)
+	}
+	return fmt.Sprintf("Step %d/%d: %s...", event.StepIndex+1, event.TotalSteps, event.StepName)
+}
+
+// handleProgressComplete handles the complete event of a step progress.
+func handleProgressComplete(out tui.Output, event task.StepProgressEvent) {
+	// Display completion message
+	statusMsg := fmt.Sprintf("Step %d/%d: %s completed", event.StepIndex+1, event.TotalSteps, event.StepName)
+	out.Success(statusMsg)
+
+	// Display metrics for AI steps
+	if event.Agent != "" && (event.DurationMs > 0 || event.NumTurns > 0 || event.FilesChangedCount > 0) {
+		metrics := buildStepMetrics(event.DurationMs, event.NumTurns, event.FilesChangedCount)
+		if metrics != "" {
+			out.Info("  " + metrics)
+		}
+	}
+
+	// Display PR URL if present
+	displayPRURL(out, event.Output)
+}
+
+// displayPRURL displays PR URLs from the output if present.
+func displayPRURL(out tui.Output, output string) {
+	if output != "" && strings.Contains(output, "Created PR #") {
+		lines := strings.Split(output, "\n")
+		for _, line := range lines {
+			if strings.HasPrefix(line, "https://") || strings.HasPrefix(line, "http://") {
+				out.URL(line, line)
+			}
+		}
+	}
+}
+
+// applyAgentModelOverrides applies agent and model overrides to the template.
+func applyAgentModelOverrides(tmpl *domain.Template, agent, model string) {
 	if agent != "" {
 		tmpl.DefaultAgent = domain.Agent(agent)
 	}
-
-	// Apply model override if specified
 	if model != "" {
 		tmpl.DefaultModel = model
 	}
+}
 
-	// Start task
+// startTask starts the task execution and handles errors.
+func startTask(ctx context.Context, engine *task.Engine, ws *domain.Workspace, tmpl *domain.Template, description string, logger zerolog.Logger) (*domain.Task, error) {
 	t, err := engine.Start(ctx, ws.Name, ws.Branch, tmpl, description)
 	if err != nil {
 		logger.Error().Err(err).
@@ -435,7 +560,6 @@ func startTaskExecution(ctx context.Context, ws *domain.Workspace, tmpl *domain.
 			Msg("task start failed")
 		return t, err
 	}
-
 	return t, nil
 }
 
@@ -685,7 +809,14 @@ type taskInfo struct {
 }
 
 // cleanupWorkspace removes a workspace after a failed task start.
+// This calls Destroy() (complete removal), not Close() (archive).
 func cleanupWorkspace(ctx context.Context, wsName, repoPath string) error {
+	logger := GetLogger()
+	logger.Debug().
+		Str("workspace_name", wsName).
+		Str("repo_path", repoPath).
+		Msg("cleanupWorkspace called - will call Destroy() (not Close())")
+
 	wsStore, err := workspace.NewFileStore("")
 	if err != nil {
 		return fmt.Errorf("failed to create workspace store: %w", err)
@@ -1120,4 +1251,39 @@ func outputDryRunTTY(out tui.Output, tmpl *domain.Template, wsName, branch strin
 	out.Success("Run without --dry-run to execute.")
 
 	return nil
+}
+
+// buildStepMetrics formats step completion metrics for display.
+// Returns a formatted string like "Duration: 2m 15s | Turns: 4 | Files: 3"
+func buildStepMetrics(durationMs int64, numTurns, filesChangedCount int) string {
+	var parts []string
+
+	if durationMs > 0 {
+		parts = append(parts, "Duration: "+formatDuration(durationMs))
+	}
+	if numTurns > 0 {
+		parts = append(parts, fmt.Sprintf("Turns: %d", numTurns))
+	}
+	if filesChangedCount > 0 {
+		parts = append(parts, fmt.Sprintf("Files: %d", filesChangedCount))
+	}
+
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.Join(parts, " | ")
+}
+
+// formatDuration converts milliseconds to a human-readable duration string.
+func formatDuration(ms int64) string {
+	seconds := ms / 1000
+	if seconds < 60 {
+		return fmt.Sprintf("%ds", seconds)
+	}
+	minutes := seconds / 60
+	secs := seconds % 60
+	if secs == 0 {
+		return fmt.Sprintf("%dm", minutes)
+	}
+	return fmt.Sprintf("%dm %ds", minutes, secs)
 }
