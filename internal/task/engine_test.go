@@ -3862,3 +3862,140 @@ func TestWithNotifier_NilNotifier(t *testing.T) {
 	assert.NotNil(t, engine)
 	assert.Nil(t, engine.notifier)
 }
+
+func TestEngine_Abandon_ForceRunningTaskWithProcesses(t *testing.T) {
+	store := newMockStore()
+	registry := steps.NewExecutorRegistry()
+	engine := NewEngine(store, registry, DefaultEngineConfig(), testLogger())
+
+	task := &domain.Task{
+		ID:               "task-force-abandon",
+		WorkspaceID:      "workspace-test",
+		Status:           constants.TaskStatusRunning,
+		RunningProcesses: []int{12345, 67890},
+		Description:      "Running task",
+		CurrentStep:      0,
+	}
+
+	store.tasks[task.ID] = task
+
+	err := engine.Abandon(context.Background(), task, "force termination", true)
+	require.NoError(t, err)
+
+	assert.Equal(t, constants.TaskStatusAbandoned, task.Status)
+	assert.Empty(t, task.RunningProcesses)
+}
+
+func TestEngine_Abandon_RequiresForceForRunning(t *testing.T) {
+	store := newMockStore()
+	registry := steps.NewExecutorRegistry()
+	engine := NewEngine(store, registry, DefaultEngineConfig(), testLogger())
+
+	task := &domain.Task{
+		ID:          "task-running",
+		WorkspaceID: "workspace-test",
+		Status:      constants.TaskStatusRunning,
+		Description: "Running task",
+		CurrentStep: 0,
+	}
+
+	err := engine.Abandon(context.Background(), task, "trying to abandon", false)
+	require.Error(t, err)
+	require.ErrorIs(t, err, atlaserrors.ErrInvalidTransition)
+	assert.Contains(t, err.Error(), "cannot be abandoned without --force")
+	assert.Equal(t, constants.TaskStatusRunning, task.Status)
+}
+
+func TestEngine_HandleExecutionError_WithResult(t *testing.T) {
+	store := newMockStore()
+	registry := steps.NewExecutorRegistry()
+	engine := NewEngine(store, registry, DefaultEngineConfig(), testLogger())
+
+	task := &domain.Task{
+		ID:          "task-exec-error",
+		WorkspaceID: "workspace-test",
+		Status:      constants.TaskStatusRunning,
+		StepResults: []domain.StepResult{},
+	}
+
+	step := &domain.StepDefinition{
+		Name: "test-step",
+		Type: domain.StepTypeAI,
+	}
+
+	result := &domain.StepResult{
+		StepName:   "test-step",
+		Status:     constants.StepStatusFailed,
+		Output:     "validation error output",
+		DurationMs: 100,
+	}
+
+	err := engine.handleExecutionError(context.Background(), task, step, result, atlaserrors.ErrValidationFailed)
+
+	require.Len(t, task.StepResults, 1)
+	assert.Equal(t, "test-step", task.StepResults[0].StepName)
+	assert.Equal(t, "validation error output", task.StepResults[0].Output)
+	require.Error(t, err)
+}
+
+func TestEngine_IsSkippableGitOperation_Push(t *testing.T) {
+	store := newMockStore()
+	registry := steps.NewExecutorRegistry()
+	engine := NewEngine(store, registry, DefaultEngineConfig(), testLogger())
+
+	step := &domain.StepDefinition{
+		Name: "push-step",
+		Type: domain.StepTypeGit,
+		Config: map[string]interface{}{
+			"operation": "push",
+		},
+	}
+
+	result := engine.isSkippableGitOperation(step)
+	assert.True(t, result, "push operation should be skippable")
+}
+
+func TestEngine_IsSkippableGitOperation_Commit(t *testing.T) {
+	store := newMockStore()
+	registry := steps.NewExecutorRegistry()
+	engine := NewEngine(store, registry, DefaultEngineConfig(), testLogger())
+
+	step := &domain.StepDefinition{
+		Name: "commit-step",
+		Type: domain.StepTypeGit,
+		Config: map[string]interface{}{
+			"operation": "commit",
+		},
+	}
+
+	result := engine.isSkippableGitOperation(step)
+	assert.False(t, result, "commit operation should NOT be skippable")
+}
+
+// TestEngine_NotifyStateChange_WithNotifier tests notifyStateChange with a notifier configured.
+func TestEngine_NotifyStateChange_WithNotifier(t *testing.T) {
+	store := newMockStore()
+	registry := steps.NewExecutorRegistry()
+
+	// Create a notifier with a buffer to capture bell output
+	var buf strings.Builder
+	cfg := DefaultNotificationConfig()
+	notifier := NewStateChangeNotifierWithWriter(cfg, &buf)
+	engine := NewEngine(store, registry, DefaultEngineConfig(), testLogger(), WithNotifier(notifier))
+
+	// Directly call notifyStateChange (which is called during state transitions)
+	engine.notifyStateChange(constants.TaskStatusRunning, constants.TaskStatusAwaitingApproval)
+
+	// Verify bell was emitted
+	assert.Contains(t, buf.String(), "\a", "bell should have been emitted")
+}
+
+// TestEngine_NotifyStateChange_NoNotifier tests notifyStateChange without a notifier configured.
+func TestEngine_NotifyStateChange_NoNotifier(_ *testing.T) {
+	store := newMockStore()
+	registry := steps.NewExecutorRegistry()
+	engine := NewEngine(store, registry, DefaultEngineConfig(), testLogger())
+
+	// Should not panic when notifier is nil
+	engine.notifyStateChange(constants.TaskStatusRunning, constants.TaskStatusAwaitingApproval)
+}

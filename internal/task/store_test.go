@@ -1144,3 +1144,149 @@ func TestFileStore_SaveVersionedArtifact_EmptyFilename(t *testing.T) {
 	require.Error(t, err)
 	assert.ErrorIs(t, err, atlaserrors.ErrEmptyValue)
 }
+
+// TestFileStore_Create_ConcurrentAccess tests that Create properly handles concurrent access with locking.
+func TestFileStore_Create_ConcurrentAccess(t *testing.T) {
+	store, _ := setupTestStore(t)
+
+	task1 := createTestTask("concurrent-task-1")
+	task2 := createTestTask("concurrent-task-2")
+
+	// Create two tasks concurrently in the same workspace
+	// This tests that locking works properly
+	errChan := make(chan error, 2)
+
+	go func() {
+		errChan <- store.Create(context.Background(), "concurrent-ws", task1)
+	}()
+
+	go func() {
+		errChan <- store.Create(context.Background(), "concurrent-ws", task2)
+	}()
+
+	// Both should succeed
+	err1 := <-errChan
+	err2 := <-errChan
+
+	require.NoError(t, err1)
+	require.NoError(t, err2)
+
+	// Verify both tasks exist
+	loaded1, err := store.Get(context.Background(), "concurrent-ws", task1.ID)
+	require.NoError(t, err)
+	assert.Equal(t, task1.ID, loaded1.ID)
+
+	loaded2, err := store.Get(context.Background(), "concurrent-ws", task2.ID)
+	require.NoError(t, err)
+	assert.Equal(t, task2.ID, loaded2.ID)
+}
+
+// TestFileStore_Update_ConcurrentAccess tests that Update properly handles concurrent access with locking.
+func TestFileStore_Update_ConcurrentAccess(t *testing.T) {
+	store, _ := setupTestStore(t)
+
+	task := createTestTask("concurrent-update-task")
+	err := store.Create(context.Background(), "concurrent-ws", task)
+	require.NoError(t, err)
+
+	// Update the task concurrently 10 times
+	// Each goroutine loads, modifies, and saves the task independently
+	errChan := make(chan error, 10)
+
+	for i := 0; i < 10; i++ {
+		go func(iteration int) {
+			// Load the task within the goroutine to avoid data races
+			loadedTask, loadErr := store.Get(context.Background(), "concurrent-ws", task.ID)
+			if loadErr != nil {
+				errChan <- loadErr
+				return
+			}
+			loadedTask.Description = fmt.Sprintf("Updated iteration %d", iteration)
+			errChan <- store.Update(context.Background(), "concurrent-ws", loadedTask)
+		}(i)
+	}
+
+	// All updates should succeed
+	for i := 0; i < 10; i++ {
+		updateErr := <-errChan
+		require.NoError(t, updateErr)
+	}
+
+	// Task should still be loadable
+	loaded, err := store.Get(context.Background(), "concurrent-ws", task.ID)
+	require.NoError(t, err)
+	assert.Equal(t, task.ID, loaded.ID)
+}
+
+// TestFileStore_AcquireLock_ContextCanceled tests that acquireLock respects context cancellation.
+func TestFileStore_AcquireLock_ContextCanceled(t *testing.T) {
+	store, _ := setupTestStore(t)
+
+	task := createTestTask("lock-cancel-task")
+	err := store.Create(context.Background(), "lock-ws", task)
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately
+
+	// Try to update with canceled context - should fail during lock acquisition
+	err = store.Update(ctx, "lock-ws", task)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, context.Canceled)
+}
+
+// TestFileStore_Delete_WithLocking tests that Delete properly acquires and releases locks.
+func TestFileStore_Delete_WithLocking(t *testing.T) {
+	store, _ := setupTestStore(t)
+
+	task := createTestTask("delete-lock-task")
+	err := store.Create(context.Background(), "delete-ws", task)
+	require.NoError(t, err)
+
+	// Delete should succeed
+	err = store.Delete(context.Background(), "delete-ws", task.ID)
+	require.NoError(t, err)
+
+	// Task should no longer exist
+	_, err = store.Get(context.Background(), "delete-ws", task.ID)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, atlaserrors.ErrTaskNotFound)
+}
+
+// TestFileStore_AppendLog_Concurrent tests that AppendLog handles concurrent writes with locking.
+func TestFileStore_AppendLog_Concurrent(t *testing.T) {
+	store, _ := setupTestStore(t)
+
+	task := createTestTask("log-concurrent-task")
+	err := store.Create(context.Background(), "log-ws", task)
+	require.NoError(t, err)
+
+	// Append logs concurrently
+	errChan := make(chan error, 20)
+
+	for i := 0; i < 20; i++ {
+		go func(iteration int) {
+			logEntry := []byte(fmt.Sprintf("Log entry %d\n", iteration))
+			errChan <- store.AppendLog(context.Background(), "log-ws", task.ID, logEntry)
+		}(i)
+	}
+
+	// All appends should succeed
+	for i := 0; i < 20; i++ {
+		appendErr := <-errChan
+		require.NoError(t, appendErr)
+	}
+
+	// Read log and verify all entries are present
+	log, err := store.ReadLog(context.Background(), "log-ws", task.ID)
+	require.NoError(t, err)
+
+	// Convert to string for assertions
+	logStr := string(log)
+
+	// Should have all 20 log entries
+	for i := 0; i < 20; i++ {
+		expected := fmt.Sprintf("Log entry %d", i)
+		assert.Contains(t, logStr, expected)
+	}
+}
