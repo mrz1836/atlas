@@ -54,12 +54,12 @@ func TestHeader_Render_WideMode(t *testing.T) {
 			h := NewHeader(tc.width)
 			result := h.Render()
 
-			// Wide mode should render ASCII art (contains block characters)
-			assert.Contains(t, result, "▄▀█", "should contain ASCII art block characters")
-			assert.Contains(t, result, "█▀█", "should contain ASCII art block characters")
+			// Wide mode should render ASCII art (contains block characters from new logo)
+			assert.Contains(t, result, "█████╗", "should contain ASCII art block characters")
+			assert.Contains(t, result, "╚═╝", "should contain ASCII art block characters")
 
 			// Should NOT contain narrow header markers
-			assert.NotContains(t, result, "═══", "should not contain narrow header markers")
+			assert.NotContains(t, result, "═══ ATLAS ═══", "should not contain narrow header")
 		})
 	}
 }
@@ -86,7 +86,7 @@ func TestHeader_Render_NarrowMode(t *testing.T) {
 			assert.Contains(t, result, "═", "should contain box-drawing characters")
 
 			// Should NOT contain ASCII art block characters
-			assert.NotContains(t, result, "▄▀█", "should not contain ASCII art")
+			assert.NotContains(t, result, "█████╗", "should not contain ASCII art")
 		})
 	}
 }
@@ -121,17 +121,17 @@ func TestHeader_Render_Centering(t *testing.T) {
 
 func TestHeader_Render_CenteringAccuracy(t *testing.T) {
 	// Test that centering calculation is accurate using rune width, not byte length.
-	// The ASCII art constant has 22 runes total (4 leading spaces + 18 art chars).
-	// Centering adds padding = (width - 22) / 2.
-	// Total leading spaces = padding + 4 (the existing spaces in the constant).
+	// The ASCII art first line has 41 runes total (1 leading space + 40 art chars).
+	// Centering adds padding = (width - 41) / 2.
+	// Total leading spaces = padding + 1 (the existing space in the constant).
 	tests := []struct {
 		name            string
 		width           int
-		expectedPadding int // Expected total leading spaces (padding + 4 embedded spaces)
+		expectedPadding int // Expected total leading spaces (padding + 1 embedded space)
 	}{
-		{"80 columns", 80, 33},   // (80-22)/2 = 29, + 4 embedded = 33
-		{"100 columns", 100, 43}, // (100-22)/2 = 39, + 4 embedded = 43
-		{"120 columns", 120, 53}, // (120-22)/2 = 49, + 4 embedded = 53
+		{"80 columns", 80, 20},   // (80-41)/2 = 19, + 1 embedded = 20
+		{"100 columns", 100, 30}, // (100-41)/2 = 29, + 1 embedded = 30
+		{"120 columns", 120, 40}, // (120-41)/2 = 39, + 1 embedded = 40
 	}
 
 	for _, tc := range tests {
@@ -154,7 +154,7 @@ func TestHeader_Render_CenteringAccuracy(t *testing.T) {
 			}
 
 			assert.Equal(t, tc.expectedPadding, leadingSpaces,
-				"centering should use rune width (22 chars), not byte length (50 bytes)")
+				"centering should use rune width (41 chars), not byte length")
 		})
 	}
 }
@@ -169,7 +169,7 @@ func TestHeader_Render_NOCOLORSupport(t *testing.T) {
 		width    int
 		contains string // What the output should contain
 	}{
-		{"wide mode with NO_COLOR", 80, "▄▀█"},     // ASCII art uses block characters
+		{"wide mode with NO_COLOR", 80, "█████╗"},  // ASCII art uses block characters
 		{"narrow mode with NO_COLOR", 40, "ATLAS"}, // Narrow mode uses text
 	}
 
@@ -208,7 +208,7 @@ func TestRenderHeader(t *testing.T) {
 	// Test the convenience function
 	result := RenderHeader(100)
 	assert.NotEmpty(t, result)
-	assert.Contains(t, result, "▄▀█", "wide mode should show ASCII art")
+	assert.Contains(t, result, "█████╗", "wide mode should show ASCII art")
 }
 
 func TestRenderHeaderAuto(t *testing.T) {
@@ -296,10 +296,10 @@ func TestWideThreshold(t *testing.T) {
 	wideResult := wideH.Render()
 
 	// 79 should be narrow (simple text)
-	assert.Contains(t, narrowResult, "═══")
-	assert.NotContains(t, narrowResult, "▄▀█")
+	assert.Contains(t, narrowResult, "═══ ATLAS ═══")
+	assert.NotContains(t, narrowResult, "█████╗")
 
 	// 80 should be wide (ASCII art)
-	assert.Contains(t, wideResult, "▄▀█")
-	assert.NotContains(t, wideResult, "═══")
+	assert.Contains(t, wideResult, "█████╗")
+	assert.NotContains(t, wideResult, "═══ ATLAS ═══")
 }

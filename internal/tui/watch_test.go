@@ -228,8 +228,8 @@ func TestWatchModel_View_Empty(t *testing.T) {
 
 	view := model.View()
 
-	// Header uses ASCII art (▄▀█) in wide mode or "ATLAS" text in narrow mode
-	assert.True(t, strings.Contains(view, "▄▀█") || strings.Contains(view, "ATLAS"),
+	// Header uses ASCII art (█████╗) in wide mode or "ATLAS" text in narrow mode
+	assert.True(t, strings.Contains(view, "█████╗") || strings.Contains(view, "ATLAS"),
 		"expected header to contain ASCII art or ATLAS text")
 	assert.Contains(t, view, "No workspaces")
 	assert.Contains(t, view, "atlas start")
@@ -269,8 +269,8 @@ func TestWatchModel_View_WithData(t *testing.T) {
 
 	view := model.View()
 
-	// Header uses ASCII art (▄▀█) in wide mode or "ATLAS" text in narrow mode
-	assert.True(t, strings.Contains(view, "▄▀█") || strings.Contains(view, "ATLAS"),
+	// Header uses ASCII art (█████╗) in wide mode or "ATLAS" text in narrow mode
+	assert.True(t, strings.Contains(view, "█████╗") || strings.Contains(view, "ATLAS"),
 		"expected header to contain ASCII art or ATLAS text")
 	assert.Contains(t, view, "auth")
 	assert.Contains(t, view, "payment")
