@@ -56,7 +56,7 @@ func (h *Header) Render() string {
 	return h.renderNarrow()
 }
 
-// renderWide returns the ASCII art header, styled with gradient colors and centered.
+// renderWide returns the ASCII art header, styled with gradient colors.
 func (h *Header) renderWide() string {
 	lines := strings.Split(asciiArtLogo, "\n")
 	styledLines := make([]string, 0, len(lines))
@@ -68,36 +68,16 @@ func (h *Header) renderWide() string {
 			colorIdx = len(LogoGradientColors) - 1
 		}
 		style := lipgloss.NewStyle().Foreground(LogoGradientColors[colorIdx])
-
-		styledLine := style.Render(line)
-		centered := centerText(styledLine, line, h.width)
-		styledLines = append(styledLines, centered)
+		styledLines = append(styledLines, style.Render(line))
 	}
 
 	return strings.Join(styledLines, "\n")
 }
 
-// renderNarrow returns the simple text header, centered.
+// renderNarrow returns the simple text header.
 func (h *Header) renderNarrow() string {
-	// Apply primary color to the narrow header
 	style := lipgloss.NewStyle().Foreground(ColorPrimary)
-	styledHeader := style.Render(narrowHeader)
-	return centerText(styledHeader, narrowHeader, h.width)
-}
-
-// centerText centers styled text based on the original (unstyled) text visual width.
-// The styled parameter contains ANSI codes, while original is plain text for width calculation.
-// Uses rune count for proper Unicode handling (multi-byte chars like ▄▀█ are 1 visual column each).
-func centerText(styled, original string, totalWidth int) string {
-	textWidth := runeWidth(original)
-	if totalWidth <= 0 || textWidth >= totalWidth {
-		return styled
-	}
-	padding := (totalWidth - textWidth) / 2
-	if padding <= 0 {
-		return styled
-	}
-	return strings.Repeat(" ", padding) + styled
+	return style.Render(narrowHeader)
 }
 
 // runeWidth returns the visual width of a string (rune count).

@@ -91,7 +91,8 @@ func TestHeader_Render_NarrowMode(t *testing.T) {
 	}
 }
 
-func TestHeader_Render_Centering(t *testing.T) {
+func TestHeader_Render_LeftAligned(t *testing.T) {
+	// Header should be left-aligned (no centering padding)
 	tests := []struct {
 		name  string
 		width int
@@ -106,43 +107,10 @@ func TestHeader_Render_Centering(t *testing.T) {
 			h := NewHeader(tc.width)
 			result := h.Render()
 
-			// Each line should have leading spaces for centering
-			lines := strings.Split(result, "\n")
-			for _, line := range lines {
-				if len(line) > 0 {
-					// Lines should start with spaces (centered content)
-					assert.True(t, strings.HasPrefix(line, " ") || len(strings.TrimSpace(stripANSI(line))) == 0,
-						"line should be centered with leading spaces: %q", line)
-				}
-			}
-		})
-	}
-}
-
-func TestHeader_Render_CenteringAccuracy(t *testing.T) {
-	// Test that centering calculation is accurate using rune width, not byte length.
-	// The ASCII art first line has 41 runes total (1 leading space + 40 art chars).
-	// Centering adds padding = (width - 41) / 2.
-	// Total leading spaces = padding + 1 (the existing space in the constant).
-	tests := []struct {
-		name            string
-		width           int
-		expectedPadding int // Expected total leading spaces (padding + 1 embedded space)
-	}{
-		{"80 columns", 80, 20},   // (80-41)/2 = 19, + 1 embedded = 20
-		{"100 columns", 100, 30}, // (100-41)/2 = 29, + 1 embedded = 30
-		{"120 columns", 120, 40}, // (120-41)/2 = 39, + 1 embedded = 40
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			h := NewHeader(tc.width)
-			result := h.Render()
-
 			lines := strings.Split(result, "\n")
 			require.GreaterOrEqual(t, len(lines), 1, "should have at least one line")
 
-			// Count leading spaces on first line
+			// First line should start with the ASCII art (single leading space from the constant)
 			firstLine := stripANSI(lines[0])
 			leadingSpaces := 0
 			for _, r := range firstLine {
@@ -153,8 +121,8 @@ func TestHeader_Render_CenteringAccuracy(t *testing.T) {
 				}
 			}
 
-			assert.Equal(t, tc.expectedPadding, leadingSpaces,
-				"centering should use rune width (41 chars), not byte length")
+			// Should only have 1 leading space (embedded in the ASCII art constant)
+			assert.Equal(t, 1, leadingSpaces, "header should be left-aligned with minimal leading space")
 		})
 	}
 }
@@ -224,56 +192,6 @@ func TestGetTerminalWidth(t *testing.T) {
 	width := GetTerminalWidth()
 	// Width should be 0 or a reasonable terminal width
 	assert.GreaterOrEqual(t, width, 0)
-}
-
-func TestCenterText(t *testing.T) {
-	tests := []struct {
-		name       string
-		styled     string
-		original   string
-		totalWidth int
-		wantPrefix string
-	}{
-		{
-			name:       "center 5-char text in 10 cols",
-			styled:     "hello",
-			original:   "hello",
-			totalWidth: 10,
-			wantPrefix: "  ", // (10-5)/2 = 2 spaces
-		},
-		{
-			name:       "text wider than width",
-			styled:     "hello world",
-			original:   "hello world",
-			totalWidth: 5,
-			wantPrefix: "", // No padding when text wider
-		},
-		{
-			name:       "zero width",
-			styled:     "test",
-			original:   "test",
-			totalWidth: 0,
-			wantPrefix: "", // No padding for zero width
-		},
-		{
-			name:       "negative width",
-			styled:     "test",
-			original:   "test",
-			totalWidth: -10,
-			wantPrefix: "", // No padding for negative width
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			result := centerText(tc.styled, tc.original, tc.totalWidth)
-			if tc.wantPrefix != "" {
-				assert.True(t, strings.HasPrefix(result, tc.wantPrefix),
-					"expected prefix %q, got %q", tc.wantPrefix, result)
-			}
-			assert.Contains(t, result, tc.styled)
-		})
-	}
 }
 
 func TestHeader_ConsistentOutput(t *testing.T) {
