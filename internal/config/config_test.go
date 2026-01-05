@@ -46,6 +46,9 @@ func TestDefaultConfig_ReturnsValidConfig(t *testing.T) {
 	// Verify SmartCommit defaults
 	assert.Empty(t, cfg.SmartCommit.Model, "default smart commit model should be empty (uses AI.Model)")
 
+	// Verify PRDescription defaults
+	assert.Empty(t, cfg.PRDescription.Model, "default PR description model should be empty (uses AI.Model)")
+
 	// Validate the default config passes validation
 	err := Validate(cfg)
 	assert.NoError(t, err, "default config should pass validation")
@@ -100,6 +103,9 @@ func TestConfig_YAMLSerialization(t *testing.T) {
 		SmartCommit: SmartCommitConfig{
 			Model: "haiku",
 		},
+		PRDescription: PRDescriptionConfig{
+			Model: "sonnet",
+		},
 	}
 
 	// Serialize to YAML
@@ -141,6 +147,8 @@ func TestConfig_YAMLSerialization(t *testing.T) {
 	assert.Equal(t, original.Notifications.Events, restored.Notifications.Events)
 
 	assert.Equal(t, original.SmartCommit.Model, restored.SmartCommit.Model)
+
+	assert.Equal(t, original.PRDescription.Model, restored.PRDescription.Model)
 }
 
 func TestValidate_InvalidValues(t *testing.T) {
@@ -308,6 +316,18 @@ func TestValidate_ValidConfig(t *testing.T) {
 			name: "smart commit with empty model (uses AI.Model)",
 			modify: func(c *Config) {
 				c.SmartCommit.Model = ""
+			},
+		},
+		{
+			name: "pr description with custom model",
+			modify: func(c *Config) {
+				c.PRDescription.Model = "sonnet"
+			},
+		},
+		{
+			name: "pr description with empty model (uses AI.Model)",
+			modify: func(c *Config) {
+				c.PRDescription.Model = ""
 			},
 		},
 	}

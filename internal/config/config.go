@@ -41,6 +41,9 @@ type Config struct {
 
 	// SmartCommit contains settings for smart commit message generation.
 	SmartCommit SmartCommitConfig `yaml:"smart_commit" mapstructure:"smart_commit"`
+
+	// PRDescription contains settings for PR description generation.
+	PRDescription PRDescriptionConfig `yaml:"pr_description" mapstructure:"pr_description"`
 }
 
 // AIConfig contains settings for AI/LLM operations.
@@ -220,6 +223,16 @@ type NotificationsConfig struct {
 // These settings control AI-powered commit message creation.
 type SmartCommitConfig struct {
 	// Model overrides the AI model for commit message generation.
+	// If empty, falls back to AI.Model setting.
+	// Common values: "sonnet", "opus", "haiku"
+	// Default: "" (uses AI.Model)
+	Model string `yaml:"model,omitempty" mapstructure:"model"`
+}
+
+// PRDescriptionConfig contains settings for PR description generation.
+// These settings control AI-powered PR title and body creation.
+type PRDescriptionConfig struct {
+	// Model overrides the AI model for PR description generation.
 	// If empty, falls back to AI.Model setting.
 	// Common values: "sonnet", "opus", "haiku"
 	// Default: "" (uses AI.Model)

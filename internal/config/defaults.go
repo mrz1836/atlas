@@ -136,5 +136,11 @@ func DefaultConfig() *Config {
 			// e.g., "haiku" for faster/cheaper commit message generation.
 			Model: "",
 		},
+		PRDescription: PRDescriptionConfig{
+			// Model: empty means use AI.Model setting.
+			// Can be overridden to use a different model for PR descriptions,
+			// e.g., "haiku" for faster/cheaper PR description generation.
+			Model: "",
+		},
 	}
 }
