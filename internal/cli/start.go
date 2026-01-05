@@ -54,6 +54,7 @@ type startOptions struct {
 	noInteractive bool
 	verify        bool
 	noVerify      bool
+	dryRun        bool
 }
 
 // newStartCmd creates the start command.
@@ -66,6 +67,7 @@ func newStartCmd() *cobra.Command {
 		noInteractive bool
 		verify        bool
 		noVerify      bool
+		dryRun        bool
 	)
 
 	cmd := &cobra.Command{
@@ -80,10 +82,11 @@ Examples:
   atlas start "update dependencies" --workspace deps-update --template commit
   atlas start "add new feature" --template feature --verify
   atlas start "quick fix" --template bugfix --no-verify
-  atlas start "fix from develop" --template bugfix --branch develop`,
+  atlas start "fix from develop" --template bugfix --branch develop
+  atlas start "review changes" --template bugfix --dry-run`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runStart(cmd.Context(), cmd, os.Stdout, args[0], startOptions{
+			return runStart(cmd.Context(), cmd, cmd.OutOrStdout(), args[0], startOptions{
 				templateName:  templateName,
 				workspaceName: workspaceName,
 				model:         model,
@@ -91,6 +94,7 @@ Examples:
 				noInteractive: noInteractive,
 				verify:        verify,
 				noVerify:      noVerify,
+				dryRun:        dryRun,
 			})
 		},
 	}
@@ -109,6 +113,8 @@ Examples:
 		"Enable AI verification step (cross-model validation)")
 	cmd.Flags().BoolVar(&noVerify, "no-verify", false,
 		"Disable AI verification step")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false,
+		"Show what would happen without making changes")
 
 	return cmd
 }
@@ -195,6 +201,14 @@ func runStart(ctx context.Context, cmd *cobra.Command, w io.Writer, description 
 		wsName = sanitizeWorkspaceName(wsName)
 	}
 
+	// Apply verify flag overrides to template (needed for dry-run too)
+	applyVerifyOverrides(tmpl, opts.verify, opts.noVerify)
+
+	// Handle dry-run mode - show what would happen without making changes
+	if opts.dryRun {
+		return runDryRun(ctx, sc, tmpl, description, wsName, cfg, logger)
+	}
+
 	// Create and configure workspace
 	ws, err := createWorkspace(ctx, sc, wsName, repoPath, tmpl.BranchPrefix, opts.baseBranch, opts.noInteractive)
 	if err != nil {
@@ -206,9 +220,6 @@ func runStart(ctx context.Context, cmd *cobra.Command, w io.Writer, description 
 		Str("branch", ws.Branch).
 		Str("worktree_path", ws.WorktreePath).
 		Msg("workspace created")
-
-	// Apply verify flag overrides to template
-	applyVerifyOverrides(tmpl, opts.verify, opts.noVerify)
 
 	// Start task execution
 	t, err := startTaskExecution(ctx, ws, tmpl, description, opts.model, logger)
@@ -777,4 +788,237 @@ func outputStartErrorJSON(w io.Writer, workspaceName, taskID, errMsg string) err
 	encoder := json.NewEncoder(w)
 	encoder.SetIndent("", "  ")
 	return encoder.Encode(resp)
+}
+
+// dryRunResponse represents the JSON output for dry-run mode.
+type dryRunResponse struct {
+	DryRun    bool                `json:"dry_run"`
+	Template  string              `json:"template"`
+	Workspace dryRunWorkspaceInfo `json:"workspace"`
+	Steps     []dryRunStepInfo    `json:"steps"`
+	Summary   dryRunSummary       `json:"summary"`
+}
+
+// dryRunWorkspaceInfo contains simulated workspace details.
+type dryRunWorkspaceInfo struct {
+	Name        string `json:"name"`
+	Branch      string `json:"branch"`
+	WouldCreate bool   `json:"would_create"`
+}
+
+// dryRunStepInfo contains information about what a step would do.
+type dryRunStepInfo struct {
+	Index       int            `json:"index"`
+	Name        string         `json:"name"`
+	Type        string         `json:"type"`
+	Description string         `json:"description,omitempty"`
+	Required    bool           `json:"required"`
+	Status      string         `json:"status"`
+	WouldDo     []string       `json:"would_do"`
+	Config      map[string]any `json:"config,omitempty"`
+}
+
+// dryRunSummary contains summary information.
+type dryRunSummary struct {
+	TotalSteps           int      `json:"total_steps"`
+	SideEffectsPrevented []string `json:"side_effects_prevented"`
+}
+
+// getSideEffectForStepType returns the side effect description for a given step type.
+func getSideEffectForStepType(step domain.StepDefinition) string {
+	switch step.Type {
+	case domain.StepTypeAI:
+		return "AI execution (file modifications)"
+	case domain.StepTypeValidation:
+		return "Validation commands (format may modify files)"
+	case domain.StepTypeGit:
+		if op, ok := step.Config["operation"].(string); ok {
+			switch op {
+			case "commit":
+				return "Git commits"
+			case "push":
+				return "Git push to remote"
+			case "create_pr":
+				return "Pull request creation"
+			default:
+				return "Git operations"
+			}
+		}
+		return "Git operations"
+	case domain.StepTypeVerify:
+		return "AI verification"
+	case domain.StepTypeSDD:
+		return "SDD generation"
+	case domain.StepTypeCI:
+		return "CI execution"
+	case domain.StepTypeHuman:
+		return ""
+	default:
+		return ""
+	}
+}
+
+// runDryRun simulates task execution without making any changes.
+func runDryRun(ctx context.Context, sc *startContext, tmpl *domain.Template, description, wsName string, cfg *config.Config, logger zerolog.Logger) error {
+	// Check context cancellation
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
+	logger.Debug().
+		Str("template", tmpl.Name).
+		Str("workspace", wsName).
+		Msg("running dry-run simulation")
+
+	// Create simulated workspace info
+	simulatedBranch := fmt.Sprintf("%s%s", tmpl.BranchPrefix, wsName)
+
+	// Create dry-run executor registry
+	dryRunRegistry := steps.NewDryRunRegistry(steps.ExecutorDeps{
+		WorkDir:           "(simulated)",
+		BaseBranch:        cfg.Git.BaseBranch,
+		FormatCommands:    cfg.Validation.Commands.Format,
+		LintCommands:      cfg.Validation.Commands.Lint,
+		TestCommands:      cfg.Validation.Commands.Test,
+		PreCommitCommands: cfg.Validation.Commands.PreCommit,
+		CIConfig:          &cfg.CI,
+	})
+
+	// Create simulated task for dry-run
+	simulatedTask := &domain.Task{
+		Description: description,
+		TemplateID:  tmpl.Name,
+		Metadata: map[string]any{
+			"branch": simulatedBranch,
+		},
+	}
+
+	// Collect step plans
+	stepPlans := make([]dryRunStepInfo, 0, len(tmpl.Steps))
+	var sideEffects []string
+
+	for i, step := range tmpl.Steps {
+		simulatedTask.CurrentStep = i
+
+		// Get dry-run executor for this step type
+		executor, err := dryRunRegistry.Get(step.Type)
+		if err != nil {
+			logger.Warn().Err(err).Str("step_type", string(step.Type)).Msg("no executor for step type")
+			continue
+		}
+
+		// Execute dry-run (returns plan, no side effects)
+		result, err := executor.Execute(ctx, simulatedTask, &step)
+		if err != nil {
+			return sc.handleError(wsName, fmt.Errorf("dry-run failed for step %s: %w", step.Name, err))
+		}
+
+		// Extract plan from result metadata
+		var wouldDo []string
+		var stepConfig map[string]any
+		if result.Metadata != nil {
+			if plan, ok := result.Metadata["plan"].(*steps.DryRunPlan); ok {
+				wouldDo = plan.WouldDo
+				stepConfig = plan.Config
+			}
+		}
+
+		stepPlans = append(stepPlans, dryRunStepInfo{
+			Index:       i,
+			Name:        step.Name,
+			Type:        string(step.Type),
+			Description: step.Description,
+			Required:    step.Required,
+			Status:      "would_execute",
+			WouldDo:     wouldDo,
+			Config:      stepConfig,
+		})
+
+		// Track side effects that would occur
+		if sideEffect := getSideEffectForStepType(step); sideEffect != "" {
+			sideEffects = append(sideEffects, sideEffect)
+		}
+	}
+
+	// Add workspace creation to side effects
+	sideEffects = append([]string{"Workspace creation (git worktree)"}, sideEffects...)
+
+	// Output results
+	if sc.outputFormat == OutputJSON {
+		return outputDryRunJSON(sc.w, tmpl.Name, wsName, simulatedBranch, stepPlans, sideEffects)
+	}
+
+	return outputDryRunTTY(sc.out, tmpl, wsName, simulatedBranch, stepPlans, sideEffects)
+}
+
+// outputDryRunJSON outputs the dry-run results as JSON.
+func outputDryRunJSON(w io.Writer, templateName, wsName, branch string, stepPlans []dryRunStepInfo, sideEffects []string) error {
+	resp := dryRunResponse{
+		DryRun:   true,
+		Template: templateName,
+		Workspace: dryRunWorkspaceInfo{
+			Name:        wsName,
+			Branch:      branch,
+			WouldCreate: true,
+		},
+		Steps: stepPlans,
+		Summary: dryRunSummary{
+			TotalSteps:           len(stepPlans),
+			SideEffectsPrevented: sideEffects,
+		},
+	}
+
+	encoder := json.NewEncoder(w)
+	encoder.SetIndent("", "  ")
+	return encoder.Encode(resp)
+}
+
+// outputDryRunTTY outputs the dry-run results for terminal display.
+func outputDryRunTTY(out tui.Output, tmpl *domain.Template, wsName, branch string, stepPlans []dryRunStepInfo, sideEffects []string) error {
+	// Header
+	out.Info("=== DRY-RUN MODE ===")
+	out.Info("Showing what would happen without making changes.\n")
+
+	// Workspace info
+	out.Info(fmt.Sprintf("[0/%d] Workspace Creation", len(stepPlans)))
+	out.Info(fmt.Sprintf("      Name:   %s", wsName))
+	out.Info(fmt.Sprintf("      Branch: %s", branch))
+	out.Info("      Status: WOULD CREATE\n")
+
+	// Step details
+	for _, step := range stepPlans {
+		requiredStr := ""
+		if !step.Required {
+			requiredStr = " (optional)"
+		}
+		out.Info(fmt.Sprintf("[%d/%d] %s Step: '%s'%s", step.Index+1, len(stepPlans), step.Type, step.Name, requiredStr))
+
+		if step.Description != "" {
+			out.Info(fmt.Sprintf("      Description: %s", step.Description))
+		}
+
+		if len(step.WouldDo) > 0 {
+			out.Info("      Would:")
+			for _, action := range step.WouldDo {
+				out.Info(fmt.Sprintf("        - %s", action))
+			}
+		}
+
+		out.Info(fmt.Sprintf("      Status: %s\n", step.Status))
+	}
+
+	// Summary
+	out.Info("=== Summary ===")
+	out.Info(fmt.Sprintf("Template: %s", tmpl.Name))
+	out.Info(fmt.Sprintf("Steps: %d total", len(stepPlans)))
+	out.Info("Side Effects Prevented:")
+	for _, effect := range sideEffects {
+		out.Info(fmt.Sprintf("  - %s", effect))
+	}
+	out.Info("")
+	out.Success("Run without --dry-run to execute.")
+
+	return nil
 }

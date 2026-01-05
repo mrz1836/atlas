@@ -88,6 +88,9 @@ func WithExecutionContext(ctx context.Context, ec *ExecutionContext) context.Con
 // GetExecutionContext retrieves the ExecutionContext from the context.
 // Returns nil if no execution context was set.
 func GetExecutionContext(ctx context.Context) *ExecutionContext {
+	if ctx == nil {
+		return nil
+	}
 	ec, _ := ctx.Value(executionContextKey{}).(*ExecutionContext)
 	return ec
 }
