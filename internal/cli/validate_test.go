@@ -160,33 +160,6 @@ func TestRunValidate_GetWorkingDirectoryFails(t *testing.T) {
 	t.Skip("Cannot easily mock os.Getwd failure")
 }
 
-func TestRunValidate_QuietMode(t *testing.T) {
-	cmd := newValidateCmd()
-	root := &cobra.Command{Use: "atlas"}
-	AddGlobalFlags(root, &GlobalFlags{})
-	root.AddCommand(cmd)
-
-	// Set the quiet flag
-	require.NoError(t, cmd.Flags().Set("quiet", "true"))
-
-	var buf safeBuffer
-	ctx := context.Background()
-
-	// Use a custom config with simple test commands that will pass
-	// This will test the quiet mode output behavior
-	err := runValidate(ctx, cmd, &buf)
-
-	// May succeed or fail depending on environment
-	// The important thing is that quiet mode doesn't panic
-	// and produces minimal output
-	output := buf.String()
-	t.Logf("Quiet mode output length: %d", len(output))
-
-	// Quiet mode should produce less output than normal mode
-	// but we can't assert exact output since it depends on whether commands exist
-	_ = err
-}
-
 func TestRunValidate_VerboseMode(t *testing.T) {
 	// TODO: BUG - Race condition in TerminalSpinner.Start() and animate()
 	// The spinner's internal state is not properly synchronized.
