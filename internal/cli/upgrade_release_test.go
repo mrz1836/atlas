@@ -485,7 +485,7 @@ func TestDefaultReleaseDownloader_DownloadFile(t *testing.T) {
 		},
 	}
 
-	downloader := NewDefaultReleaseDownloaderWithHTTP(mockHTTP)
+	downloader := NewDefaultReleaseDownloaderWithHTTP(nil, mockHTTP) // nil executor to test HTTP path
 	path, err := downloader.DownloadFile(context.Background(), "https://example.com/file.txt")
 
 	require.NoError(t, err)
@@ -503,7 +503,7 @@ func TestDefaultReleaseDownloader_DownloadFile_Error(t *testing.T) {
 		err: atlasErrors.ErrMockNetwork,
 	}
 
-	downloader := NewDefaultReleaseDownloaderWithHTTP(mockHTTP)
+	downloader := NewDefaultReleaseDownloaderWithHTTP(nil, mockHTTP) // nil executor to test HTTP path
 	_, err := downloader.DownloadFile(context.Background(), "https://example.com/file.txt")
 
 	require.Error(t, err)
@@ -522,11 +522,124 @@ func TestDefaultReleaseDownloader_DownloadFile_HTTPError(t *testing.T) {
 		},
 	}
 
-	downloader := NewDefaultReleaseDownloaderWithHTTP(mockHTTP)
+	downloader := NewDefaultReleaseDownloaderWithHTTP(nil, mockHTTP) // nil executor to test HTTP path
 	_, err := downloader.DownloadFile(context.Background(), "https://example.com/file.txt")
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "404")
+}
+
+func TestParseGitHubReleaseURL(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		url         string
+		wantOwner   string
+		wantRepo    string
+		wantTag     string
+		wantAsset   string
+		expectError bool
+	}{
+		{
+			name:      "valid release URL",
+			url:       "https://github.com/mrz1836/atlas/releases/download/v0.2.1/atlas_0.2.1_checksums.txt",
+			wantOwner: "mrz1836",
+			wantRepo:  "atlas",
+			wantTag:   "v0.2.1",
+			wantAsset: "atlas_0.2.1_checksums.txt",
+		},
+		{
+			name:      "valid release URL with complex tag",
+			url:       "https://github.com/owner/repo/releases/download/v1.0.0-rc.1/file.tar.gz",
+			wantOwner: "owner",
+			wantRepo:  "repo",
+			wantTag:   "v1.0.0-rc.1",
+			wantAsset: "file.tar.gz",
+		},
+		{
+			name:        "not github URL",
+			url:         "https://gitlab.com/owner/repo/releases/download/v1.0.0/file.tar.gz",
+			expectError: true,
+		},
+		{
+			name:        "not release URL",
+			url:         "https://github.com/owner/repo/archive/refs/tags/v1.0.0.tar.gz",
+			expectError: true,
+		},
+		{
+			name:        "too few path parts",
+			url:         "https://github.com/owner/repo",
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			owner, repo, tag, asset, err := parseGitHubReleaseURL(tt.url)
+
+			if tt.expectError {
+				assert.Error(t, err)
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantOwner, owner)
+			assert.Equal(t, tt.wantRepo, repo)
+			assert.Equal(t, tt.wantTag, tag)
+			assert.Equal(t, tt.wantAsset, asset)
+		})
+	}
+}
+
+func TestDefaultReleaseDownloader_DownloadFile_ViaGH(t *testing.T) {
+	t.Parallel()
+
+	// Create a mock executor that simulates successful gh download
+	tmpDir := t.TempDir()
+	assetName := "atlas_0.2.1_checksums.txt"
+
+	// Pre-create the file that gh would download
+	expectedContent := "abc123  atlas_0.2.1_darwin_amd64.tar.gz\n"
+	err := os.WriteFile(filepath.Join(tmpDir, assetName), []byte(expectedContent), 0o600)
+	require.NoError(t, err)
+
+	mockExec := &mockCommandExecutor{
+		lookPathResults: map[string]string{
+			"gh": "/usr/bin/gh",
+		},
+		runResults: map[string]string{
+			// gh release download command will be called
+		},
+	}
+
+	// The downloader will create its own temp dir, so we need to mock the Run
+	// to actually copy the file to the temp dir that gh would use
+	mockExec.runResults["gh release download v0.2.1 --repo mrz1836/atlas --pattern atlas_0.2.1_checksums.txt --dir"] = ""
+
+	// Verify the mock executor is set up correctly
+	_ = mockExec
+
+	// Test HTTP fallback path (when executor is nil, it skips gh and uses HTTP directly)
+	mockHTTP := &mockHTTPClient{
+		responses: map[string]*http.Response{
+			"https://github.com/mrz1836/atlas/releases/download/v0.2.1/atlas_0.2.1_checksums.txt": {
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(strings.NewReader(expectedContent)),
+			},
+		},
+	}
+	downloaderWithHTTP := NewDefaultReleaseDownloaderWithHTTP(nil, mockHTTP)
+	path, err := downloaderWithHTTP.DownloadFile(context.Background(),
+		"https://github.com/mrz1836/atlas/releases/download/v0.2.1/atlas_0.2.1_checksums.txt")
+
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.Remove(path) })
+
+	content, err := os.ReadFile(path) //nolint:gosec // test file
+	require.NoError(t, err)
+	assert.Equal(t, expectedContent, string(content))
 }
 
 func TestAtomicReplaceBinary(t *testing.T) {

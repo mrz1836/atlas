@@ -69,7 +69,7 @@ type AtlasReleaseUpgrader struct {
 func NewAtlasReleaseUpgrader(executor config.CommandExecutor) *AtlasReleaseUpgrader {
 	return &AtlasReleaseUpgrader{
 		client:     NewDefaultReleaseClient(executor),
-		downloader: NewDefaultReleaseDownloader(),
+		downloader: NewDefaultReleaseDownloader(executor),
 		executor:   executor,
 	}
 }
@@ -272,14 +272,16 @@ func (c *DefaultReleaseClient) getLatestReleaseViaHTTP(ctx context.Context, owne
 	return &release, nil
 }
 
-// DefaultReleaseDownloader implements ReleaseDownloader using HTTP.
+// DefaultReleaseDownloader implements ReleaseDownloader using gh CLI with HTTP fallback.
 type DefaultReleaseDownloader struct {
+	executor   config.CommandExecutor
 	httpClient HTTPClient
 }
 
 // NewDefaultReleaseDownloader creates a new DefaultReleaseDownloader.
-func NewDefaultReleaseDownloader() *DefaultReleaseDownloader {
+func NewDefaultReleaseDownloader(executor config.CommandExecutor) *DefaultReleaseDownloader {
 	return &DefaultReleaseDownloader{
+		executor: executor,
 		httpClient: &http.Client{
 			Timeout: 5 * time.Minute, // Longer timeout for downloads
 		},
@@ -287,14 +289,99 @@ func NewDefaultReleaseDownloader() *DefaultReleaseDownloader {
 }
 
 // NewDefaultReleaseDownloaderWithHTTP creates a downloader with a custom HTTP client.
-func NewDefaultReleaseDownloaderWithHTTP(httpClient HTTPClient) *DefaultReleaseDownloader {
+func NewDefaultReleaseDownloaderWithHTTP(executor config.CommandExecutor, httpClient HTTPClient) *DefaultReleaseDownloader {
 	return &DefaultReleaseDownloader{
+		executor:   executor,
 		httpClient: httpClient,
 	}
 }
 
 // DownloadFile downloads a file from URL to a temporary location.
+// Tries gh CLI first (authenticated, works with private repos), falls back to HTTP.
 func (d *DefaultReleaseDownloader) DownloadFile(ctx context.Context, url string) (string, error) {
+	// Try gh CLI first (authenticated, works with private repos)
+	if d.executor != nil {
+		path, err := d.downloadFileViaGH(ctx, url)
+		if err == nil {
+			return path, nil
+		}
+		// Fall through to HTTP if gh fails
+	}
+
+	// Fall back to HTTP (unauthenticated)
+	return d.downloadFileViaHTTP(ctx, url)
+}
+
+// downloadFileViaGH downloads a release asset using gh CLI.
+// URL format: https://github.com/OWNER/REPO/releases/download/TAG/ASSET
+func (d *DefaultReleaseDownloader) downloadFileViaGH(ctx context.Context, url string) (string, error) {
+	// Check if gh is available
+	if _, err := d.executor.LookPath("gh"); err != nil {
+		return "", fmt.Errorf("gh not found: %w", err)
+	}
+
+	// Parse URL to extract owner, repo, tag, and asset name
+	// Format: https://github.com/OWNER/REPO/releases/download/TAG/ASSET
+	owner, repo, tag, assetName, err := parseGitHubReleaseURL(url)
+	if err != nil {
+		return "", fmt.Errorf("cannot parse GitHub URL: %w", err)
+	}
+
+	// Create temp directory for download
+	tmpDir, err := os.MkdirTemp("", "atlas-download-*")
+	if err != nil {
+		return "", fmt.Errorf("failed to create temp dir: %w", err)
+	}
+
+	// Download using gh release download
+	repoArg := fmt.Sprintf("%s/%s", owner, repo)
+	_, err = d.executor.Run(ctx, "gh", "release", "download", tag,
+		"--repo", repoArg,
+		"--pattern", assetName,
+		"--dir", tmpDir)
+	if err != nil {
+		_ = os.RemoveAll(tmpDir)
+		return "", fmt.Errorf("gh release download failed: %w", err)
+	}
+
+	// Return path to downloaded file
+	downloadedPath := filepath.Join(tmpDir, assetName)
+	if _, statErr := os.Stat(downloadedPath); statErr != nil {
+		_ = os.RemoveAll(tmpDir)
+		return "", fmt.Errorf("downloaded file not found: %w", statErr)
+	}
+
+	return downloadedPath, nil
+}
+
+// parseGitHubReleaseURL parses a GitHub release download URL.
+// Returns owner, repo, tag, and asset name.
+// URL format: https://github.com/OWNER/REPO/releases/download/TAG/ASSET
+func parseGitHubReleaseURL(url string) (owner, repo, tag, assetName string, err error) {
+	// Expected format: https://github.com/OWNER/REPO/releases/download/TAG/ASSET
+	const prefix = "https://github.com/"
+	if !strings.HasPrefix(url, prefix) {
+		return "", "", "", "", fmt.Errorf("%w: not a github.com URL", atlasErrors.ErrInvalidURL)
+	}
+
+	// Remove prefix and split
+	path := strings.TrimPrefix(url, prefix)
+	parts := strings.Split(path, "/")
+
+	// Need at least: OWNER/REPO/releases/download/TAG/ASSET (6 parts)
+	if len(parts) < 6 {
+		return "", "", "", "", fmt.Errorf("%w: invalid release URL format", atlasErrors.ErrInvalidURL)
+	}
+
+	if parts[2] != "releases" || parts[3] != "download" {
+		return "", "", "", "", fmt.Errorf("%w: not a release download URL", atlasErrors.ErrInvalidURL)
+	}
+
+	return parts[0], parts[1], parts[4], parts[5], nil
+}
+
+// downloadFileViaHTTP downloads a file using HTTP (unauthenticated).
+func (d *DefaultReleaseDownloader) downloadFileViaHTTP(ctx context.Context, url string) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %w", err)
