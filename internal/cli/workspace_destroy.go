@@ -168,12 +168,25 @@ func handleConfirmation(name string, force bool, output string, w io.Writer) err
 
 // executeDestroy performs the actual destroy operation.
 func executeDestroy(ctx context.Context, store *workspace.FileStore, name, output string, w io.Writer, logger zerolog.Logger) error {
+	// Get workspace first to store path/branch info for better error reporting
+	ws, wsErr := store.Get(ctx, name)
+	var worktreePath, branch string
+	if wsErr == nil && ws != nil {
+		worktreePath = ws.WorktreePath
+		branch = ws.Branch
+	}
+
 	// Get repo path for worktree runner
 	repoPath, err := detectRepoPath()
 	if err != nil {
-		// If we can't detect repo, worktree operations will fail gracefully
-		// Manager.Destroy() handles this via NFR18
-		logger.Debug().Err(err).Msg("could not detect repo path, worktree cleanup may be limited")
+		logger.Warn().Err(err).Msg("could not detect repo path, worktree cleanup will be skipped")
+		// Show warning to user if we have worktree info
+		if worktreePath != "" {
+			logger.Warn().
+				Str("worktree_path", worktreePath).
+				Str("branch", branch).
+				Msg("manual cleanup may be required: run 'git worktree remove --force <path>' and 'git branch -D <branch>'")
+		}
 		repoPath = ""
 	}
 
@@ -183,7 +196,7 @@ func executeDestroy(ctx context.Context, store *workspace.FileStore, name, outpu
 		wtRunner, err = workspace.NewGitWorktreeRunner(ctx, repoPath)
 		if err != nil {
 			// Log but continue - destroy should still clean up state
-			logger.Debug().Err(err).Msg("could not create worktree runner, worktree cleanup may be limited")
+			logger.Warn().Err(err).Msg("could not create worktree runner, worktree cleanup will be limited")
 			wtRunner = nil
 		}
 	}
@@ -199,6 +212,11 @@ func executeDestroy(ctx context.Context, store *workspace.FileStore, name, outpu
 		return fmt.Errorf("failed to destroy workspace '%s': %w", name, destroyErr)
 	}
 
+	// If we couldn't create worktree runner, add helpful message
+	if wtRunner == nil && worktreePath != "" {
+		showManualCleanupWarning(w, output, worktreePath, branch, logger)
+	}
+
 	// Output success
 	if output == OutputJSON {
 		return outputDestroySuccessJSON(w, name)
@@ -209,6 +227,23 @@ func executeDestroy(ctx context.Context, store *workspace.FileStore, name, outpu
 	_, _ = fmt.Fprintf(w, "%s Workspace '%s' destroyed\n", checkmark, name)
 
 	return nil
+}
+
+// showManualCleanupWarning displays manual cleanup instructions when worktree runner is unavailable.
+func showManualCleanupWarning(w io.Writer, output, worktreePath, branch string, logger zerolog.Logger) {
+	logger.Warn().Msg("workspace state deleted, but worktree cleanup was limited")
+	if output == OutputJSON {
+		return
+	}
+
+	_, _ = fmt.Fprintf(w, "\n⚠️  Manual cleanup may be required:\n")
+	if worktreePath != "" {
+		_, _ = fmt.Fprintf(w, "   git worktree remove --force %s\n", worktreePath)
+	}
+	if branch != "" {
+		_, _ = fmt.Fprintf(w, "   git branch -D %s\n", branch)
+	}
+	_, _ = fmt.Fprintf(w, "\n")
 }
 
 // confirmDestroy prompts the user for confirmation before destroying a workspace.
