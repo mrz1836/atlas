@@ -122,3 +122,26 @@ func (o *TTYOutput) JSON(v interface{}) error {
 func (o *TTYOutput) Spinner(ctx context.Context, msg string) Spinner {
 	return NewSpinnerAdapter(ctx, o.w, msg)
 }
+
+// URL outputs a URL with clickable hyperlink in supported terminals.
+// Uses OSC 8 escape sequences for iTerm, VS Code, and other modern terminals.
+// Falls back to underlined text for unsupported terminals.
+func (o *TTYOutput) URL(url, displayText string) {
+	if displayText == "" {
+		displayText = url
+	}
+
+	if SupportsHyperlinks() {
+		// Use OSC 8 hyperlink
+		hyperlink := FormatHyperlink(url, displayText)
+		_, _ = fmt.Fprintln(o.w, "  "+hyperlink)
+	} else {
+		// Fallback: show underlined display text with URL
+		underlined := StyleUnderline.Render(displayText)
+		if displayText != url {
+			_, _ = fmt.Fprintf(o.w, "  %s (%s)\n", underlined, url)
+		} else {
+			_, _ = fmt.Fprintln(o.w, "  "+underlined)
+		}
+	}
+}

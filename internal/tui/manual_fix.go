@@ -16,6 +16,7 @@ type ManualFixInfo struct {
 	FailedStep       string
 	ResumeCommand    string
 	ValidationOutput string // Full output from failed validation step
+	ArtifactPath     string // Path to validation artifact with full output
 }
 
 // ExtractManualFixInfo extracts manual fix information from task and workspace.
@@ -43,10 +44,16 @@ func ExtractManualFixInfo(task *domain.Task, workspace *domain.Workspace) *Manua
 		info.FailedStep = task.Steps[task.CurrentStep].Name
 	}
 
-	// Extract validation output from step results
+	// Extract validation output and artifact path from step results
 	for _, sr := range task.StepResults {
 		if sr.Status == "failed" && sr.Output != "" {
 			info.ValidationOutput = sr.Output
+			// Extract artifact path from metadata if available
+			if sr.Metadata != nil {
+				if artifactPath, ok := sr.Metadata["artifact_path"].(string); ok {
+					info.ArtifactPath = artifactPath
+				}
+			}
 			break // Use the first failed step's output
 		}
 	}
@@ -83,6 +90,11 @@ func DisplayManualFixInstructions(output Output, task *domain.Task, workspace *d
 			sb.WriteString(fmt.Sprintf("   %s\n", line))
 		}
 		sb.WriteString("\n")
+	}
+
+	// Show artifact path prominently if available
+	if info.ArtifactPath != "" {
+		sb.WriteString(fmt.Sprintf("📄 Full Validation Log:\n   %s\n\n", info.ArtifactPath))
 	}
 
 	sb.WriteString("📝 Next Steps:\n")

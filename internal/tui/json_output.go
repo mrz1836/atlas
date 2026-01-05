@@ -136,3 +136,24 @@ func (o *JSONOutput) JSON(v interface{}) error {
 func (o *JSONOutput) Spinner(_ context.Context, _ string) Spinner {
 	return &NoopSpinner{}
 }
+
+// jsonURL is the structured format for URL output.
+type jsonURL struct {
+	Type    string `json:"type"`
+	URL     string `json:"url"`
+	Display string `json:"display,omitempty"`
+}
+
+// URL outputs a URL as structured JSON.
+// Format: {"type": "url", "url": "...", "display": "..."}
+func (o *JSONOutput) URL(url, displayText string) {
+	msg := jsonURL{
+		Type: "url",
+		URL:  url,
+	}
+	if displayText != "" && displayText != url {
+		msg.Display = displayText
+	}
+	//nolint:errchkjson // Method has no error return per interface contract
+	_ = o.encoder.Encode(msg)
+}

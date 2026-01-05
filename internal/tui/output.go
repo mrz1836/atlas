@@ -48,6 +48,11 @@ type Output interface {
 	// JSON: No-op spinner that does nothing.
 	// Context is used for cancellation propagation.
 	Spinner(ctx context.Context, msg string) Spinner
+
+	// URL outputs a URL with optional display text.
+	// TTY: Clickable OSC 8 hyperlink in supported terminals, underlined fallback otherwise.
+	// JSON: Structured JSON with url and display fields.
+	URL(url, displayText string)
 }
 
 // Spinner is the interface for progress indication during long-running operations (AC: #6).
