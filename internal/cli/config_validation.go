@@ -8,9 +8,8 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/spf13/cobra"
-
 	"github.com/mrz1836/atlas/internal/config"
+	"github.com/spf13/cobra"
 )
 
 // ConfigValidationFlags holds flags specific to the config validation command.

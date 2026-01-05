@@ -6,11 +6,10 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/mrz1836/atlas/internal/errors"
 	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-
-	"github.com/mrz1836/atlas/internal/errors"
 )
 
 // BuildInfo contains version information set at build time via ldflags.

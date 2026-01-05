@@ -12,13 +12,12 @@ import (
 
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/rs/zerolog"
-	"github.com/spf13/cobra"
-	"golang.org/x/term"
-
 	"github.com/mrz1836/atlas/internal/errors"
 	"github.com/mrz1836/atlas/internal/tui"
 	"github.com/mrz1836/atlas/internal/workspace"
+	"github.com/rs/zerolog"
+	"github.com/spf13/cobra"
+	"golang.org/x/term"
 )
 
 // addWorkspaceDestroyCmd adds the destroy subcommand to the workspace command.

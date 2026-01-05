@@ -7,12 +7,11 @@ import (
 	"io"
 	"time"
 
-	"github.com/rs/zerolog"
-
 	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/errors"
 	"github.com/mrz1836/atlas/internal/tui"
 	"github.com/mrz1836/atlas/internal/validation"
+	"github.com/rs/zerolog"
 )
 
 // CommandResult holds the result of a single command execution.
