@@ -34,6 +34,8 @@ var (
 	errTestFailedConnect   = fmt.Errorf("fatal: failed to connect to github.com: %w", atlaserrors.ErrGitOperation)
 	errTestSomethingWrong  = fmt.Errorf("something went wrong: %w", atlaserrors.ErrGitOperation)
 	errTestRefspec         = fmt.Errorf("error: src refspec main does not match any: %w", atlaserrors.ErrGitOperation)
+	errTestTUINotAvailable = fmt.Errorf("TUI error: terminal not available: %w", atlaserrors.ErrGitOperation)
+	errTestNonexistentRepo = fmt.Errorf("fatal: 'nonexistent' does not appear to be a git repository: %w", atlaserrors.ErrGitOperation)
 )
 
 // MockRunner implements Runner interface for testing.
