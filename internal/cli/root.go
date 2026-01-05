@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/mrz1836/atlas/internal/errors"
+	"github.com/mrz1836/atlas/internal/tui"
 	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -77,17 +78,9 @@ func newRootCmd(flags *GlobalFlags, info BuildInfo) *cobra.Command {
 	v := viper.New()
 
 	cmd := &cobra.Command{
-		Use:   "atlas",
-		Short: "ATLAS - AI Task Lifecycle Automation System",
-		Long: `ATLAS automates the software development lifecycle with AI-powered task execution,
-validation, and delivery through an intuitive CLI interface.
-
-Features:
-  • AI-driven task execution with Claude Code
-  • Automated testing and validation pipelines
-  • Git integration with smart commit messages
-  • Interactive approval workflows
-  • Real-time status monitoring`,
+		Use:     "atlas",
+		Short:   "ATLAS - AI Task Lifecycle Automation System",
+		Long:    tui.RenderHeaderAuto(),
 		Version: formatVersion(info),
 		// Run displays help when the root command is invoked without subcommands.
 		// This ensures PersistentPreRunE is called for flag validation.

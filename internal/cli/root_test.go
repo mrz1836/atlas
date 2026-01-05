@@ -24,7 +24,6 @@ func TestRootCmd_Help(t *testing.T) {
 
 	output := buf.String()
 	assert.Contains(t, output, "ATLAS")
-	assert.Contains(t, output, "AI-powered task execution")
 	assert.Contains(t, output, "--output")
 	assert.Contains(t, output, "--verbose")
 	assert.Contains(t, output, "--quiet")
