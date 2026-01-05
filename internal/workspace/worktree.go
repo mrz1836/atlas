@@ -107,6 +107,13 @@ func (r *GitWorktreeRunner) Create(ctx context.Context, opts WorktreeCreateOptio
 
 	// Calculate sibling path
 	wtPath := siblingPath(r.repoPath, opts.WorkspaceName)
+
+	// Clean up orphaned directory if it exists but isn't a registered worktree
+	if err := r.cleanupOrphanedPath(ctx, wtPath); err != nil {
+		// Log but continue - worst case ensureUniquePath will add a suffix
+		log.Debug().Err(err).Str("path", wtPath).Msg("failed to cleanup orphaned path")
+	}
+
 	wtPath, err := ensureUniquePath(wtPath)
 	if err != nil {
 		return nil, err
@@ -376,6 +383,31 @@ func generateBranchName(branchType, workspaceName string) string {
 
 // maxPathRetries is the maximum number of numeric suffixes to try before using timestamp.
 const maxPathRetries = 100
+
+// cleanupOrphanedPath removes a directory if it exists but is not a registered git worktree.
+// This handles the case where a previous destroy failed to fully clean up, leaving an orphaned directory.
+func (r *GitWorktreeRunner) cleanupOrphanedPath(ctx context.Context, path string) error {
+	// Check if path exists
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return nil // Nothing to clean up
+	}
+
+	// Check if it's a registered worktree
+	worktrees, err := r.List(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to list worktrees: %w", err)
+	}
+
+	for _, wt := range worktrees {
+		if wt.Path == path {
+			return nil // It's an active worktree, don't touch it
+		}
+	}
+
+	// Path exists but isn't a worktree - it's orphaned
+	log.Info().Str("path", path).Msg("removing orphaned worktree directory")
+	return os.RemoveAll(path)
+}
 
 // ensureUniquePath finds a unique worktree path, appending -2, -3, etc.
 // Returns the path and an error if no unique path could be found.
