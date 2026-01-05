@@ -1,5 +1,3 @@
-//go:build integration
-
 package workspace
 
 import (
@@ -103,7 +101,7 @@ func TestIntegration_MultipleWorkspaces(t *testing.T) {
 			CreatedAt: time.Now(),
 			UpdatedAt: time.Now(),
 		}
-		err := store.Create(ctx, ws)
+		err = store.Create(ctx, ws)
 		require.NoError(t, err, "should create workspace %s", name)
 	}
 

@@ -1,5 +1,3 @@
-//go:build integration
-
 package task
 
 import (
@@ -60,7 +58,8 @@ func TestIntegration_TaskLifecycle(t *testing.T) {
 	})
 
 	t.Run("2_get_and_verify_task", func(t *testing.T) {
-		retrieved, err := store.Get(ctx, "test-ws", task.ID)
+		var retrieved *domain.Task
+		retrieved, err = store.Get(ctx, "test-ws", task.ID)
 		require.NoError(t, err)
 		assert.Equal(t, task.ID, retrieved.ID)
 		assert.Equal(t, domain.TaskStatusPending, retrieved.Status)
@@ -68,7 +67,8 @@ func TestIntegration_TaskLifecycle(t *testing.T) {
 	})
 
 	t.Run("3_update_task_status", func(t *testing.T) {
-		retrieved, err := store.Get(ctx, "test-ws", task.ID)
+		var retrieved *domain.Task
+		retrieved, err = store.Get(ctx, "test-ws", task.ID)
 		require.NoError(t, err)
 		retrieved.Status = domain.TaskStatusRunning
 		retrieved.CurrentStep = 1
@@ -160,7 +160,8 @@ func TestIntegration_TaskWithVersionedArtifacts(t *testing.T) {
 	paths := make([]string, len(versions))
 
 	for i, content := range versions {
-		path, err := store.SaveVersionedArtifact(ctx, "test-ws", task.ID, "output.txt", []byte(content))
+		var path string
+		path, err = store.SaveVersionedArtifact(ctx, "test-ws", task.ID, "output.txt", []byte(content))
 		require.NoError(t, err)
 		paths[i] = path
 	}
