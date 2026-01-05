@@ -10,6 +10,9 @@ import (
 	"os"
 	"os/exec"
 
+	"github.com/spf13/cobra"
+	"golang.org/x/term"
+
 	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/domain"
@@ -17,8 +20,6 @@ import (
 	"github.com/mrz1836/atlas/internal/task"
 	"github.com/mrz1836/atlas/internal/tui"
 	"github.com/mrz1836/atlas/internal/workspace"
-	"github.com/spf13/cobra"
-	"golang.org/x/term"
 )
 
 // AddApproveCommand adds the approve command to the root command.
@@ -105,6 +106,20 @@ const (
 	actionOpenPR          approvalAction = "open_pr"
 	actionReject          approvalAction = "reject"
 	actionCancel          approvalAction = "cancel"
+)
+
+// Injection points for testing - these can be overridden in tests
+//
+//nolint:gochecknoglobals // Test injection points - standard Go testing pattern
+var (
+	// tuiSelectFunc allows injecting tui.Select for testing
+	tuiSelectFunc = tui.Select
+
+	// selectApprovalActionFunc allows injecting selectApprovalAction for testing
+	selectApprovalActionFunc = selectApprovalAction
+
+	// execCommandContextFunc allows injecting exec.CommandContext for testing
+	execCommandContextFunc = exec.CommandContext
 )
 
 // runApprove executes the approve command.
@@ -314,7 +329,7 @@ func selectWorkspaceForApproval(tasks []awaitingTask) (*awaitingTask, error) {
 		}
 	}
 
-	selected, err := tui.Select("Select a workspace to approve:", options)
+	selected, err := tuiSelectFunc("Select a workspace to approve:", options)
 	if err != nil {
 		return nil, err
 	}
@@ -367,16 +382,23 @@ func runInteractiveApproval(ctx context.Context, out tui.Output, taskStore task.
 	return runApprovalActionLoop(ctx, out, taskStore, ws, t, notifier)
 }
 
-// printApprovalSummary prints the approval summary to stdout.
-func printApprovalSummary(summary *tui.ApprovalSummary, verbose bool) {
+// printApprovalSummaryTo prints the approval summary to the specified writer.
+// This function is testable by injecting a custom writer.
+func printApprovalSummaryTo(w io.Writer, summary *tui.ApprovalSummary, verbose bool) {
 	rendered := tui.RenderApprovalSummaryWithWidth(summary, 0, verbose)
-	_, _ = os.Stdout.WriteString(rendered + "\n")
+	_, _ = w.Write([]byte(rendered + "\n"))
+}
+
+// printApprovalSummary prints the approval summary to stdout.
+// This is a convenience wrapper around printApprovalSummaryTo for production use.
+func printApprovalSummary(summary *tui.ApprovalSummary, verbose bool) {
+	printApprovalSummaryTo(os.Stdout, summary, verbose)
 }
 
 // runApprovalActionLoop handles the approval action menu loop.
 func runApprovalActionLoop(ctx context.Context, out tui.Output, taskStore task.Store, ws *domain.Workspace, t *domain.Task, notifier *tui.Notifier) error {
 	for {
-		action, err := selectApprovalAction(t)
+		action, err := selectApprovalActionFunc(t)
 		if err != nil {
 			if errors.Is(err, tui.ErrMenuCanceled) {
 				out.Info("Approval canceled.")
@@ -483,7 +505,7 @@ func selectApprovalAction(t *domain.Task) (approvalAction, error) {
 		tui.Option{Label: "Cancel", Description: "Return without action", Value: string(actionCancel)},
 	)
 
-	selected, err := tui.Select("What would you like to do?", options)
+	selected, err := tuiSelectFunc("What would you like to do?", options)
 	if err != nil {
 		return "", err
 	}
@@ -513,11 +535,11 @@ func viewDiff(ctx context.Context, worktreePath string) error {
 	}
 
 	// Get diff of recent changes
-	gitCmd := exec.CommandContext(ctx, "git", "-C", worktreePath, "diff", "HEAD~1")
+	gitCmd := execCommandContextFunc(ctx, "git", "-C", worktreePath, "diff", "HEAD~1")
 	gitOutput, err := gitCmd.Output()
 	if err != nil {
 		// Try without HEAD~1 for new repos
-		gitCmd = exec.CommandContext(ctx, "git", "-C", worktreePath, "diff")
+		gitCmd = execCommandContextFunc(ctx, "git", "-C", worktreePath, "diff")
 		gitOutput, err = gitCmd.Output()
 		if err != nil {
 			return fmt.Errorf("failed to get diff: %w", err)
@@ -551,7 +573,7 @@ func viewLogs(ctx context.Context, taskStore task.Store, workspaceName, taskID s
 
 // pipeToLess pipes data to the less pager.
 func pipeToLess(ctx context.Context, data []byte) error {
-	lessCmd := exec.CommandContext(ctx, "less", "-R")
+	lessCmd := execCommandContextFunc(ctx, "less", "-R")
 	lessCmd.Stdin = os.Stdin
 	lessCmd.Stdout = os.Stdout
 	lessCmd.Stderr = os.Stderr
@@ -588,7 +610,7 @@ func extractPRURL(t *domain.Task) string {
 
 // openInBrowser opens a URL in the default browser (macOS).
 func openInBrowser(ctx context.Context, url string) error {
-	cmd := exec.CommandContext(ctx, "open", url)
+	cmd := execCommandContextFunc(ctx, "open", url)
 	return cmd.Run()
 }
 

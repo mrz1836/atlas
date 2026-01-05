@@ -10,14 +10,15 @@ import (
 	"os"
 
 	"github.com/charmbracelet/huh"
+	"github.com/rs/zerolog"
+	"github.com/spf13/cobra"
+
 	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/domain"
 	"github.com/mrz1836/atlas/internal/errors"
 	"github.com/mrz1836/atlas/internal/task"
 	"github.com/mrz1836/atlas/internal/tui"
 	"github.com/mrz1836/atlas/internal/workspace"
-	"github.com/rs/zerolog"
-	"github.com/spf13/cobra"
 )
 
 // AddAbandonCommand adds the abandon command to the root command.
@@ -222,25 +223,40 @@ func executeAbandon(ctx context.Context, w io.Writer, wsMgr workspace.Manager, t
 	return nil
 }
 
-// confirmAbandon prompts the user for confirmation before abandoning a task.
-func confirmAbandon(workspaceName string, isRunning bool) (bool, error) {
-	var confirm bool
+// createAbandonConfirmForm is the default factory for creating abandon confirmation forms.
+// This variable can be overridden in tests to inject mock forms.
+//
+//nolint:gochecknoglobals // Test injection point - standard Go testing pattern
+var createAbandonConfirmForm = defaultCreateAbandonConfirmForm
 
+// formRunner is an interface that matches huh.Form's Run method.
+type formRunner interface {
+	Run() error
+}
+
+// defaultCreateAbandonConfirmForm creates the actual Charm Huh form for abandon confirmation.
+func defaultCreateAbandonConfirmForm(workspaceName string, isRunning bool, confirm *bool) formRunner {
 	description := "Branch and worktree will be preserved for manual work."
 	if isRunning {
 		description = "⚠️  WARNING: Task is currently running. This will attempt to terminate processes and mark the task as abandoned.\n\n" + description
 	}
 
-	form := huh.NewForm(
+	return huh.NewForm(
 		huh.NewGroup(
 			huh.NewConfirm().
 				Title(fmt.Sprintf("Abandon task in workspace '%s'?", workspaceName)).
 				Description(description).
 				Affirmative("Yes, abandon").
 				Negative("No, cancel").
-				Value(&confirm),
+				Value(confirm),
 		),
 	)
+}
+
+// confirmAbandon prompts the user for confirmation before abandoning a task.
+func confirmAbandon(workspaceName string, isRunning bool) (bool, error) {
+	var confirm bool
+	form := createAbandonConfirmForm(workspaceName, isRunning, &confirm)
 
 	if err := form.Run(); err != nil {
 		return false, err

@@ -5,16 +5,18 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/spf13/cobra"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/domain"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 	"github.com/mrz1836/atlas/internal/tui"
-	"github.com/spf13/cobra"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // mockWorkspaceStore implements workspace.Store interface for testing.
@@ -1386,4 +1388,75 @@ func TestApprovalAction_TypeConversion(t *testing.T) {
 			assert.Equal(t, string(tt.action), tt.str)
 		})
 	}
+}
+
+// Phase 2 Quick Wins: Test printApprovalSummary output functions
+
+func TestPrintApprovalSummaryTo_OutputsRenderedSummary(t *testing.T) {
+	var buf bytes.Buffer
+	summary := &tui.ApprovalSummary{
+		TaskID:        "task-20260105-123456",
+		WorkspaceName: "test-workspace",
+		Description:   "Fix authentication bug",
+		Status:        constants.TaskStatusAwaitingApproval,
+	}
+
+	printApprovalSummaryTo(&buf, summary, false)
+
+	output := buf.String()
+	// Verify the summary was rendered and written to the buffer
+	assert.NotEmpty(t, output, "output should not be empty")
+	assert.Contains(t, output, "test-workspace")
+	assert.Contains(t, output, "test-workspace")
+}
+
+func TestPrintApprovalSummaryTo_VerboseMode(t *testing.T) {
+	var buf bytes.Buffer
+	summary := &tui.ApprovalSummary{
+		TaskID:        "task-20260105-123456",
+		WorkspaceName: "verbose-workspace",
+		Description:   "Verbose test",
+		Status:        constants.TaskStatusAwaitingApproval,
+	}
+
+	// Call with verbose=true
+	printApprovalSummaryTo(&buf, summary, true)
+
+	output := buf.String()
+	assert.NotEmpty(t, output, "verbose output should not be empty")
+	// Verbose mode might include additional details
+	assert.Contains(t, output, "verbose-workspace")
+}
+
+func TestPrintApprovalSummaryTo_NonVerboseMode(t *testing.T) {
+	var buf bytes.Buffer
+	summary := &tui.ApprovalSummary{
+		TaskID:        "task-20260105-123456",
+		WorkspaceName: "concise-workspace",
+		Description:   "Concise test",
+		Status:        constants.TaskStatusAwaitingApproval,
+	}
+
+	// Call with verbose=false
+	printApprovalSummaryTo(&buf, summary, false)
+
+	output := buf.String()
+	assert.NotEmpty(t, output, "non-verbose output should not be empty")
+	assert.Contains(t, output, "concise-workspace")
+}
+
+func TestPrintApprovalSummaryTo_WithNewline(t *testing.T) {
+	var buf bytes.Buffer
+	summary := &tui.ApprovalSummary{
+		TaskID:        "task-20260105-123456",
+		WorkspaceName: "newline-test",
+		Description:   "Test newline",
+		Status:        constants.TaskStatusAwaitingApproval,
+	}
+
+	printApprovalSummaryTo(&buf, summary, false)
+
+	output := buf.String()
+	// Verify the output ends with a newline
+	assert.True(t, strings.HasSuffix(output, "\n"), "output should end with newline")
 }

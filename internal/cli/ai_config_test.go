@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"context"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -472,4 +474,156 @@ func TestGetModelOptions(t *testing.T) {
 	assert.Contains(t, values, ModelSonnet)
 	assert.Contains(t, values, ModelOpus)
 	assert.Contains(t, values, ModelHaiku)
+}
+
+// Phase 3: Form Interactions - Test AI config collection
+
+func TestCollectAIConfigInteractive_ValidInput(t *testing.T) {
+	// Save and restore original form factory
+	originalFactory := createAIConfigForm
+	defer func() { createAIConfigForm = originalFactory }()
+
+	// Mock the form to simulate user input
+	createAIConfigForm = func(cfg *AIProviderConfig, maxTurnsStr *string) formRunner {
+		// Simulate user entering values
+		cfg.Model = "opus"
+		cfg.APIKeyEnvVar = "CUSTOM_API_KEY"
+		cfg.Timeout = "1h"
+		*maxTurnsStr = "20"
+		return &mockFormRunner{}
+	}
+
+	cfg := &AIProviderConfig{}
+	err := CollectAIConfigInteractive(context.Background(), cfg)
+
+	require.NoError(t, err)
+	assert.Equal(t, "opus", cfg.Model)
+	assert.Equal(t, "CUSTOM_API_KEY", cfg.APIKeyEnvVar)
+	assert.Equal(t, "1h", cfg.Timeout)
+	assert.Equal(t, 20, cfg.MaxTurns)
+}
+
+func TestCollectAIConfigInteractive_CustomTimeout(t *testing.T) {
+	originalFactory := createAIConfigForm
+	defer func() { createAIConfigForm = originalFactory }()
+
+	createAIConfigForm = func(cfg *AIProviderConfig, maxTurnsStr *string) formRunner {
+		cfg.Timeout = "30m"
+		*maxTurnsStr = "10"
+		return &mockFormRunner{}
+	}
+
+	cfg := &AIProviderConfig{}
+	err := CollectAIConfigInteractive(context.Background(), cfg)
+
+	require.NoError(t, err)
+	assert.Equal(t, "30m", cfg.Timeout)
+	assert.Equal(t, 10, cfg.MaxTurns)
+}
+
+func TestCollectAIConfigInteractive_MaxTurnsParsing(t *testing.T) {
+	originalFactory := createAIConfigForm
+	defer func() { createAIConfigForm = originalFactory }()
+
+	tests := []struct {
+		name          string
+		maxTurnsStr   string
+		expectedTurns int
+	}{
+		{"valid number", "25", 25},
+		{"default on empty", "", 10}, // Default from AIConfigDefaults
+		{"default on invalid", "invalid", 10},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			createAIConfigForm = func(_ *AIProviderConfig, maxTurnsStr *string) formRunner {
+				*maxTurnsStr = tt.maxTurnsStr
+				return &mockFormRunner{}
+			}
+
+			cfg := &AIProviderConfig{}
+			err := CollectAIConfigInteractive(context.Background(), cfg)
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.expectedTurns, cfg.MaxTurns)
+		})
+	}
+}
+
+func TestCollectAIConfigInteractive_FormError(t *testing.T) {
+	originalFactory := createAIConfigForm
+	defer func() { createAIConfigForm = originalFactory }()
+
+	//nolint:err113 // Test-only error - static error not needed
+	expectedErr := errors.New("form display error")
+	createAIConfigForm = func(_ *AIProviderConfig, _ *string) formRunner {
+		return &mockFormRunner{runErr: expectedErr}
+	}
+
+	cfg := &AIProviderConfig{}
+	err := CollectAIConfigInteractive(context.Background(), cfg)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "AI configuration failed")
+}
+
+func TestCollectAIConfigInteractive_PreservesExistingValues(t *testing.T) {
+	originalFactory := createAIConfigForm
+	defer func() { createAIConfigForm = originalFactory }()
+
+	createAIConfigForm = func(_ *AIProviderConfig, _ *string) formRunner {
+		// Don't modify config - form just runs
+		return &mockFormRunner{}
+	}
+
+	// Start with pre-populated config
+	cfg := &AIProviderConfig{
+		Model:        "sonnet",
+		APIKeyEnvVar: "ANTHROPIC_API_KEY",
+		Timeout:      "5m",
+		MaxTurns:     15,
+	}
+
+	err := CollectAIConfigInteractive(context.Background(), cfg)
+
+	require.NoError(t, err)
+	// Values should be preserved (or defaults applied)
+	assert.NotEmpty(t, cfg.Model)
+	assert.NotEmpty(t, cfg.APIKeyEnvVar)
+}
+
+func TestCollectAIConfigInteractive_ContextCancellation(t *testing.T) {
+	// Create a canceled context
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately
+
+	cfg := &AIProviderConfig{}
+	err := CollectAIConfigInteractive(ctx, cfg)
+
+	// Should return context.Canceled error
+	require.Error(t, err)
+	assert.ErrorIs(t, err, context.Canceled)
+}
+
+func TestCollectAIConfigInteractive_InitializesDefaults(t *testing.T) {
+	originalFactory := createAIConfigForm
+	defer func() { createAIConfigForm = originalFactory }()
+
+	var capturedConfig *AIProviderConfig
+	createAIConfigForm = func(cfg *AIProviderConfig, _ *string) formRunner {
+		capturedConfig = cfg
+		return &mockFormRunner{}
+	}
+
+	// Start with empty config
+	cfg := &AIProviderConfig{}
+	err := CollectAIConfigInteractive(context.Background(), cfg)
+
+	require.NoError(t, err)
+	// Defaults should have been applied before form ran
+	assert.Equal(t, "sonnet", capturedConfig.Model)
+	assert.Equal(t, "ANTHROPIC_API_KEY", capturedConfig.APIKeyEnvVar)
+	assert.Equal(t, "30m", capturedConfig.Timeout)
+	assert.Equal(t, 10, capturedConfig.MaxTurns)
 }

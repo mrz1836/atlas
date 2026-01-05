@@ -7,14 +7,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/cobra"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/domain"
 	"github.com/mrz1836/atlas/internal/errors"
 	"github.com/mrz1836/atlas/internal/task"
 	"github.com/mrz1836/atlas/internal/workspace"
-	"github.com/spf13/cobra"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 func TestAbandonCommand_Structure(t *testing.T) {
@@ -661,4 +662,296 @@ func TestConfirmAbandon_FormStructure(_ *testing.T) {
 
 	// Verify confirmAbandon is a function with expected signature
 	_ = confirmAbandon // Function exists
+}
+
+// Phase 2 Quick Wins: Test entry point functions
+
+func TestRunAbandon_ExtractsTextOutputFlag(t *testing.T) {
+	// Create a command with output flag set to "text"
+	flags := &GlobalFlags{}
+	rootCmd := &cobra.Command{Use: "atlas"}
+	AddGlobalFlags(rootCmd, flags)
+	AddAbandonCommand(rootCmd)
+
+	// Find abandon command
+	abandonCmd, _, err := rootCmd.Find([]string{"abandon"})
+	require.NoError(t, err)
+
+	// Set output flag to text (it's a persistent flag on root)
+	err = rootCmd.PersistentFlags().Set("output", "text")
+	require.NoError(t, err)
+
+	var buf bytes.Buffer
+	tmpDir := t.TempDir()
+
+	// Call runAbandon - it should extract the "text" flag and call runAbandonWithOutput
+	err = runAbandon(context.Background(), abandonCmd, &buf, "nonexistent", true, tmpDir)
+
+	// Should error because workspace doesn't exist, but that means the function executed
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to get workspace")
+
+	// Verify text output format was used (no JSON structure)
+	output := buf.String()
+	assert.NotContains(t, output, `"status"`)
+	assert.NotContains(t, output, `"error"`)
+}
+
+func TestRunAbandon_ExtractsJSONOutputFlag(t *testing.T) {
+	// Create a command with output flag set to "json"
+	flags := &GlobalFlags{}
+	rootCmd := &cobra.Command{Use: "atlas"}
+	AddGlobalFlags(rootCmd, flags)
+	AddAbandonCommand(rootCmd)
+
+	// Find abandon command
+	abandonCmd, _, err := rootCmd.Find([]string{"abandon"})
+	require.NoError(t, err)
+
+	// Set output flag to json (it's a persistent flag on root)
+	err = rootCmd.PersistentFlags().Set("output", "json")
+	require.NoError(t, err)
+
+	var buf bytes.Buffer
+	tmpDir := t.TempDir()
+
+	// Call runAbandon - it should extract the "json" flag and call runAbandonWithOutput
+	err = runAbandon(context.Background(), abandonCmd, &buf, "nonexistent", true, tmpDir)
+
+	// Should error because workspace doesn't exist
+	require.Error(t, err)
+
+	// Verify JSON output format was used
+	output := buf.String()
+	var result abandonResult
+	jsonErr := json.Unmarshal([]byte(output), &result)
+	require.NoError(t, jsonErr, "output should be valid JSON")
+	assert.Equal(t, "error", result.Status)
+	assert.Contains(t, result.Error, "failed to get workspace")
+}
+
+func TestRunAbandon_RespectsContextCancellation(t *testing.T) {
+	// Create a command
+	flags := &GlobalFlags{}
+	rootCmd := &cobra.Command{Use: "atlas"}
+	AddGlobalFlags(rootCmd, flags)
+	AddAbandonCommand(rootCmd)
+
+	// Find abandon command
+	abandonCmd, _, err := rootCmd.Find([]string{"abandon"})
+	require.NoError(t, err)
+
+	// Create a canceled context
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately
+
+	var buf bytes.Buffer
+	tmpDir := t.TempDir()
+
+	// Call runAbandon with canceled context
+	err = runAbandon(ctx, abandonCmd, &buf, "test-workspace", true, tmpDir)
+
+	// Should return context.Canceled error
+	require.Error(t, err)
+	assert.ErrorIs(t, err, context.Canceled)
+}
+
+func TestNewAbandonCmd_FlagRegistration(t *testing.T) {
+	cmd := newAbandonCmd()
+
+	// Verify command structure
+	assert.Equal(t, "abandon", cmd.Name())
+	assert.Equal(t, "abandon <workspace>", cmd.Use)
+
+	// Verify force flag is registered
+	forceFlag := cmd.Flag("force")
+	require.NotNil(t, forceFlag, "--force flag should be registered")
+	assert.Equal(t, "f", forceFlag.Shorthand)
+	assert.Equal(t, "false", forceFlag.DefValue, "default should be false")
+
+	// Verify exactly 1 argument is required
+	err := cmd.Args(cmd, []string{})
+	require.Error(t, err, "should require exactly 1 argument")
+
+	err = cmd.Args(cmd, []string{"workspace1"})
+	require.NoError(t, err, "should accept 1 argument")
+
+	err = cmd.Args(cmd, []string{"workspace1", "extra"})
+	assert.Error(t, err, "should reject more than 1 argument")
+}
+
+func TestNewAbandonCmd_ShortAndLongDesc(t *testing.T) {
+	cmd := newAbandonCmd()
+
+	// Verify descriptions are set
+	assert.NotEmpty(t, cmd.Short, "short description should not be empty")
+	assert.NotEmpty(t, cmd.Long, "long description should not be empty")
+
+	// Verify key information in descriptions
+	assert.Contains(t, cmd.Short, "Abandon")
+	assert.Contains(t, cmd.Short, "failed task")
+
+	assert.Contains(t, cmd.Long, "Abandon a task")
+	assert.Contains(t, cmd.Long, "--force")
+	assert.Contains(t, cmd.Long, "Examples:")
+}
+
+// Phase 3: Form Interactions - Test confirmation forms
+
+func TestConfirmAbandon_UserConfirms(t *testing.T) {
+	// Save and restore original form factory
+	originalFactory := createAbandonConfirmForm
+	defer func() { createAbandonConfirmForm = originalFactory }()
+
+	// Mock the form to simulate user confirming
+	var capturedWorkspace string
+	var capturedRunning bool
+	createAbandonConfirmForm = func(ws string, running bool, confirm *bool) formRunner {
+		capturedWorkspace = ws
+		capturedRunning = running
+		*confirm = true // Simulate user clicking "Yes, abandon"
+		return &mockFormRunner{}
+	}
+
+	confirmed, err := confirmAbandon("test-workspace", false)
+
+	require.NoError(t, err)
+	assert.True(t, confirmed, "should return true when user confirms")
+	assert.Equal(t, "test-workspace", capturedWorkspace)
+	assert.False(t, capturedRunning)
+}
+
+func TestConfirmAbandon_UserCancels(t *testing.T) {
+	// Save and restore original form factory
+	originalFactory := createAbandonConfirmForm
+	defer func() { createAbandonConfirmForm = originalFactory }()
+
+	// Mock the form to simulate user canceling
+	createAbandonConfirmForm = func(_ string, _ bool, confirm *bool) formRunner {
+		*confirm = false // Simulate user clicking "No, cancel"
+		return &mockFormRunner{}
+	}
+
+	confirmed, err := confirmAbandon("test-workspace", false)
+
+	require.NoError(t, err)
+	assert.False(t, confirmed, "should return false when user cancels")
+}
+
+func TestConfirmAbandon_RunningTaskShowsWarning(t *testing.T) {
+	// Save and restore original form factory
+	originalFactory := createAbandonConfirmForm
+	defer func() { createAbandonConfirmForm = originalFactory }()
+
+	// Mock the form to capture the isRunning parameter
+	var capturedRunning bool
+	createAbandonConfirmForm = func(_ string, running bool, confirm *bool) formRunner {
+		capturedRunning = running
+		*confirm = true
+		return &mockFormRunner{}
+	}
+
+	_, err := confirmAbandon("test-workspace", true)
+
+	require.NoError(t, err)
+	assert.True(t, capturedRunning, "should pass isRunning=true to form factory")
+}
+
+func TestConfirmAbandon_FormError(t *testing.T) {
+	// Save and restore original form factory
+	originalFactory := createAbandonConfirmForm
+	defer func() { createAbandonConfirmForm = originalFactory }()
+
+	// Mock the form to return an error
+	expectedErr := errors.ErrUserAbandoned
+	createAbandonConfirmForm = func(_ string, _ bool, _ *bool) formRunner {
+		return &mockFormRunner{runErr: expectedErr}
+	}
+
+	confirmed, err := confirmAbandon("test-workspace", false)
+
+	require.Error(t, err)
+	assert.Equal(t, expectedErr, err)
+	assert.False(t, confirmed, "should return false on error")
+}
+
+func TestConfirmAbandon_PassesWorkspaceName(t *testing.T) {
+	// Save and restore original form factory
+	originalFactory := createAbandonConfirmForm
+	defer func() { createAbandonConfirmForm = originalFactory }()
+
+	tests := []struct {
+		name          string
+		workspaceName string
+	}{
+		{"simple name", "my-workspace"},
+		{"with dashes", "feature-auth-fix"},
+		{"with numbers", "hotfix-123"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var capturedWorkspace string
+			createAbandonConfirmForm = func(ws string, _ bool, confirm *bool) formRunner {
+				capturedWorkspace = ws
+				*confirm = true
+				return &mockFormRunner{}
+			}
+
+			_, err := confirmAbandon(tt.workspaceName, false)
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.workspaceName, capturedWorkspace)
+		})
+	}
+}
+
+func TestConfirmAbandonmentInteractive_WithForceSkipsConfirmation(_ *testing.T) {
+	// This function should not be called when force=true
+	// The runAbandon flow skips confirmAbandonmentInteractive entirely
+	// This is already tested in TestRunAbandon_Success with force=true
+}
+
+func TestConfirmAbandonmentInteractive_NonInteractiveModeErrors(t *testing.T) {
+	// Save and restore terminal check
+	cleanup := mockTerminalCheckFunc(false)
+	defer cleanup()
+
+	var buf bytes.Buffer
+	tmpDir := t.TempDir()
+
+	// Create workspace and task
+	wsStore, err := workspace.NewFileStore(tmpDir)
+	require.NoError(t, err)
+
+	now := time.Now()
+	ws := &domain.Workspace{
+		Name:         "test-ws",
+		WorktreePath: tmpDir,
+		Branch:       "test-branch",
+		Status:       constants.WorkspaceStatusActive,
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
+	err = wsStore.Create(context.Background(), ws)
+	require.NoError(t, err)
+
+	taskStore, err := task.NewFileStore(tmpDir)
+	require.NoError(t, err)
+
+	testTask := &domain.Task{
+		ID:          testTaskID("120000"),
+		WorkspaceID: "test-ws",
+		Status:      constants.TaskStatusValidationFailed,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+	err = taskStore.Create(context.Background(), "test-ws", testTask)
+	require.NoError(t, err)
+
+	// Try to run without force in non-interactive mode
+	err = runAbandonWithOutput(context.Background(), &buf, "test-ws", false, tmpDir, "text")
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, errors.ErrNonInteractiveMode)
 }

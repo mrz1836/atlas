@@ -79,6 +79,9 @@ func (m *DefaultManager) Create(ctx context.Context, name, repoPath, branchType,
 	if branchType == "" {
 		return nil, fmt.Errorf("failed to create workspace: branchType %w", atlaserrors.ErrEmptyValue)
 	}
+	if m.worktreeRunner == nil {
+		return nil, fmt.Errorf("failed to create workspace: %w", atlaserrors.ErrWorktreeRunnerNotAvailable)
+	}
 
 	// Check if workspace already exists
 	existingWs, err := m.store.Get(ctx, name)
@@ -187,7 +190,7 @@ func (m *DefaultManager) Destroy(ctx context.Context, name string) error {
 	}
 
 	// Try to remove worktree if we know the path
-	if ws != nil && ws.WorktreePath != "" {
+	if ws != nil && ws.WorktreePath != "" && m.worktreeRunner != nil {
 		if err := m.worktreeRunner.Remove(ctx, ws.WorktreePath, true); err != nil {
 			// Log warning but continue
 			warnings = append(warnings, fmt.Errorf("warning: failed to remove worktree: %w", err))
@@ -195,7 +198,7 @@ func (m *DefaultManager) Destroy(ctx context.Context, name string) error {
 	}
 
 	// Try to delete branch if we know it
-	if ws != nil && ws.Branch != "" {
+	if ws != nil && ws.Branch != "" && m.worktreeRunner != nil {
 		if err := m.worktreeRunner.DeleteBranch(ctx, ws.Branch, true); err != nil {
 			// Log warning but continue - branch might already be deleted
 			warnings = append(warnings, fmt.Errorf("warning: failed to delete branch: %w", err))
@@ -203,8 +206,10 @@ func (m *DefaultManager) Destroy(ctx context.Context, name string) error {
 	}
 
 	// Prune stale worktrees
-	if err := m.worktreeRunner.Prune(ctx); err != nil {
-		warnings = append(warnings, fmt.Errorf("warning: failed to prune worktrees: %w", err))
+	if m.worktreeRunner != nil {
+		if err := m.worktreeRunner.Prune(ctx); err != nil {
+			warnings = append(warnings, fmt.Errorf("warning: failed to prune worktrees: %w", err))
+		}
 	}
 
 	// Delete workspace state
@@ -260,7 +265,7 @@ func (m *DefaultManager) Close(ctx context.Context, name string) error {
 
 	// Now remove worktree (state is already consistent)
 	// If this fails, state says closed with no worktree, which is acceptable
-	if worktreePath != "" {
+	if worktreePath != "" && m.worktreeRunner != nil {
 		if err := m.worktreeRunner.Remove(ctx, worktreePath, false); err != nil {
 			// If worktree is dirty or has other issues, force remove
 			// Log both errors for debugging context

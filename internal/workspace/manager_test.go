@@ -481,6 +481,27 @@ func TestDefaultManager_Destroy_ContextCancellation(t *testing.T) {
 	assert.ErrorIs(t, err, context.Canceled)
 }
 
+func TestDefaultManager_Destroy_NilWorktreeRunner(t *testing.T) {
+	// Test that Destroy succeeds even when worktreeRunner is nil
+	// This can happen when detectRepoPath() fails in the CLI
+	store := newMockStore()
+	store.workspaces["test"] = &domain.Workspace{
+		Name:         "test",
+		WorktreePath: "/tmp/repo-test",
+		Branch:       "feat/test",
+	}
+
+	// Pass nil worktree runner - simulates when repo detection fails
+	mgr := NewManager(store, nil)
+	err := mgr.Destroy(context.Background(), "test")
+
+	// MUST succeed per NFR18 - even without a worktree runner
+	require.NoError(t, err)
+	// Workspace state should still be deleted
+	_, exists := store.workspaces["test"]
+	assert.False(t, exists)
+}
+
 // ============================================================================
 // Task 6 Tests: Close operation
 // ============================================================================
@@ -621,6 +642,30 @@ func TestDefaultManager_Close_ContextCancellation(t *testing.T) {
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, context.Canceled)
+}
+
+func TestDefaultManager_Close_NilWorktreeRunner(t *testing.T) {
+	// Test that Close succeeds even when worktreeRunner is nil
+	// State should be updated even though worktree can't be removed
+	store := newMockStore()
+	store.workspaces["test"] = &domain.Workspace{
+		Name:         "test",
+		WorktreePath: "/tmp/repo-test",
+		Branch:       "feat/test",
+		Status:       constants.WorkspaceStatusActive,
+		Tasks:        []domain.TaskRef{},
+	}
+
+	// Pass nil worktree runner
+	mgr := NewManager(store, nil)
+	err := mgr.Close(context.Background(), "test")
+
+	// Should succeed - state update is more important than worktree removal
+	require.NoError(t, err)
+	// Workspace state should be updated to closed
+	ws := store.workspaces["test"]
+	assert.Equal(t, constants.WorkspaceStatusClosed, ws.Status)
+	assert.Empty(t, ws.WorktreePath)
 }
 
 // ============================================================================
@@ -850,6 +895,18 @@ func TestDefaultManager_Create_ValidatesEmptyBranchType(t *testing.T) {
 	assert.Nil(t, ws)
 	require.ErrorIs(t, err, atlaserrors.ErrEmptyValue)
 	assert.Contains(t, err.Error(), "branchType")
+}
+
+func TestDefaultManager_Create_ValidatesNilWorktreeRunner(t *testing.T) {
+	store := newMockStore()
+
+	// Pass nil worktree runner
+	mgr := NewManager(store, nil)
+	ws, err := mgr.Create(context.Background(), "test", "/tmp/repo", "task", "")
+
+	require.Error(t, err)
+	assert.Nil(t, ws)
+	assert.Contains(t, err.Error(), "worktree runner not available")
 }
 
 // ============================================================================

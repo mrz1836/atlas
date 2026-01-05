@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/huh"
+
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 )
 
@@ -92,6 +93,17 @@ func NewAIConfigForm(cfg *AIProviderConfig, maxTurnsStr *string) *huh.Form {
 	).WithTheme(huh.ThemeCharm())
 }
 
+// createAIConfigForm is the default factory for creating AI config forms.
+// This variable can be overridden in tests to inject mock forms.
+//
+//nolint:gochecknoglobals // Test injection point - standard Go testing pattern
+var createAIConfigForm = defaultCreateAIConfigForm
+
+// defaultCreateAIConfigForm creates the actual Charm Huh form for AI configuration.
+func defaultCreateAIConfigForm(cfg *AIProviderConfig, maxTurnsStr *string) formRunner {
+	return NewAIConfigForm(cfg, maxTurnsStr)
+}
+
 // CollectAIConfigInteractive runs the AI configuration form and returns the collected config.
 // It validates all inputs and handles form errors.
 func CollectAIConfigInteractive(ctx context.Context, cfg *AIProviderConfig) error {
@@ -122,7 +134,7 @@ func CollectAIConfigInteractive(ctx context.Context, cfg *AIProviderConfig) erro
 	// This must be defined here so we can capture the value after form.Run()
 	maxTurnsStr := strconv.Itoa(cfg.MaxTurns)
 
-	form := NewAIConfigForm(cfg, &maxTurnsStr)
+	form := createAIConfigForm(cfg, &maxTurnsStr)
 	if err := form.Run(); err != nil {
 		return fmt.Errorf("AI configuration failed: %w", err)
 	}
