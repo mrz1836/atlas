@@ -263,6 +263,97 @@ func TestVerifyExecutor_Execute_ModelOverride(t *testing.T) {
 	assert.Equal(t, "gemini-3-pro", capturedReq.Model)
 }
 
+// TestVerifyExecutor_Execute_AgentOverrideUsesAgentDefaultModel tests that when
+// agent is overridden but model is not specified, the new agent's default model is used
+func TestVerifyExecutor_Execute_AgentOverrideUsesAgentDefaultModel(t *testing.T) {
+	ctx := context.Background()
+	var capturedReq *domain.AIRequest
+	runner := &mockVerifyRunner{
+		runFunc: func(_ context.Context, req *domain.AIRequest) (*domain.AIResult, error) {
+			capturedReq = req
+			return &domain.AIResult{
+				Output:    `{"passed": true, "issues": [], "summary": "OK"}`,
+				SessionID: "test",
+				NumTurns:  1,
+			}, nil
+		},
+	}
+	detector := git.NewGarbageDetector(nil)
+	executor := NewVerifyExecutor(runner, detector, zerolog.Nop())
+
+	task := &domain.Task{
+		ID:          "test-task",
+		Description: "Test task",
+		CurrentStep: 0,
+		Config: domain.TaskConfig{
+			Agent: domain.AgentClaude, // Task uses Claude
+			Model: "opus",             // Task default model (Claude)
+		},
+	}
+
+	step := &domain.StepDefinition{
+		Name: "verify",
+		Type: domain.StepTypeVerify,
+		Config: map[string]any{
+			"agent": "gemini", // Override to Gemini
+			// No model specified - should use Gemini's default
+		},
+	}
+
+	_, err := executor.Execute(ctx, task, step)
+
+	require.NoError(t, err)
+	require.NotNil(t, capturedReq)
+	assert.Equal(t, domain.AgentGemini, capturedReq.Agent)
+	// Should use Gemini's default model, not the task's "opus"
+	assert.Equal(t, domain.AgentGemini.DefaultModel(), capturedReq.Model)
+}
+
+// TestVerifyExecutor_Execute_AgentOverrideWithExplicitModel tests that explicit
+// model is preserved when agent is overridden
+func TestVerifyExecutor_Execute_AgentOverrideWithExplicitModel(t *testing.T) {
+	ctx := context.Background()
+	var capturedReq *domain.AIRequest
+	runner := &mockVerifyRunner{
+		runFunc: func(_ context.Context, req *domain.AIRequest) (*domain.AIResult, error) {
+			capturedReq = req
+			return &domain.AIResult{
+				Output:    `{"passed": true, "issues": [], "summary": "OK"}`,
+				SessionID: "test",
+				NumTurns:  1,
+			}, nil
+		},
+	}
+	detector := git.NewGarbageDetector(nil)
+	executor := NewVerifyExecutor(runner, detector, zerolog.Nop())
+
+	task := &domain.Task{
+		ID:          "test-task",
+		Description: "Test task",
+		CurrentStep: 0,
+		Config: domain.TaskConfig{
+			Agent: domain.AgentClaude,
+			Model: "opus",
+		},
+	}
+
+	step := &domain.StepDefinition{
+		Name: "verify",
+		Type: domain.StepTypeVerify,
+		Config: map[string]any{
+			"agent": "gemini",
+			"model": "pro", // Explicit model for Gemini
+		},
+	}
+
+	_, err := executor.Execute(ctx, task, step)
+
+	require.NoError(t, err)
+	require.NotNil(t, capturedReq)
+	assert.Equal(t, domain.AgentGemini, capturedReq.Agent)
+	assert.Equal(t, "pro", capturedReq.Model) // Should use explicit model
+}
+
 func TestNewVerifyExecutor(t *testing.T) {
 	runner := &mockVerifyRunner{}
 	detector := git.NewGarbageDetector(nil)

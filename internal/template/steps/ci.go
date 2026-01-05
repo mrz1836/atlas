@@ -138,6 +138,13 @@ func (e *CIExecutor) Execute(ctx context.Context, task *domain.Task, step *domai
 		runtimeTimeout = e.ciConfig.Timeout
 	}
 
+	e.logger.Debug().
+		Dur("runtime_poll_interval", runtimePollInterval).
+		Dur("runtime_timeout", runtimeTimeout).
+		Dur("runtime_grace_period", runtimeGracePeriod).
+		Bool("ciconfig_nil", e.ciConfig == nil).
+		Msg("extracted CI runtime configuration from ciConfig")
+
 	pollInterval := e.getConfigDuration("poll_interval", step.Config, runtimePollInterval, constants.CIPollInterval)
 	gracePeriod := e.getConfigDuration("grace_period", step.Config, runtimeGracePeriod, constants.CIInitialGracePeriod)
 	gracePollInterval := extractDuration(step.Config, "grace_poll_interval", constants.CIGracePollInterval)
@@ -147,6 +154,12 @@ func (e *CIExecutor) Execute(ctx context.Context, task *domain.Task, step *domai
 		timeout = e.getConfigDuration("timeout", step.Config, runtimeTimeout, constants.DefaultCITimeout)
 	}
 	workflows := extractStringSlice(step.Config, "workflows")
+
+	e.logger.Debug().
+		Dur("resolved_poll_interval", pollInterval).
+		Dur("resolved_grace_period", gracePeriod).
+		Dur("resolved_timeout", timeout).
+		Msg("resolved final CI configuration values")
 
 	// Build watch options
 	watchOpts := git.CIWatchOptions{

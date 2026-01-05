@@ -223,3 +223,72 @@ func TestAIExecutor_Execute_StepTimeout(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "success", result.Status)
 }
+
+// TestAIExecutor_Execute_AgentOverrideUsesAgentDefaultModel tests that when
+// agent is overridden but model is not specified, the new agent's default model is used
+func TestAIExecutor_Execute_AgentOverrideUsesAgentDefaultModel(t *testing.T) {
+	ctx := context.Background()
+	runner := &mockAIRunner{
+		result: &domain.AIResult{Output: "done"},
+	}
+	executor := NewAIExecutor(runner)
+
+	task := &domain.Task{
+		ID:          "task-123",
+		Description: "Test task",
+		Config: domain.TaskConfig{
+			Agent: domain.AgentClaude, // Task uses Claude
+			Model: "opus",             // Task default model (Claude)
+		},
+	}
+	step := &domain.StepDefinition{
+		Name: "implement",
+		Type: domain.StepTypeAI,
+		Config: map[string]any{
+			"agent": "gemini", // Override to Gemini
+			// No model specified - should use Gemini's default
+		},
+	}
+
+	_, err := executor.Execute(ctx, task, step)
+
+	require.NoError(t, err)
+	require.NotNil(t, runner.request)
+	assert.Equal(t, domain.AgentGemini, runner.request.Agent)
+	// Should use Gemini's default model, not the task's "opus"
+	assert.Equal(t, domain.AgentGemini.DefaultModel(), runner.request.Model)
+}
+
+// TestAIExecutor_Execute_AgentOverrideWithExplicitModel tests that explicit
+// model is preserved when agent is overridden
+func TestAIExecutor_Execute_AgentOverrideWithExplicitModel(t *testing.T) {
+	ctx := context.Background()
+	runner := &mockAIRunner{
+		result: &domain.AIResult{Output: "done"},
+	}
+	executor := NewAIExecutor(runner)
+
+	task := &domain.Task{
+		ID:          "task-123",
+		Description: "Test task",
+		Config: domain.TaskConfig{
+			Agent: domain.AgentClaude,
+			Model: "opus",
+		},
+	}
+	step := &domain.StepDefinition{
+		Name: "implement",
+		Type: domain.StepTypeAI,
+		Config: map[string]any{
+			"agent": "gemini",
+			"model": "pro", // Explicit model for Gemini
+		},
+	}
+
+	_, err := executor.Execute(ctx, task, step)
+
+	require.NoError(t, err)
+	require.NotNil(t, runner.request)
+	assert.Equal(t, domain.AgentGemini, runner.request.Agent)
+	assert.Equal(t, "pro", runner.request.Model)
+}

@@ -3999,3 +3999,93 @@ func TestEngine_NotifyStateChange_NoNotifier(_ *testing.T) {
 	// Should not panic when notifier is nil
 	engine.notifyStateChange(constants.TaskStatusRunning, constants.TaskStatusAwaitingApproval)
 }
+
+// TestResolveStepAgentModel tests the resolveStepAgentModel helper function
+func TestResolveStepAgentModel(t *testing.T) {
+	tests := []struct {
+		name          string
+		taskAgent     domain.Agent
+		taskModel     string
+		stepAgent     string
+		stepModel     string
+		expectedAgent domain.Agent
+		expectedModel string
+	}{
+		{
+			name:          "no_overrides_uses_task_defaults",
+			taskAgent:     domain.AgentClaude,
+			taskModel:     "opus",
+			stepAgent:     "",
+			stepModel:     "",
+			expectedAgent: domain.AgentClaude,
+			expectedModel: "opus",
+		},
+		{
+			name:          "step_agent_override_uses_agent_default_model",
+			taskAgent:     domain.AgentClaude,
+			taskModel:     "opus",
+			stepAgent:     "gemini",
+			stepModel:     "",
+			expectedAgent: domain.AgentGemini,
+			expectedModel: domain.AgentGemini.DefaultModel(), // "flash"
+		},
+		{
+			name:          "step_agent_and_model_override",
+			taskAgent:     domain.AgentClaude,
+			taskModel:     "opus",
+			stepAgent:     "gemini",
+			stepModel:     "pro",
+			expectedAgent: domain.AgentGemini,
+			expectedModel: "pro",
+		},
+		{
+			name:          "step_model_override_only",
+			taskAgent:     domain.AgentClaude,
+			taskModel:     "opus",
+			stepAgent:     "",
+			stepModel:     "sonnet",
+			expectedAgent: domain.AgentClaude,
+			expectedModel: "sonnet",
+		},
+		{
+			name:          "same_agent_as_task_keeps_task_model",
+			taskAgent:     domain.AgentClaude,
+			taskModel:     "opus",
+			stepAgent:     "claude", // Same as task
+			stepModel:     "",
+			expectedAgent: domain.AgentClaude,
+			expectedModel: "opus", // Keeps task model since agent didn't change
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			task := &domain.Task{
+				Config: domain.TaskConfig{
+					Agent: tt.taskAgent,
+					Model: tt.taskModel,
+				},
+			}
+
+			var stepConfig map[string]any
+			if tt.stepAgent != "" || tt.stepModel != "" {
+				stepConfig = make(map[string]any)
+				if tt.stepAgent != "" {
+					stepConfig["agent"] = tt.stepAgent
+				}
+				if tt.stepModel != "" {
+					stepConfig["model"] = tt.stepModel
+				}
+			}
+
+			step := &domain.StepDefinition{
+				Config: stepConfig,
+			}
+
+			agent, model := resolveStepAgentModel(task, step)
+
+			assert.Equal(t, tt.expectedAgent, agent, "agent mismatch")
+			assert.Equal(t, tt.expectedModel, model, "model mismatch")
+		})
+	}
+}

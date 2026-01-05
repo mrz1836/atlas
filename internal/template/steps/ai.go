@@ -149,8 +149,14 @@ func (e *AIExecutor) applyStepConfig(req *domain.AIRequest, description string, 
 	}
 
 	// Agent override for this step
+	agentChanged := false
 	if agent, ok := config["agent"].(string); ok && agent != "" {
-		req.Agent = domain.Agent(agent)
+		newAgent := domain.Agent(agent)
+		// Only consider it a change if it's actually different
+		if newAgent != req.Agent {
+			req.Agent = newAgent
+			agentChanged = true
+		}
 	}
 	if pm, ok := config["permission_mode"].(string); ok {
 		req.PermissionMode = pm
@@ -160,6 +166,9 @@ func (e *AIExecutor) applyStepConfig(req *domain.AIRequest, description string, 
 	}
 	if model, ok := config["model"].(string); ok {
 		req.Model = model
+	} else if agentChanged {
+		// Use new agent's default model when agent changed but model wasn't specified
+		req.Model = req.Agent.DefaultModel()
 	}
 	if timeout, ok := config["timeout"].(time.Duration); ok {
 		req.Timeout = timeout

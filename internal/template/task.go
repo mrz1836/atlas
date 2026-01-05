@@ -39,7 +39,7 @@ func NewTaskTemplate() *domain.Template {
 				Timeout:     5 * time.Minute,
 				Config: map[string]any{
 					"agent":  "gemini", // Use Gemini for verification
-					"model":  "",       // Will use Gemini default (flash)
+					"model":  "",       // Empty - will use agent's default model (flash for Gemini)
 					"checks": []string{"code_correctness", "garbage_files"},
 				},
 			},

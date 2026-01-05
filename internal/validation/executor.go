@@ -53,9 +53,17 @@ func (e *Executor) SetLiveOutput(w io.Writer) {
 // Run executes commands sequentially, stopping on first failure.
 // Returns all collected results and an error if any command failed.
 func (e *Executor) Run(ctx context.Context, commands []string, workDir string) ([]Result, error) {
-	results := make([]Result, 0, len(commands))
+	return e.RunWithPhase(ctx, commands, workDir, "")
+}
 
-	for _, cmd := range commands {
+// RunWithPhase executes commands sequentially with phase context for logging.
+// The phase parameter identifies which validation phase is running (pre-commit, format, lint, test).
+// Returns all collected results and an error if any command failed.
+func (e *Executor) RunWithPhase(ctx context.Context, commands []string, workDir, phase string) ([]Result, error) {
+	results := make([]Result, 0, len(commands))
+	total := len(commands)
+
+	for i, cmd := range commands {
 		// Check for context cancellation between commands
 		select {
 		case <-ctx.Done():
@@ -63,7 +71,7 @@ func (e *Executor) Run(ctx context.Context, commands []string, workDir string) (
 		default:
 		}
 
-		result, err := e.RunSingle(ctx, cmd, workDir)
+		result, err := e.runSingleWithPhase(ctx, cmd, workDir, phase, i+1, total)
 		if result != nil {
 			results = append(results, *result)
 		}
@@ -78,13 +86,27 @@ func (e *Executor) Run(ctx context.Context, commands []string, workDir string) (
 
 // RunSingle executes a single command with timeout handling.
 func (e *Executor) RunSingle(ctx context.Context, command, workDir string) (*Result, error) {
+	return e.runSingleWithPhase(ctx, command, workDir, "", 0, 0)
+}
+
+// runSingleWithPhase executes a single command with phase context for logging.
+func (e *Executor) runSingleWithPhase(ctx context.Context, command, workDir, phase string, cmdNum, totalCmds int) (*Result, error) {
 	log := zerolog.Ctx(ctx)
 	startTime := time.Now()
 
-	log.Info().
+	// Build log event with phase context if available
+	logEvent := log.Info().
 		Str("command", command).
-		Str("work_dir", workDir).
-		Msg("executing validation command")
+		Str("work_dir", workDir)
+
+	if phase != "" {
+		logEvent = logEvent.Str("phase", phase)
+	}
+	if cmdNum > 0 && totalCmds > 0 {
+		logEvent = logEvent.Int("command_num", cmdNum).Int("total_commands", totalCmds)
+	}
+
+	logEvent.Msg("executing validation command")
 
 	// Create timeout context for this specific command
 	cmdCtx, cancel := context.WithTimeout(ctx, e.timeout)

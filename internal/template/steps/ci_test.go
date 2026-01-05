@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/domain"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 	"github.com/mrz1836/atlas/internal/git"
@@ -24,6 +25,7 @@ type ciMockHubRunner struct {
 	watchResult *git.CIWatchResult
 	watchErr    error
 	callCount   int
+	watchFn     func(context.Context, git.CIWatchOptions) (*git.CIWatchResult, error)
 }
 
 func (m *ciMockHubRunner) CreatePR(_ context.Context, _ git.PRCreateOptions) (*git.PRResult, error) {
@@ -34,8 +36,11 @@ func (m *ciMockHubRunner) GetPRStatus(_ context.Context, _ int) (*git.PRStatus, 
 	return &git.PRStatus{}, nil
 }
 
-func (m *ciMockHubRunner) WatchPRChecks(_ context.Context, _ git.CIWatchOptions) (*git.CIWatchResult, error) {
+func (m *ciMockHubRunner) WatchPRChecks(ctx context.Context, opts git.CIWatchOptions) (*git.CIWatchResult, error) {
 	m.callCount++
+	if m.watchFn != nil {
+		return m.watchFn(ctx, opts)
+	}
 	return m.watchResult, m.watchErr
 }
 
@@ -369,6 +374,50 @@ func TestCIExecutor_Execute_PollIntervalConfig(t *testing.T) {
 			assert.Equal(t, "success", result.Status)
 		})
 	}
+}
+
+func TestCIExecutor_UsesRuntimeConfig(t *testing.T) {
+	// Create CI config with custom values
+	ciConfig := &config.CIConfig{
+		PollInterval: 45 * time.Second,
+		Timeout:      15 * time.Minute,
+		GracePeriod:  30 * time.Second,
+	}
+
+	var capturedOpts git.CIWatchOptions
+	mockRunner := &ciMockHubRunner{
+		watchFn: func(_ context.Context, opts git.CIWatchOptions) (*git.CIWatchResult, error) {
+			capturedOpts = opts
+			return &git.CIWatchResult{
+				Status:      git.CIStatusSuccess,
+				ElapsedTime: time.Second,
+			}, nil
+		},
+	}
+
+	executor := NewCIExecutor(
+		WithCIHubRunner(mockRunner),
+		WithCIConfig(ciConfig),
+	)
+
+	task := &domain.Task{
+		ID:       "test-runtime",
+		Metadata: map[string]any{"pr_number": 42},
+	}
+
+	step := &domain.StepDefinition{
+		Name: "ci",
+		Type: domain.StepTypeCI,
+		// No step.Config override - should use runtime config
+	}
+
+	result, err := executor.Execute(context.Background(), task, step)
+	require.NoError(t, err)
+	assert.Equal(t, "success", result.Status)
+
+	// Verify runtime config was used
+	assert.Equal(t, 45*time.Second, capturedOpts.Interval, "should use runtime poll_interval")
+	assert.Equal(t, 15*time.Minute, capturedOpts.Timeout, "should use runtime timeout")
 }
 
 func TestCIExecutor_Execute_WorkflowFiltering(t *testing.T) {

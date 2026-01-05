@@ -466,10 +466,11 @@ func (e *Engine) executeStepInternal(ctx context.Context, task *domain.Task, ste
 		Str("task_id", task.ID).
 		Str("step_name", step.Name).
 		Str("step_type", string(step.Type))
-	if step.Type == domain.StepTypeAI {
+	if step.Type == domain.StepTypeAI || step.Type == domain.StepTypeVerify {
+		agent, model := resolveStepAgentModel(task, step)
 		logEvent = logEvent.
-			Str("agent", string(task.Config.Agent)).
-			Str("model", task.Config.Model)
+			Str("agent", string(agent)).
+			Str("model", model)
 	}
 	logEvent.Msg("executing step")
 
@@ -488,10 +489,11 @@ func (e *Engine) executeStepInternal(ctx context.Context, task *domain.Task, ste
 			Str("task_id", task.ID).
 			Str("step_name", step.Name).
 			Int64("duration_ms", duration.Milliseconds())
-		if step.Type == domain.StepTypeAI {
+		if step.Type == domain.StepTypeAI || step.Type == domain.StepTypeVerify {
+			agent, model := resolveStepAgentModel(task, step)
 			errLogEvent = errLogEvent.
-				Str("agent", string(task.Config.Agent)).
-				Str("model", task.Config.Model)
+				Str("agent", string(agent)).
+				Str("model", model)
 		}
 		errLogEvent.Msg("step execution failed")
 		// Return result WITH error - result may contain useful output (e.g., validation errors)
@@ -504,14 +506,47 @@ func (e *Engine) executeStepInternal(ctx context.Context, task *domain.Task, ste
 		Str("step_name", step.Name).
 		Str("status", result.Status).
 		Int64("duration_ms", duration.Milliseconds())
-	if step.Type == domain.StepTypeAI {
+	if step.Type == domain.StepTypeAI || step.Type == domain.StepTypeVerify {
+		agent, model := resolveStepAgentModel(task, step)
 		completeLogEvent = completeLogEvent.
-			Str("agent", string(task.Config.Agent)).
-			Str("model", task.Config.Model)
+			Str("agent", string(agent)).
+			Str("model", model)
 	}
 	completeLogEvent.Msg("step completed")
 
 	return result, nil
+}
+
+// resolveStepAgentModel returns the resolved agent and model for a step,
+// applying step-level config overrides to task defaults.
+func resolveStepAgentModel(task *domain.Task, step *domain.StepDefinition) (agent domain.Agent, model string) {
+	// Start with task defaults
+	agent = task.Config.Agent
+	model = task.Config.Model
+
+	// Apply step-level overrides if present
+	if step.Config == nil {
+		return agent, model
+	}
+
+	agentChanged := false
+	if stepAgent, ok := step.Config["agent"].(string); ok && stepAgent != "" {
+		newAgent := domain.Agent(stepAgent)
+		// Only consider it a change if it's actually different
+		if newAgent != agent {
+			agent = newAgent
+			agentChanged = true
+		}
+	}
+
+	if stepModel, ok := step.Config["model"].(string); ok && stepModel != "" {
+		model = stepModel
+	} else if agentChanged {
+		// Use new agent's default model when agent changed but model wasn't specified
+		model = agent.DefaultModel()
+	}
+
+	return agent, model
 }
 
 // executeCurrentStep executes the step at task.CurrentStep and returns the result.

@@ -118,16 +118,18 @@ func (e *VerifyExecutor) Execute(ctx context.Context, task *domain.Task, step *d
 	default:
 	}
 
+	startTime := time.Now()
+
+	// Build verification request first so we can log resolved agent/model
+	req := e.buildRequest(task, step)
+
 	e.logger.Info().
 		Str("task_id", task.ID).
 		Str("step_name", step.Name).
 		Str("step_type", string(step.Type)).
+		Str("agent", string(req.Agent)).
+		Str("model", req.Model).
 		Msg("executing verify step")
-
-	startTime := time.Now()
-
-	// Build verification request
-	req := e.buildRequest(task, step)
 
 	// Execute with timeout from step definition if set
 	execCtx := ctx
@@ -145,6 +147,8 @@ func (e *VerifyExecutor) Execute(ctx context.Context, task *domain.Task, step *d
 			Err(err).
 			Str("task_id", task.ID).
 			Str("step_name", step.Name).
+			Str("agent", string(req.Agent)).
+			Str("model", req.Model).
 			Dur("duration_ms", elapsed).
 			Msg("verify step failed")
 
@@ -183,6 +187,8 @@ func (e *VerifyExecutor) Execute(ctx context.Context, task *domain.Task, step *d
 	e.logger.Info().
 		Str("task_id", task.ID).
 		Str("step_name", step.Name).
+		Str("agent", string(req.Agent)).
+		Str("model", req.Model).
 		Str("session_id", result.SessionID).
 		Int("num_turns", result.NumTurns).
 		Dur("duration_ms", elapsed).
@@ -219,17 +225,30 @@ func (e *VerifyExecutor) buildRequest(task *domain.Task, step *domain.StepDefini
 	}
 
 	// Apply step-specific config overrides
-	if step.Config != nil {
-		// Agent override for this step
-		if agent, ok := step.Config["agent"].(string); ok && agent != "" {
-			req.Agent = domain.Agent(agent)
+	if step.Config == nil {
+		return req
+	}
+
+	// Agent override for this step
+	agentChanged := false
+	if agent, ok := step.Config["agent"].(string); ok && agent != "" {
+		newAgent := domain.Agent(agent)
+		// Only consider it a change if it's actually different
+		if newAgent != req.Agent {
+			req.Agent = newAgent
+			agentChanged = true
 		}
-		if model, ok := step.Config["model"].(string); ok && model != "" {
-			req.Model = model
-		}
-		if timeout, ok := step.Config["timeout"].(time.Duration); ok {
-			req.Timeout = timeout
-		}
+	}
+
+	if model, ok := step.Config["model"].(string); ok && model != "" {
+		req.Model = model
+	} else if agentChanged {
+		// Use new agent's default model when agent changed but model wasn't specified
+		req.Model = req.Agent.DefaultModel()
+	}
+
+	if timeout, ok := step.Config["timeout"].(time.Duration); ok {
+		req.Timeout = timeout
 	}
 
 	return req

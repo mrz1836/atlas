@@ -127,7 +127,7 @@ func (r *Runner) Run(ctx context.Context, workDir string) (*PipelineResult, erro
 	if preCommitInstalled {
 		log.Info().Str("version", preCommitVersion).Msg("go-pre-commit detected")
 		r.reportProgress("pre-commit", "starting")
-		preCommitResults, err := r.runSequential(ctx, r.getPreCommitCommands(), workDir)
+		preCommitResults, err := r.runSequentialWithPhase(ctx, r.getPreCommitCommands(), workDir, "pre-commit")
 		result.PreCommitResults = preCommitResults
 		if err != nil {
 			r.reportProgress("pre-commit", "failed")
@@ -149,7 +149,7 @@ func (r *Runner) Run(ctx context.Context, workDir string) (*PipelineResult, erro
 
 	// Phase 2: Format (cleans up any changes from pre-commit)
 	r.reportProgress("format", "starting")
-	formatResults, err := r.runSequential(ctx, r.getFormatCommands(), workDir)
+	formatResults, err := r.runSequentialWithPhase(ctx, r.getFormatCommands(), workDir, "format")
 	result.FormatResults = formatResults
 	if err != nil {
 		r.reportProgress("format", "failed")
@@ -174,7 +174,7 @@ func (r *Runner) Run(ctx context.Context, workDir string) (*PipelineResult, erro
 
 	// Phase 3: Lint (validation only, no modifications)
 	r.reportProgress("lint", "starting")
-	lintResults, err := r.runSequential(ctx, r.getLintCommands(), workDir)
+	lintResults, err := r.runSequentialWithPhase(ctx, r.getLintCommands(), workDir, "lint")
 	result.LintResults = lintResults
 	if err != nil {
 		r.reportProgress("lint", "failed")
@@ -205,7 +205,7 @@ func (r *Runner) Run(ctx context.Context, workDir string) (*PipelineResult, erro
 func (r *Runner) runTestPhase(ctx context.Context, result *PipelineResult, workDir string, log *zerolog.Logger) error {
 	r.reportProgress("test", "starting")
 
-	testResults, err := r.runSequential(ctx, r.getTestCommands(), workDir)
+	testResults, err := r.runSequentialWithPhase(ctx, r.getTestCommands(), workDir, "test")
 	result.TestResults = testResults
 	if err != nil {
 		r.reportProgress("test", "failed")
@@ -234,12 +234,13 @@ func (r *Runner) handlePreCommitSkipped(result *PipelineResult, log *zerolog.Log
 	result.SkipReasons["pre-commit"] = "go-pre-commit not installed"
 }
 
-// runSequential executes commands in sequence, stopping on first failure.
-func (r *Runner) runSequential(ctx context.Context, commands []string, workDir string) ([]Result, error) {
+// runSequentialWithPhase executes commands in sequence with phase context for logging.
+// The phase parameter is used for clearer log messages (pre-commit, format, lint, test).
+func (r *Runner) runSequentialWithPhase(ctx context.Context, commands []string, workDir, phase string) ([]Result, error) {
 	if len(commands) == 0 {
 		return nil, nil
 	}
-	return r.executor.Run(ctx, commands, workDir)
+	return r.executor.RunWithPhase(ctx, commands, workDir, phase)
 }
 
 // stepNumber returns the 1-indexed step number for a given step name.
