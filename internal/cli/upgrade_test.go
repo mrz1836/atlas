@@ -332,6 +332,42 @@ func TestUpgradeCmd_UpgradeFailure_HandledGracefully(t *testing.T) {
 	assert.Contains(t, output, "Failed")
 }
 
+func TestUpgradeCmd_UpgradeResultFailure_NilError(t *testing.T) {
+	// This tests the scenario where UpgradeTool returns nil error but result.Success is false
+	// This happens when the upgrade fails internally (e.g., GitHub release download fails)
+	t.Parallel()
+
+	checker := &mockUpgradeChecker{
+		checkAllResult: &UpdateCheckResult{
+			UpdatesAvailable: true,
+			Tools: []UpdateInfo{
+				{Name: "atlas", CurrentVersion: "0.1.0", UpdateAvailable: true, Installed: true},
+			},
+		},
+	}
+	executor := &mockUpgradeExecutor{
+		upgradeResults: map[string]*UpgradeResult{
+			"atlas": {
+				Tool:    "atlas",
+				Success: false,
+				Error:   "failed to download release",
+			},
+		},
+	}
+
+	var buf bytes.Buffer
+	flags := &UpgradeFlags{Yes: true, OutputFormat: "text"}
+
+	err := runUpgradeWithDeps(context.Background(), &buf, flags, "", checker, executor)
+	require.NoError(t, err)
+
+	output := buf.String()
+	// Should show "Failed" message, not "Success"
+	assert.Contains(t, output, "Failed")
+	assert.Contains(t, output, "failed to download release")
+	assert.NotContains(t, output, "✓ Success")
+}
+
 func TestUpgradeCmd_AllUpToDate(t *testing.T) {
 	t.Parallel()
 

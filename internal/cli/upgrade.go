@@ -470,6 +470,11 @@ func (u *upgradeCmd) executeUpgrades(ctx context.Context, tools []UpdateInfo) []
 				OldVersion: tool.CurrentVersion,
 			})
 			_, _ = fmt.Fprintf(u.w, "  %s\n", u.styles.err.Render("✗ Failed: "+err.Error()))
+		} else if !result.Success {
+			// UpgradeTool returned nil error but the upgrade failed internally
+			result.OldVersion = tool.CurrentVersion
+			results = append(results, *result)
+			_, _ = fmt.Fprintf(u.w, "  %s\n", u.styles.err.Render("✗ Failed: "+result.Error))
 		} else {
 			result.OldVersion = tool.CurrentVersion
 			results = append(results, *result)
