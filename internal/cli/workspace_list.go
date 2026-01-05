@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/domain"
+	"github.com/mrz1836/atlas/internal/task"
 	"github.com/mrz1836/atlas/internal/tui"
 	"github.com/mrz1836/atlas/internal/workspace"
 	"github.com/spf13/cobra"
@@ -124,26 +125,50 @@ func outputWorkspacesJSON(w io.Writer, workspaces []*domain.Workspace) error {
 	return nil
 }
 
+// countActiveTasks returns the number of non-terminal tasks in the workspace.
+func countActiveTasks(ws *domain.Workspace) int {
+	count := 0
+	for _, taskRef := range ws.Tasks {
+		if !task.IsTerminalStatus(taskRef.Status) {
+			count++
+		}
+	}
+	return count
+}
+
+// countCompletedTasks returns the number of terminal tasks in the workspace.
+func countCompletedTasks(ws *domain.Workspace) int {
+	count := 0
+	for _, taskRef := range ws.Tasks {
+		if task.IsTerminalStatus(taskRef.Status) {
+			count++
+		}
+	}
+	return count
+}
+
 // outputWorkspacesTable outputs workspaces as a styled table.
 func outputWorkspacesTable(w io.Writer, workspaces []*domain.Workspace) error {
 	styles := newTableStyles()
 
 	// Define column widths
 	const (
-		nameWidth    = 12
-		branchWidth  = 20
-		statusWidth  = 10
-		createdWidth = 15
-		tasksWidth   = 5
+		nameWidth      = 12
+		branchWidth    = 20
+		statusWidth    = 10
+		createdWidth   = 15
+		activeWidth    = 6 // "ACTIVE" header
+		completedWidth = 9 // "COMPLETED" header
 	)
 
 	// Print header
-	header := fmt.Sprintf("%-*s %-*s %-*s %-*s %*s",
+	header := fmt.Sprintf("%-*s %-*s %-*s %-*s %*s %*s",
 		nameWidth, "NAME",
 		branchWidth, "BRANCH",
 		statusWidth, "STATUS",
 		createdWidth, "CREATED",
-		tasksWidth, "TASKS",
+		activeWidth, "ACTIVE",
+		completedWidth, "COMPLETED",
 	)
 	_, _ = fmt.Fprintln(w, styles.header.Render(header))
 
@@ -171,16 +196,18 @@ func outputWorkspacesTable(w io.Writer, workspaces []*domain.Workspace) error {
 		// Format created time as relative
 		createdStr := tui.RelativeTime(ws.CreatedAt)
 
-		// Count tasks
-		taskCount := len(ws.Tasks)
+		// Count active and completed tasks
+		activeCount := countActiveTasks(ws)
+		completedCount := countCompletedTasks(ws)
 
 		// Build and print row
-		row := fmt.Sprintf("%-*s %-*s %-*s %-*s %*d",
+		row := fmt.Sprintf("%-*s %-*s %-*s %-*s %*d %*d",
 			nameWidth, name,
 			branchWidth, branch,
 			statusWidth+tui.ColorOffset(statusStr, string(ws.Status)), statusStr,
 			createdWidth, createdStr,
-			tasksWidth, taskCount,
+			activeWidth, activeCount,
+			completedWidth, completedCount,
 		)
 		_, _ = fmt.Fprintln(w, row)
 	}

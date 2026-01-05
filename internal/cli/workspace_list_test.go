@@ -330,9 +330,13 @@ func TestOutputWorkspacesTable(t *testing.T) {
 			WorktreePath: "/tmp/test",
 			Branch:       "feat/test",
 			Status:       constants.WorkspaceStatusActive,
-			Tasks:        []domain.TaskRef{},
-			CreatedAt:    now.Add(-2 * time.Hour),
-			UpdatedAt:    now,
+			Tasks: []domain.TaskRef{
+				{ID: "task-1", Status: constants.TaskStatusRunning},
+				{ID: "task-2", Status: constants.TaskStatusCompleted},
+				{ID: "task-3", Status: constants.TaskStatusPending},
+			},
+			CreatedAt: now.Add(-2 * time.Hour),
+			UpdatedAt: now,
 		},
 	}
 
@@ -351,10 +355,14 @@ func TestOutputWorkspacesTable(t *testing.T) {
 	assert.Contains(t, output, "BRANCH")
 	assert.Contains(t, output, "STATUS")
 	assert.Contains(t, output, "CREATED")
-	assert.Contains(t, output, "TASKS")
+	assert.Contains(t, output, "ACTIVE")
+	assert.Contains(t, output, "COMPLETED")
 	assert.Contains(t, output, "test-ws")
 	assert.Contains(t, output, "feat/test")
 	assert.Contains(t, output, "active")
+	// Should show 2 active (running + pending) and 1 completed
+	assert.Contains(t, output, "2")
+	assert.Contains(t, output, "1")
 }
 
 func TestStatusColors(t *testing.T) {
@@ -372,6 +380,74 @@ func TestStatusColors(t *testing.T) {
 			assert.True(t, ok, "color should be defined for status %s", status)
 			assert.NotEmpty(t, color.Light, "light color should be defined")
 			assert.NotEmpty(t, color.Dark, "dark color should be defined")
+		})
+	}
+}
+
+func TestCountActiveTasks(t *testing.T) {
+	tests := []struct {
+		name           string
+		tasks          []domain.TaskRef
+		expectedActive int
+		expectedDone   int
+	}{
+		{
+			name:           "empty workspace",
+			tasks:          []domain.TaskRef{},
+			expectedActive: 0,
+			expectedDone:   0,
+		},
+		{
+			name: "all active states",
+			tasks: []domain.TaskRef{
+				{ID: "1", Status: constants.TaskStatusPending},
+				{ID: "2", Status: constants.TaskStatusRunning},
+				{ID: "3", Status: constants.TaskStatusValidating},
+				{ID: "4", Status: constants.TaskStatusValidationFailed},
+				{ID: "5", Status: constants.TaskStatusAwaitingApproval},
+				{ID: "6", Status: constants.TaskStatusGHFailed},
+				{ID: "7", Status: constants.TaskStatusCIFailed},
+				{ID: "8", Status: constants.TaskStatusCITimeout},
+			},
+			expectedActive: 8,
+			expectedDone:   0,
+		},
+		{
+			name: "all completed states",
+			tasks: []domain.TaskRef{
+				{ID: "1", Status: constants.TaskStatusCompleted},
+				{ID: "2", Status: constants.TaskStatusRejected},
+				{ID: "3", Status: constants.TaskStatusAbandoned},
+			},
+			expectedActive: 0,
+			expectedDone:   3,
+		},
+		{
+			name: "mixed states",
+			tasks: []domain.TaskRef{
+				{ID: "1", Status: constants.TaskStatusPending},
+				{ID: "2", Status: constants.TaskStatusRunning},
+				{ID: "3", Status: constants.TaskStatusCompleted},
+				{ID: "4", Status: constants.TaskStatusRejected},
+				{ID: "5", Status: constants.TaskStatusAwaitingApproval},
+			},
+			expectedActive: 3,
+			expectedDone:   2,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ws := &domain.Workspace{
+				Name:  "test",
+				Tasks: tc.tasks,
+			}
+
+			activeCount := countActiveTasks(ws)
+			completedCount := countCompletedTasks(ws)
+
+			assert.Equal(t, tc.expectedActive, activeCount, "active count mismatch")
+			assert.Equal(t, tc.expectedDone, completedCount, "completed count mismatch")
 		})
 	}
 }
