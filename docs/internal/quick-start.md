@@ -44,7 +44,9 @@ Get running in 2 minutes:
 go version        # Need 1.24+
 git --version     # Need 2.20+
 gh --version      # Need 2.20+
-claude --version  # Need 2.0.76+
+claude --version  # Need 2.0.76+ (if using claude agent)
+gemini --version  # Need 0.22.5+ (if using gemini agent)
+codex --version   # Need 0.77.0+ (if using codex agent)
 
 # 2. Install ATLAS
 go install github.com/mrz1836/atlas@latest
@@ -72,8 +74,12 @@ atlas approve
 | **Go** | 1.24+ | Runtime | [go.dev](https://go.dev/dl/) or `brew install go` |
 | **Git** | 2.20+ | Version control | `brew install git` |
 | **GitHub CLI (gh)** | 2.20+ | PR operations | `brew install gh` |
-| **Claude CLI** | 2.0.76+ | AI execution engine | [Claude Code](https://docs.anthropic.com/en/docs/claude-code) or `brew install claude` |
+| **Claude CLI** | 2.0.76+ | AI execution (Claude) | [Claude Code](https://docs.anthropic.com/en/docs/claude-code) or `npm install -g @anthropic-ai/claude-code` |
+| **Gemini CLI** | 0.22.5+ | AI execution (Gemini) | `npm install -g @google/gemini-cli` |
+| **Codex CLI** | 0.77.0+ | AI execution (OpenAI) | `npm install -g @openai/codex` |
 | **uv** | 0.5.x | Python tool runner (for Speckit) | `brew install uv` |
+
+**Note:** At least one AI CLI (Claude, Gemini, or Codex) is required. Install based on your preferred AI provider.
 
 ATLAS manages additional tools automatically:
 - **mage-x** (magex command) - Standardized build/test toolkit
@@ -177,10 +183,10 @@ atlas start "fix null pointer in parseConfig"
 atlas start "fix null pointer" --template bugfix
 
 # Custom workspace name
-atlas start "do this thing..." -t task -w task-workspace --model opus
+atlas start "do this thing..." -t task -w task-workspace --agent claude --model opus
 
 # Use a specific model
-atlas start "complex refactor" --model opus
+atlas start "complex refactor" --agent gemini --model pro
 
 # Use a specific branch as the source
 atlas start "add logging" -t task --branch develop
@@ -205,7 +211,8 @@ atlas start "fix null pointer" --template bugfix --dry-run --output json
 |------|-------|-------------|--------|
 | `--template` | `-t` | Template to use | `bugfix`, `feature`, `task`, `commit` |
 | `--workspace` | `-w` | Custom workspace name | Any string (sanitized) |
-| `--model` | `-m` | AI model to use | `sonnet`, `opus`, `haiku` |
+| `--agent` | `-a` | AI agent/CLI to use | `claude`, `gemini`, `codex` |
+| `--model` | `-m` | AI model to use | Claude: `sonnet`, `opus`, `haiku`; Gemini: `flash`, `pro`; Codex: `codex`, `max`, `mini` |
 | `--branch` | `-b` | Base branch to create workspace from | Branch name |
 | `--verify` | | Enable AI verification step | |
 | `--no-verify` | | Disable AI verification step | |
@@ -596,8 +603,9 @@ atlas config ai --no-interactive
 ```
 
 **Configurable Settings:**
-- Default model (sonnet, opus, haiku)
-- API key environment variable
+- AI agent (claude, gemini, codex)
+- Default model (claude: sonnet, opus, haiku; gemini: flash, pro; codex: codex, max, mini)
+- API key environment variables per provider
 - Timeout duration
 - Max agentic turns
 
@@ -1089,13 +1097,24 @@ export ATLAS_QUIET=false
 # AI Configuration
 #------------------------------------------------------------------------------
 ai:
-  # Claude model to use: "sonnet", "opus", or "haiku"
-  # Default: "sonnet"
+  # AI agent/CLI to use: "claude", "gemini", or "codex"
+  # Default: "claude"
+  agent: claude
+
+  # AI model to use
+  # Claude: "sonnet", "opus", or "haiku"
+  # Gemini: "flash" or "pro"
+  # Codex: "codex", "max", or "mini"
+  # Default: "sonnet" for claude, "flash" for gemini, "codex" for codex
   model: sonnet
 
-  # Environment variable name containing the Anthropic API key
-  # Default: "ANTHROPIC_API_KEY"
-  api_key_env_var: ANTHROPIC_API_KEY
+  # Environment variable names containing API keys per provider
+  # You can override the default env var for each provider
+  # Defaults: claude=ANTHROPIC_API_KEY, gemini=GEMINI_API_KEY, codex=OPENAI_API_KEY
+  api_key_env_vars:
+    claude: ANTHROPIC_API_KEY
+    gemini: GEMINI_API_KEY
+    codex: OPENAI_API_KEY
 
   # Maximum duration for AI operations (e.g., "30m", "1h")
   # Default: 30m
@@ -1318,11 +1337,15 @@ cat ~/.atlas/workspaces/*/tasks/*/task.log | jq 'select(.event=="model_complete"
 | `not in a git repository` | Running outside a git repo | `cd` to your git project root |
 | `workspace 'x' exists` | Workspace name conflict | Use `--workspace <new-name>` or `atlas workspace destroy x` |
 | `template required` | Non-interactive mode without template | Add `--template bugfix` (or `feature`, `commit`) |
-| `invalid model` | Unknown model name | Use `sonnet`, `opus`, or `haiku` |
+| `invalid model` | Unknown model name | Claude: `sonnet`, `opus`, `haiku`; Gemini: `flash`, `pro`; Codex: `codex`, `max`, `mini` |
+| `agent not found` | Unknown agent name | Use `claude`, `gemini`, or `codex` |
+| `agent CLI not installed` | AI CLI not available | Install Claude CLI, Gemini CLI, or Codex CLI |
 | Validation failed | Code doesn't pass checks | `atlas recover` or fix manually, then `atlas resume` |
 | CI timeout | CI taking too long | `atlas recover` → continue waiting or retry |
 | GitHub auth failed | gh CLI not authenticated | Run `gh auth login` |
-| Claude CLI not found | claude not installed | Install [Claude Code](https://docs.anthropic.com/en/docs/claude-code) |
+| Claude CLI not found | claude not installed | `npm install -g @anthropic-ai/claude-code` |
+| Gemini CLI not found | gemini not installed | `npm install -g @google/gemini-cli` |
+| Codex CLI not found | codex not installed | `npm install -g @openai/codex` |
 
 ### Debugging
 
@@ -1361,5 +1384,5 @@ atlas config --help
 
 ---
 
-**Version:** 1.0.4
-**Last Updated:** 2026-01-04
+**Version:** 1.1.0
+**Last Updated:** 2026-01-05
