@@ -69,10 +69,10 @@ atlas approve
 
 | Tool | Required Version | Purpose | Installation |
 |------|------------------|---------|--------------|
-| **Go** | 1.24+ | Runtime | [go.dev](https://go.dev/dl/) |
+| **Go** | 1.24+ | Runtime | [go.dev](https://go.dev/dl/) or `brew install go` |
 | **Git** | 2.20+ | Version control | `brew install git` |
 | **GitHub CLI (gh)** | 2.20+ | PR operations | `brew install gh` |
-| **Claude CLI** | 2.0.76+ | AI execution engine | [Claude Code](https://docs.anthropic.com/en/docs/claude-code) |
+| **Claude CLI** | 2.0.76+ | AI execution engine | [Claude Code](https://docs.anthropic.com/en/docs/claude-code) or `brew install claude` |
 | **uv** | 0.5.x | Python tool runner (for Speckit) | `brew install uv` |
 
 ATLAS manages additional tools automatically:
