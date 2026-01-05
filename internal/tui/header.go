@@ -10,12 +10,17 @@ import (
 )
 
 // ASCII art constants for the ATLAS header.
-// Option 4 from Dev Notes - stylized letters, compact and professional.
+// Large 3D block-style logo with gradient coloring support.
 const (
-	// asciiArtLogo is the wide mode ASCII art (< 70 chars width for 80-col terminals).
-	// Uses Unicode block characters for a clean, modern look.
-	asciiArtLogo = `    ▄▀█ ▀█▀ █░░ ▄▀█ █▀
-    █▀█ ░█░ █▄▄ █▀█ ▄█`
+	// asciiArtLogo is the wide mode ASCII art.
+	// Uses Unicode block characters for a bold, 3D appearance.
+	// 6 lines tall, ~41 chars wide - fits comfortably in 80-col terminals.
+	asciiArtLogo = ` █████╗ ████████╗██╗      █████╗ ███████╗
+██╔══██╗╚══██╔══╝██║     ██╔══██╗██╔════╝
+███████║   ██║   ██║     ███████║███████╗
+██╔══██║   ██║   ██║     ██╔══██║╚════██║
+██║  ██║   ██║   ███████╗██║  ██║███████║
+╚═╝  ╚═╝   ╚═╝   ╚══════╝╚═╝  ╚═╝╚══════╝`
 
 	// narrowHeader is the simple text header for terminals < 80 columns.
 	narrowHeader = "═══ ATLAS ═══"
@@ -51,14 +56,19 @@ func (h *Header) Render() string {
 	return h.renderNarrow()
 }
 
-// renderWide returns the ASCII art header, styled and centered.
+// renderWide returns the ASCII art header, styled with gradient colors and centered.
 func (h *Header) renderWide() string {
-	// Apply primary color (cyan) to the ASCII art
-	style := lipgloss.NewStyle().Foreground(ColorPrimary)
-
 	lines := strings.Split(asciiArtLogo, "\n")
 	styledLines := make([]string, 0, len(lines))
-	for _, line := range lines {
+
+	for i, line := range lines {
+		// Apply gradient color for this line (bright cyan at top → deep blue at bottom)
+		colorIdx := i
+		if colorIdx >= len(LogoGradientColors) {
+			colorIdx = len(LogoGradientColors) - 1
+		}
+		style := lipgloss.NewStyle().Foreground(LogoGradientColors[colorIdx])
+
 		styledLine := style.Render(line)
 		centered := centerText(styledLine, line, h.width)
 		styledLines = append(styledLines, centered)

@@ -51,6 +51,17 @@ var (
 	// ColorMuted is gray, used for dim/inactive states and secondary text (UX-4).
 	ColorMuted = lipgloss.AdaptiveColor{Light: "#585858", Dark: "#6C6C6C"}
 
+	// LogoGradientColors defines the gradient colors for the ASCII logo (top to bottom).
+	// Creates a 3D depth effect: bright cyan at top fading to deep blue at bottom.
+	LogoGradientColors = []lipgloss.AdaptiveColor{
+		{Light: "#00D7FF", Dark: "#00FFFF"}, // Brightest cyan (top)
+		{Light: "#00AFFF", Dark: "#00D7FF"},
+		{Light: "#0087FF", Dark: "#00AFFF"},
+		{Light: "#005FD7", Dark: "#0087FF"},
+		{Light: "#005FAF", Dark: "#005FD7"},
+		{Light: "#00438B", Dark: "#005FAF"}, // Deepest blue (bottom)
+	}
+
 	// StyleBold applies bold formatting to text (AC: #3).
 	StyleBold = lipgloss.NewStyle().Bold(true)
 
