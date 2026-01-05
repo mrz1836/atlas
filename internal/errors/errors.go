@@ -321,6 +321,9 @@ var (
 
 	// ErrMockNetwork indicates a mock network error occurred (used in tests).
 	ErrMockNetwork = errors.New("network error")
+
+	// ErrInvalidURL indicates that a URL is malformed or does not match expected format.
+	ErrInvalidURL = errors.New("invalid URL")
 )
 
 // ExitCode2Error wraps an error to indicate exit code 2 should be used.
