@@ -303,6 +303,42 @@ validation:
 	assert.Equal(t, 10*time.Minute, cfg.Validation.Timeout, "Validation timeout should be 10m")
 }
 
+func TestLoad_WithActualProjectConfig(t *testing.T) {
+	ctx := context.Background()
+
+	// Save and restore working directory
+	oldWd, err := os.Getwd()
+	require.NoError(t, err)
+	tempDir := t.TempDir()
+	err = os.Chdir(tempDir)
+	require.NoError(t, err)
+	defer func() {
+		chdirErr := os.Chdir(oldWd)
+		require.NoError(t, chdirErr)
+	}()
+
+	// Create .atlas directory and config
+	atlasDir := filepath.Join(tempDir, ".atlas")
+	require.NoError(t, os.MkdirAll(atlasDir, 0o750))
+
+	configContent := []byte(`ci:
+  poll_interval: 30s
+  timeout: 20m
+  grace_period: 1m
+`)
+	configPath := filepath.Join(atlasDir, "config.yaml")
+	require.NoError(t, os.WriteFile(configPath, configContent, 0o600))
+
+	// Test Load() (not LoadFromPaths)
+	cfg, err := Load(ctx)
+	require.NoError(t, err, "Load should succeed")
+
+	// Verify CI durations
+	assert.Equal(t, 30*time.Second, cfg.CI.PollInterval, "poll_interval should be 30s")
+	assert.Equal(t, 20*time.Minute, cfg.CI.Timeout, "timeout should be 20m")
+	assert.Equal(t, 1*time.Minute, cfg.CI.GracePeriod, "grace_period should be 1m")
+}
+
 func TestLoadFromPaths_InvalidConfigFile(t *testing.T) {
 	ctx := context.Background()
 

@@ -92,6 +92,7 @@ type approveResponse struct {
 	Task            taskInfo      `json:"task"`
 	PRURL           string        `json:"pr_url,omitempty"`
 	WorkspaceClosed bool          `json:"workspace_closed,omitempty"`
+	Warning         string        `json:"warning,omitempty"`
 	Error           string        `json:"error,omitempty"`
 }
 
@@ -360,10 +361,14 @@ func runAutoApprove(ctx context.Context, out tui.Output, taskStore task.Store, w
 
 	// Close workspace if requested
 	if closeWS {
-		if err := closeWorkspace(ctx, ws.Name); err != nil {
+		warning, err := closeWorkspace(ctx, ws.Name)
+		if err != nil {
 			out.Warning(fmt.Sprintf("Failed to close workspace: %s", err.Error()))
 		} else {
 			out.Success(fmt.Sprintf("Workspace '%s' closed. History preserved.", ws.Name))
+		}
+		if warning != "" {
+			out.Warning(warning)
 		}
 	}
 
@@ -439,10 +444,14 @@ func executeApprovalAction(ctx context.Context, out tui.Output, taskStore task.S
 			return false, nil // Continue loop on error
 		}
 		out.Success("Task approved. PR ready for merge.")
-		if err := closeWorkspace(ctx, ws.Name); err != nil {
+		warning, err := closeWorkspace(ctx, ws.Name)
+		if err != nil {
 			out.Warning(fmt.Sprintf("Failed to close workspace: %s", err.Error()))
 		} else {
 			out.Success(fmt.Sprintf("Workspace '%s' closed. History preserved.", ws.Name))
+			if warning != "" {
+				out.Warning(warning)
+			}
 		}
 		notifier.Bell()
 		return true, nil
@@ -627,9 +636,12 @@ func approveAndOutputJSON(ctx context.Context, w io.Writer, taskStore task.Store
 
 	// Close workspace if requested
 	workspaceClosed := false
+	var closeWarning string
 	if closeWS {
-		if err := closeWorkspace(ctx, ws.Name); err == nil {
+		warning, err := closeWorkspace(ctx, ws.Name)
+		if err == nil {
 			workspaceClosed = true
+			closeWarning = warning
 		}
 		// We don't fail the approval if workspace close fails
 	}
@@ -653,6 +665,7 @@ func approveAndOutputJSON(ctx context.Context, w io.Writer, taskStore task.Store
 		},
 		PRURL:           extractPRURL(t),
 		WorkspaceClosed: workspaceClosed,
+		Warning:         closeWarning,
 	}
 
 	encoder := json.NewEncoder(w)
@@ -690,17 +703,18 @@ func outputApproveErrorJSON(w io.Writer, workspaceName, taskID, errMsg string) e
 }
 
 // closeWorkspace closes the workspace, removing the worktree but preserving history.
-func closeWorkspace(ctx context.Context, workspaceName string) error {
+// Returns a warning string if worktree removal failed (workspace is still closed).
+func closeWorkspace(ctx context.Context, workspaceName string) (warning string, err error) {
 	// Create workspace store
 	wsStore, err := workspace.NewFileStore("")
 	if err != nil {
-		return fmt.Errorf("failed to create workspace store: %w", err)
+		return "", fmt.Errorf("failed to create workspace store: %w", err)
 	}
 
 	// Get workspace to find worktree path
 	ws, err := wsStore.Get(ctx, workspaceName)
 	if err != nil {
-		return fmt.Errorf("failed to get workspace: %w", err)
+		return "", fmt.Errorf("failed to get workspace: %w", err)
 	}
 
 	// Get repo path for worktree runner
@@ -722,9 +736,15 @@ func closeWorkspace(ctx context.Context, workspaceName string) error {
 
 	// Create manager and close
 	mgr := workspace.NewManager(wsStore, wtRunner)
-	if err := mgr.Close(ctx, ws.Name); err != nil {
-		return fmt.Errorf("failed to close workspace: %w", err)
+	result, closeErr := mgr.Close(ctx, ws.Name)
+	if closeErr != nil {
+		return "", fmt.Errorf("failed to close workspace: %w", closeErr)
 	}
 
-	return nil
+	// Return any warning about worktree removal failure
+	if result != nil && result.WorktreeWarning != "" {
+		return result.WorktreeWarning, nil
+	}
+
+	return "", nil
 }

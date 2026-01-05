@@ -1081,6 +1081,136 @@ func TestApplyVerifyOverrides_NoVerifyStep(t *testing.T) {
 	assert.False(t, tmpl.Verify)
 }
 
+// TestApplyVerifyOverrides_DifferentAgentIgnoresVerifyModel tests that VerifyModel
+// is NOT applied when the step has a different agent override
+func TestApplyVerifyOverrides_DifferentAgentIgnoresVerifyModel(t *testing.T) {
+	tmpl := &domain.Template{
+		Verify:       true,
+		DefaultAgent: domain.AgentClaude, // Template uses Claude
+		VerifyModel:  "opus",             // VerifyModel is for Claude
+		Steps: []domain.StepDefinition{
+			{
+				Name:     "verify-step",
+				Type:     domain.StepTypeVerify,
+				Required: true,
+				Config: map[string]any{
+					"agent": "gemini", // Step overrides to Gemini
+					"model": "",       // No model specified
+				},
+			},
+		},
+	}
+
+	applyVerifyOverrides(tmpl, false, false)
+
+	// VerifyModel should NOT be applied because step uses different agent
+	// The empty model should remain empty (step executor will use agent's default)
+	assert.Empty(t, tmpl.Steps[0].Config["model"])
+	assert.Equal(t, "gemini", tmpl.Steps[0].Config["agent"])
+}
+
+// TestApplyVerifyOverrides_SameAgentAppliesVerifyModel tests that VerifyModel
+// IS applied when the step uses the same agent as template default
+func TestApplyVerifyOverrides_SameAgentAppliesVerifyModel(t *testing.T) {
+	tmpl := &domain.Template{
+		Verify:       true,
+		DefaultAgent: domain.AgentClaude,
+		VerifyModel:  "opus",
+		Steps: []domain.StepDefinition{
+			{
+				Name:     "verify-step",
+				Type:     domain.StepTypeVerify,
+				Required: true,
+				Config: map[string]any{
+					"agent": "claude", // Same as template default
+					"model": "",
+				},
+			},
+		},
+	}
+
+	applyVerifyOverrides(tmpl, false, false)
+
+	// VerifyModel SHOULD be applied because step uses same agent
+	assert.Equal(t, "opus", tmpl.Steps[0].Config["model"])
+}
+
+// TestApplyVerifyOverrides_NoAgentOverrideAppliesVerifyModel tests that VerifyModel
+// IS applied when step doesn't have any agent override
+func TestApplyVerifyOverrides_NoAgentOverrideAppliesVerifyModel(t *testing.T) {
+	tmpl := &domain.Template{
+		Verify:       true,
+		DefaultAgent: domain.AgentClaude,
+		VerifyModel:  "opus",
+		Steps: []domain.StepDefinition{
+			{
+				Name:     "verify-step",
+				Type:     domain.StepTypeVerify,
+				Required: true,
+				// No Config - will use template defaults
+			},
+		},
+	}
+
+	applyVerifyOverrides(tmpl, false, false)
+
+	// VerifyModel should be applied (step uses template's default agent)
+	require.NotNil(t, tmpl.Steps[0].Config)
+	assert.Equal(t, "opus", tmpl.Steps[0].Config["model"])
+}
+
+// TestApplyVerifyOverrides_ExplicitModelNotOverwritten tests that explicitly set
+// model in step config is NOT overwritten by VerifyModel
+func TestApplyVerifyOverrides_ExplicitModelNotOverwritten(t *testing.T) {
+	tmpl := &domain.Template{
+		Verify:       true,
+		DefaultAgent: domain.AgentClaude,
+		VerifyModel:  "opus",
+		Steps: []domain.StepDefinition{
+			{
+				Name:     "verify-step",
+				Type:     domain.StepTypeVerify,
+				Required: true,
+				Config: map[string]any{
+					"model": "sonnet", // Explicitly set
+				},
+			},
+		},
+	}
+
+	applyVerifyOverrides(tmpl, false, false)
+
+	// Explicit model should be preserved
+	assert.Equal(t, "sonnet", tmpl.Steps[0].Config["model"])
+}
+
+// TestApplyVerifyOverrides_DifferentAgentWithExplicitModel tests that explicit
+// model is preserved even when step has different agent
+func TestApplyVerifyOverrides_DifferentAgentWithExplicitModel(t *testing.T) {
+	tmpl := &domain.Template{
+		Verify:       true,
+		DefaultAgent: domain.AgentClaude,
+		VerifyModel:  "opus",
+		Steps: []domain.StepDefinition{
+			{
+				Name:     "verify-step",
+				Type:     domain.StepTypeVerify,
+				Required: true,
+				Config: map[string]any{
+					"agent": "gemini",
+					"model": "pro", // Explicitly set for Gemini
+				},
+			},
+		},
+	}
+
+	applyVerifyOverrides(tmpl, false, false)
+
+	// Explicit model should be preserved
+	assert.Equal(t, "pro", tmpl.Steps[0].Config["model"])
+	assert.Equal(t, "gemini", tmpl.Steps[0].Config["agent"])
+}
+
 // TestGetSideEffectForStepType tests side effect descriptions
 func TestGetSideEffectForStepType(t *testing.T) {
 	tests := []struct {

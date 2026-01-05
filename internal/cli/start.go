@@ -183,8 +183,14 @@ func runStart(ctx context.Context, cmd *cobra.Command, w io.Writer, description 
 	cfg, cfgErr := config.Load(ctx)
 	if cfgErr != nil {
 		// Log warning but continue with defaults - don't fail task start for config issues
-		logger.Warn().Err(cfgErr).Msg("failed to load config, using default templates")
+		logger.Error().Err(cfgErr).
+			Str("project_config", config.ProjectConfigPath()).
+			Msg("failed to load project config - falling back to defaults")
 		cfg = config.DefaultConfig()
+	} else {
+		logger.Debug().
+			Dur("ci.poll_interval", cfg.CI.PollInterval).
+			Msg("config loaded successfully")
 	}
 
 	// Load template registry with custom templates from config
@@ -756,7 +762,9 @@ func validateModel(agent, model string) error {
 
 // applyVerifyOverrides applies --verify or --no-verify flag overrides to the template.
 // If neither flag is set, the template's default Verify setting is used.
-// Also propagates VerifyModel from template to the verify step config.
+// Also propagates VerifyModel from template to the verify step config, but only if
+// the step doesn't have a different agent override (since VerifyModel may not be
+// compatible with other agents).
 func applyVerifyOverrides(tmpl *domain.Template, verify, noVerify bool) {
 	// CLI flags override template defaults
 	if verify {
@@ -766,22 +774,54 @@ func applyVerifyOverrides(tmpl *domain.Template, verify, noVerify bool) {
 	}
 
 	// Update the verify step's Required field and model based on the template settings
-	//nolint:nestif // Configuration logic with nested validation checks
 	for i := range tmpl.Steps {
 		if tmpl.Steps[i].Type == domain.StepTypeVerify {
-			tmpl.Steps[i].Required = tmpl.Verify
-
-			// Propagate VerifyModel from template to step config if set
-			if tmpl.VerifyModel != "" {
-				if tmpl.Steps[i].Config == nil {
-					tmpl.Steps[i].Config = make(map[string]any)
-				}
-				// Only set if not already configured in step
-				if model, ok := tmpl.Steps[i].Config["model"].(string); !ok || model == "" {
-					tmpl.Steps[i].Config["model"] = tmpl.VerifyModel
-				}
-			}
+			applyVerifyToStep(tmpl, &tmpl.Steps[i])
 		}
+	}
+}
+
+// applyVerifyToStep applies verify settings to a single verify step.
+func applyVerifyToStep(tmpl *domain.Template, step *domain.StepDefinition) {
+	step.Required = tmpl.Verify
+
+	// Check if step has a different agent override
+	stepHasDifferentAgent := stepHasDifferentAgent(step, tmpl.DefaultAgent)
+
+	// Propagate VerifyModel from template to step config if applicable
+	if shouldPropagateVerifyModel(tmpl.VerifyModel, stepHasDifferentAgent) {
+		propagateVerifyModel(step, tmpl.VerifyModel)
+	}
+}
+
+// stepHasDifferentAgent checks if the step has an agent override different from the default.
+func stepHasDifferentAgent(step *domain.StepDefinition, defaultAgent domain.Agent) bool {
+	if step.Config == nil {
+		return false
+	}
+
+	stepAgent, ok := step.Config["agent"].(string)
+	if !ok || stepAgent == "" {
+		return false
+	}
+
+	return domain.Agent(stepAgent) != defaultAgent
+}
+
+// shouldPropagateVerifyModel determines if VerifyModel should be propagated to the step.
+func shouldPropagateVerifyModel(verifyModel string, stepHasDifferentAgent bool) bool {
+	return verifyModel != "" && !stepHasDifferentAgent
+}
+
+// propagateVerifyModel sets the VerifyModel on a step's config if not already set.
+func propagateVerifyModel(step *domain.StepDefinition, verifyModel string) {
+	if step.Config == nil {
+		step.Config = make(map[string]any)
+	}
+
+	// Only set if not already configured in step
+	if model, ok := step.Config["model"].(string); !ok || model == "" {
+		step.Config["model"] = verifyModel
 	}
 }
 

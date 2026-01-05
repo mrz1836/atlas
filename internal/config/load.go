@@ -6,12 +6,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/go-viper/mapstructure/v2"
+	"github.com/rs/zerolog"
 	"github.com/spf13/viper"
 
-	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/errors"
 )
 
@@ -30,7 +29,7 @@ import (
 // The context parameter is accepted for API consistency and future use,
 // but is not currently used for cancellation since config file reads are
 // typically fast local I/O operations.
-func Load(_ context.Context) (*Config, error) {
+func Load(ctx context.Context) (*Config, error) {
 	v := viper.New()
 
 	// Set defaults first (lowest precedence)
@@ -58,6 +57,14 @@ func Load(_ context.Context) (*Config, error) {
 	if err := v.Unmarshal(&cfg, viperDecoderOption()); err != nil {
 		return nil, errors.Wrap(err, "failed to unmarshal config")
 	}
+
+	// Log loaded configuration for debugging
+	logger := zerolog.Ctx(ctx).With().Str("component", "config").Logger()
+	logger.Debug().
+		Dur("ci.poll_interval", cfg.CI.PollInterval).
+		Dur("ci.timeout", cfg.CI.Timeout).
+		Dur("ci.grace_period", cfg.CI.GracePeriod).
+		Msg("configuration loaded and unmarshaled")
 
 	// Validate the configuration
 	if err := Validate(&cfg); err != nil {
@@ -218,7 +225,7 @@ func setDefaults(v *viper.Viper) {
 		"gemini": "GEMINI_API_KEY",
 		"codex":  "OPENAI_API_KEY",
 	})
-	v.SetDefault("ai.timeout", constants.DefaultAITimeout)
+	v.SetDefault("ai.timeout", "30m")
 	v.SetDefault("ai.max_turns", 10)
 
 	// Git defaults
@@ -231,8 +238,9 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("worktree.naming_suffix", "")
 
 	// CI defaults
-	v.SetDefault("ci.timeout", constants.DefaultCITimeout)
-	v.SetDefault("ci.poll_interval", constants.CIPollInterval)
+	v.SetDefault("ci.timeout", "30m")
+	v.SetDefault("ci.poll_interval", "2m")
+	v.SetDefault("ci.grace_period", "2m")
 	v.SetDefault("ci.required_workflows", []string{})
 
 	// Templates defaults
@@ -245,7 +253,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("validation.commands.test", []string{})
 	v.SetDefault("validation.commands.pre_commit", []string{})
 	v.SetDefault("validation.commands.custom_pre_pr", []string{})
-	v.SetDefault("validation.timeout", 5*time.Minute)
+	v.SetDefault("validation.timeout", "5m")
 	v.SetDefault("validation.parallel_execution", true)
 	v.SetDefault("validation.template_overrides", map[string]interface{}{})
 
