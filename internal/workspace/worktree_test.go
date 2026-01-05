@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -234,6 +235,84 @@ func TestEnsureUniquePath(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, basePath+"-3", result)
 	})
+
+	t.Run("uses timestamp when many numeric suffixes exist", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		basePath := filepath.Join(tmpDir, "saturated")
+
+		// Create base path
+		err := os.MkdirAll(basePath, 0o750)
+		require.NoError(t, err)
+
+		// Create paths -2 through -20 (simulates high usage)
+		// maxPathRetries is 100, but we only create 20 for test speed
+		for i := 2; i < 20; i++ {
+			path := fmt.Sprintf("%s-%d", basePath, i)
+			err = os.MkdirAll(path, 0o750)
+			require.NoError(t, err)
+		}
+
+		// This should find path -20 as the first free slot
+		result, err := ensureUniquePath(basePath)
+		require.NoError(t, err)
+		assert.Equal(t, basePath+"-20", result)
+	})
+
+	t.Run("uses timestamp when all numeric paths exhausted", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		basePath := filepath.Join(tmpDir, "fully-saturated")
+
+		// Create base path
+		err := os.MkdirAll(basePath, 0o750)
+		require.NoError(t, err)
+
+		// Create ALL paths -2 through -99 (maxPathRetries is 100)
+		for i := 2; i < 100; i++ {
+			path := fmt.Sprintf("%s-%d", basePath, i)
+			err = os.MkdirAll(path, 0o750)
+			require.NoError(t, err)
+		}
+
+		// Should fall back to timestamp
+		result, err := ensureUniquePath(basePath)
+		require.NoError(t, err)
+		// Result should be base path + timestamp
+		assert.Contains(t, result, basePath+"-")
+		assert.NotEqual(t, basePath+"-99", result)
+
+		// Verify the timestamp path was created (doesn't exist yet)
+		_, statErr := os.Stat(result)
+		assert.True(t, os.IsNotExist(statErr))
+	})
+
+	t.Run("returns error when timestamp path also exists", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		basePath := filepath.Join(tmpDir, "extreme")
+
+		// Create base
+		err := os.MkdirAll(basePath, 0o750)
+		require.NoError(t, err)
+
+		// Create ALL suffixes 2-99
+		for i := 2; i < 100; i++ {
+			path := fmt.Sprintf("%s-%d", basePath, i)
+			err = os.MkdirAll(path, 0o750)
+			require.NoError(t, err)
+		}
+
+		// Pre-create timestamp path too (extremely unlikely in real life)
+		// We need to predict what timestamp will be used
+		timestampPath := fmt.Sprintf("%s-%d", basePath, time.Now().Unix())
+		err = os.MkdirAll(timestampPath, 0o750)
+		require.NoError(t, err)
+
+		// Should return error
+		_, err = ensureUniquePath(basePath)
+		require.Error(t, err)
+		require.ErrorIs(t, err, atlaserrors.ErrWorktreeExists)
+		assert.Contains(t, err.Error(), "path")
+		assert.Contains(t, err.Error(), "all variants already exist")
+	})
 }
 
 func TestParseWorktreeList(t *testing.T) {
@@ -290,6 +369,113 @@ locked
 	t.Run("handles empty output", func(t *testing.T) {
 		result := parseWorktreeList("")
 		assert.Empty(t, result)
+	})
+
+	t.Run("missing HEAD line", func(t *testing.T) {
+		output := `worktree /path/to/incomplete
+branch refs/heads/main
+`
+		result := parseWorktreeList(output)
+		require.Len(t, result, 1)
+		assert.Equal(t, "/path/to/incomplete", result[0].Path)
+		assert.Empty(t, result[0].HeadCommit) // Missing HEAD
+		assert.Equal(t, "main", result[0].Branch)
+	})
+
+	t.Run("missing branch line detached HEAD", func(t *testing.T) {
+		output := `worktree /path/to/detached
+HEAD abc123
+detached
+`
+		result := parseWorktreeList(output)
+		require.Len(t, result, 1)
+		assert.Equal(t, "/path/to/detached", result[0].Path)
+		assert.Equal(t, "abc123", result[0].HeadCommit)
+		assert.Empty(t, result[0].Branch)
+	})
+
+	t.Run("branch without refs/heads prefix", func(t *testing.T) {
+		output := `worktree /path/to/weird
+HEAD def456
+branch main
+`
+		result := parseWorktreeList(output)
+		require.Len(t, result, 1)
+		// TrimPrefix("branch refs/heads/") from "branch main" leaves "branch main"
+		// This is malformed input - parser keeps the full line after failed trim
+		assert.Equal(t, "branch main", result[0].Branch)
+	})
+
+	t.Run("duplicate worktree entries", func(t *testing.T) {
+		output := `worktree /path/to/first
+HEAD abc123
+branch refs/heads/main
+
+worktree /path/to/first
+HEAD def456
+branch refs/heads/develop
+`
+		result := parseWorktreeList(output)
+		require.Len(t, result, 2)
+		// Both should be parsed, no deduplication
+		assert.Equal(t, "/path/to/first", result[0].Path)
+		assert.Equal(t, "/path/to/first", result[1].Path)
+		assert.Equal(t, "main", result[0].Branch)
+		assert.Equal(t, "develop", result[1].Branch)
+	})
+
+	t.Run("lines before first worktree are ignored", func(t *testing.T) {
+		output := `random garbage
+HEAD should-be-ignored
+
+worktree /path/to/real
+HEAD abc123
+branch refs/heads/main
+`
+		result := parseWorktreeList(output)
+		require.Len(t, result, 1)
+		assert.Equal(t, "/path/to/real", result[0].Path)
+		assert.Equal(t, "abc123", result[0].HeadCommit)
+		assert.Equal(t, "main", result[0].Branch)
+	})
+
+	t.Run("locked with reason", func(t *testing.T) {
+		output := `worktree /path/to/locked
+HEAD abc123
+branch refs/heads/locked
+locked reason: being used
+`
+		result := parseWorktreeList(output)
+		require.Len(t, result, 1)
+		assert.True(t, result[0].IsLocked)
+		// Reason is not captured, just locked status
+	})
+
+	t.Run("mixed valid and malformed entries", func(t *testing.T) {
+		output := `worktree /path/to/good1
+HEAD abc123
+branch refs/heads/main
+
+worktree /path/to/incomplete
+
+worktree /path/to/good2
+HEAD def456
+branch refs/heads/develop
+`
+		result := parseWorktreeList(output)
+		require.Len(t, result, 3)
+		// First entry is complete
+		assert.Equal(t, "/path/to/good1", result[0].Path)
+		assert.Equal(t, "abc123", result[0].HeadCommit)
+		assert.Equal(t, "main", result[0].Branch)
+		// Second entry is incomplete (no HEAD/branch)
+		assert.Equal(t, "/path/to/incomplete", result[1].Path)
+		assert.Empty(t, result[1].HeadCommit)
+		assert.Empty(t, result[1].Branch)
+		// Third entry is complete
+		assert.Equal(t, "/path/to/good2", result[2].Path)
+		assert.Equal(t, "def456", result[2].HeadCommit)
+		assert.Equal(t, "develop", result[2].Branch)
 	})
 }
 
