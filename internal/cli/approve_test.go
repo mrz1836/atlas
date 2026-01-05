@@ -1210,3 +1210,180 @@ func TestRunAutoApprove_WithCloseFlag(t *testing.T) {
 	output := buf.String()
 	assert.Contains(t, output, "Task approved")
 }
+
+// TestSelectApprovalTask_WorkspaceMatchFound tests successful workspace match
+func TestSelectApprovalTask_WorkspaceMatchFound(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	out := tui.NewOutput(&buf, "text")
+
+	expectedWS := &domain.Workspace{Name: "target-workspace"}
+	expectedTask := &domain.Task{ID: "target-task", Status: constants.TaskStatusAwaitingApproval}
+
+	awaitingTasks := []awaitingTask{
+		{
+			workspace: &domain.Workspace{Name: "other-workspace"},
+			task:      &domain.Task{ID: "other-task"},
+		},
+		{
+			workspace: expectedWS,
+			task:      expectedTask,
+		},
+	}
+
+	ws, task, err := selectApprovalTask("text", &buf, out, approveOptions{
+		workspace: "target-workspace",
+	}, awaitingTasks, false)
+
+	require.NoError(t, err)
+	assert.Equal(t, expectedWS, ws)
+	assert.Equal(t, expectedTask, task)
+}
+
+// TestHandleApproveError_DifferentFormats tests error handling in different output modes
+func TestHandleApproveError_DifferentFormats(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		outputFormat string
+		workspace    string
+		err          error
+		wantJSONOut  bool
+		wantError    bool
+	}{
+		{
+			name:         "JSON format outputs JSON",
+			outputFormat: "json",
+			workspace:    "test-ws",
+			err:          atlaserrors.ErrTaskNotFound,
+			wantJSONOut:  true,
+			wantError:    true, // handleApproveError returns ErrJSONErrorOutput for JSON
+		},
+		{
+			name:         "text format returns error",
+			outputFormat: "text",
+			workspace:    "test-ws",
+			err:          atlaserrors.ErrWorkspaceNotFound,
+			wantJSONOut:  false,
+			wantError:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var buf bytes.Buffer
+
+			err := handleApproveError(tt.outputFormat, &buf, tt.workspace, tt.err)
+
+			if tt.wantJSONOut {
+				require.ErrorIs(t, err, atlaserrors.ErrJSONErrorOutput)
+				var resp approveResponse
+				require.NoError(t, json.Unmarshal(buf.Bytes(), &resp))
+				assert.False(t, resp.Success)
+			}
+
+			if tt.wantError && !tt.wantJSONOut {
+				// Text format should return the original error
+				require.Error(t, err)
+				assert.ErrorIs(t, err, tt.err)
+			}
+		})
+	}
+}
+
+// TestFindAwaitingApprovalTasks_FiltersNonAwaitingTasks tests status filtering
+func TestFindAwaitingApprovalTasks_FiltersNonAwaitingTasks(t *testing.T) {
+	t.Parallel()
+
+	wsStore := &mockWorkspaceStore{
+		workspaces: []*domain.Workspace{
+			{Name: "ws1", Status: constants.WorkspaceStatusActive},
+			{Name: "ws2", Status: constants.WorkspaceStatusActive},
+		},
+	}
+
+	taskStore := &mockTaskStoreForApprove{
+		tasks: map[string][]*domain.Task{
+			"ws1": {
+				{ID: "task1", Status: constants.TaskStatusAwaitingApproval}, // Include
+				{ID: "task2", Status: constants.TaskStatusCompleted},        // Exclude
+			},
+			"ws2": {
+				{ID: "task3", Status: constants.TaskStatusRunning}, // Exclude
+			},
+		},
+	}
+
+	tasks, err := findAwaitingApprovalTasks(context.Background(), wsStore, taskStore)
+
+	require.NoError(t, err)
+	assert.Len(t, tasks, 1, "should only return awaiting approval tasks")
+	assert.Equal(t, "task1", tasks[0].task.ID)
+	assert.Equal(t, "ws1", tasks[0].workspace.Name)
+}
+
+// TestSelectApprovalTask_MultipleTasksNonInteractiveError tests non-interactive multi-task handling
+func TestSelectApprovalTask_MultipleTasksNonInteractiveError(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	out := tui.NewOutput(&buf, "text")
+
+	awaitingTasks := []awaitingTask{
+		{
+			workspace: &domain.Workspace{Name: "ws1"},
+			task:      &domain.Task{ID: "task1"},
+		},
+		{
+			workspace: &domain.Workspace{Name: "ws2"},
+			task:      &domain.Task{ID: "task2"},
+		},
+	}
+
+	// Non-interactive mode with multiple tasks and no workspace specified
+	ws, task, err := selectApprovalTask("text", &buf, out, approveOptions{}, awaitingTasks, true)
+
+	assert.Nil(t, ws)
+	assert.Nil(t, task)
+	require.Error(t, err)
+	require.ErrorIs(t, err, atlaserrors.ErrInteractiveRequired)
+	assert.True(t, atlaserrors.IsExitCode2Error(err))
+}
+
+// TestApproveOptions_DefaultValues tests default option values
+func TestApproveOptions_DefaultValues(t *testing.T) {
+	t.Parallel()
+
+	opts := approveOptions{}
+
+	assert.Empty(t, opts.workspace)
+	assert.False(t, opts.autoApprove)
+	assert.False(t, opts.closeWS)
+}
+
+// TestApprovalAction_TypeConversion tests action type conversion
+func TestApprovalAction_TypeConversion(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		str    string
+		action approvalAction
+	}{
+		{"approve", actionApprove},
+		{"approve_and_close", actionApproveAndClose},
+		{"view_diff", actionViewDiff},
+		{"view_logs", actionViewLogs},
+		{"open_pr", actionOpenPR},
+		{"reject", actionReject},
+		{"cancel", actionCancel},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.str, func(t *testing.T) {
+			assert.Equal(t, approvalAction(tt.str), tt.action)
+			assert.Equal(t, string(tt.action), tt.str)
+		})
+	}
+}

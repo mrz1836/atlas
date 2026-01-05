@@ -541,46 +541,58 @@ func TestWorkspaceNameNoTrailingHyphen(t *testing.T) {
 		"workspace name should not end with hyphen")
 }
 
-func TestIsValidModel(t *testing.T) {
+func TestValidateModelWithAgent(t *testing.T) {
 	tests := []struct {
-		name     string
-		model    string
-		expected bool
+		name    string
+		agent   string
+		model   string
+		wantErr bool
 	}{
-		{"valid sonnet", "sonnet", true},
-		{"valid opus", "opus", true},
-		{"valid haiku", "haiku", true},
-		{"invalid model", "gpt-4", false},
-		{"empty string", "", false},
-		{"uppercase", "SONNET", false},
-		{"mixed case", "Opus", false},
+		// Claude models
+		{"claude sonnet", "claude", "sonnet", false},
+		{"claude opus", "claude", "opus", false},
+		{"claude haiku", "claude", "haiku", false},
+		{"claude invalid model", "claude", "flash", true},
+		// Gemini models
+		{"gemini flash", "gemini", "flash", false},
+		{"gemini pro", "gemini", "pro", false},
+		{"gemini invalid model", "gemini", "sonnet", true},
+		// Empty agent (checks all)
+		{"empty agent valid claude model", "", "sonnet", false},
+		{"empty agent valid gemini model", "", "flash", false},
+		{"empty agent invalid model", "", "gpt-4", true},
+		// Empty model is always valid
+		{"empty model", "claude", "", false},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			result := isValidModel(tc.model)
-			assert.Equal(t, tc.expected, result)
+			err := validateModel(tc.agent, tc.model)
+			if tc.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
 		})
 	}
 }
 
-func TestValidateModel(t *testing.T) {
+func TestValidateModel_ExitCode2Error(t *testing.T) {
 	tests := []struct {
 		name    string
+		agent   string
 		model   string
 		wantErr bool
 	}{
-		{"valid sonnet", "sonnet", false},
-		{"valid opus", "opus", false},
-		{"valid haiku", "haiku", false},
-		{"empty is ok", "", false},
-		{"invalid model", "gpt-4", true},
-		{"invalid unknown", "claude-3", true},
+		{"valid claude sonnet", "claude", "sonnet", false},
+		{"empty is ok", "claude", "", false},
+		{"invalid model", "claude", "gpt-4", true},
+		{"invalid unknown", "claude", "claude-3", true},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			err := validateModel(tc.model)
+			err := validateModel(tc.agent, tc.model)
 			if tc.wantErr {
 				require.Error(t, err)
 				// Should be exit code 2 error
@@ -954,7 +966,240 @@ func TestStartTaskExecution_ContextCanceled(t *testing.T) {
 	logger := GetLogger()
 
 	// Should fail due to canceled context
-	_, err = startTaskExecution(ctx, ws, tmpl, "test description", "", logger)
+	_, err = startTaskExecution(ctx, ws, tmpl, "test description", "", "", logger)
 	require.Error(t, err)
 	// Error may be context.Canceled or a wrapped error
+}
+
+// TestApplyVerifyOverrides tests verify flag override behavior
+func TestApplyVerifyOverrides(t *testing.T) {
+	tests := []struct {
+		name           string
+		templateVerify bool
+		verifyFlag     bool
+		noVerifyFlag   bool
+		wantVerify     bool
+	}{
+		{
+			name:           "no flags uses template default true",
+			templateVerify: true,
+			verifyFlag:     false,
+			noVerifyFlag:   false,
+			wantVerify:     true,
+		},
+		{
+			name:           "no flags uses template default false",
+			templateVerify: false,
+			verifyFlag:     false,
+			noVerifyFlag:   false,
+			wantVerify:     false,
+		},
+		{
+			name:           "verify flag overrides template false",
+			templateVerify: false,
+			verifyFlag:     true,
+			noVerifyFlag:   false,
+			wantVerify:     true,
+		},
+		{
+			name:           "no-verify flag overrides template true",
+			templateVerify: true,
+			verifyFlag:     false,
+			noVerifyFlag:   true,
+			wantVerify:     false,
+		},
+		{
+			name:           "verify flag takes precedence",
+			templateVerify: false,
+			verifyFlag:     true,
+			noVerifyFlag:   false,
+			wantVerify:     true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmpl := &domain.Template{
+				Verify: tt.templateVerify,
+				Steps: []domain.StepDefinition{
+					{
+						Name:     "verify-step",
+						Type:     domain.StepTypeVerify,
+						Required: tt.templateVerify,
+					},
+				},
+			}
+
+			applyVerifyOverrides(tmpl, tt.verifyFlag, tt.noVerifyFlag)
+
+			assert.Equal(t, tt.wantVerify, tmpl.Verify)
+			// Verify step's Required field should match
+			assert.Equal(t, tt.wantVerify, tmpl.Steps[0].Required)
+		})
+	}
+}
+
+// TestApplyVerifyOverrides_WithVerifyModel tests VerifyModel propagation
+func TestApplyVerifyOverrides_WithVerifyModel(t *testing.T) {
+	tmpl := &domain.Template{
+		Verify:      true,
+		VerifyModel: "opus",
+		Steps: []domain.StepDefinition{
+			{
+				Name:     "verify-step",
+				Type:     domain.StepTypeVerify,
+				Required: true,
+			},
+		},
+	}
+
+	applyVerifyOverrides(tmpl, false, false)
+
+	// Verify model should be propagated to step config
+	require.NotNil(t, tmpl.Steps[0].Config)
+	assert.Equal(t, "opus", tmpl.Steps[0].Config["model"])
+}
+
+// TestApplyVerifyOverrides_NoVerifyStep tests template without verify step
+func TestApplyVerifyOverrides_NoVerifyStep(t *testing.T) {
+	tmpl := &domain.Template{
+		Verify: true,
+		Steps: []domain.StepDefinition{
+			{
+				Name: "ai-step",
+				Type: domain.StepTypeAI,
+			},
+		},
+	}
+
+	// Should not panic when no verify step exists
+	require.NotPanics(t, func() {
+		applyVerifyOverrides(tmpl, false, true)
+	})
+
+	assert.False(t, tmpl.Verify)
+}
+
+// TestGetSideEffectForStepType tests side effect descriptions
+func TestGetSideEffectForStepType(t *testing.T) {
+	tests := []struct {
+		name     string
+		step     domain.StepDefinition
+		expected string
+	}{
+		{
+			name:     "AI step",
+			step:     domain.StepDefinition{Type: domain.StepTypeAI},
+			expected: "AI execution (file modifications)",
+		},
+		{
+			name:     "Validation step",
+			step:     domain.StepDefinition{Type: domain.StepTypeValidation},
+			expected: "Validation commands (format may modify files)",
+		},
+		{
+			name: "Git commit step",
+			step: domain.StepDefinition{
+				Type:   domain.StepTypeGit,
+				Config: map[string]any{"operation": "commit"},
+			},
+			expected: "Git commits",
+		},
+		{
+			name: "Git push step",
+			step: domain.StepDefinition{
+				Type:   domain.StepTypeGit,
+				Config: map[string]any{"operation": "push"},
+			},
+			expected: "Git push to remote",
+		},
+		{
+			name: "Git create PR step",
+			step: domain.StepDefinition{
+				Type:   domain.StepTypeGit,
+				Config: map[string]any{"operation": "create_pr"},
+			},
+			expected: "Pull request creation",
+		},
+		{
+			name: "Git other operation",
+			step: domain.StepDefinition{
+				Type:   domain.StepTypeGit,
+				Config: map[string]any{"operation": "other"},
+			},
+			expected: "Git operations",
+		},
+		{
+			name:     "Git no config",
+			step:     domain.StepDefinition{Type: domain.StepTypeGit},
+			expected: "Git operations",
+		},
+		{
+			name:     "Verify step",
+			step:     domain.StepDefinition{Type: domain.StepTypeVerify},
+			expected: "AI verification",
+		},
+		{
+			name:     "SDD step",
+			step:     domain.StepDefinition{Type: domain.StepTypeSDD},
+			expected: "SDD generation",
+		},
+		{
+			name:     "CI step",
+			step:     domain.StepDefinition{Type: domain.StepTypeCI},
+			expected: "CI execution",
+		},
+		{
+			name:     "Human step",
+			step:     domain.StepDefinition{Type: domain.StepTypeHuman},
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := getSideEffectForStepType(tt.step)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+// TestRunStart_ConflictingVerifyFlags tests validation of --verify and --no-verify
+func TestRunStart_ConflictingVerifyFlags(t *testing.T) {
+	cmd := newStartCmd()
+
+	// Add global flags
+	root := &cobra.Command{Use: "atlas"}
+	AddGlobalFlags(root, &GlobalFlags{})
+	root.AddCommand(cmd)
+
+	var buf bytes.Buffer
+	err := runStart(context.Background(), cmd, &buf, "test description", startOptions{
+		templateName: "bugfix",
+		verify:       true,
+		noVerify:     true,
+	})
+
+	require.Error(t, err)
+	require.ErrorIs(t, err, errors.ErrConflictingFlags)
+	assert.True(t, errors.IsExitCode2Error(err))
+}
+
+// TestRunStart_InvalidModel tests model validation
+func TestRunStart_InvalidModel(t *testing.T) {
+	cmd := newStartCmd()
+
+	root := &cobra.Command{Use: "atlas"}
+	AddGlobalFlags(root, &GlobalFlags{})
+	root.AddCommand(cmd)
+
+	var buf bytes.Buffer
+	err := runStart(context.Background(), cmd, &buf, "test description", startOptions{
+		templateName: "bugfix",
+		model:        "gpt-4", // Invalid model
+	})
+
+	require.Error(t, err)
+	require.ErrorIs(t, err, errors.ErrInvalidModel)
+	assert.True(t, errors.IsExitCode2Error(err))
 }

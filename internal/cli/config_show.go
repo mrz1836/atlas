@@ -178,8 +178,11 @@ func buildAnnotatedConfig(cfg *config.Config) *AnnotatedConfig {
 	}
 
 	// AI section
+	annotated.AI["agent"] = determineSource("ai.agent", cfg.AI.Agent, globalCfg, projectCfg, "claude")
 	annotated.AI["model"] = determineSource("ai.model", cfg.AI.Model, globalCfg, projectCfg, "sonnet")
-	annotated.AI["api_key_env_var"] = determineSource("ai.api_key_env_var", cfg.AI.APIKeyEnvVar, globalCfg, projectCfg, "ANTHROPIC_API_KEY")
+	// For api_key_env_vars, show the value for the current agent
+	currentAgentEnvVar := cfg.AI.GetAPIKeyEnvVar(cfg.AI.Agent)
+	annotated.AI["api_key_env_var"] = determineSource("ai.api_key_env_vars", currentAgentEnvVar, globalCfg, projectCfg, "ANTHROPIC_API_KEY")
 	annotated.AI["timeout"] = determineSource("ai.timeout", cfg.AI.Timeout.String(), globalCfg, projectCfg, constants.DefaultAITimeout.String())
 	annotated.AI["max_turns"] = determineSource("ai.max_turns", cfg.AI.MaxTurns, globalCfg, projectCfg, 10)
 
@@ -314,6 +317,7 @@ func outputYAML(w io.Writer, cfg *config.Config, annotated *AnnotatedConfig) err
 
 	// AI section
 	_, _ = fmt.Fprintln(w, styles.section.Render("ai:"))
+	printConfigValue(w, styles, "  agent", annotated.AI["agent"])
 	printConfigValue(w, styles, "  model", annotated.AI["model"])
 	printConfigValue(w, styles, "  api_key_env_var", annotated.AI["api_key_env_var"])
 	printConfigValue(w, styles, "  timeout", annotated.AI["timeout"])

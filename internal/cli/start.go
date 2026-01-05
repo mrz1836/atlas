@@ -48,6 +48,7 @@ func AddStartCommand(root *cobra.Command) {
 type startOptions struct {
 	templateName  string
 	workspaceName string
+	agent         string
 	model         string
 	baseBranch    string
 	noInteractive bool
@@ -61,6 +62,7 @@ func newStartCmd() *cobra.Command {
 	var (
 		templateName  string
 		workspaceName string
+		agent         string
 		model         string
 		baseBranch    string
 		noInteractive bool
@@ -88,6 +90,7 @@ Examples:
 			return runStart(cmd.Context(), cmd, cmd.OutOrStdout(), args[0], startOptions{
 				templateName:  templateName,
 				workspaceName: workspaceName,
+				agent:         agent,
 				model:         model,
 				baseBranch:    baseBranch,
 				noInteractive: noInteractive,
@@ -102,8 +105,10 @@ Examples:
 		"Template to use (bugfix, feature, commit)")
 	cmd.Flags().StringVarP(&workspaceName, "workspace", "w", "",
 		"Custom workspace name")
+	cmd.Flags().StringVarP(&agent, "agent", "a", "",
+		"AI agent/CLI to use (claude, gemini, codex)")
 	cmd.Flags().StringVarP(&model, "model", "m", "",
-		"AI model to use (sonnet, opus, haiku)")
+		"AI model to use (claude: sonnet, opus, haiku; gemini: flash, pro; codex: codex, max, mini)")
 	cmd.Flags().StringVarP(&baseBranch, "branch", "b", "",
 		"Base branch to create workspace from (fetches from remote if needed)")
 	cmd.Flags().BoolVar(&noInteractive, "no-interactive", false,
@@ -149,8 +154,13 @@ func runStart(ctx context.Context, cmd *cobra.Command, w io.Writer, description 
 		w:            w,
 	}
 
+	// Validate agent flag if provided
+	if err := validateAgent(opts.agent); err != nil {
+		return sc.handleError("", err)
+	}
+
 	// Validate model flag if provided
-	if err := validateModel(opts.model); err != nil {
+	if err := validateModel(opts.agent, opts.model); err != nil {
 		return sc.handleError("", err)
 	}
 
@@ -221,7 +231,7 @@ func runStart(ctx context.Context, cmd *cobra.Command, w io.Writer, description 
 		Msg("workspace created")
 
 	// Start task execution
-	t, err := startTaskExecution(ctx, ws, tmpl, description, opts.model, logger)
+	t, err := startTaskExecution(ctx, ws, tmpl, description, opts.agent, opts.model, logger)
 	if err != nil {
 		sc.handleTaskStartError(ctx, ws, repoPath, t, logger)
 		if t != nil {
@@ -316,7 +326,7 @@ func createWorkspace(ctx context.Context, sc *startContext, wsName, repoPath, br
 }
 
 // startTaskExecution creates and starts the task engine.
-func startTaskExecution(ctx context.Context, ws *domain.Workspace, tmpl *domain.Template, description, model string, logger zerolog.Logger) (*domain.Task, error) {
+func startTaskExecution(ctx context.Context, ws *domain.Workspace, tmpl *domain.Template, description, agent, model string, logger zerolog.Logger) (*domain.Task, error) {
 	// Create task store
 	taskStore, err := task.NewFileStore("")
 	if err != nil {
@@ -343,8 +353,14 @@ func startTaskExecution(ctx context.Context, ws *domain.Workspace, tmpl *domain.
 		Events:      cfg.Notifications.Events,
 	})
 
-	// Create AI runner for AI-dependent services
-	aiRunner := ai.NewClaudeCodeRunner(&cfg.AI, nil)
+	// Create AI runner registry with Claude, Gemini, and Codex runners
+	runnerRegistry := ai.NewRunnerRegistry()
+	runnerRegistry.Register(domain.AgentClaude, ai.NewClaudeCodeRunner(&cfg.AI, nil))
+	runnerRegistry.Register(domain.AgentGemini, ai.NewGeminiRunner(&cfg.AI, nil))
+	runnerRegistry.Register(domain.AgentCodex, ai.NewCodexRunner(&cfg.AI, nil))
+
+	// Create multi-runner that dispatches to the appropriate runner
+	aiRunner := ai.NewMultiRunner(runnerRegistry)
 
 	// Create git services for commit, push, and PR operations
 	gitRunner, err := git.NewRunner(ctx, ws.WorktreePath)
@@ -393,6 +409,11 @@ func startTaskExecution(ctx context.Context, ws *domain.Workspace, tmpl *domain.
 	engine := task.NewEngine(taskStore, execRegistry, engineCfg, taskLogger,
 		task.WithNotifier(stateNotifier),
 	)
+
+	// Apply agent override if specified
+	if agent != "" {
+		tmpl.DefaultAgent = domain.Agent(agent)
+	}
 
 	// Apply model override if specified
 	if model != "" {
@@ -672,24 +693,62 @@ func cleanupWorkspace(ctx context.Context, wsName, repoPath string) error {
 	return mgr.Destroy(ctx, wsName)
 }
 
-// isValidModel checks if the model name is valid.
-func isValidModel(model string) bool {
-	switch model {
-	case "sonnet", "opus", "haiku":
-		return true
-	default:
-		return false
-	}
+// isValidAgent checks if the agent name is valid.
+func isValidAgent(agent string) bool {
+	a := domain.Agent(agent)
+	return a.IsValid()
 }
 
-// validateModel checks if the model name is valid.
-func validateModel(model string) error {
+// validateAgent checks if the agent name is valid.
+func validateAgent(agent string) error {
+	if agent == "" {
+		return nil // Empty is valid (use default)
+	}
+	if !isValidAgent(agent) {
+		return atlaserrors.NewExitCode2Error(
+			fmt.Errorf("%w: '%s' (must be one of claude, gemini, codex)", atlaserrors.ErrAgentNotFound, agent))
+	}
+	return nil
+}
+
+// isValidModelForAgent checks if the model name is valid for the given agent.
+func isValidModelForAgent(agent, model string) bool {
+	// If no agent specified, validate against Claude (default)
+	a := domain.Agent(agent)
+	if a == "" {
+		a = domain.AgentClaude
+	}
+
+	// Check if model is in the agent's valid aliases
+	for _, alias := range a.ModelAliases() {
+		if model == alias {
+			return true
+		}
+	}
+	return false
+}
+
+// validateModel checks if the model name is valid for the given agent.
+func validateModel(agent, model string) error {
 	if model == "" {
 		return nil // Empty is valid (use default)
 	}
-	if !isValidModel(model) {
+
+	// If agent not specified, check against all agents
+	if agent == "" {
+		// Accept models from either agent
+		if isValidModelForAgent("claude", model) || isValidModelForAgent("gemini", model) {
+			return nil
+		}
 		return atlaserrors.NewExitCode2Error(
-			fmt.Errorf("%w: '%s' (must be one of sonnet, opus, haiku)", atlaserrors.ErrInvalidModel, model))
+			fmt.Errorf("%w: '%s' (must be sonnet, opus, haiku for claude or flash, pro for gemini)", atlaserrors.ErrInvalidModel, model))
+	}
+
+	// Validate against specific agent
+	if !isValidModelForAgent(agent, model) {
+		a := domain.Agent(agent)
+		return atlaserrors.NewExitCode2Error(
+			fmt.Errorf("%w: '%s' is not valid for agent '%s' (valid models: %v)", atlaserrors.ErrInvalidModel, model, agent, a.ModelAliases()))
 	}
 	return nil
 }
