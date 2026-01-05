@@ -1251,6 +1251,89 @@ func TestGitWorktreeRunner_Create_WithRemoteBaseBranch(t *testing.T) {
 	})
 }
 
+func TestGitWorktreeRunner_CleanupOrphanedPath(t *testing.T) {
+	t.Run("does nothing if path does not exist", func(t *testing.T) {
+		repoPath := createTestRepo(t)
+		runner, err := NewGitWorktreeRunner(context.Background(), repoPath)
+		require.NoError(t, err)
+
+		nonExistentPath := filepath.Join(t.TempDir(), "does-not-exist")
+		err = runner.cleanupOrphanedPath(context.Background(), nonExistentPath)
+		require.NoError(t, err)
+	})
+
+	t.Run("does not remove active worktree", func(t *testing.T) {
+		repoPath := createTestRepo(t)
+		runner, err := NewGitWorktreeRunner(context.Background(), repoPath)
+		require.NoError(t, err)
+
+		// Create a real worktree
+		info, err := runner.Create(context.Background(), WorktreeCreateOptions{
+			WorkspaceName: "active",
+			BranchType:    "feat",
+		})
+		require.NoError(t, err)
+
+		// Try to cleanup the active worktree path - should do nothing
+		err = runner.cleanupOrphanedPath(context.Background(), info.Path)
+		require.NoError(t, err)
+
+		// Worktree should still exist
+		_, err = os.Stat(info.Path)
+		require.NoError(t, err, "active worktree should not be removed")
+	})
+
+	t.Run("removes orphaned directory that is not a worktree", func(t *testing.T) {
+		repoPath := createTestRepo(t)
+		runner, err := NewGitWorktreeRunner(context.Background(), repoPath)
+		require.NoError(t, err)
+
+		// Create an orphaned directory at the expected worktree path
+		orphanedPath := SiblingPath(repoPath, "orphaned")
+		err = os.MkdirAll(orphanedPath, 0o750)
+		require.NoError(t, err)
+
+		// Create a file inside to verify full removal
+		testFile := filepath.Join(orphanedPath, "test.txt")
+		err = os.WriteFile(testFile, []byte("test"), 0o600)
+		require.NoError(t, err)
+
+		// Cleanup should remove the orphaned directory
+		err = runner.cleanupOrphanedPath(context.Background(), orphanedPath)
+		require.NoError(t, err)
+
+		// Directory should be gone
+		_, err = os.Stat(orphanedPath)
+		assert.True(t, os.IsNotExist(err), "orphaned directory should be removed")
+	})
+
+	t.Run("create uses expected path when orphaned directory is cleaned up", func(t *testing.T) {
+		repoPath := createTestRepo(t)
+		runner, err := NewGitWorktreeRunner(context.Background(), repoPath)
+		require.NoError(t, err)
+
+		// Create an orphaned directory at the expected worktree path
+		expectedPath := SiblingPath(repoPath, "test-ws")
+		err = os.MkdirAll(expectedPath, 0o750)
+		require.NoError(t, err)
+
+		// Create worktree - should cleanup orphaned and use expected path (not -2)
+		info, err := runner.Create(context.Background(), WorktreeCreateOptions{
+			WorkspaceName: "test-ws",
+			BranchType:    "feat",
+		})
+		require.NoError(t, err)
+
+		// Resolve symlinks for comparison (macOS /var -> /private/var)
+		expectedResolved, _ := filepath.EvalSymlinks(expectedPath)
+		actualResolved, _ := filepath.EvalSymlinks(info.Path)
+		assert.Equal(t, expectedResolved, actualResolved, "should use expected path, not suffixed path")
+
+		// Verify no -2 suffix was used
+		assert.NotContains(t, info.Path, "-2", "should not have -2 suffix")
+	})
+}
+
 func TestGitRunCommand(t *testing.T) {
 	t.Run("returns stdout for successful command", func(t *testing.T) {
 		repoPath := createTestRepo(t)

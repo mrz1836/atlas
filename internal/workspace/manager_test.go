@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"context"
+	"os"
 	"testing"
 	"time"
 
@@ -500,6 +501,43 @@ func TestDefaultManager_Destroy_NilWorktreeRunner(t *testing.T) {
 	// Workspace state should still be deleted
 	_, exists := store.workspaces["test"]
 	assert.False(t, exists)
+}
+
+func TestRemoveOrphanedDirectory(t *testing.T) {
+	t.Run("returns nil if path does not exist", func(t *testing.T) {
+		err := removeOrphanedDirectory("/nonexistent/path/xyz123")
+		require.NoError(t, err)
+	})
+
+	t.Run("removes directory", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		orphanedPath := tmpDir + "/orphaned"
+		err := os.MkdirAll(orphanedPath, 0o750)
+		require.NoError(t, err)
+
+		// Create a file inside
+		testFile := orphanedPath + "/test.txt"
+		err = os.WriteFile(testFile, []byte("test"), 0o600)
+		require.NoError(t, err)
+
+		err = removeOrphanedDirectory(orphanedPath)
+		require.NoError(t, err)
+
+		// Directory should be gone
+		_, err = os.Stat(orphanedPath)
+		assert.True(t, os.IsNotExist(err))
+	})
+
+	t.Run("returns error for file instead of directory", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		filePath := tmpDir + "/file.txt"
+		err := os.WriteFile(filePath, []byte("test"), 0o600)
+		require.NoError(t, err)
+
+		err = removeOrphanedDirectory(filePath)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "not a directory")
+	})
 }
 
 // ============================================================================
