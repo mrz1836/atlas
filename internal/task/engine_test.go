@@ -3831,3 +3831,34 @@ func TestEngine_ShouldSkipStep_OptionalSteps(t *testing.T) {
 		})
 	}
 }
+
+func TestWithNotifier(t *testing.T) {
+	// Create a mock notifier
+	notifier := &StateChangeNotifier{}
+
+	// Create engine with notifier option
+	store := newMockStore()
+	registry := steps.NewExecutorRegistry()
+	cfg := DefaultEngineConfig()
+	logger := testLogger()
+
+	engine := NewEngine(store, registry, cfg, logger, WithNotifier(notifier))
+
+	// Verify notifier was set
+	assert.NotNil(t, engine)
+	assert.Equal(t, notifier, engine.notifier)
+}
+
+func TestWithNotifier_NilNotifier(t *testing.T) {
+	// Test that nil notifier can be set
+	store := newMockStore()
+	registry := steps.NewExecutorRegistry()
+	cfg := DefaultEngineConfig()
+	logger := testLogger()
+
+	engine := NewEngine(store, registry, cfg, logger, WithNotifier(nil))
+
+	// Should not panic
+	assert.NotNil(t, engine)
+	assert.Nil(t, engine.notifier)
+}

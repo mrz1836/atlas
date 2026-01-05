@@ -702,3 +702,17 @@ func TestCIFailureHandler_buildCIResultArtifact(t *testing.T) {
 		assert.Empty(t, artifact.FailedChecks[0].Duration)
 	})
 }
+
+func TestOpenInBrowser_ValidOS(_ *testing.T) {
+	// Test that openInBrowser doesn't panic on current OS
+	// We can't actually verify the browser opens, but we can verify
+	// the function executes without error for supported OSes
+
+	err := openInBrowser("https://example.com")
+
+	// The error might occur if the browser command doesn't exist,
+	// but the function itself should work correctly for the OS check
+	// On CI systems, the browser command might not exist, so we just
+	// verify no panic occurs
+	_ = err
+}

@@ -808,3 +808,303 @@ templates:
 	assert.Equal(t, "path/to/existing", cfg.Templates.CustomTemplates["existing"])
 	assert.Equal(t, "path/to/new", cfg.Templates.CustomTemplates["new"])
 }
+
+func TestLoadWithWorktree_SameAsMainRepo(t *testing.T) {
+	// When worktree path equals main repo path, worktree config should be skipped
+	tempDir := t.TempDir()
+
+	// Create main repo config
+	mainConfigDir := filepath.Join(tempDir, ".atlas")
+	require.NoError(t, os.MkdirAll(mainConfigDir, 0o750))
+
+	mainConfig := `ai:
+  model: opus
+  timeout: 10m`
+	require.NoError(t, os.WriteFile(
+		filepath.Join(mainConfigDir, "config.yaml"),
+		[]byte(mainConfig),
+		0o600,
+	))
+
+	// Call with same path for both
+	cfg, err := LoadWithWorktree(context.Background(), tempDir, tempDir)
+	require.NoError(t, err)
+	require.NotNil(t, cfg)
+
+	// Should load main config
+	assert.Equal(t, "opus", cfg.AI.Model)
+	assert.Equal(t, 10*time.Minute, cfg.AI.Timeout)
+}
+
+func TestLoadWithWorktree_DifferentPaths(t *testing.T) {
+	// Setup main repo with config
+	mainRepo := t.TempDir()
+	mainConfigDir := filepath.Join(mainRepo, ".atlas")
+	require.NoError(t, os.MkdirAll(mainConfigDir, 0o750))
+
+	mainConfig := `ai:
+  model: sonnet
+git:
+  base_branch: develop`
+	require.NoError(t, os.WriteFile(
+		filepath.Join(mainConfigDir, "config.yaml"),
+		[]byte(mainConfig),
+		0o600,
+	))
+
+	// Setup worktree with overriding config
+	worktree := t.TempDir()
+	worktreeConfigDir := filepath.Join(worktree, ".atlas")
+	require.NoError(t, os.MkdirAll(worktreeConfigDir, 0o750))
+
+	worktreeConfig := `ai:
+  model: opus`
+	require.NoError(t, os.WriteFile(
+		filepath.Join(worktreeConfigDir, "config.yaml"),
+		[]byte(worktreeConfig),
+		0o600,
+	))
+
+	// Load with worktree
+	cfg, err := LoadWithWorktree(context.Background(), mainRepo, worktree)
+	require.NoError(t, err)
+	require.NotNil(t, cfg)
+
+	// Worktree config should override main repo
+	assert.Equal(t, "opus", cfg.AI.Model)
+	// Main repo config should still apply for non-overridden values
+	assert.Equal(t, "develop", cfg.Git.BaseBranch)
+}
+
+func TestLoadWithWorktree_NoWorktreeConfig(t *testing.T) {
+	// Setup main repo with config
+	mainRepo := t.TempDir()
+	mainConfigDir := filepath.Join(mainRepo, ".atlas")
+	require.NoError(t, os.MkdirAll(mainConfigDir, 0o750))
+
+	mainConfig := `ai:
+  model: haiku`
+	require.NoError(t, os.WriteFile(
+		filepath.Join(mainConfigDir, "config.yaml"),
+		[]byte(mainConfig),
+		0o600,
+	))
+
+	// Worktree has no .atlas directory
+	worktree := t.TempDir()
+
+	// Load with worktree (no worktree config exists)
+	cfg, err := LoadWithWorktree(context.Background(), mainRepo, worktree)
+	require.NoError(t, err)
+	require.NotNil(t, cfg)
+
+	// Should only use main repo config
+	assert.Equal(t, "haiku", cfg.AI.Model)
+}
+
+func TestLoadWithWorktree_InvalidWorktreeConfig(t *testing.T) {
+	// Setup main repo with valid config
+	mainRepo := t.TempDir()
+	mainConfigDir := filepath.Join(mainRepo, ".atlas")
+	require.NoError(t, os.MkdirAll(mainConfigDir, 0o750))
+
+	mainConfig := `ai:
+  model: sonnet`
+	require.NoError(t, os.WriteFile(
+		filepath.Join(mainConfigDir, "config.yaml"),
+		[]byte(mainConfig),
+		0o600,
+	))
+
+	// Setup worktree with invalid YAML
+	worktree := t.TempDir()
+	worktreeConfigDir := filepath.Join(worktree, ".atlas")
+	require.NoError(t, os.MkdirAll(worktreeConfigDir, 0o750))
+
+	invalidConfig := `ai:
+  model: [invalid yaml structure`
+	require.NoError(t, os.WriteFile(
+		filepath.Join(worktreeConfigDir, "config.yaml"),
+		[]byte(invalidConfig),
+		0o600,
+	))
+
+	// Should fail due to invalid YAML
+	_, err := LoadWithWorktree(context.Background(), mainRepo, worktree)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to read worktree config")
+}
+
+func TestLoadWithWorktree_ValidationFailsAfterMerge(t *testing.T) {
+	// Setup main repo with valid config
+	mainRepo := t.TempDir()
+	mainConfigDir := filepath.Join(mainRepo, ".atlas")
+	require.NoError(t, os.MkdirAll(mainConfigDir, 0o750))
+
+	mainConfig := `ai:
+  model: sonnet
+  timeout: 5m`
+	require.NoError(t, os.WriteFile(
+		filepath.Join(mainConfigDir, "config.yaml"),
+		[]byte(mainConfig),
+		0o600,
+	))
+
+	// Setup worktree that causes validation failure
+	worktree := t.TempDir()
+	worktreeConfigDir := filepath.Join(worktree, ".atlas")
+	require.NoError(t, os.MkdirAll(worktreeConfigDir, 0o750))
+
+	// Override with invalid timeout (0s not allowed)
+	worktreeConfig := `ai:
+  timeout: 0s`
+	require.NoError(t, os.WriteFile(
+		filepath.Join(worktreeConfigDir, "config.yaml"),
+		[]byte(worktreeConfig),
+		0o600,
+	))
+
+	// Should fail validation
+	_, err := LoadWithWorktree(context.Background(), mainRepo, worktree)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid configuration")
+}
+
+func TestLoadWithWorktree_GlobalConfigInheritance(t *testing.T) {
+	// Setup global config
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+
+	globalConfigDir := filepath.Join(homeDir, ".atlas")
+	require.NoError(t, os.MkdirAll(globalConfigDir, 0o750))
+
+	globalConfig := `ai:
+  max_turns: 10`
+	require.NoError(t, os.WriteFile(
+		filepath.Join(globalConfigDir, "config.yaml"),
+		[]byte(globalConfig),
+		0o600,
+	))
+
+	// Setup main repo (no config)
+	mainRepo := t.TempDir()
+
+	// Setup worktree with minimal config
+	worktree := t.TempDir()
+	worktreeConfigDir := filepath.Join(worktree, ".atlas")
+	require.NoError(t, os.MkdirAll(worktreeConfigDir, 0o750))
+
+	worktreeConfig := `ai:
+  model: opus`
+	require.NoError(t, os.WriteFile(
+		filepath.Join(worktreeConfigDir, "config.yaml"),
+		[]byte(worktreeConfig),
+		0o600,
+	))
+
+	// Load with worktree
+	cfg, err := LoadWithWorktree(context.Background(), mainRepo, worktree)
+	require.NoError(t, err)
+
+	// Should inherit global config value
+	assert.Equal(t, 10, cfg.AI.MaxTurns)
+	// Should use worktree override
+	assert.Equal(t, "opus", cfg.AI.Model)
+}
+
+func TestLoadWithWorktree_NoConfigs(t *testing.T) {
+	// No global, main, or worktree configs - should use defaults
+	tempHome := t.TempDir()
+	t.Setenv("HOME", tempHome)
+
+	mainRepo := t.TempDir()
+	worktree := t.TempDir()
+
+	cfg, err := LoadWithWorktree(context.Background(), mainRepo, worktree)
+	require.NoError(t, err)
+	require.NotNil(t, cfg)
+
+	// Should use defaults
+	assert.Equal(t, "sonnet", cfg.AI.Model)
+	assert.Equal(t, constants.DefaultAITimeout, cfg.AI.Timeout)
+	assert.Equal(t, "main", cfg.Git.BaseBranch)
+}
+
+func TestLoad_CorruptedGlobalConfig(t *testing.T) {
+	// Setup corrupted global config
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+
+	globalConfigDir := filepath.Join(homeDir, ".atlas")
+	require.NoError(t, os.MkdirAll(globalConfigDir, 0o750))
+
+	// Write invalid YAML
+	invalidConfig := `ai:
+  model: [invalid yaml`
+	require.NoError(t, os.WriteFile(
+		filepath.Join(globalConfigDir, "config.yaml"),
+		[]byte(invalidConfig),
+		0o600,
+	))
+
+	// Move to temp directory
+	tempDir := t.TempDir()
+	oldWd, err := os.Getwd()
+	require.NoError(t, err)
+	require.NoError(t, os.Chdir(tempDir))
+	defer func() { _ = os.Chdir(oldWd) }()
+
+	// Should fail due to corrupted global config
+	_, err = Load(context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to read global config file")
+}
+
+func TestLoad_CorruptedProjectConfig(t *testing.T) {
+	// Setup temp project directory with corrupted config
+	projectDir := t.TempDir()
+	configDir := filepath.Join(projectDir, ".atlas")
+	require.NoError(t, os.MkdirAll(configDir, 0o750))
+
+	// Write invalid YAML to project config
+	invalidConfig := `git:
+  base_branch: ]invalid[`
+	require.NoError(t, os.WriteFile(
+		filepath.Join(configDir, "config.yaml"),
+		[]byte(invalidConfig),
+		0o600,
+	))
+
+	// Change to project directory
+	oldWd, err := os.Getwd()
+	require.NoError(t, err)
+	require.NoError(t, os.Chdir(projectDir))
+	defer func() { _ = os.Chdir(oldWd) }()
+
+	// Should fail due to corrupted project config
+	_, err = Load(context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to read project config file")
+}
+
+func TestLoadWithWorktree_CorruptedMainConfig(t *testing.T) {
+	// Setup main repo with corrupted config
+	mainRepo := t.TempDir()
+	mainConfigDir := filepath.Join(mainRepo, ".atlas")
+	require.NoError(t, os.MkdirAll(mainConfigDir, 0o750))
+
+	invalidConfig := `ai:
+  timeout: {invalid}`
+	require.NoError(t, os.WriteFile(
+		filepath.Join(mainConfigDir, "config.yaml"),
+		[]byte(invalidConfig),
+		0o600,
+	))
+
+	worktree := t.TempDir()
+
+	// Should fail due to corrupted main repo config
+	_, err := LoadWithWorktree(context.Background(), mainRepo, worktree)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to unmarshal config")
+}

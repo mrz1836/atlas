@@ -8,14 +8,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/spf13/cobra"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-
 	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/domain"
 	"github.com/mrz1836/atlas/internal/errors"
 	"github.com/mrz1836/atlas/internal/workspace"
+	"github.com/spf13/cobra"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestWorkspaceDestroyCommand_Structure(t *testing.T) {
@@ -531,4 +530,61 @@ func TestRunWorkspaceDestroy_SuccessMessage(t *testing.T) {
 	output := buf.String()
 	assert.Contains(t, output, "Workspace 'success-test' destroyed")
 	assert.Contains(t, output, "✓")
+}
+
+func TestCheckWorkspaceExists_ExistsCheckError(t *testing.T) {
+	var buf bytes.Buffer
+	tmpDir := t.TempDir()
+
+	// Use context cancellation to trigger error in store.Exists()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately
+
+	_, exists, err := checkWorkspaceExists(
+		ctx,
+		"test-ws",
+		tmpDir,
+		"text",
+		&buf,
+	)
+
+	require.Error(t, err)
+	assert.False(t, exists)
+	assert.Contains(t, err.Error(), "context canceled")
+}
+
+func TestCheckWorkspaceExists_ExistsCheckError_JSON(t *testing.T) {
+	var buf bytes.Buffer
+	tmpDir := t.TempDir()
+
+	// Use context cancellation to trigger error in store.Exists() with JSON output
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately
+
+	_, exists, err := checkWorkspaceExists(
+		ctx,
+		"test-ws",
+		tmpDir,
+		OutputJSON,
+		&buf,
+	)
+
+	require.ErrorIs(t, err, errors.ErrJSONErrorOutput)
+	assert.False(t, exists)
+
+	// Verify JSON error output
+	var result destroyResult
+	unmarshalErr := json.Unmarshal(buf.Bytes(), &result)
+	require.NoError(t, unmarshalErr)
+	assert.Equal(t, "error", result.Status)
+	assert.Contains(t, result.Error, "failed to check workspace")
+}
+
+func TestHandleConfirmation_ForceFlag(t *testing.T) {
+	var buf bytes.Buffer
+
+	// With force flag, should return nil immediately
+	err := handleConfirmation("test-ws", true, "text", &buf)
+	require.NoError(t, err)
+	assert.Empty(t, buf.String())
 }

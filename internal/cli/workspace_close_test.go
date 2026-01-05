@@ -7,14 +7,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/spf13/cobra"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-
 	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/domain"
 	"github.com/mrz1836/atlas/internal/errors"
 	"github.com/mrz1836/atlas/internal/workspace"
+	"github.com/spf13/cobra"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestWorkspaceCloseCommand_Structure(t *testing.T) {
@@ -579,4 +578,138 @@ func TestRunWorkspaceClose_WithValidatingTasks(t *testing.T) {
 	// Should fail with running tasks error (validating also blocks)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, errors.ErrWorkspaceHasRunningTasks)
+}
+
+func TestCheckWorkspaceExistsForClose_ExistsCheckError(t *testing.T) {
+	var buf bytes.Buffer
+	tmpDir := t.TempDir()
+
+	// Use context cancellation to trigger error in store.Exists()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately
+
+	_, exists, err := checkWorkspaceExistsForClose(
+		ctx,
+		"test-ws",
+		tmpDir,
+		"text",
+		&buf,
+	)
+
+	require.Error(t, err)
+	assert.False(t, exists)
+	assert.Contains(t, err.Error(), "context canceled")
+}
+
+func TestCheckWorkspaceExistsForClose_ExistsCheckError_JSON(t *testing.T) {
+	var buf bytes.Buffer
+	tmpDir := t.TempDir()
+
+	// Use context cancellation to trigger error in store.Exists() with JSON output
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately
+
+	_, exists, err := checkWorkspaceExistsForClose(
+		ctx,
+		"test-ws",
+		tmpDir,
+		OutputJSON,
+		&buf,
+	)
+
+	require.ErrorIs(t, err, errors.ErrJSONErrorOutput)
+	assert.False(t, exists)
+
+	// Verify JSON error output
+	var result closeResult
+	unmarshalErr := json.Unmarshal(buf.Bytes(), &result)
+	require.NoError(t, unmarshalErr)
+	assert.Equal(t, "error", result.Status)
+	assert.Contains(t, result.Error, "failed to check workspace")
+}
+
+func TestHandleCloseConfirmation_ForceFlag(t *testing.T) {
+	var buf bytes.Buffer
+
+	// With force flag, should return nil immediately
+	err := handleCloseConfirmation("test-ws", true, "text", &buf)
+	require.NoError(t, err)
+	assert.Empty(t, buf.String())
+}
+
+func TestHandleCloseConfirmation_NonInteractive_Text(t *testing.T) {
+	var buf bytes.Buffer
+
+	// Override terminalCheck to simulate non-interactive mode
+	originalTerminalCheck := terminalCheck
+	terminalCheck = func() bool { return false }
+	defer func() { terminalCheck = originalTerminalCheck }()
+
+	// Without force flag in non-interactive mode (text output)
+	err := handleCloseConfirmation("test-ws", false, "text", &buf)
+	require.ErrorIs(t, err, errors.ErrNonInteractiveMode)
+}
+
+func TestHandleCloseConfirmation_NonInteractive_JSON(t *testing.T) {
+	var buf bytes.Buffer
+
+	// Override terminalCheck to simulate non-interactive mode
+	originalTerminalCheck := terminalCheck
+	terminalCheck = func() bool { return false }
+	defer func() { terminalCheck = originalTerminalCheck }()
+
+	// Without force flag in non-interactive mode (JSON output)
+	err := handleCloseConfirmation("test-ws", false, OutputJSON, &buf)
+	require.ErrorIs(t, err, errors.ErrJSONErrorOutput)
+
+	// Verify JSON error output
+	var result closeResult
+	unmarshalErr := json.Unmarshal(buf.Bytes(), &result)
+	require.NoError(t, unmarshalErr)
+	assert.Equal(t, "error", result.Status)
+	assert.Contains(t, result.Error, "use --force in non-interactive mode")
+}
+
+func TestHandleCloseError_GenericError(t *testing.T) {
+	var buf bytes.Buffer
+
+	// Test with a generic error (not running tasks)
+	genericErr := errors.ErrGitOperation
+	err := handleCloseError(&buf, "test-ws", "text", genericErr)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to close workspace 'test-ws'")
+}
+
+func TestHandleCloseError_GenericError_JSON(t *testing.T) {
+	var buf bytes.Buffer
+
+	// Test with a generic error in JSON mode
+	genericErr := errors.ErrGitOperation
+	err := handleCloseError(&buf, "test-ws", OutputJSON, genericErr)
+
+	require.ErrorIs(t, err, errors.ErrJSONErrorOutput)
+
+	// Verify JSON error output
+	var result closeResult
+	unmarshalErr := json.Unmarshal(buf.Bytes(), &result)
+	require.NoError(t, unmarshalErr)
+	assert.Equal(t, "error", result.Status)
+	assert.Contains(t, result.Error, "git operation failed")
+}
+
+func TestHandleCloseError_RunningTasksError_JSON(t *testing.T) {
+	var buf bytes.Buffer
+
+	// Test with running tasks error in JSON mode
+	err := handleCloseError(&buf, "test-ws", OutputJSON, errors.ErrWorkspaceHasRunningTasks)
+
+	require.ErrorIs(t, err, errors.ErrJSONErrorOutput)
+
+	// Verify JSON error output
+	var result closeResult
+	unmarshalErr := json.Unmarshal(buf.Bytes(), &result)
+	require.NoError(t, unmarshalErr)
+	assert.Equal(t, "error", result.Status)
+	assert.Contains(t, result.Error, "cannot close workspace with running tasks")
 }
