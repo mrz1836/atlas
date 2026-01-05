@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"os"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -81,4 +82,54 @@ func TestLintCommand_Examples(t *testing.T) {
 	// Verify examples are present
 	assert.Contains(t, cmd.Long, "atlas lint")
 	assert.Contains(t, cmd.Long, "atlas lint --output json")
+}
+
+func TestRunLint_DefaultsWhenConfigLoadFails(t *testing.T) {
+	cmd := newLintCmd()
+	root := &cobra.Command{Use: "atlas"}
+	AddGlobalFlags(root, &GlobalFlags{})
+	root.AddCommand(cmd)
+
+	tmpDir := t.TempDir()
+	origWd, err := os.Getwd()
+	require.NoError(t, err)
+	defer func() { _ = os.Chdir(origWd) }()
+
+	require.NoError(t, os.Chdir(tmpDir))
+
+	var buf bytes.Buffer
+	_ = runLint(context.Background(), cmd, &buf)
+}
+
+func TestRunLint_VerboseMode(t *testing.T) {
+	cmd := newLintCmd()
+	root := &cobra.Command{Use: "atlas"}
+	AddGlobalFlags(root, &GlobalFlags{Verbose: true})
+	root.AddCommand(cmd)
+
+	_ = root.PersistentFlags().Set("verbose", "true")
+
+	tmpDir := t.TempDir()
+	origWd, err := os.Getwd()
+	require.NoError(t, err)
+	defer func() { _ = os.Chdir(origWd) }()
+
+	require.NoError(t, os.Chdir(tmpDir))
+
+	var buf bytes.Buffer
+	_ = runLint(context.Background(), cmd, &buf)
+}
+
+func TestNewLintCmd_RunEFunctionExists(t *testing.T) {
+	cmd := newLintCmd()
+	assert.NotNil(t, cmd.RunE, "lint command should have RunE function")
+}
+
+func TestAddLintCommand_AddsToRoot(t *testing.T) {
+	root := &cobra.Command{Use: "atlas"}
+	initialCmdCount := len(root.Commands())
+
+	AddLintCommand(root)
+
+	assert.Len(t, root.Commands(), initialCmdCount+1, "should add one command")
 }

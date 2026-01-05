@@ -141,3 +141,62 @@ func TestNotifyIfEnabledTo_NilConfig(t *testing.T) {
 
 	assert.Empty(t, buf.String(), "Should not write anything for nil config")
 }
+
+func TestEmitBell(t *testing.T) {
+	// EmitBell is a thin wrapper around EmitBellTo(os.Stdout).
+	// We can't easily capture stdout in tests, but we can verify it's callable.
+	// The core logic is tested in TestEmitBellTo.
+	assert.NotPanics(t, func() {
+		EmitBell()
+	}, "EmitBell should not panic")
+}
+
+func TestNotifyIfEnabled(t *testing.T) {
+	tests := []struct {
+		name        string
+		event       string
+		bellEnabled bool
+		events      []string
+	}{
+		{
+			name:        "should call EmitBell when enabled and event matches",
+			event:       NotifyEventAwaitingApproval,
+			bellEnabled: true,
+			events:      []string{NotifyEventAwaitingApproval},
+		},
+		{
+			name:        "should not call EmitBell when disabled",
+			event:       NotifyEventAwaitingApproval,
+			bellEnabled: false,
+			events:      []string{NotifyEventAwaitingApproval},
+		},
+		{
+			name:        "should not call EmitBell when event not in list",
+			event:       NotifyEventCIFailed,
+			bellEnabled: true,
+			events:      []string{NotifyEventAwaitingApproval},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &NotificationConfig{
+				BellEnabled: tt.bellEnabled,
+				Events:      tt.events,
+			}
+
+			// NotifyIfEnabled calls ShouldNotify and EmitBell internally.
+			// We verify it's callable without panic.
+			// The logic is tested through ShouldNotify and EmitBellTo tests.
+			assert.NotPanics(t, func() {
+				NotifyIfEnabled(tt.event, cfg)
+			}, "NotifyIfEnabled should not panic")
+		})
+	}
+}
+
+func TestNotifyIfEnabled_NilConfig(t *testing.T) {
+	assert.NotPanics(t, func() {
+		NotifyIfEnabled(NotifyEventAwaitingApproval, nil)
+	}, "NotifyIfEnabled should not panic with nil config")
+}

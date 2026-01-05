@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"os"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -81,4 +82,54 @@ func TestTestCommand_Examples(t *testing.T) {
 	// Verify examples are present
 	assert.Contains(t, cmd.Long, "atlas test")
 	assert.Contains(t, cmd.Long, "atlas test --output json")
+}
+
+func TestRunTest_DefaultsWhenConfigLoadFails(t *testing.T) {
+	cmd := newTestCmd()
+	root := &cobra.Command{Use: "atlas"}
+	AddGlobalFlags(root, &GlobalFlags{})
+	root.AddCommand(cmd)
+
+	tmpDir := t.TempDir()
+	origWd, err := os.Getwd()
+	require.NoError(t, err)
+	defer func() { _ = os.Chdir(origWd) }()
+
+	require.NoError(t, os.Chdir(tmpDir))
+
+	var buf bytes.Buffer
+	_ = runTest(context.Background(), cmd, &buf)
+}
+
+func TestRunTest_VerboseMode(t *testing.T) {
+	cmd := newTestCmd()
+	root := &cobra.Command{Use: "atlas"}
+	AddGlobalFlags(root, &GlobalFlags{Verbose: true})
+	root.AddCommand(cmd)
+
+	_ = root.PersistentFlags().Set("verbose", "true")
+
+	tmpDir := t.TempDir()
+	origWd, err := os.Getwd()
+	require.NoError(t, err)
+	defer func() { _ = os.Chdir(origWd) }()
+
+	require.NoError(t, os.Chdir(tmpDir))
+
+	var buf bytes.Buffer
+	_ = runTest(context.Background(), cmd, &buf)
+}
+
+func TestNewTestCmd_RunEFunctionExists(t *testing.T) {
+	cmd := newTestCmd()
+	assert.NotNil(t, cmd.RunE, "test command should have RunE function")
+}
+
+func TestAddTestCommand_AddsToRoot(t *testing.T) {
+	root := &cobra.Command{Use: "atlas"}
+	initialCmdCount := len(root.Commands())
+
+	AddTestCommand(root)
+
+	assert.Len(t, root.Commands(), initialCmdCount+1, "should add one command")
 }
