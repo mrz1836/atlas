@@ -152,17 +152,18 @@ func (e *ValidationExecutor) Execute(ctx context.Context, task *domain.Task, ste
 	// Execute the pipeline
 	pipelineResult, pipelineErr := runner.Run(ctx, e.workDir)
 
-	// Build output from pipeline results
-	var output bytes.Buffer
-	output.WriteString(validation.FormatResult(pipelineResult))
-
 	elapsed := time.Since(startTime)
 
-	// Handle result (save artifact, emit notification)
-	if err := e.handlePipelineResult(ctx, task, pipelineResult, log); err != nil {
-		log.Warn().Err(err).Msg("failed to handle pipeline result (artifact/notification)")
+	// Handle result first (save artifact, emit notification) to get artifact path
+	artifactPath, artifactErr := e.handlePipelineResult(ctx, task, pipelineResult, log)
+	if artifactErr != nil {
+		log.Warn().Err(artifactErr).Msg("failed to handle pipeline result (artifact/notification)")
 		// Don't fail the step for artifact save failures
 	}
+
+	// Build output from pipeline results, including artifact path for truncated output
+	var output bytes.Buffer
+	output.WriteString(validation.FormatResultWithArtifact(pipelineResult, artifactPath))
 
 	// Build validation checks metadata for verbose display
 	validationChecks := buildValidationChecks(pipelineResult)
@@ -177,6 +178,14 @@ func (e *ValidationExecutor) Execute(ctx context.Context, task *domain.Task, ste
 			Dur("duration_ms", elapsed).
 			Msg("validation step failed")
 
+		metadata := map[string]any{
+			"validation_checks": validationChecks,
+		}
+		// Include artifact path in metadata for display in manual fix instructions
+		if artifactPath != "" {
+			metadata["artifact_path"] = artifactPath
+		}
+
 		return &domain.StepResult{
 			StepIndex:   task.CurrentStep,
 			StepName:    step.Name,
@@ -186,9 +195,7 @@ func (e *ValidationExecutor) Execute(ctx context.Context, task *domain.Task, ste
 			DurationMs:  elapsed.Milliseconds(),
 			Output:      output.String(),
 			Error:       pipelineErr.Error(),
-			Metadata: map[string]any{
-				"validation_checks": validationChecks,
-			},
+			Metadata:    metadata,
 		}, pipelineErr
 	}
 
@@ -245,28 +252,21 @@ func (e *ValidationExecutor) MaxRetryAttempts() int {
 }
 
 // buildRunnerConfig creates a RunnerConfig from task config and executor's stored commands.
-func (e *ValidationExecutor) buildRunnerConfig(task *domain.Task) *validation.RunnerConfig {
-	config := &validation.RunnerConfig{
+func (e *ValidationExecutor) buildRunnerConfig(_ *domain.Task) *validation.RunnerConfig {
+	return &validation.RunnerConfig{
 		ToolChecker:       e.toolChecker,
 		FormatCommands:    e.formatCommands,
 		LintCommands:      e.lintCommands,
 		TestCommands:      e.testCommands,
 		PreCommitCommands: e.preCommitCommands,
 	}
-
-	// If task has explicit validation commands, use them for lint step
-	// (maintaining backward compatibility with older task configs)
-	if len(task.Config.ValidationCommands) > 0 {
-		config.LintCommands = task.Config.ValidationCommands
-	}
-
-	return config
 }
 
 // handlePipelineResult saves the result as an artifact and emits notifications.
-func (e *ValidationExecutor) handlePipelineResult(ctx context.Context, task *domain.Task, result *validation.PipelineResult, log *zerolog.Logger) error {
+// Returns the artifact path (if saved successfully) and any error.
+func (e *ValidationExecutor) handlePipelineResult(ctx context.Context, task *domain.Task, result *validation.PipelineResult, log *zerolog.Logger) (string, error) {
 	if e.artifactSaver == nil {
-		return nil
+		return "", nil
 	}
 
 	// Create result handler with our dependencies

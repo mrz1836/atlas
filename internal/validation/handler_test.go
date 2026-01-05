@@ -83,13 +83,15 @@ func TestResultHandler_HandleResult_FailureSavesArtifactAndNotifies(t *testing.T
 		LintResults:    []Result{{Command: "magex lint", Success: false, ExitCode: 1}},
 	}
 
-	err := handler.HandleResult(context.Background(), "test-ws", "task-abc", result)
+	artifactPath, err := handler.HandleResult(context.Background(), "test-ws", "task-abc", result)
 
 	require.Error(t, err)
 	require.ErrorIs(t, err, atlaserrors.ErrValidationFailed)
 	assert.Contains(t, err.Error(), "lint")
 	assert.True(t, mockNotifier.BellCalled)
 	assert.Len(t, mockSaver.Calls, 1)
+	// Artifact path should be returned even on failure
+	assert.Equal(t, "validation.1.json", artifactPath)
 }
 
 func TestResultHandler_HandleResult_SuccessAutoProceeds(t *testing.T) {
@@ -107,11 +109,12 @@ func TestResultHandler_HandleResult_SuccessAutoProceeds(t *testing.T) {
 
 	result := &PipelineResult{Success: true}
 
-	err := handler.HandleResult(context.Background(), "test-ws", "task-abc", result)
+	artifactPath, err := handler.HandleResult(context.Background(), "test-ws", "task-abc", result)
 
 	require.NoError(t, err)
 	assert.False(t, mockNotifier.BellCalled)
 	assert.Len(t, mockSaver.Calls, 1)
+	assert.Equal(t, "validation.1.json", artifactPath)
 }
 
 func TestResultHandler_HandleResult_NilNotifier(t *testing.T) {
@@ -127,7 +130,7 @@ func TestResultHandler_HandleResult_NilNotifier(t *testing.T) {
 		FailedStepName: "test",
 	}
 
-	err := handler.HandleResult(context.Background(), "ws", "task", result)
+	_, err := handler.HandleResult(context.Background(), "ws", "task", result)
 
 	// Should not panic with nil notifier
 	require.Error(t, err)
@@ -148,10 +151,11 @@ func TestResultHandler_HandleResult_SaveError(t *testing.T) {
 
 	result := &PipelineResult{Success: true}
 
-	err := handler.HandleResult(context.Background(), "ws", "task", result)
+	artifactPath, err := handler.HandleResult(context.Background(), "ws", "task", result)
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to save validation artifact")
+	assert.Empty(t, artifactPath) // No path on save error
 }
 
 func TestResultHandler_HandleResult_ContextCanceled(t *testing.T) {
@@ -171,7 +175,7 @@ func TestResultHandler_HandleResult_ContextCanceled(t *testing.T) {
 
 	result := &PipelineResult{Success: true}
 
-	err := handler.HandleResult(ctx, "ws", "task", result)
+	_, err := handler.HandleResult(ctx, "ws", "task", result)
 
 	assert.Error(t, err)
 }
@@ -194,12 +198,12 @@ func TestResultHandler_HandleResult_PreservesHistory(t *testing.T) {
 
 	// First result
 	result1 := &PipelineResult{Success: true}
-	err := handler.HandleResult(context.Background(), "ws", "task", result1)
+	_, err := handler.HandleResult(context.Background(), "ws", "task", result1)
 	require.NoError(t, err)
 
 	// Second result
 	result2 := &PipelineResult{Success: true}
-	err = handler.HandleResult(context.Background(), "ws", "task", result2)
+	_, err = handler.HandleResult(context.Background(), "ws", "task", result2)
 	require.NoError(t, err)
 
 	assert.Equal(t, 2, callCount)
@@ -227,7 +231,7 @@ func TestResultHandler_HandleResult_DataMarshaledCorrectly(t *testing.T) {
 		},
 	}
 
-	err := handler.HandleResult(context.Background(), "ws", "task", result)
+	_, err := handler.HandleResult(context.Background(), "ws", "task", result)
 	require.NoError(t, err)
 
 	// Verify JSON is valid and has expected structure
@@ -262,7 +266,7 @@ func TestResultHandler_HandleResult_SkippedStepsLogged(t *testing.T) {
 		},
 	}
 
-	err := handler.HandleResult(context.Background(), "ws", "task", result)
+	_, err := handler.HandleResult(context.Background(), "ws", "task", result)
 	require.NoError(t, err)
 
 	// Verify skipped steps are in saved artifact
@@ -291,7 +295,7 @@ func TestResultHandler_HandleResult_SuccessWithSkippedSteps(t *testing.T) {
 		},
 	}
 
-	err := handler.HandleResult(context.Background(), "test-ws", "task-abc", result)
+	_, err := handler.HandleResult(context.Background(), "test-ws", "task-abc", result)
 
 	// Success with skipped steps should still return no error
 	require.NoError(t, err)

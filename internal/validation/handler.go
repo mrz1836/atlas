@@ -43,19 +43,21 @@ func NewResultHandler(saver ArtifactSaver, notifier Notifier, logger zerolog.Log
 // HandleResult processes a validation pipeline result.
 // It always saves the result as a versioned artifact (validation.json).
 //
-// Returns nil if validation passed (task should auto-proceed).
-// Returns ErrValidationFailed if validation failed (task should pause).
-func (h *ResultHandler) HandleResult(ctx context.Context, workspaceName, taskID string, result *PipelineResult) error {
+// Returns the artifact path (if saved successfully) and an error.
+// Returns empty string and nil if validation passed (task should auto-proceed).
+// Returns empty string and ErrValidationFailed if validation failed (task should pause).
+// Returns artifact path along with any error to allow callers to display the path.
+func (h *ResultHandler) HandleResult(ctx context.Context, workspaceName, taskID string, result *PipelineResult) (string, error) {
 	// Marshal result to JSON
 	data, err := json.MarshalIndent(result, "", "  ")
 	if err != nil {
-		return fmt.Errorf("failed to marshal validation result: %w", err)
+		return "", fmt.Errorf("failed to marshal validation result: %w", err)
 	}
 
 	// Save result as versioned artifact
 	filename, err := h.saver.SaveVersionedArtifact(ctx, workspaceName, taskID, "validation.json", data)
 	if err != nil {
-		return fmt.Errorf("failed to save validation artifact: %w", err)
+		return "", fmt.Errorf("failed to save validation artifact: %w", err)
 	}
 
 	h.logger.Info().
@@ -89,8 +91,9 @@ func (h *ResultHandler) HandleResult(ctx context.Context, workspaceName, taskID 
 			Str("failed_step", result.FailedStepName).
 			Msg("validation failed")
 
-		return fmt.Errorf("%w: %s", atlaserrors.ErrValidationFailed, result.FailedStepName)
+		// Return artifact path along with error so caller can display it
+		return filename, fmt.Errorf("%w: %s", atlaserrors.ErrValidationFailed, result.FailedStepName)
 	}
 
-	return nil
+	return filename, nil
 }

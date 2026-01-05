@@ -851,7 +851,7 @@ func TestValidationExecutor_BuildRunnerConfig(t *testing.T) {
 		assert.Equal(t, []string{"custom-precommit"}, config.PreCommitCommands)
 	})
 
-	t.Run("task validation commands override lint only for backward compatibility", func(t *testing.T) {
+	t.Run("task validation commands are ignored in favor of config separation", func(t *testing.T) {
 		executor := &ValidationExecutor{
 			workDir:           "/tmp/work",
 			formatCommands:    []string{"custom-format"},
@@ -862,16 +862,15 @@ func TestValidationExecutor_BuildRunnerConfig(t *testing.T) {
 
 		task := &domain.Task{
 			Config: domain.TaskConfig{
-				ValidationCommands: []string{"task-specific-lint"}, // Legacy field
+				ValidationCommands: []string{"task-specific-lint"}, // Legacy field (ignored)
 			},
 		}
 
 		config := executor.buildRunnerConfig(task)
 
-		// Lint should be overridden by task config for backward compatibility
-		assert.Equal(t, []string{"task-specific-lint"}, config.LintCommands)
-		// Other commands should still use executor's config commands
+		// All commands should use executor's config commands; task.ValidationCommands is ignored
 		assert.Equal(t, []string{"custom-format"}, config.FormatCommands)
+		assert.Equal(t, []string{"custom-lint"}, config.LintCommands)
 		assert.Equal(t, []string{"custom-test"}, config.TestCommands)
 		assert.Equal(t, []string{"custom-precommit"}, config.PreCommitCommands)
 	})

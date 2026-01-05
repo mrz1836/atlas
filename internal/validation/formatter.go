@@ -11,7 +11,15 @@ const maxStdoutDisplay = 1000
 
 // FormatResult formats a PipelineResult for human-readable display.
 // It provides a clear summary of validation results with emphasis on failures.
+// The artifactPath parameter is optional and will be included in truncated output messages.
 func FormatResult(result *PipelineResult) string {
+	return FormatResultWithArtifact(result, "")
+}
+
+// FormatResultWithArtifact formats a PipelineResult with an optional artifact path.
+// When artifactPath is provided, it will be shown in truncated output messages
+// to help users find the full validation output.
+func FormatResultWithArtifact(result *PipelineResult, artifactPath string) string {
 	var sb strings.Builder
 
 	if result.Success {
@@ -25,7 +33,7 @@ func FormatResult(result *PipelineResult) string {
 	// Format each failed result
 	for _, r := range result.AllResults() {
 		if !r.Success {
-			sb.WriteString(formatFailedCommand(r))
+			sb.WriteString(formatFailedCommand(r, artifactPath))
 		}
 	}
 
@@ -38,7 +46,8 @@ func FormatResult(result *PipelineResult) string {
 }
 
 // formatFailedCommand formats a single failed command result.
-func formatFailedCommand(r Result) string {
+// The artifactPath is included in truncation messages when provided.
+func formatFailedCommand(r Result, artifactPath string) string {
 	var sb strings.Builder
 
 	sb.WriteString(fmt.Sprintf("### Command: %s\n", r.Command))
@@ -52,17 +61,23 @@ func formatFailedCommand(r Result) string {
 
 	// Show stdout, truncating if necessary
 	if r.Stdout != "" {
-		if len(r.Stdout) < maxStdoutDisplay {
-			sb.WriteString("**Standard output:**\n```\n")
-			sb.WriteString(r.Stdout)
-			sb.WriteString("\n```\n")
-		} else {
-			sb.WriteString("**Standard output (truncated):**\n```\n")
-			sb.WriteString(r.Stdout[:maxStdoutDisplay])
-			sb.WriteString("\n...[truncated, see validation.json artifact for full output]\n```\n")
-		}
+		sb.WriteString(formatStdout(r.Stdout, artifactPath))
 	}
 
 	sb.WriteString("\n")
 	return sb.String()
+}
+
+// formatStdout formats stdout output, truncating if necessary.
+func formatStdout(stdout, artifactPath string) string {
+	if len(stdout) < maxStdoutDisplay {
+		return fmt.Sprintf("**Standard output:**\n```\n%s\n```\n", stdout)
+	}
+
+	// Truncated output
+	truncatedMsg := "\n...[truncated, see validation.json artifact for full output]\n```\n"
+	if artifactPath != "" {
+		truncatedMsg = fmt.Sprintf("\n...[truncated, see validation.json artifact for full output]\n\n📄 Full output saved to: %s\n```\n", artifactPath)
+	}
+	return fmt.Sprintf("**Standard output (truncated):**\n```\n%s%s", stdout[:maxStdoutDisplay], truncatedMsg)
 }
