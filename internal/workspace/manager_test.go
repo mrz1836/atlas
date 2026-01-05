@@ -588,9 +588,11 @@ func TestDefaultManager_Close_CleanWorkspace(t *testing.T) {
 	runner := newMockWorktreeRunner()
 
 	mgr := NewManager(store, runner)
-	err := mgr.Close(context.Background(), "test")
+	result, err := mgr.Close(context.Background(), "test")
 
 	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Empty(t, result.WorktreeWarning) // No warning when removal succeeds
 	// Verify status was updated
 	ws := store.workspaces["test"]
 	assert.Equal(t, constants.WorkspaceStatusClosed, ws.Status)
@@ -617,10 +619,11 @@ func TestDefaultManager_Close_StoreUpdateFailure(t *testing.T) {
 	runner := newMockWorktreeRunner()
 
 	mgr := NewManager(store, runner)
-	err := mgr.Close(context.Background(), "test")
+	result, err := mgr.Close(context.Background(), "test")
 
 	// Should fail with store error
 	require.Error(t, err)
+	assert.Nil(t, result)
 	assert.Contains(t, err.Error(), "failed to update workspace status")
 	// Worktree should NOT be removed (store update happens first now)
 	assert.Equal(t, 0, runner.removeCallCount)
@@ -640,9 +643,10 @@ func TestDefaultManager_Close_WithRunningTasksReturnsError(t *testing.T) {
 	runner := newMockWorktreeRunner()
 
 	mgr := NewManager(store, runner)
-	err := mgr.Close(context.Background(), "test")
+	result, err := mgr.Close(context.Background(), "test")
 
 	require.Error(t, err)
+	assert.Nil(t, result)
 	assert.Contains(t, err.Error(), "task 'task-1' is still running")
 	// Verify workspace was NOT modified
 	ws := store.workspaces["test"]
@@ -663,9 +667,10 @@ func TestDefaultManager_Close_WithValidatingTasksReturnsError(t *testing.T) {
 	runner := newMockWorktreeRunner()
 
 	mgr := NewManager(store, runner)
-	err := mgr.Close(context.Background(), "test")
+	result, err := mgr.Close(context.Background(), "test")
 
 	require.Error(t, err)
+	assert.Nil(t, result)
 	assert.Contains(t, err.Error(), "task 'task-1' is still running")
 }
 
@@ -683,9 +688,11 @@ func TestDefaultManager_Close_WithCompletedTasksSucceeds(t *testing.T) {
 	runner := newMockWorktreeRunner()
 
 	mgr := NewManager(store, runner)
-	err := mgr.Close(context.Background(), "test")
+	result, err := mgr.Close(context.Background(), "test")
 
 	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Empty(t, result.WorktreeWarning)
 }
 
 func TestDefaultManager_Close_NonExistentWorkspace(t *testing.T) {
@@ -693,9 +700,10 @@ func TestDefaultManager_Close_NonExistentWorkspace(t *testing.T) {
 	runner := newMockWorktreeRunner()
 
 	mgr := NewManager(store, runner)
-	err := mgr.Close(context.Background(), "nonexistent")
+	result, err := mgr.Close(context.Background(), "nonexistent")
 
 	require.Error(t, err)
+	assert.Nil(t, result)
 	assert.ErrorIs(t, err, atlaserrors.ErrWorkspaceNotFound)
 }
 
@@ -708,15 +716,16 @@ func TestDefaultManager_Close_ContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	err := mgr.Close(ctx, "test")
+	result, err := mgr.Close(ctx, "test")
 
 	require.Error(t, err)
+	assert.Nil(t, result)
 	assert.ErrorIs(t, err, context.Canceled)
 }
 
 func TestDefaultManager_Close_NilWorktreeRunner(t *testing.T) {
 	// Test that Close succeeds even when worktreeRunner is nil
-	// State should be updated even though worktree can't be removed
+	// State should be updated and warning returned about worktree not being removed
 	store := newMockStore()
 	store.workspaces["test"] = &domain.Workspace{
 		Name:         "test",
@@ -728,10 +737,15 @@ func TestDefaultManager_Close_NilWorktreeRunner(t *testing.T) {
 
 	// Pass nil worktree runner
 	mgr := NewManager(store, nil)
-	err := mgr.Close(context.Background(), "test")
+	result, err := mgr.Close(context.Background(), "test")
 
 	// Should succeed - state update is more important than worktree removal
 	require.NoError(t, err)
+	require.NotNil(t, result)
+	// Warning should indicate worktree was not removed
+	assert.NotEmpty(t, result.WorktreeWarning)
+	assert.Contains(t, result.WorktreeWarning, "/tmp/repo-test")
+	assert.Contains(t, result.WorktreeWarning, "no worktree runner")
 	// Workspace state should be updated to closed
 	ws := store.workspaces["test"]
 	assert.Equal(t, constants.WorkspaceStatusClosed, ws.Status)
@@ -889,9 +903,12 @@ func TestDefaultManager_Close_ForceRemoveOnDirty(t *testing.T) {
 	runner := &forceRemoveMockRunner{firstCallFails: true}
 
 	mgr := NewManager(store, runner)
-	err := mgr.Close(context.Background(), "test")
+	result, err := mgr.Close(context.Background(), "test")
 
 	require.NoError(t, err)
+	require.NotNil(t, result)
+	// No warning because force removal succeeds
+	assert.Empty(t, result.WorktreeWarning)
 	// Store update happens first, then worktree removal
 	// First try fails, then force succeeds
 	assert.Equal(t, 2, runner.removeCallCount) // First try, then force
@@ -914,6 +931,73 @@ func (m *forceRemoveMockRunner) Remove(_ context.Context, _ string, force bool) 
 		return atlaserrors.ErrWorktreeDirty
 	}
 	return nil
+}
+
+func TestDefaultManager_Close_BothRemoveAttemptsFail(t *testing.T) {
+	// Test that when both normal and force removal fail, we get a warning
+	store := newMockStore()
+	store.workspaces["test"] = &domain.Workspace{
+		Name:         "test",
+		WorktreePath: "/tmp/repo-test",
+		Branch:       "feat/test",
+		Status:       constants.WorkspaceStatusActive,
+		Tasks:        []domain.TaskRef{},
+	}
+	runner := &alwaysFailRemoveMockRunner{}
+
+	mgr := NewManager(store, runner)
+	result, err := mgr.Close(context.Background(), "test")
+
+	// Close succeeds (state is updated) but with warning
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	// Warning should be present since removal failed
+	assert.NotEmpty(t, result.WorktreeWarning)
+	assert.Contains(t, result.WorktreeWarning, "/tmp/repo-test")
+	assert.Contains(t, result.WorktreeWarning, "failed to remove worktree")
+	// Both normal and force removal were attempted
+	assert.Equal(t, 2, runner.removeCallCount)
+	// Status should still be updated
+	ws := store.workspaces["test"]
+	assert.Equal(t, constants.WorkspaceStatusClosed, ws.Status)
+}
+
+// alwaysFailRemoveMockRunner always fails on Remove calls.
+type alwaysFailRemoveMockRunner struct {
+	MockWorktreeRunner
+
+	removeCallCount int
+}
+
+func (m *alwaysFailRemoveMockRunner) Remove(_ context.Context, _ string, _ bool) error {
+	m.removeCallCount++
+	return atlaserrors.ErrWorktreeDirty
+}
+
+func TestDefaultManager_Close_NoWorktreePath(t *testing.T) {
+	// Test that Close succeeds without warning when workspace has no worktree path
+	store := newMockStore()
+	store.workspaces["test"] = &domain.Workspace{
+		Name:         "test",
+		WorktreePath: "", // No worktree path
+		Branch:       "feat/test",
+		Status:       constants.WorkspaceStatusActive,
+		Tasks:        []domain.TaskRef{},
+	}
+	runner := newMockWorktreeRunner()
+
+	mgr := NewManager(store, runner)
+	result, err := mgr.Close(context.Background(), "test")
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	// No warning since there was no worktree to remove
+	assert.Empty(t, result.WorktreeWarning)
+	// Remove should not have been called
+	assert.Equal(t, 0, runner.removeCallCount)
+	// Status should be updated
+	ws := store.workspaces["test"]
+	assert.Equal(t, constants.WorkspaceStatusClosed, ws.Status)
 }
 
 func TestDefaultManager_SupportsConcurrentWorkspaces(t *testing.T) {

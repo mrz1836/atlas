@@ -16,6 +16,13 @@ import (
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 )
 
+// CloseResult contains the result of a workspace close operation.
+type CloseResult struct {
+	// WorktreeWarning is non-empty if worktree removal failed.
+	// The workspace is still marked as closed, but the worktree files remain on disk.
+	WorktreeWarning string
+}
+
 // Manager orchestrates workspace lifecycle operations.
 // It coordinates between the Store (state persistence) and WorktreeRunner (git worktrees).
 type Manager interface {
@@ -40,7 +47,8 @@ type Manager interface {
 
 	// Close archives a workspace, removing worktree but keeping state.
 	// Returns error if tasks are running.
-	Close(ctx context.Context, name string) error
+	// Returns CloseResult with WorktreeWarning if worktree removal fails.
+	Close(ctx context.Context, name string) (*CloseResult, error)
 
 	// UpdateStatus updates the status of a workspace.
 	UpdateStatus(ctx context.Context, name string, status constants.WorkspaceStatus) error
@@ -232,25 +240,27 @@ func removeOrphanedDirectory(path string) error {
 }
 
 // Close archives a workspace, removing worktree but keeping state.
-func (m *DefaultManager) Close(ctx context.Context, name string) error {
+func (m *DefaultManager) Close(ctx context.Context, name string) (*CloseResult, error) {
+	result := &CloseResult{}
+
 	// Check for cancellation
 	select {
 	case <-ctx.Done():
-		return ctx.Err()
+		return nil, ctx.Err()
 	default:
 	}
 
 	// Load workspace
 	ws, err := m.store.Get(ctx, name)
 	if err != nil {
-		return fmt.Errorf("failed to close workspace '%s': %w", name, err)
+		return nil, fmt.Errorf("failed to close workspace '%s': %w", name, err)
 	}
 
 	// Check for running tasks
 	for _, task := range ws.Tasks {
 		if task.Status == constants.TaskStatusRunning ||
 			task.Status == constants.TaskStatusValidating {
-			return fmt.Errorf("cannot close workspace '%s': task '%s' is still running: %w",
+			return nil, fmt.Errorf("cannot close workspace '%s': task '%s' is still running: %w",
 				name, task.ID, atlaserrors.ErrWorkspaceHasRunningTasks)
 		}
 	}
@@ -265,25 +275,16 @@ func (m *DefaultManager) Close(ctx context.Context, name string) error {
 	ws.UpdatedAt = time.Now()
 
 	if err := m.store.Update(ctx, ws); err != nil {
-		return fmt.Errorf("failed to update workspace status: %w", err)
+		return nil, fmt.Errorf("failed to update workspace status: %w", err)
 	}
 
 	// Now remove worktree (state is already consistent)
-	// If this fails, state says closed with no worktree, which is acceptable
-	if worktreePath != "" && m.worktreeRunner != nil {
-		if err := m.worktreeRunner.Remove(ctx, worktreePath, false); err != nil {
-			// If worktree is dirty or has other issues, force remove
-			// Log both errors for debugging context
-			firstErr := err
-			if forceErr := m.worktreeRunner.Remove(ctx, worktreePath, true); forceErr != nil {
-				// Both attempts failed - state is already updated, log warning
-				// Future: integrate with zerolog for warning output
-				_ = fmt.Errorf("warning: failed to remove worktree (non-force: %w, force: %w)", firstErr, forceErr)
-			}
-		}
+	// If this fails, state says closed with no worktree - record warning but don't fail
+	if worktreePath != "" {
+		result.WorktreeWarning = m.tryRemoveWorktree(ctx, worktreePath)
 	}
 
-	return nil
+	return result, nil
 }
 
 // UpdateStatus updates the status of a workspace.
@@ -323,6 +324,28 @@ func (m *DefaultManager) Exists(ctx context.Context, name string) (bool, error) 
 	}
 
 	return m.store.Exists(ctx, name)
+}
+
+// tryRemoveWorktree attempts to remove a worktree, returning a warning message if it fails.
+// It tries normal removal first, then force removal if that fails.
+func (m *DefaultManager) tryRemoveWorktree(ctx context.Context, worktreePath string) string {
+	if m.worktreeRunner == nil {
+		return fmt.Sprintf("worktree at '%s' was not removed: no worktree runner available", worktreePath)
+	}
+
+	err := m.worktreeRunner.Remove(ctx, worktreePath, false)
+	if err == nil {
+		return "" // Success
+	}
+
+	// If worktree is dirty or has other issues, force remove
+	forceErr := m.worktreeRunner.Remove(ctx, worktreePath, true)
+	if forceErr != nil {
+		// Both attempts failed - return warning
+		return fmt.Sprintf("failed to remove worktree at '%s': %v", worktreePath, forceErr)
+	}
+
+	return "" // Force removal succeeded
 }
 
 // loadWorkspaceForDestroy attempts to load a workspace, collecting warnings on failure.

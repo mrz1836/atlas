@@ -209,12 +209,31 @@ func executeClose(ctx context.Context, store *workspace.FileStore, name, output 
 	// Create manager and close
 	mgr := workspace.NewManager(store, wtRunner)
 
-	if closeErr := mgr.Close(ctx, name); closeErr != nil {
+	result, closeErr := mgr.Close(ctx, name)
+	if closeErr != nil {
 		return handleCloseError(w, name, output, closeErr)
 	}
 
-	// Output success
-	return outputCloseSuccess(w, name, output)
+	// Get warning message if worktree removal failed
+	var warning string
+	if result != nil && result.WorktreeWarning != "" {
+		warning = result.WorktreeWarning
+	}
+
+	// Output success with optional warning
+	if output == OutputJSON {
+		return outputCloseSuccessJSONWithWarning(w, name, warning)
+	}
+
+	// Text output: success message first, then warning if any
+	if err := outputCloseSuccess(w, name, output); err != nil {
+		return err
+	}
+	if warning != "" {
+		outputCloseWarning(w, warning, output)
+	}
+
+	return nil
 }
 
 // handleCloseError handles errors from the close operation.
@@ -249,6 +268,25 @@ func outputCloseSuccess(w io.Writer, name, output string) error {
 	return nil
 }
 
+// outputCloseWarning outputs a warning message about worktree removal failure.
+func outputCloseWarning(w io.Writer, warning, output string) {
+	if output == OutputJSON {
+		// For JSON output, include warning in a separate line
+		if err := json.NewEncoder(w).Encode(map[string]interface{}{
+			"type":    "warning",
+			"message": warning,
+		}); err != nil {
+			// Best effort - if JSON encoding fails, fall back to stderr
+			_, _ = fmt.Fprintf(os.Stderr, "Warning: %s\n", warning)
+		}
+		return
+	}
+
+	// Use lipgloss for styled warning message
+	warningIcon := lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Render("⚠")
+	_, _ = fmt.Fprintf(w, "%s Warning: %s\n", warningIcon, warning)
+}
+
 // confirmClose prompts the user for confirmation before closing a workspace.
 func confirmClose(name string) (bool, error) {
 	var confirm bool
@@ -276,15 +314,22 @@ type closeResult struct {
 	Status           string `json:"status"`
 	Workspace        string `json:"workspace"`
 	HistoryPreserved bool   `json:"history_preserved,omitempty"`
+	Warning          string `json:"warning,omitempty"`
 	Error            string `json:"error,omitempty"`
 }
 
 // outputCloseSuccessJSON outputs a success result as JSON.
 func outputCloseSuccessJSON(w io.Writer, name string) error {
+	return outputCloseSuccessJSONWithWarning(w, name, "")
+}
+
+// outputCloseSuccessJSONWithWarning outputs a success result as JSON with an optional warning.
+func outputCloseSuccessJSONWithWarning(w io.Writer, name, warning string) error {
 	result := closeResult{
 		Status:           "closed",
 		Workspace:        name,
 		HistoryPreserved: true,
+		Warning:          warning,
 	}
 
 	encoder := json.NewEncoder(w)
