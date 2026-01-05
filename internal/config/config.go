@@ -44,19 +44,22 @@ type Config struct {
 }
 
 // AIConfig contains settings for AI/LLM operations.
-// These settings control how ATLAS interacts with Claude Code and other LLMs.
+// These settings control how ATLAS interacts with Claude Code, Gemini, Codex, and other LLMs.
 type AIConfig struct {
-	// Model specifies the AI model to use (e.g., "sonnet", "opus", "haiku").
-	// Default: "sonnet"
+	// Agent specifies which AI CLI to use (e.g., "claude", "gemini", "codex").
+	// Default: "claude"
+	Agent string `yaml:"agent" mapstructure:"agent"`
+
+	// Model specifies the AI model to use (e.g., "sonnet", "opus", "flash", "pro", "codex", "max", "mini").
+	// Default: depends on agent ("sonnet" for claude, "flash" for gemini, "codex" for codex)
 	Model string `yaml:"model" mapstructure:"model"`
 
-	// APIKeyEnvVar is the name of the environment variable containing the API key.
-	// This is metadata only - Claude CLI automatically reads from this env var.
-	// Atlas uses this value to:
-	//   1. Validate the env var is set before running tasks
-	//   2. Provide helpful error messages when the API key is missing
-	// Default: "ANTHROPIC_API_KEY"
-	APIKeyEnvVar string `yaml:"api_key_env_var" mapstructure:"api_key_env_var"`
+	// APIKeyEnvVars maps agent names to their API key environment variable names.
+	// This allows configuring custom API key env vars per provider.
+	// Example: {"claude": "MY_ANTHROPIC_KEY", "codex": "WORK_OPENAI_KEY"}
+	// If an agent is not in the map, its default env var is used.
+	// Defaults: {"claude": "ANTHROPIC_API_KEY", "gemini": "GEMINI_API_KEY", "codex": "OPENAI_API_KEY"}
+	APIKeyEnvVars map[string]string `yaml:"api_key_env_vars" mapstructure:"api_key_env_vars"`
 
 	// Timeout is the maximum duration for AI execution operations.
 	// Default: 30 minutes
@@ -72,6 +75,27 @@ type AIConfig struct {
 	// Set to 0 for no budget limit.
 	// Default: 0 (unlimited)
 	MaxBudgetUSD float64 `yaml:"max_budget_usd,omitempty" mapstructure:"max_budget_usd"`
+}
+
+// GetAPIKeyEnvVar returns the API key environment variable for the given agent.
+// It checks the configured APIKeyEnvVars map first, then falls back to the agent's default.
+func (c *AIConfig) GetAPIKeyEnvVar(agent string) string {
+	if c.APIKeyEnvVars != nil {
+		if envVar, ok := c.APIKeyEnvVars[agent]; ok {
+			return envVar
+		}
+	}
+	// Fall back to agent defaults
+	switch agent {
+	case "claude":
+		return "ANTHROPIC_API_KEY"
+	case "gemini":
+		return "GEMINI_API_KEY"
+	case "codex":
+		return "OPENAI_API_KEY"
+	default:
+		return ""
+	}
 }
 
 // GitConfig contains settings for git operations.

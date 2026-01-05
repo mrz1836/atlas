@@ -226,10 +226,30 @@ func getToolConfigs() []toolConfig {
 			command:     constants.ToolClaude,
 			versionFlag: constants.VersionFlagStandard,
 			minVersion:  constants.MinVersionClaude,
-			required:    true,
+			required:    false, // Lazy validation - checked when agent is used
 			managed:     false,
 			installHint: "Install Claude CLI: npm install -g @anthropic-ai/claude-code",
 			parseFunc:   parseClaudeVersion,
+		},
+		{
+			name:        constants.ToolGemini,
+			command:     constants.ToolGemini,
+			versionFlag: constants.VersionFlagStandard,
+			minVersion:  constants.MinVersionGemini,
+			required:    false, // Lazy validation - checked when agent is used
+			managed:     false,
+			installHint: "Install Gemini CLI: npm install -g @google/gemini-cli",
+			parseFunc:   parseGeminiVersion,
+		},
+		{
+			name:        constants.ToolCodex,
+			command:     constants.ToolCodex,
+			versionFlag: constants.VersionFlagStandard,
+			minVersion:  constants.MinVersionCodex,
+			required:    false, // Lazy validation - checked when agent is used
+			managed:     false,
+			installHint: "Install Codex CLI: npm install -g @openai/codex",
+			parseFunc:   parseCodexVersion,
 		},
 		{
 			name:        constants.ToolMageX,
@@ -426,6 +446,42 @@ func parseMageXVersion(output string) string {
 	matches := re.FindStringSubmatch(output)
 	if len(matches) >= 2 {
 		return matches[1]
+	}
+	return ""
+}
+
+// parseGeminiVersion parses various Gemini CLI version formats.
+// Examples: "gemini 0.22.5", "gemini-cli 0.22.5", "0.22.5"
+func parseGeminiVersion(output string) string {
+	// Try patterns from most specific to most general
+	patterns := []string{
+		`(?i)gemini[- ]?(?:cli)?[- ]?v?(\d+\.\d+(?:\.\d+)?)`,
+		`v?(\d+\.\d+\.\d+)`,
+	}
+	for _, pattern := range patterns {
+		re := regexp.MustCompile(pattern)
+		matches := re.FindStringSubmatch(output)
+		if len(matches) >= 2 {
+			return matches[1]
+		}
+	}
+	return ""
+}
+
+// parseCodexVersion parses various Codex CLI version formats.
+// Examples: "codex 0.77.0", "Codex CLI v0.77.0", "0.77.0"
+func parseCodexVersion(output string) string {
+	// Try patterns from most specific to most general
+	patterns := []string{
+		`(?i)codex[- ]?(?:cli)?[- ]?v?(\d+\.\d+(?:\.\d+)?)`,
+		`v?(\d+\.\d+\.\d+)`,
+	}
+	for _, pattern := range patterns {
+		re := regexp.MustCompile(pattern)
+		matches := re.FindStringSubmatch(output)
+		if len(matches) >= 2 {
+			return matches[1]
+		}
 	}
 	return ""
 }

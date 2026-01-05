@@ -18,7 +18,9 @@ func TestDefaultConfig_ReturnsValidConfig(t *testing.T) {
 
 	// Verify AI defaults
 	assert.Equal(t, "sonnet", cfg.AI.Model, "default AI model should be sonnet")
-	assert.Equal(t, "ANTHROPIC_API_KEY", cfg.AI.APIKeyEnvVar, "default API key env var")
+	assert.Equal(t, "ANTHROPIC_API_KEY", cfg.AI.GetAPIKeyEnvVar("claude"), "default Claude API key env var")
+	assert.Equal(t, "GEMINI_API_KEY", cfg.AI.GetAPIKeyEnvVar("gemini"), "default Gemini API key env var")
+	assert.Equal(t, "OPENAI_API_KEY", cfg.AI.GetAPIKeyEnvVar("codex"), "default Codex API key env var")
 	assert.Equal(t, constants.DefaultAITimeout, cfg.AI.Timeout, "default AI timeout")
 	assert.Equal(t, 10, cfg.AI.MaxTurns, "default max turns")
 
@@ -52,10 +54,12 @@ func TestDefaultConfig_ReturnsValidConfig(t *testing.T) {
 func TestConfig_YAMLSerialization(t *testing.T) {
 	original := &Config{
 		AI: AIConfig{
-			Model:        "opus",
-			APIKeyEnvVar: "MY_API_KEY",
-			Timeout:      45 * time.Minute,
-			MaxTurns:     20,
+			Model: "opus",
+			APIKeyEnvVars: map[string]string{
+				"claude": "MY_API_KEY",
+			},
+			Timeout:  45 * time.Minute,
+			MaxTurns: 20,
 		},
 		Git: GitConfig{
 			BaseBranch:     "develop",
@@ -109,7 +113,7 @@ func TestConfig_YAMLSerialization(t *testing.T) {
 
 	// Verify all fields
 	assert.Equal(t, original.AI.Model, restored.AI.Model)
-	assert.Equal(t, original.AI.APIKeyEnvVar, restored.AI.APIKeyEnvVar)
+	assert.Equal(t, original.AI.APIKeyEnvVars["claude"], restored.AI.APIKeyEnvVars["claude"])
 	assert.Equal(t, original.AI.Timeout, restored.AI.Timeout)
 	assert.Equal(t, original.AI.MaxTurns, restored.AI.MaxTurns)
 

@@ -28,6 +28,12 @@ const (
 	// ToolClaude is the Claude Code CLI.
 	ToolClaude = "claude"
 
+	// ToolGemini is the Gemini CLI.
+	ToolGemini = "gemini"
+
+	// ToolCodex is the OpenAI Codex CLI.
+	ToolCodex = "codex"
+
 	// ToolMageX is the mage-x build automation tool.
 	ToolMageX = "magex"
 
@@ -54,6 +60,12 @@ const (
 
 	// MinVersionClaude is the minimum required Claude Code version.
 	MinVersionClaude = "2.0.76"
+
+	// MinVersionGemini is the minimum required Gemini CLI version.
+	MinVersionGemini = "0.22.5"
+
+	// MinVersionCodex is the minimum required Codex CLI version.
+	MinVersionCodex = "0.77.0"
 )
 
 // Tool version command arguments.

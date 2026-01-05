@@ -250,7 +250,7 @@ func TestLoadWithOverrides_AppliesCLIOverrides(t *testing.T) {
 	assert.Equal(t, "develop", cfg.Git.BaseBranch, "override base branch")
 
 	// Verify non-overridden values keep defaults
-	assert.Equal(t, "ANTHROPIC_API_KEY", cfg.AI.APIKeyEnvVar, "default API key env var")
+	assert.Equal(t, "ANTHROPIC_API_KEY", cfg.AI.GetAPIKeyEnvVar("claude"), "default API key env var")
 	assert.Equal(t, "origin", cfg.Git.Remote, "default remote")
 }
 
@@ -633,7 +633,7 @@ func TestConfig_Precedence_Documentation(t *testing.T) {
 
 	// Verify defaults are applied (level 5)
 	assert.Equal(t, "sonnet", cfg.AI.Model, "default model should be sonnet")
-	assert.Equal(t, "ANTHROPIC_API_KEY", cfg.AI.APIKeyEnvVar, "default API key env var")
+	assert.Equal(t, "ANTHROPIC_API_KEY", cfg.AI.GetAPIKeyEnvVar("claude"), "default API key env var")
 	assert.Equal(t, constants.DefaultAITimeout, cfg.AI.Timeout, "default AI timeout")
 	assert.Equal(t, 10, cfg.AI.MaxTurns, "default max turns")
 	assert.Equal(t, "main", cfg.Git.BaseBranch, "default base branch")
@@ -658,10 +658,12 @@ func TestApplyOverrides_AllFields(t *testing.T) {
 
 	overrides := &Config{
 		AI: AIConfig{
-			Model:        "opus",
-			APIKeyEnvVar: "MY_API_KEY",
-			Timeout:      45 * time.Minute,
-			MaxTurns:     25,
+			Model: "opus",
+			APIKeyEnvVars: map[string]string{
+				"claude": "MY_API_KEY",
+			},
+			Timeout:  45 * time.Minute,
+			MaxTurns: 25,
 		},
 		Git: GitConfig{
 			BaseBranch: "develop",
@@ -700,7 +702,7 @@ func TestApplyOverrides_AllFields(t *testing.T) {
 
 	// Verify all AI overrides
 	assert.Equal(t, "opus", cfg.AI.Model)
-	assert.Equal(t, "MY_API_KEY", cfg.AI.APIKeyEnvVar)
+	assert.Equal(t, "MY_API_KEY", cfg.AI.GetAPIKeyEnvVar("claude"))
 	assert.Equal(t, 45*time.Minute, cfg.AI.Timeout)
 	assert.Equal(t, 25, cfg.AI.MaxTurns)
 
@@ -761,7 +763,7 @@ func TestApplyOverrides_PartialOverrides(t *testing.T) {
 	assert.Equal(t, "opus", cfg.AI.Model)
 
 	// Other values should retain defaults
-	assert.Equal(t, "ANTHROPIC_API_KEY", cfg.AI.APIKeyEnvVar)
+	assert.Equal(t, "ANTHROPIC_API_KEY", cfg.AI.GetAPIKeyEnvVar("claude"))
 	assert.Equal(t, constants.DefaultAITimeout, cfg.AI.Timeout)
 	assert.Equal(t, 10, cfg.AI.MaxTurns)
 	assert.Equal(t, "main", cfg.Git.BaseBranch)

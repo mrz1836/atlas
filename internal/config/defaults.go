@@ -15,13 +15,24 @@ import (
 func DefaultConfig() *Config {
 	return &Config{
 		AI: AIConfig{
+			// Agent: "claude" is the default AI CLI agent.
+			// Users can override to "gemini" for Google's Gemini models or "codex" for OpenAI.
+			Agent: "claude",
+
 			// Model: "sonnet" is the recommended balance of capability and cost.
 			// Users can override to "opus" for more complex tasks or "haiku" for speed.
+			// For gemini, use "flash" (default) or "pro".
+			// For codex, use "codex" (default), "max", or "mini".
 			Model: "sonnet",
 
-			// APIKeyEnvVar: Standard Anthropic API key environment variable.
+			// APIKeyEnvVars: Maps agent names to their API key environment variables.
 			// This keeps API keys out of config files for security.
-			APIKeyEnvVar: "ANTHROPIC_API_KEY",
+			// Users can override with custom env var names per provider.
+			APIKeyEnvVars: map[string]string{
+				"claude": "ANTHROPIC_API_KEY",
+				"gemini": "GEMINI_API_KEY",
+				"codex":  "OPENAI_API_KEY",
+			},
 
 			// Timeout: 30 minutes allows for complex AI operations.
 			// Uses the centralized constant for consistency.

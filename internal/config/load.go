@@ -213,7 +213,11 @@ func LoadFromPaths(_ context.Context, projectConfigPath, globalConfigPath string
 func setDefaults(v *viper.Viper) {
 	// AI defaults
 	v.SetDefault("ai.model", "sonnet")
-	v.SetDefault("ai.api_key_env_var", "ANTHROPIC_API_KEY")
+	v.SetDefault("ai.api_key_env_vars", map[string]string{
+		"claude": "ANTHROPIC_API_KEY",
+		"gemini": "GEMINI_API_KEY",
+		"codex":  "OPENAI_API_KEY",
+	})
 	v.SetDefault("ai.timeout", constants.DefaultAITimeout)
 	v.SetDefault("ai.max_turns", 10)
 
@@ -264,18 +268,7 @@ func setDefaults(v *viper.Viper) {
 //	}
 func applyOverrides(cfg, overrides *Config) {
 	// AI overrides
-	if overrides.AI.Model != "" {
-		cfg.AI.Model = overrides.AI.Model
-	}
-	if overrides.AI.APIKeyEnvVar != "" {
-		cfg.AI.APIKeyEnvVar = overrides.AI.APIKeyEnvVar
-	}
-	if overrides.AI.Timeout != 0 {
-		cfg.AI.Timeout = overrides.AI.Timeout
-	}
-	if overrides.AI.MaxTurns != 0 {
-		cfg.AI.MaxTurns = overrides.AI.MaxTurns
-	}
+	applyAIOverrides(cfg, overrides)
 
 	// Git overrides
 	if overrides.Git.BaseBranch != "" {
@@ -307,6 +300,43 @@ func applyOverrides(cfg, overrides *Config) {
 	}
 
 	// Templates overrides
+	applyTemplatesOverrides(cfg, overrides)
+
+	// Validation overrides (extracted to reduce complexity)
+	applyValidationOverrides(cfg, overrides)
+	// ParallelExecution is a bool - same caveat as AutoProceedGit
+
+	// Notifications overrides (Bell is a bool - same caveat)
+	if len(overrides.Notifications.Events) > 0 {
+		cfg.Notifications.Events = overrides.Notifications.Events
+	}
+}
+
+// applyAIOverrides applies AI-related overrides to the config.
+// This is extracted from applyOverrides to reduce cognitive complexity.
+func applyAIOverrides(cfg, overrides *Config) {
+	if overrides.AI.Model != "" {
+		cfg.AI.Model = overrides.AI.Model
+	}
+	if len(overrides.AI.APIKeyEnvVars) > 0 {
+		if cfg.AI.APIKeyEnvVars == nil {
+			cfg.AI.APIKeyEnvVars = make(map[string]string)
+		}
+		for k, v := range overrides.AI.APIKeyEnvVars {
+			cfg.AI.APIKeyEnvVars[k] = v
+		}
+	}
+	if overrides.AI.Timeout != 0 {
+		cfg.AI.Timeout = overrides.AI.Timeout
+	}
+	if overrides.AI.MaxTurns != 0 {
+		cfg.AI.MaxTurns = overrides.AI.MaxTurns
+	}
+}
+
+// applyTemplatesOverrides applies templates-related overrides to the config.
+// This is extracted from applyOverrides to reduce cognitive complexity.
+func applyTemplatesOverrides(cfg, overrides *Config) {
 	if overrides.Templates.DefaultTemplate != "" {
 		cfg.Templates.DefaultTemplate = overrides.Templates.DefaultTemplate
 	}
@@ -317,15 +347,6 @@ func applyOverrides(cfg, overrides *Config) {
 		for k, v := range overrides.Templates.CustomTemplates {
 			cfg.Templates.CustomTemplates[k] = v
 		}
-	}
-
-	// Validation overrides (extracted to reduce complexity)
-	applyValidationOverrides(cfg, overrides)
-	// ParallelExecution is a bool - same caveat as AutoProceedGit
-
-	// Notifications overrides (Bell is a bool - same caveat)
-	if len(overrides.Notifications.Events) > 0 {
-		cfg.Notifications.Events = overrides.Notifications.Events
 	}
 }
 
