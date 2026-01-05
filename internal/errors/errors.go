@@ -21,6 +21,20 @@ var (
 	// or returned a non-zero exit code.
 	ErrClaudeInvocation = errors.New("claude invocation failed")
 
+	// ErrGeminiInvocation indicates that the Gemini CLI failed to execute
+	// or returned a non-zero exit code.
+	ErrGeminiInvocation = errors.New("gemini invocation failed")
+
+	// ErrCodexInvocation indicates that the Codex CLI failed to execute
+	// or returned a non-zero exit code.
+	ErrCodexInvocation = errors.New("codex invocation failed")
+
+	// ErrAgentNotFound indicates no runner is registered for the agent type.
+	ErrAgentNotFound = errors.New("agent not found")
+
+	// ErrAgentNotInstalled indicates the agent CLI is not installed.
+	ErrAgentNotInstalled = errors.New("agent CLI not installed")
+
 	// ErrGitOperation indicates that a git command (clone, worktree, commit, etc.)
 	// failed during execution.
 	ErrGitOperation = errors.New("git operation failed")
