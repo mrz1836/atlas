@@ -25,6 +25,38 @@ import (
 	"github.com/mrz1836/atlas/internal/template/steps"
 )
 
+// StepProgressEvent contains information about step execution progress.
+// Used by StepProgressCallback to provide UI feedback during task execution.
+type StepProgressEvent struct {
+	// Type is "start" when step begins, "complete" when step finishes.
+	Type string
+
+	// Task information
+	TaskID        string
+	WorkspaceName string
+
+	// Step information
+	StepIndex  int
+	TotalSteps int
+	StepName   string
+	StepType   domain.StepType
+
+	// Agent and model for AI/verify steps (empty for other step types).
+	Agent string
+	Model string
+
+	// Completion metrics (only populated for "complete" events).
+	DurationMs        int64
+	NumTurns          int
+	FilesChangedCount int
+	Status            string
+	Output            string // PR URL or other relevant output
+}
+
+// StepProgressCallback is called before and after each step execution.
+// UI components can use this to show spinners, progress bars, and completion summaries.
+type StepProgressCallback func(event StepProgressEvent)
+
 // EngineConfig holds configuration for the TaskEngine.
 type EngineConfig struct {
 	// AutoProceedGit controls whether git steps proceed automatically.
@@ -34,6 +66,10 @@ type EngineConfig struct {
 	// AutoProceedValidation controls whether validation steps proceed automatically.
 	// Default is true (auto-proceed on success).
 	AutoProceedValidation bool
+
+	// ProgressCallback is called before and after each step execution.
+	// If nil, no progress callbacks are made.
+	ProgressCallback StepProgressCallback
 }
 
 // DefaultEngineConfig returns sensible defaults.
@@ -606,7 +642,9 @@ func (e *Engine) saveAndPause(ctx context.Context, task *domain.Task) error {
 // - saveAndPause: saves state when pausing
 // - advanceToNextStep: increments step counter and checkpoints
 func (e *Engine) runSteps(ctx context.Context, task *domain.Task, template *domain.Template) error {
-	for task.CurrentStep < len(template.Steps) {
+	totalSteps := len(template.Steps)
+
+	for task.CurrentStep < totalSteps {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -621,10 +659,20 @@ func (e *Engine) runSteps(ctx context.Context, task *domain.Task, template *doma
 			continue
 		}
 
+		// Notify step start for UI feedback
+		e.notifyStepStart(task, step, totalSteps)
+
 		result, err := e.executeCurrentStep(ctx, task, template)
 		if err != nil {
+			// Notify step complete even on error (with error status)
+			if result != nil {
+				e.notifyStepComplete(task, step, result, totalSteps)
+			}
 			return e.handleExecutionError(ctx, task, step, result, err)
 		}
+
+		// Notify step complete for UI feedback
+		e.notifyStepComplete(task, step, result, totalSteps)
 
 		if err := e.processStepResult(ctx, task, result, step); err != nil {
 			return err
@@ -947,4 +995,63 @@ func (e *Engine) injectLoggerContext(ctx context.Context, workspaceName, taskID 
 		Str("task_id", taskID).
 		Logger()
 	return logger.WithContext(ctx)
+}
+
+// notifyStepStart calls the progress callback with a "start" event if configured.
+func (e *Engine) notifyStepStart(task *domain.Task, step *domain.StepDefinition, totalSteps int) {
+	if e.config.ProgressCallback == nil {
+		return
+	}
+
+	event := StepProgressEvent{
+		Type:          "start",
+		TaskID:        task.ID,
+		WorkspaceName: task.WorkspaceID,
+		StepIndex:     task.CurrentStep,
+		TotalSteps:    totalSteps,
+		StepName:      step.Name,
+		StepType:      step.Type,
+	}
+
+	// Add agent/model for AI steps
+	if step.Type == domain.StepTypeAI || step.Type == domain.StepTypeVerify {
+		agent, model := resolveStepAgentModel(task, step)
+		event.Agent = string(agent)
+		event.Model = model
+	}
+
+	e.config.ProgressCallback(event)
+}
+
+// notifyStepComplete calls the progress callback with a "complete" event if configured.
+func (e *Engine) notifyStepComplete(task *domain.Task, step *domain.StepDefinition, result *domain.StepResult, totalSteps int) {
+	if e.config.ProgressCallback == nil {
+		return
+	}
+
+	event := StepProgressEvent{
+		Type:          "complete",
+		TaskID:        task.ID,
+		WorkspaceName: task.WorkspaceID,
+		StepIndex:     task.CurrentStep,
+		TotalSteps:    totalSteps,
+		StepName:      step.Name,
+		StepType:      step.Type,
+		Status:        result.Status,
+		Output:        result.Output,
+	}
+
+	// Add agent/model for AI steps
+	if step.Type == domain.StepTypeAI || step.Type == domain.StepTypeVerify {
+		agent, model := resolveStepAgentModel(task, step)
+		event.Agent = string(agent)
+		event.Model = model
+	}
+
+	// Add completion metrics
+	event.DurationMs = result.DurationMs
+	event.NumTurns = result.NumTurns
+	event.FilesChangedCount = len(result.FilesChanged)
+
+	e.config.ProgressCallback(event)
 }
