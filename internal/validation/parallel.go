@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
-	"golang.org/x/sync/errgroup"
 
 	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/constants"
@@ -93,9 +92,10 @@ func (r *Runner) SetProgressCallback(cb ProgressCallback) {
 }
 
 // Run executes the full validation pipeline in this order:
-// 1. Format (sequential, first) - formatting must complete before other steps
-// 2. Lint + Pre-commit (parallel) - run simultaneously for efficiency
-// 3. Test (sequential, last) - tests run after code is validated
+// 1. Pre-commit (first) - makes auto-fixes like import ordering
+// 2. Format (second) - standardizes code after pre-commit changes
+// 3. Lint (third) - validation only, no modifications
+// 4. Test (last) - tests run after code is validated
 //
 // Returns a PipelineResult containing all step results regardless of success/failure.
 // Returns an error if any step fails, but the PipelineResult will still contain
@@ -105,7 +105,7 @@ func (r *Runner) Run(ctx context.Context, workDir string) (*PipelineResult, erro
 	result := &PipelineResult{}
 	startTime := time.Now()
 
-	// Calculate total steps (format=1, lint=1, test=1, pre-commit=1)
+	// Calculate total steps (pre-commit=1, format=1, lint=1, test=1)
 	r.totalSteps = 4
 
 	log.Info().Str("work_dir", workDir).Msg("starting validation pipeline")
@@ -117,7 +117,37 @@ func (r *Runner) Run(ctx context.Context, workDir string) (*PipelineResult, erro
 	default:
 	}
 
-	// Phase 1: Format (sequential, first)
+	// Phase 1: Pre-commit (first - makes auto-fixes like import ordering)
+	preCommitInstalled, preCommitVersion, checkErr := r.getToolChecker().IsGoPreCommitInstalled(ctx)
+	if checkErr != nil {
+		log.Warn().Err(checkErr).Msg("failed to check go-pre-commit installation status")
+		preCommitInstalled = false
+	}
+
+	if preCommitInstalled {
+		log.Info().Str("version", preCommitVersion).Msg("go-pre-commit detected")
+		r.reportProgress("pre-commit", "starting")
+		preCommitResults, err := r.runSequential(ctx, r.getPreCommitCommands(), workDir)
+		result.PreCommitResults = preCommitResults
+		if err != nil {
+			r.reportProgress("pre-commit", "failed")
+			result.FailedStepName = "pre-commit"
+			log.Error().Err(err).Msg("pre-commit step failed")
+			return r.finalize(result, startTime), err
+		}
+		r.reportProgress("pre-commit", "completed")
+	} else {
+		r.handlePreCommitSkipped(result, log)
+	}
+
+	// Check context cancellation between phases
+	select {
+	case <-ctx.Done():
+		return r.finalize(result, startTime), ctx.Err()
+	default:
+	}
+
+	// Phase 2: Format (cleans up any changes from pre-commit)
 	r.reportProgress("format", "starting")
 	formatResults, err := r.runSequential(ctx, r.getFormatCommands(), workDir)
 	result.FormatResults = formatResults
@@ -129,6 +159,12 @@ func (r *Runner) Run(ctx context.Context, workDir string) (*PipelineResult, erro
 	}
 	r.reportProgress("format", "completed")
 
+	// Stage files after format (format is last step to modify files)
+	if stageErr := r.getStager().StageModifiedFiles(ctx, workDir); stageErr != nil {
+		log.Warn().Err(stageErr).Msg("failed to stage modified files")
+		// Non-fatal - continue with validation
+	}
+
 	// Check context cancellation between phases
 	select {
 	case <-ctx.Done():
@@ -136,32 +172,17 @@ func (r *Runner) Run(ctx context.Context, workDir string) (*PipelineResult, erro
 	default:
 	}
 
-	// Check pre-commit availability before parallel phase
-	preCommitInstalled, preCommitVersion, checkErr := r.getToolChecker().IsGoPreCommitInstalled(ctx)
-	if checkErr != nil {
-		log.Warn().Err(checkErr).Msg("failed to check go-pre-commit installation status")
-		preCommitInstalled = false
-	}
-
-	// Phase 2: Lint + Pre-commit (parallel)
+	// Phase 3: Lint (validation only, no modifications)
 	r.reportProgress("lint", "starting")
-	if preCommitInstalled {
-		r.reportProgress("pre-commit", "starting")
-	}
-	lintResults, preCommitResults, parallelErr := r.runParallelLintPreCommit(ctx, workDir, preCommitInstalled, preCommitVersion, log)
+	lintResults, err := r.runSequential(ctx, r.getLintCommands(), workDir)
 	result.LintResults = lintResults
-	result.PreCommitResults = preCommitResults
-	if !preCommitInstalled {
-		r.handlePreCommitSkipped(result, log)
-	}
-	if parallelErr != nil {
-		r.handleParallelFailure(result, lintResults, preCommitResults, parallelErr, log)
-		return r.finalize(result, startTime), parallelErr
+	if err != nil {
+		r.reportProgress("lint", "failed")
+		result.FailedStepName = "lint"
+		log.Error().Err(err).Msg("lint step failed")
+		return r.finalize(result, startTime), err
 	}
 	r.reportProgress("lint", "completed")
-	if preCommitInstalled {
-		r.reportProgress("pre-commit", "completed")
-	}
 
 	// Check context cancellation between phases
 	select {
@@ -170,7 +191,7 @@ func (r *Runner) Run(ctx context.Context, workDir string) (*PipelineResult, erro
 	default:
 	}
 
-	// Phase 3: Test (sequential, last)
+	// Phase 4: Test (last)
 	if testErr := r.runTestPhase(ctx, result, workDir, log); testErr != nil {
 		return r.finalize(result, startTime), testErr
 	}
@@ -221,83 +242,14 @@ func (r *Runner) runSequential(ctx context.Context, commands []string, workDir s
 	return r.executor.Run(ctx, commands, workDir)
 }
 
-// runParallelLintPreCommit runs lint and pre-commit commands concurrently using errgroup.
-// It collects results from both even if one fails, ensuring complete result data.
-// IMPORTANT: We use the original ctx (not errgroup's derived context) and return nil
-// from goroutines to prevent context cancellation when one fails - this ensures
-// both results are always collected.
-func (r *Runner) runParallelLintPreCommit(ctx context.Context, workDir string, preCommitInstalled bool, preCommitVersion string, log *zerolog.Logger) ([]Result, []Result, error) {
-	var g errgroup.Group
-
-	var lintResults, preCommitResults []Result
-	var lintMu, preCommitMu sync.Mutex
-	var lintErr, preCommitErr error
-
-	lintCommands := r.getLintCommands()
-
-	// Run lint commands - use original ctx to avoid cancellation from other goroutine
-	g.Go(func() error {
-		results, err := r.runCommandGroup(ctx, lintCommands, workDir)
-		lintMu.Lock()
-		lintResults = results
-		lintErr = err
-		lintMu.Unlock()
-		return nil // Don't return error - we manage errors separately to collect all results
-	})
-
-	// Run pre-commit commands if installed - use original ctx to avoid cancellation from other goroutine
-	if preCommitInstalled {
-		g.Go(func() error {
-			log.Info().Str("version", preCommitVersion).Msg("go-pre-commit detected")
-			preCommitCommands := r.getPreCommitCommands()
-			results, err := r.runCommandGroup(ctx, preCommitCommands, workDir)
-			preCommitMu.Lock()
-			preCommitResults = results
-			preCommitErr = err
-			preCommitMu.Unlock()
-
-			// Stage any files modified by pre-commit hooks (auto-fixes)
-			if err == nil {
-				if stageErr := r.getStager().StageModifiedFiles(ctx, workDir); stageErr != nil {
-					log.Warn().Err(stageErr).Msg("failed to stage pre-commit modified files")
-					// Non-fatal - continue with validation
-				}
-			}
-			return nil // Don't return error - we manage errors separately to collect all results
-		})
-	}
-
-	// Wait for both to complete - will always return nil since goroutines return nil
-	_ = g.Wait()
-
-	// Return all collected results even on error
-	// Use the first non-nil error (prefer lintErr if both failed)
-	var returnErr error
-	if lintErr != nil {
-		returnErr = lintErr
-	} else if preCommitErr != nil {
-		returnErr = preCommitErr
-	}
-
-	return lintResults, preCommitResults, returnErr
-}
-
-// runCommandGroup executes a group of commands, used by parallel executor.
-func (r *Runner) runCommandGroup(ctx context.Context, commands []string, workDir string) ([]Result, error) {
-	if len(commands) == 0 {
-		return nil, nil
-	}
-	return r.executor.Run(ctx, commands, workDir)
-}
-
 // stepNumber returns the 1-indexed step number for a given step name.
 func stepNumber(step string) int {
 	switch step {
-	case "format":
-		return 1
-	case "lint":
-		return 2
 	case "pre-commit":
+		return 1
+	case "format":
+		return 2
+	case "lint":
 		return 3
 	case "test":
 		return 4
@@ -385,43 +337,4 @@ func applyDefaults(cmds []string, defaultCmd string) []string {
 		return []string{defaultCmd}
 	}
 	return cmds
-}
-
-// hasFailedResult checks if any result in the slice indicates failure.
-func hasFailedResult(results []Result) bool {
-	for _, r := range results {
-		if !r.Success {
-			return true
-		}
-	}
-	return false
-}
-
-// handleParallelFailure handles the failure reporting for the parallel lint+pre-commit phase.
-func (r *Runner) handleParallelFailure(result *PipelineResult, lintResults, preCommitResults []Result, _ error, log *zerolog.Logger) {
-	lintFailed := hasFailedResult(lintResults)
-	preCommitFailed := hasFailedResult(preCommitResults)
-
-	reportStatus := func(step string, failed bool) {
-		if failed {
-			r.reportProgress(step, "failed")
-		} else {
-			r.reportProgress(step, "completed")
-		}
-	}
-
-	reportStatus("lint", lintFailed)
-	// Only report pre-commit status if it actually ran (has results)
-	if len(preCommitResults) > 0 {
-		reportStatus("pre-commit", preCommitFailed)
-	}
-
-	// Set failed step name to first failure
-	switch {
-	case lintFailed:
-		result.FailedStepName = "lint"
-	case preCommitFailed:
-		result.FailedStepName = "pre-commit"
-	}
-	log.Error().Msg("parallel phase failed")
 }

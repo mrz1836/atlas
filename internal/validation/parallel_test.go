@@ -102,14 +102,15 @@ func TestRunner_Run_FormatFailureSkipsRest(t *testing.T) {
 	mockRunner.SetResponse("fmt", "", "format error", 1, atlaserrors.ErrCommandFailed)
 	mockRunner.SetResponse("lint", "lint ok", "", 0, nil)
 	mockRunner.SetResponse("test", "test ok", "", 0, nil)
-	mockRunner.SetResponse("precommit", "precommit ok", "", 0, nil)
 
 	executor := validation.NewExecutorWithRunner(time.Minute, mockRunner)
 	config := &validation.RunnerConfig{
-		FormatCommands:    []string{"fmt"},
-		LintCommands:      []string{"lint"},
-		TestCommands:      []string{"test"},
-		PreCommitCommands: []string{"precommit"},
+		FormatCommands: []string{"fmt"},
+		LintCommands:   []string{"lint"},
+		TestCommands:   []string{"test"},
+		ToolChecker: &MockToolChecker{
+			Installed: false, // Skip pre-commit so format runs first
+		},
 	}
 	runner := validation.NewRunner(executor, config)
 
@@ -161,7 +162,8 @@ func TestRunner_Run_LintFailureCollectsPreCommitResults(t *testing.T) {
 	assert.Empty(t, result.TestResults)
 }
 
-func TestRunner_Run_PreCommitFailureCollectsLintResults(t *testing.T) {
+func TestRunner_Run_PreCommitFailureStopsPipeline(t *testing.T) {
+	// With sequential execution, pre-commit failure stops the entire pipeline
 	mockRunner := NewMockCommandRunner()
 	mockRunner.SetResponse("fmt", "formatted", "", 0, nil)
 	mockRunner.SetResponse("lint", "lint ok", "", 0, nil)
@@ -188,11 +190,10 @@ func TestRunner_Run_PreCommitFailureCollectsLintResults(t *testing.T) {
 	require.NotNil(t, result)
 	assert.False(t, result.Success)
 	assert.Equal(t, "pre-commit", result.FailedStep())
-	assert.Len(t, result.FormatResults, 1)
-	// Lint results should be collected even when pre-commit fails (parallel execution)
-	assert.Len(t, result.LintResults, 1)
+	// Pre-commit runs first and fails, so other steps don't run
 	assert.Len(t, result.PreCommitResults, 1)
-	// Test should NOT run when parallel phase fails
+	assert.Empty(t, result.FormatResults)
+	assert.Empty(t, result.LintResults)
 	assert.Empty(t, result.TestResults)
 }
 
@@ -322,12 +323,12 @@ func TestRunner_Run_ProgressCallbackInvoked(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 
-	// Should have calls for: format (starting, completed), lint (starting, completed),
-	// test (starting, completed), pre-commit (starting, completed)
+	// Should have calls for: pre-commit (starting, completed), format (starting, completed),
+	// lint (starting, completed), test (starting, completed)
 	assert.GreaterOrEqual(t, len(progressCalls), 8)
 
-	// Verify format starting is first
-	assert.Equal(t, "format", progressCalls[0].step)
+	// Verify pre-commit starting is first (new order: pre-commit -> format -> lint -> test)
+	assert.Equal(t, "pre-commit", progressCalls[0].step)
 	assert.Equal(t, "starting", progressCalls[0].status)
 }
 
@@ -378,17 +379,17 @@ func TestRunner_Run_ProgressCallbackIncludesStepCounts(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 
-	// Verify step counts are correct
-	// First call should be format starting with step 1/4
-	assert.Equal(t, "format", progressCalls[0].step)
+	// Verify step counts are correct (new order: pre-commit -> format -> lint -> test)
+	// First call should be pre-commit starting with step 1/4
+	assert.Equal(t, "pre-commit", progressCalls[0].step)
 	assert.Equal(t, "starting", progressCalls[0].status)
 	require.NotNil(t, progressCalls[0].info)
 	assert.Equal(t, 1, progressCalls[0].info.CurrentStep)
 	assert.Equal(t, 4, progressCalls[0].info.TotalSteps)
 
-	// Find format completed call and verify it has duration
+	// Find pre-commit completed call and verify it has duration
 	for _, call := range progressCalls {
-		if call.step == "format" && call.status == "completed" {
+		if call.step == "pre-commit" && call.status == "completed" {
 			require.NotNil(t, call.info)
 			assert.Equal(t, 1, call.info.CurrentStep)
 			assert.Equal(t, 4, call.info.TotalSteps)
@@ -398,9 +399,9 @@ func TestRunner_Run_ProgressCallbackIncludesStepCounts(t *testing.T) {
 		}
 	}
 
-	// Find lint starting call and verify step number
+	// Find format starting call and verify step number
 	for _, call := range progressCalls {
-		if call.step == "lint" && call.status == "starting" {
+		if call.step == "format" && call.status == "starting" {
 			require.NotNil(t, call.info)
 			assert.Equal(t, 2, call.info.CurrentStep)
 			assert.Equal(t, 4, call.info.TotalSteps)
@@ -408,9 +409,9 @@ func TestRunner_Run_ProgressCallbackIncludesStepCounts(t *testing.T) {
 		}
 	}
 
-	// Find pre-commit starting call and verify step number
+	// Find lint starting call and verify step number
 	for _, call := range progressCalls {
-		if call.step == "pre-commit" && call.status == "starting" {
+		if call.step == "lint" && call.status == "starting" {
 			require.NotNil(t, call.info)
 			assert.Equal(t, 3, call.info.CurrentStep)
 			assert.Equal(t, 4, call.info.TotalSteps)
@@ -487,6 +488,9 @@ func TestRunner_Run_ProgressCallbackOnFailure(t *testing.T) {
 
 	config := &validation.RunnerConfig{
 		FormatCommands: []string{"fmt"},
+		ToolChecker: &MockToolChecker{
+			Installed: false, // Skip pre-commit so format runs first
+		},
 		ProgressCallback: func(step, status string, _ *validation.ProgressInfo) {
 			mu.Lock()
 			if status == "failed" {
@@ -569,12 +573,12 @@ func TestRunner_Run_MultipleCommandsPerStep(t *testing.T) {
 	assert.Len(t, result.PreCommitResults, 1)
 }
 
-func TestRunner_Run_ParallelLintAndPreCommitExecution(t *testing.T) {
-	// Test that lint and pre-commit actually run in parallel
+func TestRunner_Run_SequentialExecution(t *testing.T) {
+	// Test that all steps run sequentially: pre-commit -> format -> lint -> test
 	mockRunner := NewMockCommandRunner()
 	mockRunner.SetResponse("fmt", "formatted", "", 0, nil)
-	mockRunner.SetResponseWithDelay("lint", "lint ok", "", 0, nil, 50*time.Millisecond)
-	mockRunner.SetResponseWithDelay("precommit", "precommit ok", "", 0, nil, 50*time.Millisecond)
+	mockRunner.SetResponse("lint", "lint ok", "", 0, nil)
+	mockRunner.SetResponse("precommit", "precommit ok", "", 0, nil)
 	mockRunner.SetResponse("test", "test ok", "", 0, nil)
 
 	executor := validation.NewExecutorWithRunner(time.Minute, mockRunner)
@@ -591,21 +595,21 @@ func TestRunner_Run_ParallelLintAndPreCommitExecution(t *testing.T) {
 	runner := validation.NewRunner(executor, config)
 
 	ctx := testContext()
-	startTime := time.Now()
 	result, err := runner.Run(ctx, "/tmp")
-	totalDuration := time.Since(startTime)
 
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	assert.True(t, result.Success)
 
-	// If lint and pre-commit run in parallel (50ms each), total should be ~50ms for parallel part
-	// If sequential, it would be ~100ms for that part
-	// Allow some margin for overhead
-	assert.Less(t, totalDuration, 150*time.Millisecond, "lint and pre-commit should run in parallel")
+	// All results should be populated
+	assert.Len(t, result.PreCommitResults, 1)
+	assert.Len(t, result.FormatResults, 1)
+	assert.Len(t, result.LintResults, 1)
+	assert.Len(t, result.TestResults, 1)
 }
 
-func TestRunner_Run_BothLintAndPreCommitFail(t *testing.T) {
+func TestRunner_Run_PreCommitFailsStopsPipeline(t *testing.T) {
+	// With sequential execution, pre-commit failure stops the pipeline
 	mockRunner := NewMockCommandRunner()
 	mockRunner.SetResponse("fmt", "formatted", "", 0, nil)
 	mockRunner.SetResponse("lint", "", "lint error", 1, atlaserrors.ErrCommandFailed)
@@ -631,12 +635,13 @@ func TestRunner_Run_BothLintAndPreCommitFail(t *testing.T) {
 	require.Error(t, err)
 	require.NotNil(t, result)
 	assert.False(t, result.Success)
-	// FailedStep should be the first failure detected (either lint or pre-commit)
-	assert.NotEmpty(t, result.FailedStep())
-	// Both parallel results should be collected
-	assert.Len(t, result.LintResults, 1)
+	// Pre-commit runs first and fails, so it should be the failed step
+	assert.Equal(t, "pre-commit", result.FailedStep())
+	// Pre-commit results should have the failure
 	assert.Len(t, result.PreCommitResults, 1)
-	// Test should NOT run when parallel phase fails
+	// Format, lint, and test should NOT run when pre-commit fails (pre-commit runs first now)
+	assert.Empty(t, result.FormatResults)
+	assert.Empty(t, result.LintResults)
 	assert.Empty(t, result.TestResults)
 }
 
@@ -915,7 +920,8 @@ func TestRunner_Run_MultipleCustomPreCommitCommandsExecuteInOrder(t *testing.T) 
 	assert.Equal(t, "third-hook", result.PreCommitResults[2].Command)
 }
 
-func TestRunner_Run_StagerCalledAfterPreCommit(t *testing.T) {
+func TestRunner_Run_StagerCalledWithCorrectWorkDir(t *testing.T) {
+	// Stager is called after format with the correct work directory
 	mockRunner := NewMockCommandRunner()
 	mockRunner.SetResponse("fmt", "formatted", "", 0, nil)
 	mockRunner.SetResponse("lint", "lint ok", "", 0, nil)
@@ -945,12 +951,13 @@ func TestRunner_Run_StagerCalledAfterPreCommit(t *testing.T) {
 	require.NotNil(t, result)
 	assert.True(t, result.Success)
 
-	// Verify stager was called with correct work directory
-	assert.True(t, mockStager.Called, "Stager.StageModifiedFiles should be called after pre-commit")
+	// Verify stager was called with correct work directory (called after format)
+	assert.True(t, mockStager.Called, "Stager.StageModifiedFiles should be called after format")
 	assert.Equal(t, "/test/work/dir", mockStager.WorkDir)
 }
 
-func TestRunner_Run_StagerNotCalledWhenPreCommitSkipped(t *testing.T) {
+func TestRunner_Run_StagerCalledAfterFormat(t *testing.T) {
+	// Stager is called after format regardless of pre-commit status
 	mockRunner := NewMockCommandRunner()
 	mockRunner.SetResponse("fmt", "formatted", "", 0, nil)
 	mockRunner.SetResponse("lint", "lint ok", "", 0, nil)
@@ -964,7 +971,7 @@ func TestRunner_Run_StagerNotCalledWhenPreCommitSkipped(t *testing.T) {
 		LintCommands:   []string{"lint"},
 		TestCommands:   []string{"test"},
 		ToolChecker: &MockToolChecker{
-			Installed: false, // Not installed = skip pre-commit
+			Installed: false, // Pre-commit skipped, but stager should still be called
 		},
 		Stager: mockStager,
 	}
@@ -977,8 +984,9 @@ func TestRunner_Run_StagerNotCalledWhenPreCommitSkipped(t *testing.T) {
 	require.NotNil(t, result)
 	assert.True(t, result.Success)
 
-	// Stager should NOT be called when pre-commit is skipped
-	assert.False(t, mockStager.Called, "Stager should not be called when pre-commit is skipped")
+	// Stager should be called after format (format is now the last step that modifies files)
+	assert.True(t, mockStager.Called, "Stager should be called after format completes")
+	assert.Equal(t, "/tmp", mockStager.WorkDir)
 }
 
 func TestRunner_Run_StagerErrorNonFatal(t *testing.T) {
