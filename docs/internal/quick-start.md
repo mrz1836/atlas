@@ -1384,5 +1384,5 @@ atlas config --help
 
 ---
 
-**Version:** 1.1.1
+**Version:** 1.1.3
 **Last Updated:** 2026-01-05
