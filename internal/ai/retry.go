@@ -38,7 +38,9 @@ func isRetryable(err error) bool {
 	// Authentication errors are not retryable
 	if strings.Contains(errStr, "authentication") ||
 		strings.Contains(errStr, "api key") ||
-		strings.Contains(errStr, "anthropic_api_key") {
+		strings.Contains(errStr, "anthropic_api_key") ||
+		strings.Contains(errStr, "gemini_api_key") ||
+		strings.Contains(errStr, "openai_api_key") {
 		return false
 	}
 

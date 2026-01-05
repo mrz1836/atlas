@@ -1,6 +1,6 @@
 package ai
 
-// This test suite uses MockExecutor to simulate Claude CLI subprocess execution.
+// This test suite uses MockExecutor to simulate Gemini CLI subprocess execution.
 // IMPORTANT: Tests NEVER make real API calls or use production API keys.
 // All AI responses are pre-configured mock data to ensure test isolation and prevent
 // accidental API usage. The EnsureNoRealAPIKeys() guard verifies no real API keys are present.
@@ -8,6 +8,7 @@ package ai
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os/exec"
 	"testing"
 	"time"
@@ -20,40 +21,22 @@ import (
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 )
 
-// Test error types for execution testing.
+// Test error types for Gemini execution testing.
 var (
-	errTestNetwork       = errors.New("network error")
-	errTestExecNotFound  = errors.New("executable file not found")
-	errTestRetryNetwork  = errors.New("network error")
-	errTestExitStatus1   = errors.New("exit status 1")
-	errTestExitStatus127 = errors.New("exit status 127")
+	errGeminiTestNetwork      = errors.New("network error")
+	errGeminiTestExecNotFound = errors.New("executable file not found")
+	errGeminiTestExitStatus1  = errors.New("exit status 1")
 )
 
-// MockExecutor is a test implementation of CommandExecutor that simulates subprocess execution.
-// It returns pre-configured responses without actually running the Claude CLI or making API calls.
-// This ensures tests are fast, deterministic, and never incur API costs or require network access.
-type MockExecutor struct {
-	StdoutData []byte
-	StderrData []byte
-	Err        error
-	// CapturedCmd stores the last executed command for verification.
-	CapturedCmd *exec.Cmd
-}
-
-func (m *MockExecutor) Execute(_ context.Context, cmd *exec.Cmd) ([]byte, []byte, error) {
-	m.CapturedCmd = cmd
-	return m.StdoutData, m.StderrData, m.Err
-}
-
-func TestNewClaudeCodeRunner(t *testing.T) {
+func TestNewGeminiRunner(t *testing.T) {
 	t.Run("creates runner with provided executor", func(t *testing.T) {
 		cfg := &config.AIConfig{
-			Model:   "sonnet",
+			Model:   "flash",
 			Timeout: 30 * time.Minute,
 		}
 		mockExec := &MockExecutor{}
 
-		runner := NewClaudeCodeRunner(cfg, mockExec)
+		runner := NewGeminiRunner(cfg, mockExec)
 
 		require.NotNil(t, runner)
 		assert.Equal(t, cfg, runner.config)
@@ -62,11 +45,11 @@ func TestNewClaudeCodeRunner(t *testing.T) {
 
 	t.Run("creates runner with default executor when nil provided", func(t *testing.T) {
 		cfg := &config.AIConfig{
-			Model:   "sonnet",
+			Model:   "flash",
 			Timeout: 30 * time.Minute,
 		}
 
-		runner := NewClaudeCodeRunner(cfg, nil)
+		runner := NewGeminiRunner(cfg, nil)
 
 		require.NotNil(t, runner)
 		assert.Equal(t, cfg, runner.config)
@@ -74,22 +57,22 @@ func TestNewClaudeCodeRunner(t *testing.T) {
 	})
 }
 
-func TestClaudeCodeRunner_Run_ContextCancellation(t *testing.T) {
+func TestGeminiRunner_Run_ContextCancellation(t *testing.T) {
 	EnsureNoRealAPIKeys(t)
 
 	t.Run("returns error when context is canceled", func(t *testing.T) {
 		cfg := &config.AIConfig{
-			Model:   "sonnet",
+			Model:   "flash",
 			Timeout: 30 * time.Minute,
 		}
-		runner := NewClaudeCodeRunner(cfg, &MockExecutor{})
+		runner := NewGeminiRunner(cfg, &MockExecutor{})
 
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel() // Cancel immediately
 
 		req := &domain.AIRequest{
 			Prompt: "test prompt",
-			Model:  "sonnet",
+			Model:  "flash",
 		}
 
 		result, err := runner.Run(ctx, req)
@@ -100,10 +83,10 @@ func TestClaudeCodeRunner_Run_ContextCancellation(t *testing.T) {
 
 	t.Run("returns error when context deadline exceeded", func(t *testing.T) {
 		cfg := &config.AIConfig{
-			Model:   "sonnet",
+			Model:   "flash",
 			Timeout: 30 * time.Minute,
 		}
-		runner := NewClaudeCodeRunner(cfg, &MockExecutor{})
+		runner := NewGeminiRunner(cfg, &MockExecutor{})
 
 		ctx, cancel := context.WithTimeout(context.Background(), 0)
 		defer cancel()
@@ -112,7 +95,7 @@ func TestClaudeCodeRunner_Run_ContextCancellation(t *testing.T) {
 
 		req := &domain.AIRequest{
 			Prompt: "test prompt",
-			Model:  "sonnet",
+			Model:  "flash",
 		}
 
 		result, err := runner.Run(ctx, req)
@@ -122,7 +105,7 @@ func TestClaudeCodeRunner_Run_ContextCancellation(t *testing.T) {
 	})
 }
 
-func TestClaudeCodeRunner_Run_Success(t *testing.T) {
+func TestGeminiRunner_Run_Success(t *testing.T) {
 	EnsureNoRealAPIKeys(t)
 
 	t.Run("successful execution with JSON parsing", func(t *testing.T) {
@@ -136,17 +119,17 @@ func TestClaudeCodeRunner_Run_Success(t *testing.T) {
 		defer func() { timeSleep = originalSleep }()
 
 		mockExec := &MockExecutor{
-			StdoutData: []byte(`{"type":"result","is_error":false,"result":"Task completed","session_id":"abc123","duration_ms":5000,"num_turns":3,"total_cost_usd":0.05}`),
+			StdoutData: []byte(`{"success":true,"content":"Task completed","session_id":"gem123","duration_ms":5000,"num_turns":3,"total_cost_usd":0.02}`),
 		}
 		cfg := &config.AIConfig{
-			Model:   "sonnet",
+			Model:   "flash",
 			Timeout: 30 * time.Minute,
 		}
-		runner := NewClaudeCodeRunner(cfg, mockExec)
+		runner := NewGeminiRunner(cfg, mockExec)
 
 		req := &domain.AIRequest{
 			Prompt: "Fix the bug",
-			Model:  "sonnet",
+			Model:  "flash",
 		}
 
 		result, err := runner.Run(context.Background(), req)
@@ -155,10 +138,10 @@ func TestClaudeCodeRunner_Run_Success(t *testing.T) {
 		require.NotNil(t, result)
 		assert.True(t, result.Success)
 		assert.Equal(t, "Task completed", result.Output)
-		assert.Equal(t, "abc123", result.SessionID)
+		assert.Equal(t, "gem123", result.SessionID)
 		assert.Equal(t, 5000, result.DurationMs)
 		assert.Equal(t, 3, result.NumTurns)
-		assert.InEpsilon(t, 0.05, result.TotalCostUSD, 0.0001)
+		assert.InEpsilon(t, 0.02, result.TotalCostUSD, 0.0001)
 	})
 
 	t.Run("handles error response in JSON", func(t *testing.T) {
@@ -171,18 +154,18 @@ func TestClaudeCodeRunner_Run_Success(t *testing.T) {
 		defer func() { timeSleep = originalSleep }()
 
 		mockExec := &MockExecutor{
-			StdoutData: []byte(`{"type":"result","is_error":true,"result":"An error occurred","session_id":"err123","duration_ms":1000,"num_turns":1,"total_cost_usd":0.01}`),
+			StdoutData: []byte(`{"success":false,"content":"An error occurred","error":"Internal error","session_id":"err123","duration_ms":1000,"num_turns":1,"total_cost_usd":0.01}`),
 			StderrData: []byte("Error details from stderr"),
 		}
 		cfg := &config.AIConfig{
-			Model:   "sonnet",
+			Model:   "flash",
 			Timeout: 30 * time.Minute,
 		}
-		runner := NewClaudeCodeRunner(cfg, mockExec)
+		runner := NewGeminiRunner(cfg, mockExec)
 
 		req := &domain.AIRequest{
 			Prompt: "Do something",
-			Model:  "sonnet",
+			Model:  "flash",
 		}
 
 		result, err := runner.Run(context.Background(), req)
@@ -191,81 +174,62 @@ func TestClaudeCodeRunner_Run_Success(t *testing.T) {
 		require.NotNil(t, result)
 		assert.False(t, result.Success)
 		assert.Equal(t, "An error occurred", result.Output)
-		assert.Equal(t, "Error details from stderr", result.Error)
+		// Error field is set to the "error" field from JSON when present (not stderr)
+		assert.Equal(t, "Internal error", result.Error)
 	})
 }
 
-func TestClaudeCodeRunner_BuildCommand(t *testing.T) {
+func TestGeminiRunner_BuildCommand(t *testing.T) {
 	t.Run("builds command with basic flags", func(t *testing.T) {
 		cfg := &config.AIConfig{
-			Model:   "sonnet",
+			Model:   "flash",
 			Timeout: 30 * time.Minute,
 		}
-		runner := NewClaudeCodeRunner(cfg, &MockExecutor{})
+		runner := NewGeminiRunner(cfg, &MockExecutor{})
 
 		req := &domain.AIRequest{
 			Prompt: "test",
-			Model:  "sonnet",
+			Model:  "flash",
 		}
 
 		cmd := runner.buildCommand(context.Background(), req)
 
-		assert.Equal(t, "claude", cmd.Path[len(cmd.Path)-6:]) // Ends with "claude"
+		assert.Equal(t, "gemini", cmd.Path[len(cmd.Path)-6:]) // Ends with "gemini"
 		assert.Contains(t, cmd.Args, "-p")
 		assert.Contains(t, cmd.Args, "--output-format")
 		assert.Contains(t, cmd.Args, "json")
-		assert.Contains(t, cmd.Args, "--model")
-		assert.Contains(t, cmd.Args, "sonnet")
+		assert.Contains(t, cmd.Args, "-m")
+		// Model should be resolved to full name
+		assert.Contains(t, cmd.Args, "gemini-3-flash-preview")
 	})
 
-	t.Run("builds command with permission mode", func(t *testing.T) {
+	t.Run("resolves model alias to full name", func(t *testing.T) {
 		cfg := &config.AIConfig{
-			Model:   "sonnet",
+			Model:   "pro",
 			Timeout: 30 * time.Minute,
 		}
-		runner := NewClaudeCodeRunner(cfg, &MockExecutor{})
+		runner := NewGeminiRunner(cfg, &MockExecutor{})
 
 		req := &domain.AIRequest{
-			Prompt:         "test",
-			Model:          "sonnet",
-			PermissionMode: "plan",
+			Prompt: "test",
+			Model:  "pro",
 		}
 
 		cmd := runner.buildCommand(context.Background(), req)
 
-		assert.Contains(t, cmd.Args, "--permission-mode")
-		assert.Contains(t, cmd.Args, "plan")
-	})
-
-	t.Run("builds command with system prompt", func(t *testing.T) {
-		cfg := &config.AIConfig{
-			Model:   "sonnet",
-			Timeout: 30 * time.Minute,
-		}
-		runner := NewClaudeCodeRunner(cfg, &MockExecutor{})
-
-		req := &domain.AIRequest{
-			Prompt:       "test",
-			Model:        "sonnet",
-			SystemPrompt: "You are a helpful assistant",
-		}
-
-		cmd := runner.buildCommand(context.Background(), req)
-
-		assert.Contains(t, cmd.Args, "--append-system-prompt")
-		assert.Contains(t, cmd.Args, "You are a helpful assistant")
+		assert.Contains(t, cmd.Args, "gemini-3-pro-preview")
 	})
 
 	t.Run("sets working directory", func(t *testing.T) {
 		cfg := &config.AIConfig{
-			Model:   "sonnet",
+			Model:   "flash",
 			Timeout: 30 * time.Minute,
 		}
-		runner := NewClaudeCodeRunner(cfg, &MockExecutor{})
+		runner := NewGeminiRunner(cfg, &MockExecutor{})
 
 		req := &domain.AIRequest{
 			Prompt:     "test",
-			Model:      "sonnet",
+			Model:      "flash",
 			WorkingDir: "/tmp/workdir",
 		}
 
@@ -276,10 +240,10 @@ func TestClaudeCodeRunner_BuildCommand(t *testing.T) {
 
 	t.Run("uses config model when request model is empty", func(t *testing.T) {
 		cfg := &config.AIConfig{
-			Model:   "opus",
+			Model:   "pro",
 			Timeout: 30 * time.Minute,
 		}
-		runner := NewClaudeCodeRunner(cfg, &MockExecutor{})
+		runner := NewGeminiRunner(cfg, &MockExecutor{})
 
 		req := &domain.AIRequest{
 			Prompt: "test",
@@ -288,16 +252,15 @@ func TestClaudeCodeRunner_BuildCommand(t *testing.T) {
 
 		cmd := runner.buildCommand(context.Background(), req)
 
-		assert.Contains(t, cmd.Args, "--model")
-		assert.Contains(t, cmd.Args, "opus")
+		assert.Contains(t, cmd.Args, "-m")
+		assert.Contains(t, cmd.Args, "gemini-3-pro-preview")
 	})
 }
 
-func TestClaudeCodeRunner_ErrorHandling(t *testing.T) {
+func TestGeminiRunner_ErrorHandling(t *testing.T) {
 	EnsureNoRealAPIKeys(t)
 
 	t.Run("handles execution error with valid error JSON response", func(t *testing.T) {
-		// This tests the tryParseErrorResponse path where command fails but returns valid error JSON
 		originalSleep := timeSleep
 		timeSleep = func(_ interface{ Nanoseconds() int64 }) <-chan time.Time {
 			ch := make(chan time.Time)
@@ -306,21 +269,21 @@ func TestClaudeCodeRunner_ErrorHandling(t *testing.T) {
 		}
 		defer func() { timeSleep = originalSleep }()
 
-		// Command fails but returns valid JSON with is_error: true
+		// Command fails but returns valid JSON with success: false
 		mockExec := &MockExecutor{
-			StdoutData: []byte(`{"type":"result","is_error":true,"result":"Rate limit exceeded","session_id":"err456","duration_ms":100,"num_turns":1,"total_cost_usd":0.001}`),
+			StdoutData: []byte(`{"success":false,"content":"Rate limit exceeded","session_id":"err456","duration_ms":100,"num_turns":1,"total_cost_usd":0.001}`),
 			StderrData: []byte("API rate limit hit"),
-			Err:        errTestExitStatus1,
+			Err:        errGeminiTestExitStatus1,
 		}
 		cfg := &config.AIConfig{
-			Model:   "sonnet",
+			Model:   "flash",
 			Timeout: 30 * time.Minute,
 		}
-		runner := NewClaudeCodeRunner(cfg, mockExec)
+		runner := NewGeminiRunner(cfg, mockExec)
 
 		req := &domain.AIRequest{
 			Prompt: "test",
-			Model:  "sonnet",
+			Model:  "flash",
 		}
 
 		result, err := runner.Run(context.Background(), req)
@@ -333,7 +296,7 @@ func TestClaudeCodeRunner_ErrorHandling(t *testing.T) {
 		assert.Contains(t, result.Error, "exit status 1")
 	})
 
-	t.Run("wraps execution error with ErrClaudeInvocation", func(t *testing.T) {
+	t.Run("wraps execution error with ErrGeminiInvocation", func(t *testing.T) {
 		originalSleep := timeSleep
 		timeSleep = func(_ interface{ Nanoseconds() int64 }) <-chan time.Time {
 			ch := make(chan time.Time)
@@ -343,28 +306,28 @@ func TestClaudeCodeRunner_ErrorHandling(t *testing.T) {
 		defer func() { timeSleep = originalSleep }()
 
 		mockExec := &MockExecutor{
-			Err:        errTestNetwork,
+			Err:        errGeminiTestNetwork,
 			StderrData: []byte("Connection refused"),
 		}
 		cfg := &config.AIConfig{
-			Model:   "sonnet",
+			Model:   "flash",
 			Timeout: 30 * time.Minute,
 		}
-		runner := NewClaudeCodeRunner(cfg, mockExec)
+		runner := NewGeminiRunner(cfg, mockExec)
 
 		req := &domain.AIRequest{
 			Prompt: "test",
-			Model:  "sonnet",
+			Model:  "flash",
 		}
 
 		// After max retries, error should be wrapped
 		_, err := runner.Run(context.Background(), req)
 
 		require.Error(t, err)
-		require.ErrorIs(t, err, atlaserrors.ErrClaudeInvocation)
+		require.ErrorIs(t, err, atlaserrors.ErrGeminiInvocation)
 	})
 
-	t.Run("handles claude not found error", func(t *testing.T) {
+	t.Run("handles gemini not found error", func(t *testing.T) {
 		originalSleep := timeSleep
 		timeSleep = func(_ interface{ Nanoseconds() int64 }) <-chan time.Time {
 			ch := make(chan time.Time)
@@ -374,23 +337,23 @@ func TestClaudeCodeRunner_ErrorHandling(t *testing.T) {
 		defer func() { timeSleep = originalSleep }()
 
 		mockExec := &MockExecutor{
-			Err: errTestExecNotFound,
+			Err: errGeminiTestExecNotFound,
 		}
 		cfg := &config.AIConfig{
-			Model:   "sonnet",
+			Model:   "flash",
 			Timeout: 30 * time.Minute,
 		}
-		runner := NewClaudeCodeRunner(cfg, mockExec)
+		runner := NewGeminiRunner(cfg, mockExec)
 
 		req := &domain.AIRequest{
 			Prompt: "test",
-			Model:  "sonnet",
+			Model:  "flash",
 		}
 
 		_, err := runner.Run(context.Background(), req)
 
 		require.Error(t, err)
-		require.ErrorIs(t, err, atlaserrors.ErrClaudeInvocation)
+		require.ErrorIs(t, err, atlaserrors.ErrGeminiInvocation)
 		assert.Contains(t, err.Error(), "not found")
 	})
 
@@ -407,20 +370,20 @@ func TestClaudeCodeRunner_ErrorHandling(t *testing.T) {
 			StdoutData: []byte(""),
 		}
 		cfg := &config.AIConfig{
-			Model:   "sonnet",
+			Model:   "flash",
 			Timeout: 30 * time.Minute,
 		}
-		runner := NewClaudeCodeRunner(cfg, mockExec)
+		runner := NewGeminiRunner(cfg, mockExec)
 
 		req := &domain.AIRequest{
 			Prompt: "test",
-			Model:  "sonnet",
+			Model:  "flash",
 		}
 
 		_, err := runner.Run(context.Background(), req)
 
 		require.Error(t, err)
-		require.ErrorIs(t, err, atlaserrors.ErrClaudeInvocation)
+		require.ErrorIs(t, err, atlaserrors.ErrGeminiInvocation)
 		assert.Contains(t, err.Error(), "empty response")
 	})
 
@@ -437,20 +400,20 @@ func TestClaudeCodeRunner_ErrorHandling(t *testing.T) {
 			StdoutData: []byte("not valid json"),
 		}
 		cfg := &config.AIConfig{
-			Model:   "sonnet",
+			Model:   "flash",
 			Timeout: 30 * time.Minute,
 		}
-		runner := NewClaudeCodeRunner(cfg, mockExec)
+		runner := NewGeminiRunner(cfg, mockExec)
 
 		req := &domain.AIRequest{
 			Prompt: "test",
-			Model:  "sonnet",
+			Model:  "flash",
 		}
 
 		_, err := runner.Run(context.Background(), req)
 
 		require.Error(t, err)
-		require.ErrorIs(t, err, atlaserrors.ErrClaudeInvocation)
+		require.ErrorIs(t, err, atlaserrors.ErrGeminiInvocation)
 		assert.Contains(t, err.Error(), "parse json")
 	})
 
@@ -464,24 +427,24 @@ func TestClaudeCodeRunner_ErrorHandling(t *testing.T) {
 		defer func() { timeSleep = originalSleep }()
 
 		mockExec := &MockExecutor{
-			Err:        errTestExitStatus1,
-			StderrData: []byte("Error: ANTHROPIC_API_KEY environment variable not set"),
+			Err:        errGeminiTestExitStatus1,
+			StderrData: []byte("Error: GEMINI_API_KEY environment variable not set"),
 		}
 		cfg := &config.AIConfig{
-			Model:   "sonnet",
+			Model:   "flash",
 			Timeout: 30 * time.Minute,
 		}
-		runner := NewClaudeCodeRunner(cfg, mockExec)
+		runner := NewGeminiRunner(cfg, mockExec)
 
 		req := &domain.AIRequest{
 			Prompt: "test",
-			Model:  "sonnet",
+			Model:  "flash",
 		}
 
 		_, err := runner.Run(context.Background(), req)
 
 		require.Error(t, err)
-		require.ErrorIs(t, err, atlaserrors.ErrClaudeInvocation)
+		require.ErrorIs(t, err, atlaserrors.ErrGeminiInvocation)
 		assert.Contains(t, err.Error(), "API key error")
 	})
 
@@ -495,29 +458,29 @@ func TestClaudeCodeRunner_ErrorHandling(t *testing.T) {
 		defer func() { timeSleep = originalSleep }()
 
 		mockExec := &MockExecutor{
-			Err:        errTestExitStatus127,
-			StderrData: []byte("bash: claude: command not found"),
+			Err:        fmt.Errorf("exit status 127: %w", atlaserrors.ErrAgentNotInstalled),
+			StderrData: []byte("bash: gemini: command not found"),
 		}
 		cfg := &config.AIConfig{
-			Model:   "sonnet",
+			Model:   "flash",
 			Timeout: 30 * time.Minute,
 		}
-		runner := NewClaudeCodeRunner(cfg, mockExec)
+		runner := NewGeminiRunner(cfg, mockExec)
 
 		req := &domain.AIRequest{
 			Prompt: "test",
-			Model:  "sonnet",
+			Model:  "flash",
 		}
 
 		_, err := runner.Run(context.Background(), req)
 
 		require.Error(t, err)
-		require.ErrorIs(t, err, atlaserrors.ErrClaudeInvocation)
+		require.ErrorIs(t, err, atlaserrors.ErrGeminiInvocation)
 		assert.Contains(t, err.Error(), "not found")
 	})
 }
 
-func TestClaudeCodeRunner_RetryLogic(t *testing.T) {
+func TestGeminiRunner_RetryLogic(t *testing.T) {
 	EnsureNoRealAPIKeys(t)
 
 	t.Run("retries transient errors", func(t *testing.T) {
@@ -531,21 +494,21 @@ func TestClaudeCodeRunner_RetryLogic(t *testing.T) {
 		defer func() { timeSleep = originalSleep }()
 
 		cfg := &config.AIConfig{
-			Model:   "sonnet",
+			Model:   "flash",
 			Timeout: 30 * time.Minute,
 		}
 
 		// Create a custom executor that fails twice then succeeds
 		retryMockExec := &RetryMockExecutor{
 			failuresBeforeSuccess: 2,
-			successResponse:       []byte(`{"type":"result","is_error":false,"result":"Success after retries","session_id":"retry123","duration_ms":1000,"num_turns":1,"total_cost_usd":0.01}`),
+			successResponse:       []byte(`{"success":true,"content":"Success after retries","session_id":"retry123","duration_ms":1000,"num_turns":1,"total_cost_usd":0.01}`),
 		}
 
-		runner := NewClaudeCodeRunner(cfg, retryMockExec)
+		runner := NewGeminiRunner(cfg, retryMockExec)
 
 		req := &domain.AIRequest{
 			Prompt: "test",
-			Model:  "sonnet",
+			Model:  "flash",
 		}
 
 		result, err := runner.Run(context.Background(), req)
@@ -568,23 +531,23 @@ func TestClaudeCodeRunner_RetryLogic(t *testing.T) {
 
 		// Non-retryable error (executable not found)
 		mockExec := &MockExecutor{
-			Err: errTestExecNotFound,
+			Err: errGeminiTestExecNotFound,
 		}
 		cfg := &config.AIConfig{
-			Model:   "sonnet",
+			Model:   "flash",
 			Timeout: 30 * time.Minute,
 		}
-		runner := NewClaudeCodeRunner(cfg, mockExec)
+		runner := NewGeminiRunner(cfg, mockExec)
 
 		req := &domain.AIRequest{
 			Prompt: "test",
-			Model:  "sonnet",
+			Model:  "flash",
 		}
 
 		_, err := runner.Run(context.Background(), req)
 
 		require.Error(t, err)
-		require.ErrorIs(t, err, atlaserrors.ErrClaudeInvocation)
+		require.ErrorIs(t, err, atlaserrors.ErrGeminiInvocation)
 		// Should have only tried once since error is not retryable
 	})
 
@@ -599,21 +562,21 @@ func TestClaudeCodeRunner_RetryLogic(t *testing.T) {
 
 		// Create a mock that always fails with a retryable error
 		mockExec := &MockExecutor{
-			Err:        errTestRetryNetwork,
+			Err:        fmt.Errorf("connection refused: %w", atlaserrors.ErrMockNetwork),
 			StderrData: []byte("connection refused"),
 		}
 		cfg := &config.AIConfig{
-			Model:   "sonnet",
+			Model:   "flash",
 			Timeout: 30 * time.Minute,
 		}
-		runner := NewClaudeCodeRunner(cfg, mockExec)
+		runner := NewGeminiRunner(cfg, mockExec)
 
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel() // Cancel immediately
 
 		req := &domain.AIRequest{
 			Prompt: "test",
-			Model:  "sonnet",
+			Model:  "flash",
 		}
 
 		_, err := runner.Run(ctx, req)
@@ -623,23 +586,21 @@ func TestClaudeCodeRunner_RetryLogic(t *testing.T) {
 	})
 }
 
-// RetryMockExecutor is a mock that fails a specified number of times before succeeding.
-type RetryMockExecutor struct {
-	failuresBeforeSuccess int
-	callCount             int
-	successResponse       []byte
+func TestGeminiExecutor_Execute(t *testing.T) {
+	t.Run("captures stdout and stderr", func(t *testing.T) {
+		// This test verifies the executor captures output correctly
+		// by testing with a simple echo command
+		executor := &GeminiExecutor{}
+
+		ctx := context.Background()
+		cmd := exec.CommandContext(ctx, "echo", "test output")
+		stdout, stderr, err := executor.Execute(ctx, cmd)
+
+		require.NoError(t, err)
+		assert.Equal(t, "test output\n", string(stdout))
+		assert.Empty(t, stderr)
+	})
 }
 
-// errRetryMockNetwork is a static error for RetryMockExecutor.
-var errRetryMockNetwork = errors.New("network error")
-
-func (m *RetryMockExecutor) Execute(_ context.Context, _ *exec.Cmd) ([]byte, []byte, error) {
-	m.callCount++
-	if m.callCount <= m.failuresBeforeSuccess {
-		return nil, []byte("network error"), errRetryMockNetwork
-	}
-	return m.successResponse, nil, nil
-}
-
-// Compile-time check that ClaudeCodeRunner implements Runner.
-var _ Runner = (*ClaudeCodeRunner)(nil)
+// Compile-time check that GeminiRunner implements Runner.
+var _ Runner = (*GeminiRunner)(nil)
