@@ -13,9 +13,9 @@ import (
 //
 //nolint:gochecknoglobals // Required for ldflags injection at build time
 var (
-	version = "dev"
-	commit  = "none"
-	date    = "unknown"
+	version   = "dev"
+	commit    = "none"
+	buildDate = "unknown"
 )
 
 func main() {
@@ -26,7 +26,7 @@ func main() {
 	err := cli.Execute(ctx, cli.BuildInfo{
 		Version: version,
 		Commit:  commit,
-		Date:    date,
+		Date:    buildDate,
 	})
 	if err != nil {
 		os.Exit(cli.ExitCodeForError(err))
