@@ -14,6 +14,7 @@ func NewTaskTemplate() *domain.Template {
 		Name:         "task",
 		Description:  "Complete a simple task with implementation and validation",
 		BranchPrefix: "task",
+		DefaultAgent: domain.AgentClaude, // Default to Claude for backwards compatibility
 		DefaultModel: "sonnet",
 		Verify:       false,  // Verification OFF by default for task (enable with --verify)
 		VerifyModel:  "opus", // Uses different model family automatically
@@ -37,7 +38,8 @@ func NewTaskTemplate() *domain.Template {
 				Required:    false, // Optional for task
 				Timeout:     5 * time.Minute,
 				Config: map[string]any{
-					"model":  "", // Will use different model family
+					"agent":  "gemini", // Use Gemini for verification
+					"model":  "",       // Will use Gemini default (flash)
 					"checks": []string{"code_correctness", "garbage_files"},
 				},
 			},

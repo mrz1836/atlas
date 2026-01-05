@@ -7,6 +7,9 @@ import (
 
 // Overrides contains template-specific configuration overrides.
 type Overrides struct {
+	// Agent overrides the template's default AI agent (claude, gemini).
+	Agent domain.Agent
+
 	// Model overrides the template's default AI model.
 	Model string
 
@@ -31,6 +34,11 @@ func ApplyConfig(t *domain.Template, cfg *config.Config) *domain.Template {
 		return result
 	}
 
+	// Apply AI agent override from config
+	if cfg.AI.Agent != "" {
+		result.DefaultAgent = domain.Agent(cfg.AI.Agent)
+	}
+
 	// Apply AI model override from config
 	if cfg.AI.Model != "" {
 		result.DefaultModel = cfg.AI.Model
@@ -49,6 +57,11 @@ func ApplyOverrides(t *domain.Template, overrides Overrides) *domain.Template {
 
 	// Clone the template to avoid modifying the original
 	result := cloneTemplate(t)
+
+	// Apply agent override
+	if overrides.Agent != "" {
+		result.DefaultAgent = overrides.Agent
+	}
 
 	// Apply model override
 	if overrides.Model != "" {

@@ -91,7 +91,11 @@ type Task struct {
 
 // TaskConfig holds configuration options for task execution.
 type TaskConfig struct {
-	// Model specifies the AI model to use (e.g., "claude-sonnet-4-20250514").
+	// Agent specifies which AI CLI to use (e.g., "claude", "gemini").
+	// If empty, defaults to "claude" for backwards compatibility.
+	Agent Agent `json:"agent,omitempty"`
+
+	// Model specifies the AI model to use (e.g., "sonnet", "flash").
 	Model string `json:"model,omitempty"`
 
 	// MaxTurns limits the number of AI conversation turns per step.

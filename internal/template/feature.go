@@ -16,6 +16,7 @@ func NewFeatureTemplate() *domain.Template {
 		Name:         "feature",
 		Description:  "Develop a new feature with spec-driven development",
 		BranchPrefix: "feat",
+		DefaultAgent: domain.AgentClaude, // Default to Claude for backwards compatibility
 		DefaultModel: "opus",
 		Verify:       true, // Verification ON by default for feature (disable with --no-verify)
 		VerifyModel:  "",   // Uses different model family automatically
@@ -77,7 +78,8 @@ func NewFeatureTemplate() *domain.Template {
 				Required:    true, // Required by default for feature
 				Timeout:     10 * time.Minute,
 				Config: map[string]any{
-					"model":  "", // Will use different model family
+					"agent":  "gemini", // Use Gemini for verification
+					"model":  "",       // Will use Gemini default (flash)
 					"checks": []string{"code_correctness", "test_coverage", "garbage_files", "security"},
 				},
 			},

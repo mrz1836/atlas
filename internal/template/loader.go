@@ -20,6 +20,7 @@ type FileTemplate struct {
 	Name               string                          `yaml:"name" json:"name"`
 	Description        string                          `yaml:"description" json:"description"`
 	BranchPrefix       string                          `yaml:"branch_prefix" json:"branch_prefix"`
+	DefaultAgent       string                          `yaml:"default_agent,omitempty" json:"default_agent,omitempty"`
 	DefaultModel       string                          `yaml:"default_model,omitempty" json:"default_model,omitempty"`
 	Steps              []FileStepDefinition            `yaml:"steps" json:"steps"`
 	ValidationCommands []string                        `yaml:"validation_commands,omitempty" json:"validation_commands,omitempty"`
@@ -155,6 +156,7 @@ func toTemplate(f *FileTemplate) (*domain.Template, error) {
 		Name:               f.Name,
 		Description:        f.Description,
 		BranchPrefix:       f.BranchPrefix,
+		DefaultAgent:       domain.Agent(f.DefaultAgent),
 		DefaultModel:       f.DefaultModel,
 		ValidationCommands: f.ValidationCommands,
 		Verify:             f.Verify,

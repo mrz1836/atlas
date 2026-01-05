@@ -61,6 +61,10 @@ type Template struct {
 	// BranchPrefix is prepended to branch names created from this template.
 	BranchPrefix string `json:"branch_prefix"`
 
+	// DefaultAgent is the AI CLI agent to use (claude, gemini).
+	// If empty, defaults to "claude" for backwards compatibility.
+	DefaultAgent Agent `json:"default_agent,omitempty"`
+
 	// DefaultModel is the AI model to use if not overridden.
 	DefaultModel string `json:"default_model,omitempty"`
 

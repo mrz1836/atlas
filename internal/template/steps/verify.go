@@ -210,6 +210,7 @@ func (e *VerifyExecutor) Type() domain.StepType {
 // buildRequest constructs an AIRequest for verification.
 func (e *VerifyExecutor) buildRequest(task *domain.Task, step *domain.StepDefinition) *domain.AIRequest {
 	req := &domain.AIRequest{
+		Agent:      task.Config.Agent, // Default to task agent
 		Prompt:     e.buildVerificationPrompt(task, step),
 		Model:      task.Config.Model,
 		MaxTurns:   5, // Verification should be quick
@@ -219,6 +220,10 @@ func (e *VerifyExecutor) buildRequest(task *domain.Task, step *domain.StepDefini
 
 	// Apply step-specific config overrides
 	if step.Config != nil {
+		// Agent override for this step
+		if agent, ok := step.Config["agent"].(string); ok && agent != "" {
+			req.Agent = domain.Agent(agent)
+		}
 		if model, ok := step.Config["model"].(string); ok && model != "" {
 			req.Model = model
 		}

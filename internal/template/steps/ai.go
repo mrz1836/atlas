@@ -117,6 +117,7 @@ func (e *AIExecutor) Type() domain.StepType {
 // buildRequest constructs an AIRequest from task and step configuration.
 func (e *AIExecutor) buildRequest(task *domain.Task, step *domain.StepDefinition) *domain.AIRequest {
 	req := &domain.AIRequest{
+		Agent:      task.Config.Agent,
 		Prompt:     task.Description,
 		Model:      task.Config.Model,
 		MaxTurns:   task.Config.MaxTurns,
@@ -141,6 +142,10 @@ func (e *AIExecutor) applyStepConfig(req *domain.AIRequest, description string, 
 		return
 	}
 
+	// Agent override for this step
+	if agent, ok := config["agent"].(string); ok && agent != "" {
+		req.Agent = domain.Agent(agent)
+	}
 	if pm, ok := config["permission_mode"].(string); ok {
 		req.PermissionMode = pm
 	}

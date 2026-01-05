@@ -104,7 +104,10 @@ func cloneTemplate(t *domain.Template) *domain.Template {
 		Name:         t.Name,
 		Description:  t.Description,
 		BranchPrefix: t.BranchPrefix,
+		DefaultAgent: t.DefaultAgent,
 		DefaultModel: t.DefaultModel,
+		Verify:       t.Verify,
+		VerifyModel:  t.VerifyModel,
 	}
 
 	// Clone validation commands

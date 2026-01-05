@@ -1,5 +1,9 @@
 package steps
 
+// This test suite uses mockAIRunner to simulate AI execution without making real API calls.
+// IMPORTANT: Tests NEVER make real API calls or use production API keys.
+// All AI responses are pre-configured mock data to ensure test isolation.
+
 import (
 	"context"
 	"testing"
@@ -12,7 +16,9 @@ import (
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 )
 
-// mockAIRunner implements ai.Runner for testing.
+// mockAIRunner implements ai.Runner for testing without making real API calls.
+// It returns pre-configured results and captures requests for verification.
+// This ensures tests are fast, deterministic, and never require real API keys.
 type mockAIRunner struct {
 	result  *domain.AIResult
 	err     error

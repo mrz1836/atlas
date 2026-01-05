@@ -14,6 +14,7 @@ func NewBugfixTemplate() *domain.Template {
 		Name:         "bugfix",
 		Description:  "Fix a reported bug with analysis, implementation, and validation",
 		BranchPrefix: "fix",
+		DefaultAgent: domain.AgentClaude, // Default to Claude for backwards compatibility
 		DefaultModel: "sonnet",
 		Verify:       false,  // Verification OFF by default for bugfix (enable with --verify)
 		VerifyModel:  "opus", // Uses different model family automatically
@@ -49,7 +50,8 @@ func NewBugfixTemplate() *domain.Template {
 				Required:    false, // Optional for bugfix
 				Timeout:     5 * time.Minute,
 				Config: map[string]any{
-					"model":  "", // Will use different model family
+					"agent":  "gemini", // Use Gemini for verification
+					"model":  "",       // Will use Gemini default (flash)
 					"checks": []string{"code_correctness", "garbage_files"},
 				},
 			},

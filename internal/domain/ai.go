@@ -18,6 +18,10 @@ import "time"
 //	    "working_dir": "/path/to/repo"
 //	}
 type AIRequest struct {
+	// Agent specifies which AI CLI to use (claude, gemini).
+	// If empty, defaults to "claude" for backwards compatibility.
+	Agent Agent `json:"agent,omitempty"`
+
 	// Prompt is the main instruction for the AI agent.
 	Prompt string `json:"prompt"`
 
