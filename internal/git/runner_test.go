@@ -767,3 +767,438 @@ func TestCLIRunner_ErrorWrapping(t *testing.T) {
 		assert.ErrorIs(t, err, atlaserrors.ErrGitOperation)
 	})
 }
+
+// setupRepoWithRemote creates a test repo with a remote repository.
+// Returns the path to the local repo.
+func setupRepoWithRemote(t *testing.T) string {
+	t.Helper()
+
+	// Create remote (bare) repo
+	remotePath := t.TempDir()
+	cmd := exec.CommandContext(context.Background(), "git", "init", "--bare")
+	cmd.Dir = remotePath
+	require.NoError(t, cmd.Run(), "failed to init bare repo")
+
+	// Create local repo
+	localPath := setupTestRepo(t)
+
+	// Add remote
+	//nolint:gosec // G204: remotePath is from t.TempDir(), not user input
+	cmd = exec.CommandContext(context.Background(), "git", "remote", "add", "origin", remotePath)
+	cmd.Dir = localPath
+	require.NoError(t, cmd.Run(), "failed to add remote")
+
+	return localPath
+}
+
+// setupRepoForRebase creates a test repo with commits on both base and feature branches.
+// Returns the repo path and branch names.
+func setupRepoForRebase(t *testing.T, baseBranch, featureBranch string) string {
+	t.Helper()
+
+	repoPath := setupTestRepo(t)
+
+	// Create initial commit on default branch
+	createFile(t, repoPath, "base.txt", "base content")
+	commitInitial(t, repoPath)
+
+	// Rename default branch to baseBranch
+	cmd := exec.CommandContext(context.Background(), "git", "branch", "-m", baseBranch)
+	cmd.Dir = repoPath
+	require.NoError(t, cmd.Run(), "failed to rename branch")
+
+	// Create feature branch
+	cmd = exec.CommandContext(context.Background(), "git", "checkout", "-b", featureBranch)
+	cmd.Dir = repoPath
+	require.NoError(t, cmd.Run(), "failed to create feature branch")
+
+	// Add commit on feature branch
+	createFile(t, repoPath, "feature.txt", "feature content")
+	cmd = exec.CommandContext(context.Background(), "git", "add", ".")
+	cmd.Dir = repoPath
+	require.NoError(t, cmd.Run())
+	cmd = exec.CommandContext(context.Background(), "git", "commit", "-m", "feature commit")
+	cmd.Dir = repoPath
+	require.NoError(t, cmd.Run())
+
+	return repoPath
+}
+
+// createRebaseConflict creates a rebase conflict scenario.
+func createRebaseConflict(t *testing.T, repoPath, baseBranch, featureBranch string) {
+	t.Helper()
+
+	// Go to base branch and modify the same file
+	cmd := exec.CommandContext(context.Background(), "git", "checkout", baseBranch)
+	cmd.Dir = repoPath
+	require.NoError(t, cmd.Run())
+
+	createFile(t, repoPath, "conflict.txt", "base version")
+	cmd = exec.CommandContext(context.Background(), "git", "add", ".")
+	cmd.Dir = repoPath
+	require.NoError(t, cmd.Run())
+	cmd = exec.CommandContext(context.Background(), "git", "commit", "-m", "base commit")
+	cmd.Dir = repoPath
+	require.NoError(t, cmd.Run())
+
+	// Go to feature branch and modify the same file differently
+	cmd = exec.CommandContext(context.Background(), "git", "checkout", featureBranch)
+	cmd.Dir = repoPath
+	require.NoError(t, cmd.Run())
+
+	createFile(t, repoPath, "conflict.txt", "feature version")
+	cmd = exec.CommandContext(context.Background(), "git", "add", ".")
+	cmd.Dir = repoPath
+	require.NoError(t, cmd.Run())
+	cmd = exec.CommandContext(context.Background(), "git", "commit", "-m", "feature conflict commit")
+	cmd.Dir = repoPath
+	require.NoError(t, cmd.Run())
+}
+
+// TestCLIRunner_Fetch tests the Fetch method.
+func TestCLIRunner_Fetch(t *testing.T) {
+	t.Run("fetch from origin", func(t *testing.T) {
+		localPath := setupRepoWithRemote(t)
+
+		// Create and push initial commit
+		createFile(t, localPath, "file.txt", "content")
+		commitInitial(t, localPath)
+		cmd := exec.CommandContext(context.Background(), "git", "push", "-u", "origin", "master")
+		cmd.Dir = localPath
+		require.NoError(t, cmd.Run())
+
+		runner, err := NewRunner(context.Background(), localPath)
+		require.NoError(t, err)
+
+		// Fetch should succeed
+		err = runner.Fetch(context.Background(), "origin")
+		require.NoError(t, err)
+	})
+
+	t.Run("fetch with empty remote defaults to origin", func(t *testing.T) {
+		localPath := setupRepoWithRemote(t)
+		createFile(t, localPath, "file.txt", "content")
+		commitInitial(t, localPath)
+
+		runner, err := NewRunner(context.Background(), localPath)
+		require.NoError(t, err)
+
+		// Empty remote should default to "origin"
+		err = runner.Fetch(context.Background(), "")
+		require.NoError(t, err)
+	})
+
+	t.Run("fetch from non-existent remote", func(t *testing.T) {
+		repoPath := setupTestRepo(t)
+		runner, err := NewRunner(context.Background(), repoPath)
+		require.NoError(t, err)
+
+		err = runner.Fetch(context.Background(), "nonexistent")
+		require.Error(t, err)
+		assert.ErrorIs(t, err, atlaserrors.ErrGitOperation)
+	})
+
+	t.Run("context cancellation", func(t *testing.T) {
+		repoPath := setupTestRepo(t)
+		runner, err := NewRunner(context.Background(), repoPath)
+		require.NoError(t, err)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		err = runner.Fetch(ctx, "origin")
+		assert.ErrorIs(t, err, context.Canceled)
+	})
+}
+
+// TestCLIRunner_Rebase tests the Rebase method.
+func TestCLIRunner_Rebase(t *testing.T) {
+	t.Run("successful rebase", func(t *testing.T) {
+		repoPath := setupRepoForRebase(t, "main", "feature")
+
+		runner, err := NewRunner(context.Background(), repoPath)
+		require.NoError(t, err)
+
+		// Rebase feature onto main (should succeed)
+		err = runner.Rebase(context.Background(), "main")
+		require.NoError(t, err)
+	})
+
+	t.Run("rebase with conflicts", func(t *testing.T) {
+		repoPath := setupRepoForRebase(t, "main", "feature")
+		createRebaseConflict(t, repoPath, "main", "feature")
+
+		runner, err := NewRunner(context.Background(), repoPath)
+		require.NoError(t, err)
+
+		// Rebase should fail with conflict error
+		err = runner.Rebase(context.Background(), "main")
+		require.Error(t, err)
+		require.ErrorIs(t, err, atlaserrors.ErrRebaseConflict)
+
+		// Clean up - abort the rebase
+		_ = runner.RebaseAbort(context.Background())
+	})
+
+	t.Run("empty onto parameter error", func(t *testing.T) {
+		repoPath := setupTestRepo(t)
+		runner, err := NewRunner(context.Background(), repoPath)
+		require.NoError(t, err)
+
+		err = runner.Rebase(context.Background(), "")
+		require.Error(t, err)
+		assert.ErrorIs(t, err, atlaserrors.ErrEmptyValue)
+	})
+
+	t.Run("context cancellation", func(t *testing.T) {
+		repoPath := setupTestRepo(t)
+		runner, err := NewRunner(context.Background(), repoPath)
+		require.NoError(t, err)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		err = runner.Rebase(ctx, "main")
+		assert.ErrorIs(t, err, context.Canceled)
+	})
+}
+
+// TestCLIRunner_RebaseAbort tests the RebaseAbort method.
+func TestCLIRunner_RebaseAbort(t *testing.T) {
+	t.Run("abort rebase in progress", func(t *testing.T) {
+		repoPath := setupRepoForRebase(t, "main", "feature")
+		createRebaseConflict(t, repoPath, "main", "feature")
+
+		runner, err := NewRunner(context.Background(), repoPath)
+		require.NoError(t, err)
+
+		// Start a rebase that will conflict
+		_ = runner.Rebase(context.Background(), "main")
+
+		// Abort should succeed
+		err = runner.RebaseAbort(context.Background())
+		require.NoError(t, err)
+	})
+
+	t.Run("no rebase in progress", func(t *testing.T) {
+		repoPath := setupTestRepo(t)
+		createFile(t, repoPath, "file.txt", "content")
+		commitInitial(t, repoPath)
+
+		runner, err := NewRunner(context.Background(), repoPath)
+		require.NoError(t, err)
+
+		// Should not error even if no rebase in progress
+		err = runner.RebaseAbort(context.Background())
+		require.NoError(t, err)
+	})
+
+	t.Run("context cancellation", func(t *testing.T) {
+		repoPath := setupTestRepo(t)
+		runner, err := NewRunner(context.Background(), repoPath)
+		require.NoError(t, err)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		err = runner.RebaseAbort(ctx)
+		assert.ErrorIs(t, err, context.Canceled)
+	})
+}
+
+// TestParseGitStatus_EdgeCases tests edge cases in status parsing.
+func TestParseGitStatus_EdgeCases(t *testing.T) {
+	t.Run("empty output", func(t *testing.T) {
+		status := parseGitStatus("")
+		assert.NotNil(t, status)
+		assert.Empty(t, status.Branch)
+		assert.Empty(t, status.Staged)
+		assert.Empty(t, status.Unstaged)
+		assert.Empty(t, status.Untracked)
+	})
+
+	t.Run("branch only no tracking", func(t *testing.T) {
+		output := "## main\n"
+		status := parseGitStatus(output)
+		assert.Equal(t, "main", status.Branch)
+		assert.Equal(t, 0, status.Ahead)
+		assert.Equal(t, 0, status.Behind)
+	})
+
+	t.Run("branch behind only", func(t *testing.T) {
+		output := "## main...origin/main [behind 5]\n"
+		status := parseGitStatus(output)
+		assert.Equal(t, "main", status.Branch)
+		assert.Equal(t, 0, status.Ahead)
+		assert.Equal(t, 5, status.Behind)
+	})
+
+	t.Run("malformed branch line no bracket", func(t *testing.T) {
+		output := "## main...origin/main\n"
+		status := parseGitStatus(output)
+		assert.Equal(t, "main", status.Branch)
+		assert.Equal(t, 0, status.Ahead)
+		assert.Equal(t, 0, status.Behind)
+	})
+
+	t.Run("malformed branch line incomplete bracket", func(t *testing.T) {
+		output := "## main...origin/main [\n"
+		status := parseGitStatus(output)
+		assert.Equal(t, "main", status.Branch)
+		assert.Equal(t, 0, status.Ahead)
+		assert.Equal(t, 0, status.Behind)
+	})
+
+	t.Run("branch line too short after bracket", func(t *testing.T) {
+		output := "## main...origin/main [a]\n"
+		status := parseGitStatus(output)
+		assert.Equal(t, "main", status.Branch)
+	})
+
+	t.Run("parse with both staged and unstaged changes", func(t *testing.T) {
+		output := "## main\nMM file.txt\n"
+		status := parseGitStatus(output)
+		// MM means modified in index and in working tree
+		require.Len(t, status.Staged, 1)
+		require.Len(t, status.Unstaged, 1)
+		assert.Equal(t, "file.txt", status.Staged[0].Path)
+		assert.Equal(t, "file.txt", status.Unstaged[0].Path)
+	})
+
+	t.Run("short line ignored", func(t *testing.T) {
+		output := "## main\nX\n"
+		status := parseGitStatus(output)
+		assert.Empty(t, status.Staged)
+		assert.Empty(t, status.Unstaged)
+		assert.Empty(t, status.Untracked)
+	})
+}
+
+// TestParseAheadBehind_EdgeCases tests edge cases in ahead/behind parsing.
+func TestParseAheadBehind_EdgeCases(t *testing.T) {
+	t.Run("non-numeric ahead value", func(t *testing.T) {
+		n := parseAheadBehind("ahead xyz", "ahead ")
+		assert.Equal(t, 0, n)
+	})
+
+	t.Run("prefix not found", func(t *testing.T) {
+		n := parseAheadBehind("behind 5", "ahead ")
+		assert.Equal(t, 0, n)
+	})
+
+	t.Run("empty info string", func(t *testing.T) {
+		n := parseAheadBehind("", "ahead ")
+		assert.Equal(t, 0, n)
+	})
+
+	t.Run("ahead with trailing comma", func(t *testing.T) {
+		n := parseAheadBehind("ahead 3, behind 2", "ahead ")
+		assert.Equal(t, 3, n)
+	})
+
+	t.Run("behind with trailing text", func(t *testing.T) {
+		n := parseAheadBehind("behind 7", "behind ")
+		assert.Equal(t, 7, n)
+	})
+}
+
+// TestCLIRunner_PushWithRemote tests push with actual remote.
+func TestCLIRunner_PushWithRemote(t *testing.T) {
+	t.Run("successful push", func(t *testing.T) {
+		localPath := setupRepoWithRemote(t)
+		createFile(t, localPath, "file.txt", "content")
+		commitInitial(t, localPath)
+
+		runner, err := NewRunner(context.Background(), localPath)
+		require.NoError(t, err)
+
+		// Get the actual branch name (could be master or main)
+		branch, err := runner.CurrentBranch(context.Background())
+		require.NoError(t, err)
+
+		// Push with set-upstream
+		err = runner.Push(context.Background(), "origin", branch, true)
+		require.NoError(t, err)
+	})
+
+	t.Run("push without set-upstream", func(t *testing.T) {
+		localPath := setupRepoWithRemote(t)
+		createFile(t, localPath, "file.txt", "content")
+		commitInitial(t, localPath)
+
+		runner, err := NewRunner(context.Background(), localPath)
+		require.NoError(t, err)
+
+		branch, err := runner.CurrentBranch(context.Background())
+		require.NoError(t, err)
+
+		// First push needs upstream
+		err = runner.Push(context.Background(), "origin", branch, true)
+		require.NoError(t, err)
+
+		// Second push doesn't need upstream flag
+		createFile(t, localPath, "file2.txt", "content2")
+		cmd := exec.CommandContext(context.Background(), "git", "add", ".")
+		cmd.Dir = localPath
+		require.NoError(t, cmd.Run())
+		cmd = exec.CommandContext(context.Background(), "git", "commit", "-m", "second commit")
+		cmd.Dir = localPath
+		require.NoError(t, cmd.Run())
+
+		err = runner.Push(context.Background(), "origin", branch, false)
+		require.NoError(t, err)
+	})
+}
+
+// TestCLIRunner_BranchExists_AllCases tests all BranchExists scenarios.
+func TestCLIRunner_BranchExists_AllCases(t *testing.T) {
+	t.Run("branch exists returns true", func(t *testing.T) {
+		repoPath := setupTestRepo(t)
+		createFile(t, repoPath, "file.txt", "content")
+		commitInitial(t, repoPath)
+
+		// Create a test branch
+		cmd := exec.CommandContext(context.Background(), "git", "branch", "test-branch")
+		cmd.Dir = repoPath
+		require.NoError(t, cmd.Run())
+
+		runner, err := NewRunner(context.Background(), repoPath)
+		require.NoError(t, err)
+
+		exists, err := runner.BranchExists(context.Background(), "test-branch")
+		require.NoError(t, err)
+		assert.True(t, exists)
+	})
+
+	t.Run("branch does not exist returns false", func(t *testing.T) {
+		repoPath := setupTestRepo(t)
+		createFile(t, repoPath, "file.txt", "content")
+		commitInitial(t, repoPath)
+
+		runner, err := NewRunner(context.Background(), repoPath)
+		require.NoError(t, err)
+
+		exists, err := runner.BranchExists(context.Background(), "nonexistent")
+		require.NoError(t, err)
+		assert.False(t, exists)
+	})
+}
+
+// TestCLIRunner_Add_EmptyPaths tests Add with empty paths.
+func TestCLIRunner_Add_EmptyPaths(t *testing.T) {
+	t.Run("add with empty slice", func(t *testing.T) {
+		repoPath := setupTestRepo(t)
+		createFile(t, repoPath, "file.txt", "content")
+
+		runner, err := NewRunner(context.Background(), repoPath)
+		require.NoError(t, err)
+
+		// Empty slice should stage all (-A flag)
+		err = runner.Add(context.Background(), []string{})
+		require.NoError(t, err)
+
+		status, err := runner.Status(context.Background())
+		require.NoError(t, err)
+		assert.True(t, status.HasStagedChanges())
+	})
+}
