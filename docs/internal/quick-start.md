@@ -191,6 +191,12 @@ atlas start "quick fix" --no-verify
 
 # Non-interactive mode (requires --template)
 atlas start "fix bug" -t bugfix --no-interactive
+
+# Dry-run mode - see what would happen without making changes
+atlas start "fix null pointer" --template bugfix --dry-run
+
+# Dry-run with JSON output for scripting
+atlas start "fix null pointer" --template bugfix --dry-run --output json
 ```
 
 **Flags:**
@@ -204,6 +210,43 @@ atlas start "fix bug" -t bugfix --no-interactive
 | `--verify` | | Enable AI verification step | |
 | `--no-verify` | | Disable AI verification step | |
 | `--no-interactive` | | Disable interactive prompts | |
+| `--dry-run` | | Show what would happen without executing | |
+
+**Dry-Run Mode:**
+
+The `--dry-run` flag shows what would happen without making any changes. It's useful for:
+- Previewing the workflow steps before execution
+- Validating template and flag combinations
+- Scripting and automation with `--output json`
+
+Example output:
+```
+=== DRY-RUN MODE ===
+Showing what would happen without making changes.
+
+[0/9] Workspace Creation
+      Name:   fix-null-pointer
+      Branch: fix/fix-null-pointer
+      Status: WOULD CREATE
+
+[1/9] ai Step: 'analyze'
+      Would:
+        - Execute AI with model: claude-sonnet-4-20250514
+        - Prompt: "fix null pointer in parseConfig"
+...
+
+=== Summary ===
+Template: bugfix
+Steps: 9 total
+Side Effects Prevented:
+  - Workspace creation (git worktree)
+  - AI execution (file modifications)
+  - Git commits
+  - Git push to remote
+  - Pull request creation
+
+Run without --dry-run to execute.
+```
 
 **Workspace Naming:**
 - Auto-generated from description (lowercase, hyphens, max 50 chars)
