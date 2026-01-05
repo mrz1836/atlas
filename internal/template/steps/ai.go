@@ -43,17 +43,19 @@ func (e *AIExecutor) Execute(ctx context.Context, task *domain.Task, step *domai
 	default:
 	}
 
+	startTime := time.Now()
+
+	// Build AI request from task and step config first so we can log resolved agent/model
+	req := e.buildRequest(task, step)
+
 	log := zerolog.Ctx(ctx)
 	log.Info().
 		Str("task_id", task.ID).
 		Str("step_name", step.Name).
 		Str("step_type", string(step.Type)).
+		Str("agent", string(req.Agent)).
+		Str("model", req.Model).
 		Msg("executing ai step")
-
-	startTime := time.Now()
-
-	// Build AI request from task and step config
-	req := e.buildRequest(task, step)
 
 	// Execute with timeout from step definition if set
 	execCtx := ctx
@@ -71,6 +73,8 @@ func (e *AIExecutor) Execute(ctx context.Context, task *domain.Task, step *domai
 			Err(err).
 			Str("task_id", task.ID).
 			Str("step_name", step.Name).
+			Str("agent", string(req.Agent)).
+			Str("model", req.Model).
 			Dur("duration_ms", elapsed).
 			Msg("ai step failed")
 
@@ -90,6 +94,8 @@ func (e *AIExecutor) Execute(ctx context.Context, task *domain.Task, step *domai
 	log.Info().
 		Str("task_id", task.ID).
 		Str("step_name", step.Name).
+		Str("agent", string(req.Agent)).
+		Str("model", req.Model).
 		Str("session_id", result.SessionID).
 		Int("num_turns", result.NumTurns).
 		Dur("duration_ms", elapsed).

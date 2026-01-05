@@ -46,4 +46,7 @@ type Runner interface {
 
 	// RebaseAbort cancels an in-progress rebase operation.
 	RebaseAbort(ctx context.Context) error
+
+	// Reset unstages all staged changes (git reset HEAD).
+	Reset(ctx context.Context) error
 }

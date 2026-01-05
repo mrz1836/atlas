@@ -164,16 +164,16 @@ type TemplatesConfig struct {
 }
 
 // ValidationCommands holds validation commands organized by category.
-// This structure allows for clear organization of different validation types.
+// Fields are ordered to match execution order (pre-commit runs first).
 type ValidationCommands struct {
+	// PreCommit contains commands run before committing (e.g., "go-pre-commit run --all-files").
+	PreCommit []string `yaml:"pre_commit" mapstructure:"pre_commit"`
 	// Format contains commands that format code (e.g., "magex format:fix").
 	Format []string `yaml:"format" mapstructure:"format"`
 	// Lint contains commands that lint code (e.g., "magex lint").
 	Lint []string `yaml:"lint" mapstructure:"lint"`
 	// Test contains commands that run tests (e.g., "magex test").
 	Test []string `yaml:"test" mapstructure:"test"`
-	// PreCommit contains commands run before committing (e.g., "go-pre-commit run --all-files").
-	PreCommit []string `yaml:"pre_commit" mapstructure:"pre_commit"`
 	// CustomPrePR contains custom commands to run before creating a PR.
 	CustomPrePR []string `yaml:"custom_pre_pr,omitempty" mapstructure:"custom_pre_pr"`
 }

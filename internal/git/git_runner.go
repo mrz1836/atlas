@@ -298,6 +298,28 @@ func (r *CLIRunner) RebaseAbort(ctx context.Context) error {
 	return nil
 }
 
+// Reset unstages all staged changes (git reset HEAD).
+func (r *CLIRunner) Reset(ctx context.Context) error {
+	// Check for cancellation at entry
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
+	_, err := r.runGitCommand(ctx, "reset", "HEAD")
+	if err != nil {
+		// Ignore "not a valid ref" error when there are no commits yet
+		errStr := strings.ToLower(err.Error())
+		if strings.Contains(errStr, "not a valid ref") {
+			return nil
+		}
+		return fmt.Errorf("failed to reset staging: %w", err)
+	}
+
+	return nil
+}
+
 // runGitCommand executes a git command and returns its output.
 // This is a convenience wrapper around RunCommand that uses the runner's workDir.
 func (r *CLIRunner) runGitCommand(ctx context.Context, args ...string) (string, error) {

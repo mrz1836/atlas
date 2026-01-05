@@ -303,6 +303,9 @@ var (
 	// ErrWorktreeNotFound indicates the requested worktree does not exist.
 	ErrWorktreeNotFound = errors.New("worktree not found")
 
+	// ErrWorktreeRunnerNotAvailable indicates the worktree runner is not configured.
+	ErrWorktreeRunnerNotAvailable = errors.New("worktree runner not available")
+
 	// ErrRebaseConflict indicates that a rebase operation has conflicts that need manual resolution.
 	ErrRebaseConflict = errors.New("rebase has conflicts")
 

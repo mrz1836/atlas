@@ -8,6 +8,8 @@ import (
 	"io"
 	"os"
 
+	"github.com/spf13/cobra"
+
 	"github.com/mrz1836/atlas/internal/ai"
 	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/constants"
@@ -19,7 +21,6 @@ import (
 	"github.com/mrz1836/atlas/internal/template/steps"
 	"github.com/mrz1836/atlas/internal/tui"
 	"github.com/mrz1836/atlas/internal/workspace"
-	"github.com/spf13/cobra"
 )
 
 // AddResumeCommand adds the resume command to the root command.

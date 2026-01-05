@@ -10,10 +10,11 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/mrz1836/atlas/internal/constants"
-	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
+
+	"github.com/mrz1836/atlas/internal/constants"
+	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 )
 
 // ConfigAIFlags holds flags specific to the config ai command.

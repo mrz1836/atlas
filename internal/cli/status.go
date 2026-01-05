@@ -11,6 +11,8 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/spf13/cobra"
+
 	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/domain"
@@ -18,7 +20,6 @@ import (
 	"github.com/mrz1836/atlas/internal/task"
 	"github.com/mrz1836/atlas/internal/tui"
 	"github.com/mrz1836/atlas/internal/workspace"
-	"github.com/spf13/cobra"
 )
 
 // WorkspaceLister defines the interface for listing workspaces.

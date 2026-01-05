@@ -32,11 +32,11 @@ type ValidationExecutor struct {
 	notifier      Notifier
 	retryHandler  RetryHandler
 
-	// Validation commands from project config (override defaults)
+	// Validation commands from project config (ordered by execution)
+	preCommitCommands []string
 	formatCommands    []string
 	lintCommands      []string
 	testCommands      []string
-	preCommitCommands []string
 }
 
 // NewValidationExecutor creates a new validation executor.

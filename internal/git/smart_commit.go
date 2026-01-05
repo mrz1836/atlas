@@ -251,7 +251,13 @@ func (r *SmartCommitRunner) Commit(ctx context.Context, opts CommitOptions) (*Co
 
 // commitGroup stages files and creates a commit for a single group.
 func (r *SmartCommitRunner) commitGroup(ctx context.Context, group FileGroup, trailers map[string]string) (*CommitInfo, error) {
-	// Stage files
+	// Reset staging to ensure clean state for this group
+	// This prevents files from other groups (or pre-staged files) from being included
+	if err := r.runner.Reset(ctx); err != nil {
+		return nil, fmt.Errorf("failed to reset staging: %w", err)
+	}
+
+	// Stage only this group's files
 	paths := GetFilePaths(group.Files)
 	if err := r.runner.Add(ctx, paths); err != nil {
 		return nil, fmt.Errorf("failed to stage files: %w", err)

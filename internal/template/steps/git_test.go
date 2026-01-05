@@ -862,3 +862,7 @@ func (m *mockRunner) Rebase(_ context.Context, _ string) error {
 func (m *mockRunner) RebaseAbort(_ context.Context) error {
 	return nil
 }
+
+func (m *mockRunner) Reset(_ context.Context) error {
+	return nil
+}

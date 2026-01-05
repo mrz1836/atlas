@@ -8,8 +8,9 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/mrz1836/atlas/internal/config"
 	"github.com/spf13/cobra"
+
+	"github.com/mrz1836/atlas/internal/config"
 )
 
 // ConfigValidationFlags holds flags specific to the config validation command.
@@ -207,10 +208,10 @@ func displayCurrentValidationConfig(w io.Writer, cfg *AtlasConfig, styles *confi
 	_, _ = fmt.Fprintln(w, styles.header.Render("Current Validation Configuration"))
 	_, _ = fmt.Fprintln(w, styles.dim.Render(strings.Repeat("─", 35)))
 
+	displayCommandCategory(w, "Pre-commit Commands", cfg.Validation.Commands.PreCommit, styles)
 	displayCommandCategory(w, "Format Commands", cfg.Validation.Commands.Format, styles)
 	displayCommandCategory(w, "Lint Commands", cfg.Validation.Commands.Lint, styles)
 	displayCommandCategory(w, "Test Commands", cfg.Validation.Commands.Test, styles)
-	displayCommandCategory(w, "Pre-commit Commands", cfg.Validation.Commands.PreCommit, styles)
 	displayCommandCategory(w, "Custom Pre-PR Hooks", cfg.Validation.Commands.CustomPrePR, styles)
 }
 
