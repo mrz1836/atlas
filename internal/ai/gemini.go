@@ -173,11 +173,12 @@ func (r *GeminiRunner) buildCommand(ctx context.Context, req *domain.AIRequest) 
 		"--output-format", "json", // JSON output format
 	}
 
-	// Handle permission mode - sandbox for read-only, yolo for full access
+	// Always use --yolo for non-interactive execution (auto-approve allowed actions)
+	args = append(args, "--yolo")
+
+	// Add --sandbox for read-only mode (restricts WHAT can be done)
 	if req.PermissionMode == "plan" {
-		args = append(args, "--sandbox") // Read-only sandbox mode
-	} else {
-		args = append(args, "--yolo") // Auto-approve all actions for non-interactive execution
+		args = append(args, "--sandbox")
 	}
 
 	// Determine model: request > config

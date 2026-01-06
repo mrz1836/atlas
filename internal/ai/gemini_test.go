@@ -205,7 +205,7 @@ func TestGeminiRunner_BuildCommand(t *testing.T) {
 		assert.Contains(t, cmd.Args, "test prompt here")
 	})
 
-	t.Run("uses sandbox mode when permission_mode is plan", func(t *testing.T) {
+	t.Run("uses sandbox AND yolo mode when permission_mode is plan", func(t *testing.T) {
 		cfg := &config.AIConfig{
 			Model:   "flash",
 			Timeout: 30 * time.Minute,
@@ -220,12 +220,12 @@ func TestGeminiRunner_BuildCommand(t *testing.T) {
 
 		cmd := runner.buildCommand(context.Background(), req)
 
-		// Should use --sandbox for read-only mode, NOT --yolo
+		// Should use BOTH --sandbox (restrict actions) AND --yolo (auto-approve)
 		assert.Contains(t, cmd.Args, "--sandbox")
-		assert.NotContains(t, cmd.Args, "--yolo")
+		assert.Contains(t, cmd.Args, "--yolo")
 	})
 
-	t.Run("uses yolo mode when permission_mode is empty", func(t *testing.T) {
+	t.Run("uses only yolo mode when permission_mode is empty", func(t *testing.T) {
 		cfg := &config.AIConfig{
 			Model:   "flash",
 			Timeout: 30 * time.Minute,
