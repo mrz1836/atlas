@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"testing"
 	"time"
@@ -112,6 +113,7 @@ type MockWorktreeRunner struct {
 	fetchErr              error
 	remoteBranchExists    bool
 	remoteBranchExistsErr error
+	findByBranchResult    string
 
 	// Track calls for verification
 	removeCallCount       int
@@ -119,6 +121,8 @@ type MockWorktreeRunner struct {
 	deleteBranchCallCount int
 	pruneCallCount        int
 	fetchCallCount        int
+	findByBranchCallCount int
+	findByBranchLastArg   string
 
 	// Track operation order for sequencing tests
 	operationOrder []string
@@ -186,6 +190,12 @@ func (m *MockWorktreeRunner) RemoteBranchExists(_ context.Context, _, _ string) 
 		return false, m.remoteBranchExistsErr
 	}
 	return m.remoteBranchExists, nil
+}
+
+func (m *MockWorktreeRunner) FindByBranch(_ context.Context, branch string) string {
+	m.findByBranchCallCount++
+	m.findByBranchLastArg = branch
+	return m.findByBranchResult
 }
 
 // ============================================================================
@@ -670,8 +680,9 @@ func TestDefaultManager_Close_StoreUpdateFailure(t *testing.T) {
 	require.Error(t, err)
 	assert.Nil(t, result)
 	assert.Contains(t, err.Error(), "failed to update workspace status")
-	// Worktree should NOT be removed (store update happens first now)
-	assert.Equal(t, 0, runner.removeCallCount)
+	// Worktree removal is attempted BEFORE store update (to prevent state corruption)
+	// So remove will have been called even though store update failed
+	assert.Equal(t, 1, runner.removeCallCount)
 }
 
 func TestDefaultManager_Close_WithRunningTasksReturnsError(t *testing.T) {
@@ -771,6 +782,7 @@ func TestDefaultManager_Close_ContextCancellation(t *testing.T) {
 func TestDefaultManager_Close_NilWorktreeRunner(t *testing.T) {
 	// Test that Close succeeds even when worktreeRunner is nil
 	// State should be updated and warning returned about worktree not being removed
+	// WorktreePath should be PRESERVED since removal failed (prevents state corruption)
 	store := newMockStore()
 	store.workspaces["test"] = &domain.Workspace{
 		Name:         "test",
@@ -794,7 +806,8 @@ func TestDefaultManager_Close_NilWorktreeRunner(t *testing.T) {
 	// Workspace state should be updated to closed
 	ws := store.workspaces["test"]
 	assert.Equal(t, constants.WorkspaceStatusClosed, ws.Status)
-	assert.Empty(t, ws.WorktreePath)
+	// WorktreePath should NOT be cleared since removal failed (prevents state corruption)
+	assert.Equal(t, "/tmp/repo-test", ws.WorktreePath)
 }
 
 // ============================================================================
@@ -1021,6 +1034,7 @@ func (m *alwaysFailRemoveMockRunner) Remove(_ context.Context, _ string, _ bool)
 
 func TestDefaultManager_Close_NoWorktreePath(t *testing.T) {
 	// Test that Close succeeds without warning when workspace has no worktree path
+	// and no worktree can be discovered by branch
 	store := newMockStore()
 	store.workspaces["test"] = &domain.Workspace{
 		Name:         "test",
@@ -1030,6 +1044,8 @@ func TestDefaultManager_Close_NoWorktreePath(t *testing.T) {
 		Tasks:        []domain.TaskRef{},
 	}
 	runner := newMockWorktreeRunner()
+	// FindByBranch returns empty (no worktree found)
+	runner.findByBranchResult = ""
 
 	mgr := NewManager(store, runner)
 	result, err := mgr.Close(context.Background(), "test")
@@ -1038,10 +1054,77 @@ func TestDefaultManager_Close_NoWorktreePath(t *testing.T) {
 	require.NotNil(t, result)
 	// No warning since there was no worktree to remove
 	assert.Empty(t, result.WorktreeWarning)
-	// Remove should not have been called
+	// FindByBranch should have been called to try discovery
+	assert.Equal(t, 1, runner.findByBranchCallCount)
+	assert.Equal(t, "feat/test", runner.findByBranchLastArg)
+	// Remove should not have been called (no worktree found)
 	assert.Equal(t, 0, runner.removeCallCount)
 	// Status should be updated
 	ws := store.workspaces["test"]
+	assert.Equal(t, constants.WorkspaceStatusClosed, ws.Status)
+}
+
+func TestDefaultManager_Close_DiscoverWorktreeByBranch(t *testing.T) {
+	// Test that Close discovers and removes orphaned worktree when WorktreePath is empty
+	// but a worktree exists for the branch (recovery scenario)
+	store := newMockStore()
+	store.workspaces["test"] = &domain.Workspace{
+		Name:         "test",
+		WorktreePath: "", // Empty - simulating corrupted state from failed previous close
+		Branch:       "feat/test",
+		Status:       constants.WorkspaceStatusClosed, // Already closed but worktree remains
+		Tasks:        []domain.TaskRef{},
+	}
+	runner := newMockWorktreeRunner()
+	// FindByBranch returns the orphaned worktree path
+	runner.findByBranchResult = "/tmp/repo-test"
+
+	mgr := NewManager(store, runner)
+	result, err := mgr.Close(context.Background(), "test")
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	// FindByBranch should have been called
+	assert.Equal(t, 1, runner.findByBranchCallCount)
+	assert.Equal(t, "feat/test", runner.findByBranchLastArg)
+	// Remove should have been called with discovered path
+	assert.Equal(t, 1, runner.removeCallCount)
+	// No warning - removal succeeded
+	assert.Empty(t, result.WorktreeWarning)
+	// Status should be closed
+	ws := store.workspaces["test"]
+	assert.Equal(t, constants.WorkspaceStatusClosed, ws.Status)
+	// WorktreePath should remain empty
+	assert.Empty(t, ws.WorktreePath)
+}
+
+func TestDefaultManager_Close_WorktreePathPreservedOnRemovalFailure(t *testing.T) {
+	// Test that WorktreePath is NOT cleared when worktree removal fails
+	// This prevents state corruption where path is empty but files remain
+	store := newMockStore()
+	store.workspaces["test"] = &domain.Workspace{
+		Name:         "test",
+		WorktreePath: "/tmp/repo-test",
+		Branch:       "feat/test",
+		Status:       constants.WorkspaceStatusActive,
+		Tasks:        []domain.TaskRef{},
+	}
+	runner := newMockWorktreeRunner()
+	// Both remove attempts will fail
+	runner.removeErr = fmt.Errorf("permission denied: %w", atlaserrors.ErrWorktreeDirty)
+
+	mgr := NewManager(store, runner)
+	result, err := mgr.Close(context.Background(), "test")
+
+	require.NoError(t, err) // Close itself should succeed
+	require.NotNil(t, result)
+	// Warning should be set about failed removal
+	assert.NotEmpty(t, result.WorktreeWarning)
+	assert.Contains(t, result.WorktreeWarning, "permission denied")
+	// WorktreePath should NOT be cleared since removal failed
+	ws := store.workspaces["test"]
+	assert.Equal(t, "/tmp/repo-test", ws.WorktreePath)
+	// Status should still be closed
 	assert.Equal(t, constants.WorkspaceStatusClosed, ws.Status)
 }
 

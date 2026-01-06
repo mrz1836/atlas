@@ -44,6 +44,10 @@ type WorktreeRunner interface {
 	// RemoteBranchExists checks if a branch exists on the specified remote.
 	// Returns true if refs/remotes/{remote}/{name} exists.
 	RemoteBranchExists(ctx context.Context, remote, name string) (bool, error)
+
+	// FindByBranch finds a worktree path by its branch name.
+	// Returns empty string if not found or on error.
+	FindByBranch(ctx context.Context, branch string) string
 }
 
 // WorktreeCreateOptions contains options for creating a worktree.
@@ -336,6 +340,28 @@ func (r *GitWorktreeRunner) RemoteBranchExists(ctx context.Context, remote, name
 	}
 
 	return true, nil
+}
+
+// FindByBranch finds a worktree path by branch name using List().
+// Returns empty string if not found or on error.
+func (r *GitWorktreeRunner) FindByBranch(ctx context.Context, branch string) string {
+	if branch == "" {
+		return ""
+	}
+
+	worktrees, err := r.List(ctx)
+	if err != nil {
+		log.Debug().Err(err).Msg("failed to list worktrees for branch lookup")
+		return ""
+	}
+
+	for _, wt := range worktrees {
+		if wt.Branch == branch {
+			return wt.Path
+		}
+	}
+
+	return ""
 }
 
 // generateUniqueBranchName ensures branch name is unique.
