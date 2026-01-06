@@ -2,6 +2,7 @@ package template
 
 import (
 	"fmt"
+	"maps"
 	"regexp"
 	"strings"
 
@@ -48,9 +49,7 @@ func (e *VariableExpander) Expand(t *domain.Template, values map[string]string) 
 			merged[name] = v.Default
 		}
 	}
-	for name, val := range values {
-		merged[name] = val
-	}
+	maps.Copy(merged, values)
 
 	// Clone template before modifying
 	result := cloneTemplate(t)
@@ -137,9 +136,7 @@ func cloneTemplate(t *domain.Template) *domain.Template {
 	// Clone variables
 	if t.Variables != nil {
 		result.Variables = make(map[string]domain.TemplateVariable)
-		for k, v := range t.Variables {
-			result.Variables[k] = v
-		}
+		maps.Copy(result.Variables, t.Variables)
 	}
 
 	return result
@@ -154,8 +151,6 @@ func cloneConfig(cfg map[string]any) map[string]any {
 		return nil
 	}
 	result := make(map[string]any)
-	for k, v := range cfg {
-		result[k] = v
-	}
+	maps.Copy(result, cfg)
 	return result
 }

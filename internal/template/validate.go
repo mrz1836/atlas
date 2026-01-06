@@ -3,6 +3,7 @@ package template
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/mrz1836/atlas/internal/domain"
@@ -78,12 +79,7 @@ func validateStep(step *domain.StepDefinition, index int) error {
 
 // IsValidStepType checks if the step type is a known valid type.
 func IsValidStepType(t domain.StepType) bool {
-	for _, valid := range ValidStepTypes() {
-		if t == valid {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(ValidStepTypes(), t)
 }
 
 // ParseStepType converts a string to a StepType with validation.
