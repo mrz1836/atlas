@@ -599,9 +599,20 @@ func (m *DefaultManager) ensureBaseBranch(ctx context.Context, branch string, us
 		return "", fmt.Errorf("failed to check local branch: %w", err)
 	}
 
+	log.Debug().
+		Str("branch", branch).
+		Bool("local_exists", localExists).
+		Bool("use_local", useLocal).
+		Msg("checking branch availability")
+
 	// If useLocal is true, use the current logic (local first)
 	if useLocal {
 		if localExists {
+			log.Info().
+				Str("branch", branch).
+				Str("source", "local").
+				Bool("use_local_flag", true).
+				Msg("using local branch")
 			return branch, nil
 		}
 		// --use-local was specified but branch doesn't exist locally
@@ -622,7 +633,21 @@ func (m *DefaultManager) ensureBaseBranch(ctx context.Context, branch string, us
 	if err != nil {
 		return "", fmt.Errorf("failed to check remote branch: %w", err)
 	}
+
+	log.Debug().
+		Str("branch", branch).
+		Bool("remote_exists", remoteExists).
+		Bool("local_exists", localExists).
+		Str("remote", "origin").
+		Msg("checked remote branch availability")
+
 	if remoteExists {
+		log.Info().
+			Str("branch", branch).
+			Str("source", "remote").
+			Str("remote", "origin").
+			Str("resolved_ref", fmt.Sprintf("origin/%s", branch)).
+			Msg("resolved to remote branch")
 		// Return the remote tracking reference
 		return fmt.Sprintf("origin/%s", branch), nil
 	}
@@ -630,6 +655,11 @@ func (m *DefaultManager) ensureBaseBranch(ctx context.Context, branch string, us
 	// Fallback to local if remote doesn't exist but local does
 	// This allows working with local-only branches
 	if localExists {
+		log.Info().
+			Str("branch", branch).
+			Str("source", "local").
+			Bool("remote_exists", false).
+			Msg("resolved to local branch (remote not available)")
 		return branch, nil
 	}
 

@@ -145,6 +145,7 @@ func (r *GitWorktreeRunner) Create(ctx context.Context, opts WorktreeCreateOptio
 			Str("branch_name", branchName).
 			Str("workspace_name", opts.WorkspaceName).
 			Str("base_branch", opts.BaseBranch).
+			Str("base_branch_type", determineBranchType(opts.BaseBranch)).
 			Msg("failed to create worktree")
 		return nil, fmt.Errorf("failed to create worktree: %w", err)
 	}
@@ -153,6 +154,7 @@ func (r *GitWorktreeRunner) Create(ctx context.Context, opts WorktreeCreateOptio
 	log.Info().
 		Str("branch_name", branchName).
 		Str("base_branch", opts.BaseBranch).
+		Str("base_branch_type", determineBranchType(opts.BaseBranch)).
 		Str("workspace_name", opts.WorkspaceName).
 		Str("worktree_path", wtPath).
 		Msg("branch created")
@@ -495,4 +497,22 @@ func parseWorktreeList(output string) []*WorktreeInfo {
 	}
 
 	return worktrees
+}
+
+// determineBranchType returns "remote" if the branch is a remote ref, "local" otherwise.
+// Remote branches are in the format "origin/branch" or "remotename/branch".
+func determineBranchType(branch string) string {
+	if branch == "" {
+		return "current"
+	}
+	if strings.Contains(branch, "/") {
+		parts := strings.SplitN(branch, "/", 2)
+		if len(parts) == 2 {
+			// Common remote names: origin, upstream, etc.
+			if parts[0] == "origin" || parts[0] == "upstream" {
+				return "remote"
+			}
+		}
+	}
+	return "local"
 }
