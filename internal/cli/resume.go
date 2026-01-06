@@ -22,7 +22,6 @@ import (
 	"github.com/mrz1836/atlas/internal/template/steps"
 	"github.com/mrz1836/atlas/internal/tui"
 	"github.com/mrz1836/atlas/internal/validation"
-	"github.com/mrz1836/atlas/internal/workspace"
 )
 
 // AddResumeCommand adds the resume command to the root command.
@@ -80,55 +79,17 @@ func runResume(ctx context.Context, cmd *cobra.Command, w io.Writer, workspaceNa
 
 	out := tui.NewOutput(w, outputFormat)
 
-	// Create workspace store and manager
-	wsStore, err := workspace.NewFileStore("")
+	// Setup workspace manager and get workspace
+	_, ws, err := setupWorkspace(ctx, workspaceName, "", outputFormat, w)
 	if err != nil {
-		return handleResumeError(outputFormat, w, workspaceName, "", fmt.Errorf("failed to create workspace store: %w", err))
+		return err
 	}
 
-	// Find git repository for worktree runner
-	repoPath, err := findGitRepository(ctx)
+	// Get task store and latest task
+	taskStore, currentTask, err := getLatestTask(ctx, workspaceName, "", outputFormat, w, logger)
 	if err != nil {
-		return handleResumeError(outputFormat, w, workspaceName, "", fmt.Errorf("not in a git repository: %w", err))
+		return err
 	}
-
-	wtRunner, err := workspace.NewGitWorktreeRunner(ctx, repoPath)
-	if err != nil {
-		return handleResumeError(outputFormat, w, workspaceName, "", fmt.Errorf("failed to create worktree runner: %w", err))
-	}
-
-	wsMgr := workspace.NewManager(wsStore, wtRunner)
-
-	// Get workspace
-	ws, err := wsMgr.Get(ctx, workspaceName)
-	if err != nil {
-		return handleResumeError(outputFormat, w, workspaceName, "", fmt.Errorf("failed to get workspace: %w", err))
-	}
-
-	// Create task store
-	taskStore, err := task.NewFileStore("")
-	if err != nil {
-		return handleResumeError(outputFormat, w, workspaceName, "", fmt.Errorf("failed to create task store: %w", err))
-	}
-
-	// Get latest task for this workspace
-	tasks, err := taskStore.List(ctx, workspaceName)
-	if err != nil {
-		return handleResumeError(outputFormat, w, workspaceName, "", fmt.Errorf("failed to list tasks: %w", err))
-	}
-
-	if len(tasks) == 0 {
-		return handleResumeError(outputFormat, w, workspaceName, "", fmt.Errorf("no tasks found in workspace '%s': %w", workspaceName, atlaserrors.ErrNoTasksFound))
-	}
-
-	// Get the latest task (list returns newest first)
-	currentTask := tasks[0]
-
-	logger.Debug().
-		Str("workspace_name", workspaceName).
-		Str("task_id", currentTask.ID).
-		Str("status", string(currentTask.Status)).
-		Msg("found task to resume")
 
 	// Validate task is in resumable state
 	if !isResumableStatus(currentTask.Status) {
@@ -149,98 +110,23 @@ func runResume(ctx context.Context, cmd *cobra.Command, w io.Writer, workspaceNa
 			fmt.Errorf("--ai-fix not yet implemented: %w", atlaserrors.ErrResumeNotImplemented))
 	}
 
-	// Load config for notification settings
-	cfg, err := config.Load(ctx)
+	// Create engine with all dependencies
+	engine, err := createResumeEngine(ctx, ws, taskStore, logger)
 	if err != nil {
-		// Log warning but continue with defaults
-		logger.Warn().Err(err).Msg("failed to load config, using default notification settings")
-		cfg = config.DefaultConfig()
+		return handleResumeError(outputFormat, w, workspaceName, currentTask.ID, err)
 	}
-
-	// Create notifier from config
-	notifier := tui.NewNotifier(cfg.Notifications.Bell, false)
-
-	// Create state change notifier for engine-level notifications (Story 7.6).
-	// This emits bell on task state transitions to attention-required states.
-	stateNotifier := task.NewStateChangeNotifier(task.NotificationConfig{
-		BellEnabled: cfg.Notifications.Bell,
-		Quiet:       false, // TODO: Pass quiet flag through when available
-		Events:      cfg.Notifications.Events,
-	})
-
-	// Create AI runner for AI-dependent services
-	aiRunner := ai.NewClaudeCodeRunner(&cfg.AI, nil)
-
-	// Create git services for commit, push, and PR operations
-	gitRunner, err := git.NewRunner(ctx, ws.WorktreePath)
-	if err != nil {
-		return handleResumeError(outputFormat, w, workspaceName, currentTask.ID, fmt.Errorf("failed to create git runner: %w", err))
-	}
-
-	// Determine model for smart commit: smart_commit.model > ai.model
-	commitModel := cfg.SmartCommit.Model
-	if commitModel == "" {
-		commitModel = cfg.AI.Model
-	}
-
-	// Determine model for PR description: pr_description.model > ai.model
-	prDescModel := cfg.PRDescription.Model
-	if prDescModel == "" {
-		prDescModel = cfg.AI.Model
-	}
-
-	smartCommitter := git.NewSmartCommitRunner(gitRunner, ws.WorktreePath, aiRunner,
-		git.WithModel(commitModel),
-	)
-	pusher := git.NewPushRunner(gitRunner)
-	hubRunner := git.NewCLIGitHubRunner(ws.WorktreePath)
-	prDescGen := git.NewAIDescriptionGenerator(aiRunner,
-		git.WithAIDescModel(prDescModel),
-	)
-	ciFailureHandler := task.NewCIFailureHandler(hubRunner)
-
-	// Create executor registry with full dependencies
-	execRegistry := steps.NewDefaultRegistry(steps.ExecutorDeps{
-		WorkDir:                ws.WorktreePath,
-		ArtifactSaver:          taskStore,
-		Notifier:               notifier,
-		AIRunner:               aiRunner,
-		Logger:                 logger,
-		SmartCommitter:         smartCommitter,
-		Pusher:                 pusher,
-		HubRunner:              hubRunner,
-		PRDescriptionGenerator: prDescGen,
-		GitRunner:              gitRunner,
-		CIFailureHandler:       ciFailureHandler,
-		BaseBranch:             cfg.Git.BaseBranch,
-		CIConfig:               &cfg.CI,
-		FormatCommands:         cfg.Validation.Commands.Format,
-		LintCommands:           cfg.Validation.Commands.Lint,
-		TestCommands:           cfg.Validation.Commands.Test,
-		PreCommitCommands:      cfg.Validation.Commands.PreCommit,
-	})
-
-	// Create validation retry handler for automatic AI-assisted fixes
-	validationRetryHandler := createResumeValidationRetryHandler(aiRunner, cfg, logger)
-
-	engineCfg := task.DefaultEngineConfig()
-	engineOpts := []task.EngineOption{
-		task.WithNotifier(stateNotifier),
-	}
-	if validationRetryHandler != nil {
-		engineOpts = append(engineOpts, task.WithValidationRetryHandler(validationRetryHandler))
-	}
-	engine := task.NewEngine(taskStore, execRegistry, engineCfg, logger, engineOpts...)
 
 	// Display resume information
-	out.Info(fmt.Sprintf("Resuming task in workspace '%s'...", workspaceName))
-	out.Info(fmt.Sprintf("  Task ID: %s", currentTask.ID))
-	out.Info(fmt.Sprintf("  Current Status: %s", currentTask.Status))
-	out.Info(fmt.Sprintf("  Current Step: %d/%d", currentTask.CurrentStep+1, len(currentTask.Steps)))
+	displayResumeInfo(out, workspaceName, currentTask)
+
+	// Ensure worktree_dir is set in task metadata for validation retry
+	if currentTask.Metadata == nil {
+		currentTask.Metadata = make(map[string]any)
+	}
+	currentTask.Metadata["worktree_dir"] = ws.WorktreePath
 
 	// Resume task execution
 	if err := engine.Resume(ctx, currentTask, tmpl); err != nil {
-		// If validation failed again, display manual fix info
 		if currentTask.Status == constants.TaskStatusValidationFailed {
 			tui.DisplayManualFixInstructions(out, currentTask, ws)
 		}
@@ -249,24 +135,7 @@ func runResume(ctx context.Context, cmd *cobra.Command, w io.Writer, workspaceNa
 
 	// Handle JSON output format
 	if outputFormat == OutputJSON {
-		resp := resumeResponse{
-			Success: true,
-			Workspace: workspaceInfo{
-				Name:         ws.Name,
-				Branch:       ws.Branch,
-				WorktreePath: ws.WorktreePath,
-				Status:       string(ws.Status),
-			},
-			Task: taskInfo{
-				ID:           currentTask.ID,
-				TemplateName: currentTask.TemplateID,
-				Description:  currentTask.Description,
-				Status:       string(currentTask.Status),
-				CurrentStep:  currentTask.CurrentStep,
-				TotalSteps:   len(currentTask.Steps),
-			},
-		}
-		return out.JSON(resp)
+		return outputResumeSuccessJSON(out, ws, currentTask)
 	}
 
 	return displayResumeResult(out, ws, currentTask, nil)
@@ -329,16 +198,113 @@ func displayResumeResult(out tui.Output, ws *domain.Workspace, t *domain.Task, e
 	return nil
 }
 
+// createResumeEngine creates the task engine with all required dependencies.
+func createResumeEngine(ctx context.Context, ws *domain.Workspace, taskStore *task.FileStore, logger zerolog.Logger) (*task.Engine, error) {
+	cfg, err := config.Load(ctx)
+	if err != nil {
+		logger.Warn().Err(err).Msg("failed to load config, using default notification settings")
+		cfg = config.DefaultConfig()
+	}
+
+	notifier := tui.NewNotifier(cfg.Notifications.Bell, false)
+	stateNotifier := task.NewStateChangeNotifier(task.NotificationConfig{
+		BellEnabled: cfg.Notifications.Bell,
+		Quiet:       false,
+		Events:      cfg.Notifications.Events,
+	})
+
+	aiRunner := ai.NewClaudeCodeRunner(&cfg.AI, nil)
+
+	gitRunner, err := git.NewRunner(ctx, ws.WorktreePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create git runner: %w", err)
+	}
+
+	commitModel := cfg.SmartCommit.Model
+	if commitModel == "" {
+		commitModel = cfg.AI.Model
+	}
+
+	prDescModel := cfg.PRDescription.Model
+	if prDescModel == "" {
+		prDescModel = cfg.AI.Model
+	}
+
+	smartCommitter := git.NewSmartCommitRunner(gitRunner, ws.WorktreePath, aiRunner, git.WithModel(commitModel))
+	pusher := git.NewPushRunner(gitRunner)
+	hubRunner := git.NewCLIGitHubRunner(ws.WorktreePath)
+	prDescGen := git.NewAIDescriptionGenerator(aiRunner, git.WithAIDescModel(prDescModel))
+	ciFailureHandler := task.NewCIFailureHandler(hubRunner)
+
+	execRegistry := steps.NewDefaultRegistry(steps.ExecutorDeps{
+		WorkDir:                ws.WorktreePath,
+		ArtifactSaver:          taskStore,
+		Notifier:               notifier,
+		AIRunner:               aiRunner,
+		Logger:                 logger,
+		SmartCommitter:         smartCommitter,
+		Pusher:                 pusher,
+		HubRunner:              hubRunner,
+		PRDescriptionGenerator: prDescGen,
+		GitRunner:              gitRunner,
+		CIFailureHandler:       ciFailureHandler,
+		BaseBranch:             cfg.Git.BaseBranch,
+		CIConfig:               &cfg.CI,
+		FormatCommands:         cfg.Validation.Commands.Format,
+		LintCommands:           cfg.Validation.Commands.Lint,
+		TestCommands:           cfg.Validation.Commands.Test,
+		PreCommitCommands:      cfg.Validation.Commands.PreCommit,
+	})
+
+	validationRetryHandler := createResumeValidationRetryHandler(aiRunner, cfg, logger)
+
+	engineCfg := task.DefaultEngineConfig()
+	engineOpts := []task.EngineOption{task.WithNotifier(stateNotifier)}
+	if validationRetryHandler != nil {
+		engineOpts = append(engineOpts, task.WithValidationRetryHandler(validationRetryHandler))
+	}
+
+	return task.NewEngine(taskStore, execRegistry, engineCfg, logger, engineOpts...), nil
+}
+
+// displayResumeInfo displays information about the task being resumed.
+func displayResumeInfo(out tui.Output, workspaceName string, currentTask *domain.Task) {
+	out.Info(fmt.Sprintf("Resuming task in workspace '%s'...", workspaceName))
+	out.Info(fmt.Sprintf("  Task ID: %s", currentTask.ID))
+	out.Info(fmt.Sprintf("  Current Status: %s", currentTask.Status))
+	out.Info(fmt.Sprintf("  Current Step: %d/%d", currentTask.CurrentStep+1, len(currentTask.Steps)))
+}
+
+// outputResumeSuccessJSON outputs a successful resume result as JSON.
+func outputResumeSuccessJSON(out tui.Output, ws *domain.Workspace, currentTask *domain.Task) error {
+	resp := resumeResponse{
+		Success: true,
+		Workspace: workspaceInfo{
+			Name:         ws.Name,
+			Branch:       ws.Branch,
+			WorktreePath: ws.WorktreePath,
+			Status:       string(ws.Status),
+		},
+		Task: taskInfo{
+			ID:           currentTask.ID,
+			TemplateName: currentTask.TemplateID,
+			Description:  currentTask.Description,
+			Status:       string(currentTask.Status),
+			CurrentStep:  currentTask.CurrentStep,
+			TotalSteps:   len(currentTask.Steps),
+		},
+	}
+	return out.JSON(resp)
+}
+
 // createResumeValidationRetryHandler creates the validation retry handler for automatic AI-assisted fixes.
 func createResumeValidationRetryHandler(aiRunner ai.Runner, cfg *config.Config, logger zerolog.Logger) *validation.RetryHandler {
 	if !cfg.Validation.AIRetryEnabled {
 		return nil
 	}
 
-	// Create validation executor for retry
 	executor := validation.NewExecutorWithRunner(validation.DefaultTimeout, &validation.DefaultCommandRunner{})
 
-	// Create retry handler with config
 	return validation.NewRetryHandlerFromConfig(
 		aiRunner,
 		executor,
