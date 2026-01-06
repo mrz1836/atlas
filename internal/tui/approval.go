@@ -98,6 +98,9 @@ type ValidationCheck struct {
 
 	// Passed indicates if this check passed.
 	Passed bool
+
+	// Skipped indicates if this check was skipped (not run).
+	Skipped bool
 }
 
 // ValidationSummary holds validation results (AC: #4).
@@ -246,6 +249,9 @@ func extractChecksFromMetadata(metadata map[string]any) []ValidationCheck {
 // countCheckResults counts passed and failed checks.
 func countCheckResults(checks []ValidationCheck) (passCount, failCount int) {
 	for _, check := range checks {
+		if check.Skipped {
+			continue // Skip checks that weren't run
+		}
 		if check.Passed {
 			passCount++
 		} else {
@@ -253,6 +259,17 @@ func countCheckResults(checks []ValidationCheck) (passCount, failCount int) {
 		}
 	}
 	return passCount, failCount
+}
+
+// countSkippedChecks counts how many checks were skipped.
+func countSkippedChecks(checks []ValidationCheck) int {
+	count := 0
+	for _, check := range checks {
+		if check.Skipped {
+			count++
+		}
+	}
+	return count
 }
 
 // legacyPassFailCounts returns pass/fail counts based on overall status.
@@ -299,22 +316,27 @@ func (s *ApprovalSummary) ensureValidationSummary(result domain.StepResult) {
 
 // addCICheck adds the CI check to the validation summary and updates counts.
 func (s *ApprovalSummary) addCICheck(result domain.StepResult) {
-	ciPassed := result.Status == "success"
+	ciCheck := ValidationCheck{Name: "CI"}
 
-	s.Validation.Checks = append(s.Validation.Checks, ValidationCheck{
-		Name:   "CI",
-		Passed: ciPassed,
-	})
-
-	if ciPassed {
+	// Detect status
+	switch result.Status {
+	case "skipped":
+		ciCheck.Skipped = true
+		// Don't increment pass/fail counts for skipped checks
+		// Don't change overall validation status
+	case "success":
+		ciCheck.Passed = true
 		s.Validation.PassCount++
-	} else {
+	default:
+		ciCheck.Passed = false
 		s.Validation.FailCount++
 		// Update overall status if CI failed
 		if s.Validation.Status == "passed" {
 			s.Validation.Status = "failed"
 		}
 	}
+
+	s.Validation.Checks = append(s.Validation.Checks, ciCheck)
 }
 
 // parseValidationChecks converts metadata validation checks to ValidationCheck slice.
@@ -357,6 +379,9 @@ func parseCheckMap(checkMap map[string]any) ValidationCheck {
 	}
 	if passed, ok := checkMap["passed"].(bool); ok {
 		check.Passed = passed
+	}
+	if skipped, ok := checkMap["skipped"].(bool); ok {
+		check.Skipped = skipped
 	}
 	return check
 }
@@ -677,6 +702,13 @@ func renderValidationSectionWithMode(validation *ValidationSummary, _ int, mode 
 		passFailText = " " + intToString(validation.PassCount) + "/" + intToString(validation.PassCount+validation.FailCount)
 	}
 
+	// Add skipped count if any checks were skipped
+	skipCount := countSkippedChecks(validation.Checks)
+	if skipCount > 0 {
+		skippedText := " (" + intToString(skipCount) + " skipped)"
+		passFailText += skippedText
+	}
+
 	result.WriteString("  " + padRight("Validation:", 12) + icon + " " + statusText + passFailText + "\n")
 
 	// Show individual checks in standard and expanded mode
@@ -700,18 +732,20 @@ func renderChecksLine(checks []ValidationCheck) string {
 // formatCheckItem formats a single validation check item with icon.
 func formatCheckItem(check ValidationCheck) string {
 	icon := "✓"
-	if !check.Passed {
+	color := ColorSuccess
+
+	if check.Skipped {
+		icon = "-"
+		color = ColorMuted
+	} else if !check.Passed {
 		icon = "✗"
+		color = ColorError
 	}
 
 	if !HasColorSupport() {
 		return check.Name + " " + icon
 	}
 
-	color := ColorSuccess
-	if !check.Passed {
-		color = ColorError
-	}
 	return check.Name + " " + lipgloss.NewStyle().Foreground(color).Render(icon)
 }
 

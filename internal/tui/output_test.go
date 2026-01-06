@@ -504,6 +504,7 @@ func TestTTYOutput_URL(t *testing.T) {
 		output := buf.String()
 		// Should contain display text
 		assert.Contains(t, output, "Atlas Repository")
+		// If hyperlinks supported, may use OSC 8, otherwise shows URL separately
 		assert.Contains(t, output, "https://github.com/mrz1836/atlas")
 	})
 
@@ -513,7 +514,98 @@ func TestTTYOutput_URL(t *testing.T) {
 		out.URL("https://github.com/mrz1836/atlas", "")
 
 		output := buf.String()
-		// Should contain URL directly
+		// Should contain URL (as both URL and display text when empty)
 		assert.Contains(t, output, "https://github.com/mrz1836/atlas")
+	})
+
+	t.Run("url with same display text as url", func(t *testing.T) {
+		var buf bytes.Buffer
+		out := NewTTYOutput(&buf)
+		url := "https://example.com"
+		out.URL(url, url)
+
+		output := buf.String()
+		// Should contain the URL
+		assert.Contains(t, output, url)
+		// Should not duplicate the URL in fallback format (no parentheses with same content)
+		assert.NotContains(t, output, url+" ("+url+")")
+	})
+
+	t.Run("url with different display text", func(t *testing.T) {
+		var buf bytes.Buffer
+		out := NewTTYOutput(&buf)
+		out.URL("https://example.com/very/long/path", "Short Link")
+
+		output := buf.String()
+		// Should contain both display text and URL
+		assert.Contains(t, output, "Short Link")
+		assert.Contains(t, output, "https://example.com/very/long/path")
+	})
+
+	t.Run("url output is formatted", func(t *testing.T) {
+		var buf bytes.Buffer
+		out := NewTTYOutput(&buf)
+		out.URL("https://example.com", "Example")
+
+		output := buf.String()
+		// Output should be non-empty and formatted
+		assert.NotEmpty(t, output)
+		// Should have leading whitespace (indentation)
+		assert.Contains(t, output, "  ")
+		// Should have newline
+		assert.Contains(t, output, "\n")
+	})
+
+	t.Run("url with hyperlink support enabled", func(t *testing.T) {
+		// Set environment variable to enable hyperlink support
+		t.Setenv("TERM_PROGRAM", "iTerm.app")
+
+		var buf bytes.Buffer
+		out := NewTTYOutput(&buf)
+		out.URL("https://example.com", "Click Here")
+
+		output := buf.String()
+		// Should contain the display text
+		assert.Contains(t, output, "Click Here")
+		// When hyperlinks are supported, OSC 8 escape sequence is used
+		// OSC 8 format: \x1b]8;;URL\x1b\\TEXT\x1b]8;;\x1b\\
+		// We just verify the URL is in the output
+		assert.Contains(t, output, "https://example.com")
+	})
+
+	t.Run("url without hyperlink support uses fallback", func(t *testing.T) {
+		// Clear environment variables that would enable hyperlink support
+		t.Setenv("TERM_PROGRAM", "")
+		t.Setenv("LC_TERMINAL", "")
+
+		var buf bytes.Buffer
+		out := NewTTYOutput(&buf)
+		out.URL("https://example.com/path", "Link Text")
+
+		output := buf.String()
+		// In fallback mode with different display text, should show: "Link Text (URL)"
+		assert.Contains(t, output, "Link Text")
+		assert.Contains(t, output, "https://example.com/path")
+		// Should have parentheses in fallback format
+		assert.Contains(t, output, "(")
+		assert.Contains(t, output, ")")
+	})
+
+	t.Run("url without hyperlink support and same display text", func(t *testing.T) {
+		// Clear environment variables
+		t.Setenv("TERM_PROGRAM", "")
+		t.Setenv("LC_TERMINAL", "")
+
+		var buf bytes.Buffer
+		out := NewTTYOutput(&buf)
+		url := "https://short.url"
+		out.URL(url, url)
+
+		output := buf.String()
+		// When display text equals URL in fallback mode, should not show "(URL)"
+		assert.Contains(t, output, url)
+		// Count occurrences - should appear only once in the visible text
+		// (may have ANSI codes in between, but logically appears once)
+		assert.NotContains(t, output, url+" ("+url+")")
 	})
 }

@@ -962,6 +962,137 @@ func TestParseCheckMap(t *testing.T) {
 		assert.Equal(t, "Test", check.Name)
 		assert.False(t, check.Passed) // Default to false
 	})
+
+	t.Run("parses skipped field", func(t *testing.T) {
+		checkMap := map[string]any{
+			"name":    "CI",
+			"passed":  false,
+			"skipped": true,
+		}
+
+		check := parseCheckMap(checkMap)
+
+		assert.Equal(t, "CI", check.Name)
+		assert.False(t, check.Passed)
+		assert.True(t, check.Skipped)
+	})
+
+	t.Run("handles missing skipped field", func(t *testing.T) {
+		checkMap := map[string]any{
+			"name":   "Format",
+			"passed": true,
+		}
+
+		check := parseCheckMap(checkMap)
+
+		assert.Equal(t, "Format", check.Name)
+		assert.True(t, check.Passed)
+		assert.False(t, check.Skipped) // Default to false
+	})
+}
+
+// TestCountCheckResults tests counting passed and failed checks.
+func TestCountCheckResults(t *testing.T) {
+	t.Run("counts only passed checks", func(t *testing.T) {
+		checks := []ValidationCheck{
+			{Name: "Format", Passed: true},
+			{Name: "Lint", Passed: true},
+			{Name: "Test", Passed: true},
+		}
+
+		passCount, failCount := countCheckResults(checks)
+
+		assert.Equal(t, 3, passCount)
+		assert.Equal(t, 0, failCount)
+	})
+
+	t.Run("counts mixed pass and fail", func(t *testing.T) {
+		checks := []ValidationCheck{
+			{Name: "Format", Passed: true},
+			{Name: "Lint", Passed: false},
+			{Name: "Test", Passed: true},
+			{Name: "CI", Passed: false},
+		}
+
+		passCount, failCount := countCheckResults(checks)
+
+		assert.Equal(t, 2, passCount)
+		assert.Equal(t, 2, failCount)
+	})
+
+	t.Run("excludes skipped checks from counts", func(t *testing.T) {
+		checks := []ValidationCheck{
+			{Name: "Format", Passed: true},
+			{Name: "Lint", Passed: false},
+			{Name: "Test", Passed: true},
+			{Name: "Pre-commit", Skipped: true},
+			{Name: "CI", Skipped: true},
+		}
+
+		passCount, failCount := countCheckResults(checks)
+
+		assert.Equal(t, 2, passCount)
+		assert.Equal(t, 1, failCount)
+	})
+
+	t.Run("handles all skipped checks", func(t *testing.T) {
+		checks := []ValidationCheck{
+			{Name: "Pre-commit", Skipped: true},
+			{Name: "CI", Skipped: true},
+		}
+
+		passCount, failCount := countCheckResults(checks)
+
+		assert.Equal(t, 0, passCount)
+		assert.Equal(t, 0, failCount)
+	})
+}
+
+// TestCountSkippedChecks tests counting skipped checks.
+func TestCountSkippedChecks(t *testing.T) {
+	t.Run("counts skipped checks", func(t *testing.T) {
+		checks := []ValidationCheck{
+			{Name: "Format", Passed: true},
+			{Name: "Lint", Passed: true},
+			{Name: "Pre-commit", Skipped: true},
+			{Name: "CI", Skipped: true},
+		}
+
+		count := countSkippedChecks(checks)
+
+		assert.Equal(t, 2, count)
+	})
+
+	t.Run("returns zero when no checks are skipped", func(t *testing.T) {
+		checks := []ValidationCheck{
+			{Name: "Format", Passed: true},
+			{Name: "Lint", Passed: false},
+			{Name: "Test", Passed: true},
+		}
+
+		count := countSkippedChecks(checks)
+
+		assert.Equal(t, 0, count)
+	})
+
+	t.Run("handles all checks skipped", func(t *testing.T) {
+		checks := []ValidationCheck{
+			{Name: "Pre-commit", Skipped: true},
+			{Name: "CI", Skipped: true},
+		}
+
+		count := countSkippedChecks(checks)
+
+		assert.Equal(t, 2, count)
+	})
+
+	t.Run("handles empty checks list", func(t *testing.T) {
+		checks := []ValidationCheck{}
+
+		count := countSkippedChecks(checks)
+
+		assert.Equal(t, 0, count)
+	})
 }
 
 // TestExtractCIStatus tests CI status extraction.
@@ -1067,6 +1198,49 @@ func TestExtractCIStatus(t *testing.T) {
 		assert.Len(t, summary.Validation.Checks, 1)
 		assert.Equal(t, "CI", summary.Validation.Checks[0].Name)
 	})
+
+	t.Run("extracts CI skipped status", func(t *testing.T) {
+		task := &domain.Task{
+			ID:          "task-ci-skip",
+			WorkspaceID: "ws-test",
+			Status:      constants.TaskStatusAwaitingApproval,
+			CurrentStep: 3,
+			Steps: []domain.Step{
+				{Name: "validate", Status: "completed"},
+				{Name: "git", Status: "skipped"},
+				{Name: "ci", Status: "skipped"},
+			},
+			StepResults: []domain.StepResult{
+				{
+					StepName: "validate",
+					Status:   "success",
+					Metadata: map[string]any{
+						"validation_checks": []map[string]any{
+							{"name": "Format", "passed": true},
+							{"name": "Lint", "passed": true},
+						},
+					},
+				},
+				{
+					StepName: "ci",
+					Status:   "skipped",
+				},
+			},
+		}
+
+		workspace := &domain.Workspace{Name: "test", Branch: "feat/x"}
+		summary := NewApprovalSummary(task, workspace)
+
+		require.NotNil(t, summary.Validation)
+		assert.Len(t, summary.Validation.Checks, 3) // Format, Lint, CI
+		assert.Equal(t, "CI", summary.Validation.Checks[2].Name)
+		assert.False(t, summary.Validation.Checks[2].Passed)
+		assert.True(t, summary.Validation.Checks[2].Skipped)
+		// Skipped checks should not count toward pass or fail
+		assert.Equal(t, 2, summary.Validation.PassCount)
+		assert.Equal(t, 0, summary.Validation.FailCount)
+		assert.Equal(t, "passed", summary.Validation.Status)
+	})
 }
 
 // TestRenderChecksLine tests rendering individual checks.
@@ -1115,6 +1289,42 @@ func TestRenderChecksLine(t *testing.T) {
 		result := renderChecksLine(checks)
 
 		assert.Equal(t, "    \n", result)
+	})
+
+	t.Run("renders skipped checks", func(t *testing.T) {
+		checks := []ValidationCheck{
+			{Name: "Format", Passed: true},
+			{Name: "Lint", Passed: true},
+			{Name: "Test", Passed: true},
+			{Name: "Pre-commit", Skipped: true},
+			{Name: "CI", Skipped: true},
+		}
+
+		result := renderChecksLine(checks)
+
+		assert.Contains(t, result, "Format ✓")
+		assert.Contains(t, result, "Lint ✓")
+		assert.Contains(t, result, "Test ✓")
+		assert.Contains(t, result, "Pre-commit -")
+		assert.Contains(t, result, "CI -")
+	})
+
+	t.Run("renders mixed pass/fail/skip checks", func(t *testing.T) {
+		checks := []ValidationCheck{
+			{Name: "Format", Passed: true},
+			{Name: "Lint", Passed: false},
+			{Name: "Test", Passed: true},
+			{Name: "Pre-commit", Skipped: true},
+			{Name: "CI", Skipped: true},
+		}
+
+		result := renderChecksLine(checks)
+
+		assert.Contains(t, result, "Format ✓")
+		assert.Contains(t, result, "Lint ✗")
+		assert.Contains(t, result, "Test ✓")
+		assert.Contains(t, result, "Pre-commit -")
+		assert.Contains(t, result, "CI -")
 	})
 }
 
@@ -1211,6 +1421,58 @@ func TestRenderValidationSectionWithMode(t *testing.T) {
 		assert.Contains(t, result, "1/1")
 		// No individual check line
 		assert.NotContains(t, result, " | ")
+	})
+
+	t.Run("shows skipped count when checks are skipped", func(t *testing.T) {
+		validation := &ValidationSummary{
+			PassCount: 3,
+			FailCount: 0,
+			Status:    "passed",
+			LastRunAt: &now,
+			Checks: []ValidationCheck{
+				{Name: "Format", Passed: true},
+				{Name: "Lint", Passed: true},
+				{Name: "Test", Passed: true},
+				{Name: "Pre-commit", Skipped: true},
+				{Name: "CI", Skipped: true},
+			},
+		}
+
+		result := renderValidationSectionWithMode(validation, 100, displayModeStandard)
+
+		assert.Contains(t, result, "Validation:")
+		assert.Contains(t, result, "passed")
+		assert.Contains(t, result, "3/3")
+		assert.Contains(t, result, "(2 skipped)")
+		assert.Contains(t, result, "Pre-commit -")
+		assert.Contains(t, result, "CI -")
+	})
+
+	t.Run("shows skipped count with mixed statuses", func(t *testing.T) {
+		validation := &ValidationSummary{
+			PassCount: 2,
+			FailCount: 1,
+			Status:    "failed",
+			LastRunAt: &now,
+			Checks: []ValidationCheck{
+				{Name: "Format", Passed: true},
+				{Name: "Lint", Passed: false},
+				{Name: "Test", Passed: true},
+				{Name: "Pre-commit", Skipped: true},
+				{Name: "CI", Skipped: true},
+			},
+		}
+
+		result := renderValidationSectionWithMode(validation, 100, displayModeStandard)
+
+		assert.Contains(t, result, "Validation:")
+		assert.Contains(t, result, "failed")
+		assert.Contains(t, result, "2/3")
+		assert.Contains(t, result, "(2 skipped)")
+		assert.Contains(t, result, "Format ✓")
+		assert.Contains(t, result, "Lint ✗")
+		assert.Contains(t, result, "Pre-commit -")
+		assert.Contains(t, result, "CI -")
 	})
 }
 
