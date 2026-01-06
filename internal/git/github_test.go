@@ -1969,3 +1969,311 @@ func TestCLIGitHubRunner_WatchPRChecks_GracePeriodDefaults(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, CIStatusSuccess, result.Status)
 }
+
+// Test MergePR method
+func TestCLIGitHubRunner_MergePR_Success(t *testing.T) {
+	mock := &mockCommandExecutor{
+		executeFunc: func(_ context.Context, _, name string, args ...string) ([]byte, error) {
+			assert.Equal(t, "gh", name)
+			assert.Contains(t, args, "pr")
+			assert.Contains(t, args, "merge")
+			assert.Contains(t, args, "42")
+			assert.Contains(t, args, "--squash")
+			assert.Contains(t, args, "--delete-branch=false")
+			return []byte{}, nil
+		},
+	}
+
+	runner := NewCLIGitHubRunner("/test/dir", WithGHCommandExecutor(mock))
+	err := runner.MergePR(context.Background(), 42, "squash", false)
+	require.NoError(t, err)
+}
+
+func TestCLIGitHubRunner_MergePR_AdminBypass(t *testing.T) {
+	mock := &mockCommandExecutor{
+		executeFunc: func(_ context.Context, _, _ string, args ...string) ([]byte, error) {
+			assert.Contains(t, args, "--admin")
+			return []byte{}, nil
+		},
+	}
+
+	runner := NewCLIGitHubRunner("/test/dir", WithGHCommandExecutor(mock))
+	err := runner.MergePR(context.Background(), 42, "squash", true)
+	require.NoError(t, err)
+}
+
+func TestCLIGitHubRunner_MergePR_MergeMethods(t *testing.T) {
+	tests := []struct {
+		method      string
+		expectedArg string
+	}{
+		{"squash", "--squash"},
+		{"merge", "--merge"},
+		{"rebase", "--rebase"},
+		{"invalid", "--squash"}, // Defaults to squash
+		{"", "--squash"},        // Empty defaults to squash
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.method, func(t *testing.T) {
+			mock := &mockCommandExecutor{
+				executeFunc: func(_ context.Context, _, _ string, args ...string) ([]byte, error) {
+					assert.Contains(t, args, tt.expectedArg)
+					return []byte{}, nil
+				},
+			}
+
+			runner := NewCLIGitHubRunner("/test/dir", WithGHCommandExecutor(mock))
+			err := runner.MergePR(context.Background(), 42, tt.method, false)
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestCLIGitHubRunner_MergePR_InvalidPRNumber(t *testing.T) {
+	mock := &mockCommandExecutor{}
+	runner := NewCLIGitHubRunner("/test/dir", WithGHCommandExecutor(mock))
+
+	err := runner.MergePR(context.Background(), 0, "squash", false)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, atlaserrors.ErrEmptyValue)
+}
+
+func TestCLIGitHubRunner_MergePR_NotFound(t *testing.T) {
+	mock := &mockCommandExecutor{
+		executeFunc: func(_ context.Context, _, _ string, _ ...string) ([]byte, error) {
+			//nolint:err113 // Test mock simulating external error
+			return nil, fmt.Errorf("PR #999 not found")
+		},
+	}
+
+	runner := NewCLIGitHubRunner("/test/dir", WithGHCommandExecutor(mock))
+	err := runner.MergePR(context.Background(), 999, "squash", false)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, atlaserrors.ErrPRNotFound)
+}
+
+func TestCLIGitHubRunner_MergePR_AuthFailed(t *testing.T) {
+	mock := &mockCommandExecutor{
+		executeFunc: func(_ context.Context, _, _ string, _ ...string) ([]byte, error) {
+			//nolint:err113 // Test mock simulating external error
+			return nil, errors.New("authentication required")
+		},
+	}
+
+	runner := NewCLIGitHubRunner("/test/dir", WithGHCommandExecutor(mock))
+	err := runner.MergePR(context.Background(), 42, "squash", false)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, atlaserrors.ErrGHAuthFailed)
+}
+
+func TestCLIGitHubRunner_MergePR_GenericError(t *testing.T) {
+	mock := &mockCommandExecutor{
+		executeFunc: func(_ context.Context, _, _ string, _ ...string) ([]byte, error) {
+			//nolint:err113 // Test mock simulating external error
+			return nil, errors.New("merge conflict detected")
+		},
+	}
+
+	runner := NewCLIGitHubRunner("/test/dir", WithGHCommandExecutor(mock))
+	err := runner.MergePR(context.Background(), 42, "squash", false)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, atlaserrors.ErrPRMergeFailed)
+}
+
+func TestCLIGitHubRunner_MergePR_ContextCanceled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	mock := &mockCommandExecutor{}
+	runner := NewCLIGitHubRunner("/test/dir", WithGHCommandExecutor(mock))
+	err := runner.MergePR(ctx, 42, "squash", false)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, context.Canceled)
+}
+
+// Test AddPRReview method
+func TestCLIGitHubRunner_AddPRReview_Success(t *testing.T) {
+	mock := &mockCommandExecutor{
+		executeFunc: func(_ context.Context, _, name string, args ...string) ([]byte, error) {
+			assert.Equal(t, "gh", name)
+			assert.Contains(t, args, "pr")
+			assert.Contains(t, args, "review")
+			assert.Contains(t, args, "42")
+			assert.Contains(t, args, "--approve")
+			assert.Contains(t, args, "--body")
+			assert.Contains(t, args, "LGTM")
+			return []byte{}, nil
+		},
+	}
+
+	runner := NewCLIGitHubRunner("/test/dir", WithGHCommandExecutor(mock))
+	err := runner.AddPRReview(context.Background(), 42, "LGTM", "APPROVE")
+	require.NoError(t, err)
+}
+
+func TestCLIGitHubRunner_AddPRReview_EventTypes(t *testing.T) {
+	tests := []struct {
+		event       string
+		expectedArg string
+	}{
+		{"APPROVE", "--approve"},
+		{"approve", "--approve"}, // Case insensitive
+		{"REQUEST_CHANGES", "--request-changes"},
+		{"COMMENT", "--comment"},
+		{"invalid", "--approve"}, // Defaults to approve
+		{"", "--approve"},        // Empty defaults to approve
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.event, func(t *testing.T) {
+			mock := &mockCommandExecutor{
+				executeFunc: func(_ context.Context, _, _ string, args ...string) ([]byte, error) {
+					assert.Contains(t, args, tt.expectedArg)
+					return []byte{}, nil
+				},
+			}
+
+			runner := NewCLIGitHubRunner("/test/dir", WithGHCommandExecutor(mock))
+			err := runner.AddPRReview(context.Background(), 42, "test body", tt.event)
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestCLIGitHubRunner_AddPRReview_OwnPR(t *testing.T) {
+	tests := []struct {
+		name   string
+		errMsg string
+	}{
+		{"cannot approve", "cannot approve your own pull request"},
+		{"author error", "author cannot review"},
+		{"own pull request", "cannot request changes on own pull request"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mock := &mockCommandExecutor{
+				executeFunc: func(_ context.Context, _, _ string, _ ...string) ([]byte, error) {
+					//nolint:err113 // Test mock simulating external error
+					return nil, errors.New(tt.errMsg)
+				},
+			}
+
+			runner := NewCLIGitHubRunner("/test/dir", WithGHCommandExecutor(mock))
+			err := runner.AddPRReview(context.Background(), 42, "LGTM", "APPROVE")
+			require.Error(t, err)
+			assert.ErrorIs(t, err, atlaserrors.ErrPRReviewNotAllowed)
+		})
+	}
+}
+
+func TestCLIGitHubRunner_AddPRReview_InvalidPRNumber(t *testing.T) {
+	mock := &mockCommandExecutor{}
+	runner := NewCLIGitHubRunner("/test/dir", WithGHCommandExecutor(mock))
+
+	err := runner.AddPRReview(context.Background(), 0, "test", "APPROVE")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, atlaserrors.ErrEmptyValue)
+}
+
+func TestCLIGitHubRunner_AddPRReview_EmptyBody(t *testing.T) {
+	mock := &mockCommandExecutor{
+		executeFunc: func(_ context.Context, _, _ string, args ...string) ([]byte, error) {
+			// Body should not be in args if empty
+			assert.NotContains(t, args, "--body")
+			return []byte{}, nil
+		},
+	}
+
+	runner := NewCLIGitHubRunner("/test/dir", WithGHCommandExecutor(mock))
+	err := runner.AddPRReview(context.Background(), 42, "", "APPROVE")
+	require.NoError(t, err)
+}
+
+func TestCLIGitHubRunner_AddPRReview_ContextCanceled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	mock := &mockCommandExecutor{}
+	runner := NewCLIGitHubRunner("/test/dir", WithGHCommandExecutor(mock))
+	err := runner.AddPRReview(ctx, 42, "test", "APPROVE")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, context.Canceled)
+}
+
+// Test AddPRComment method
+func TestCLIGitHubRunner_AddPRComment_Success(t *testing.T) {
+	mock := &mockCommandExecutor{
+		executeFunc: func(_ context.Context, _, name string, args ...string) ([]byte, error) {
+			assert.Equal(t, "gh", name)
+			assert.Contains(t, args, "pr")
+			assert.Contains(t, args, "comment")
+			assert.Contains(t, args, "42")
+			assert.Contains(t, args, "--body")
+			assert.Contains(t, args, "Approved and Merged by ATLAS")
+			return []byte{}, nil
+		},
+	}
+
+	runner := NewCLIGitHubRunner("/test/dir", WithGHCommandExecutor(mock))
+	err := runner.AddPRComment(context.Background(), 42, "Approved and Merged by ATLAS")
+	require.NoError(t, err)
+}
+
+func TestCLIGitHubRunner_AddPRComment_InvalidPRNumber(t *testing.T) {
+	mock := &mockCommandExecutor{}
+	runner := NewCLIGitHubRunner("/test/dir", WithGHCommandExecutor(mock))
+
+	err := runner.AddPRComment(context.Background(), 0, "test")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, atlaserrors.ErrEmptyValue)
+}
+
+func TestCLIGitHubRunner_AddPRComment_EmptyBody(t *testing.T) {
+	mock := &mockCommandExecutor{}
+	runner := NewCLIGitHubRunner("/test/dir", WithGHCommandExecutor(mock))
+
+	err := runner.AddPRComment(context.Background(), 42, "")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, atlaserrors.ErrEmptyValue)
+}
+
+func TestCLIGitHubRunner_AddPRComment_NotFound(t *testing.T) {
+	mock := &mockCommandExecutor{
+		executeFunc: func(_ context.Context, _, _ string, _ ...string) ([]byte, error) {
+			//nolint:err113 // Test mock simulating external error
+			return nil, fmt.Errorf("PR #999 not found")
+		},
+	}
+
+	runner := NewCLIGitHubRunner("/test/dir", WithGHCommandExecutor(mock))
+	err := runner.AddPRComment(context.Background(), 999, "test comment")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, atlaserrors.ErrPRNotFound)
+}
+
+func TestCLIGitHubRunner_AddPRComment_AuthFailed(t *testing.T) {
+	mock := &mockCommandExecutor{
+		executeFunc: func(_ context.Context, _, _ string, _ ...string) ([]byte, error) {
+			//nolint:err113 // Test mock simulating external error
+			return nil, errors.New("authentication required")
+		},
+	}
+
+	runner := NewCLIGitHubRunner("/test/dir", WithGHCommandExecutor(mock))
+	err := runner.AddPRComment(context.Background(), 42, "test comment")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, atlaserrors.ErrGHAuthFailed)
+}
+
+func TestCLIGitHubRunner_AddPRComment_ContextCanceled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	mock := &mockCommandExecutor{}
+	runner := NewCLIGitHubRunner("/test/dir", WithGHCommandExecutor(mock))
+	err := runner.AddPRComment(ctx, 42, "test")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, context.Canceled)
+}
