@@ -921,6 +921,9 @@ func TestRunner_Run_MultipleCustomPreCommitCommandsExecuteInOrder(t *testing.T) 
 }
 
 func TestRunner_Run_StagerCalledWithCorrectWorkDir(t *testing.T) {
+	// Create a real temporary directory for the test
+	workDir := t.TempDir()
+
 	// Stager is called after format with the correct work directory
 	mockRunner := NewMockCommandRunner()
 	mockRunner.SetResponse("fmt", "formatted", "", 0, nil)
@@ -945,7 +948,7 @@ func TestRunner_Run_StagerCalledWithCorrectWorkDir(t *testing.T) {
 	runner := validation.NewRunner(executor, config)
 
 	ctx := testContext()
-	result, err := runner.Run(ctx, "/test/work/dir")
+	result, err := runner.Run(ctx, workDir)
 
 	require.NoError(t, err)
 	require.NotNil(t, result)
@@ -953,7 +956,7 @@ func TestRunner_Run_StagerCalledWithCorrectWorkDir(t *testing.T) {
 
 	// Verify stager was called with correct work directory (called after format)
 	assert.True(t, mockStager.Called, "Stager.StageModifiedFiles should be called after format")
-	assert.Equal(t, "/test/work/dir", mockStager.WorkDir)
+	assert.Equal(t, workDir, mockStager.WorkDir)
 }
 
 func TestRunner_Run_StagerCalledAfterFormat(t *testing.T) {

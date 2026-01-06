@@ -219,6 +219,9 @@ func TestRetryHandler_RetryWithAI_ContextCancellation(t *testing.T) {
 }
 
 func TestRetryHandler_RetryWithAI_PassesWorkDir(t *testing.T) {
+	// Create a real temporary directory for the test
+	workDir := t.TempDir()
+
 	var capturedWorkDir string
 	mockAI := &MockAIRunner{
 		RunFn: func(_ context.Context, req *domain.AIRequest) (*domain.AIResult, error) {
@@ -232,10 +235,10 @@ func TestRetryHandler_RetryWithAI_PassesWorkDir(t *testing.T) {
 
 	handler := NewRetryHandler(mockAI, executor, DefaultRetryConfig(), zerolog.Nop())
 
-	_, err := handler.RetryWithAI(context.Background(), &PipelineResult{}, "/my/work/dir", 1, nil)
+	_, err := handler.RetryWithAI(context.Background(), &PipelineResult{}, workDir, 1, nil)
 
 	require.NoError(t, err)
-	assert.Equal(t, "/my/work/dir", capturedWorkDir)
+	assert.Equal(t, workDir, capturedWorkDir)
 }
 
 func TestRetryHandler_CanRetry(t *testing.T) {

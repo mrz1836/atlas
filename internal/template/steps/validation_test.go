@@ -109,7 +109,10 @@ func TestValidationExecutor_Execute_AllSuccess(t *testing.T) {
 	runner := newMockCommandRunner()
 	runner.SetDefaultSuccess()
 	toolChecker := &mockToolChecker{installed: true, version: "1.0.0"}
-	executor := NewValidationExecutorWithAll("/tmp/work", runner, toolChecker, nil, nil, nil)
+
+	// Create temp directory for test
+	tmpDir := t.TempDir()
+	executor := NewValidationExecutorWithAll(tmpDir, runner, toolChecker, nil, nil, nil)
 
 	task := &domain.Task{
 		ID:          "task-123",
@@ -141,7 +144,10 @@ func TestValidationExecutor_Execute_FailsOnError(t *testing.T) {
 		exitCode: 1,
 		err:      atlaserrors.ErrCommandFailed,
 	})
-	executor := NewValidationExecutorWithRunner("/tmp/work", runner)
+
+	// Create temp directory for test
+	tmpDir := t.TempDir()
+	executor := NewValidationExecutorWithRunner(tmpDir, runner)
 
 	task := &domain.Task{
 		ID:          "task-123",
@@ -164,7 +170,10 @@ func TestValidationExecutor_Execute_DefaultCommands(t *testing.T) {
 	runner := newMockCommandRunner()
 	runner.SetDefaultSuccess()
 	toolChecker := &mockToolChecker{installed: true, version: "1.0.0"}
-	executor := NewValidationExecutorWithAll("/tmp/work", runner, toolChecker, nil, nil, nil)
+
+	// Create temp directory for test
+	tmpDir := t.TempDir()
+	executor := NewValidationExecutorWithAll(tmpDir, runner, toolChecker, nil, nil, nil)
 
 	task := &domain.Task{
 		ID:          "task-123",
@@ -222,7 +231,10 @@ func TestValidationExecutor_Execute_CapturesOutput(t *testing.T) {
 	ctx := context.Background()
 	runner := newMockCommandRunner()
 	runner.SetDefaultSuccess()
-	executor := NewValidationExecutorWithRunner("/tmp/work", runner)
+
+	// Create temp directory for test
+	tmpDir := t.TempDir()
+	executor := NewValidationExecutorWithRunner(tmpDir, runner)
 
 	task := &domain.Task{
 		ID:          "task-123",
@@ -243,7 +255,10 @@ func TestValidationExecutor_Execute_EmptyCommands(t *testing.T) {
 	runner := newMockCommandRunner()
 	runner.SetDefaultSuccess()
 	toolChecker := &mockToolChecker{installed: true, version: "1.0.0"}
-	executor := NewValidationExecutorWithAll("/tmp/work", runner, toolChecker, nil, nil, nil)
+
+	// Create temp directory for test
+	tmpDir := t.TempDir()
+	executor := NewValidationExecutorWithAll(tmpDir, runner, toolChecker, nil, nil, nil)
 
 	task := &domain.Task{
 		ID:          "task-123",
@@ -265,7 +280,10 @@ func TestValidationExecutor_Execute_Timing(t *testing.T) {
 	ctx := context.Background()
 	runner := newMockCommandRunner()
 	runner.SetDefaultSuccess()
-	executor := NewValidationExecutorWithRunner("/tmp/work", runner)
+
+	// Create temp directory for test
+	tmpDir := t.TempDir()
+	executor := NewValidationExecutorWithRunner(tmpDir, runner)
 
 	task := &domain.Task{
 		ID:          "task-123",
@@ -299,7 +317,9 @@ func TestValidationExecutor_Execute_WithArtifactSaver(t *testing.T) {
 		},
 	}
 
-	executor := NewValidationExecutorWithAll("/tmp/work", runner, nil, mockSaver, nil, nil)
+	// Create temp directory for test
+	tmpDir := t.TempDir()
+	executor := NewValidationExecutorWithAll(tmpDir, runner, nil, mockSaver, nil, nil)
 
 	task := &domain.Task{
 		ID:          "task-123",
@@ -330,7 +350,9 @@ func TestValidationExecutor_Execute_WithNotifier(t *testing.T) {
 	// Need artifact saver for the handler to be created
 	mockSaver := &mockArtifactSaver{}
 
-	executor := NewValidationExecutorWithAll("/tmp/work", runner, nil, mockSaver, mockNotifier, nil)
+	// Create temp directory for test
+	tmpDir := t.TempDir()
+	executor := NewValidationExecutorWithAll(tmpDir, runner, nil, mockSaver, mockNotifier, nil)
 
 	task := &domain.Task{
 		ID:          "task-123",
@@ -592,7 +614,10 @@ func TestValidationExecutor_Execute_IncludesMetadata(t *testing.T) {
 	runner := newMockCommandRunner()
 	runner.SetDefaultSuccess()
 	toolChecker := &mockToolChecker{installed: true, version: "1.0.0"}
-	executor := NewValidationExecutorWithAll("/tmp/work", runner, toolChecker, nil, nil, nil)
+
+	// Create temp directory for test
+	tmpDir := t.TempDir()
+	executor := NewValidationExecutorWithAll(tmpDir, runner, toolChecker, nil, nil, nil)
 
 	task := &domain.Task{
 		ID:          "task-123",
@@ -637,7 +662,10 @@ func TestValidationExecutor_Execute_MetadataOnFailure(t *testing.T) {
 	runner.SetResult("magex lint", mockCommandResult{
 		exitCode: 1,
 	})
-	executor := NewValidationExecutorWithRunner("/tmp/work", runner)
+
+	// Create temp directory for test
+	tmpDir := t.TempDir()
+	executor := NewValidationExecutorWithRunner(tmpDir, runner)
 
 	task := &domain.Task{
 		ID:          "task-123",
@@ -703,9 +731,12 @@ func TestValidationExecutor_Execute_UsesCustomCommands(t *testing.T) {
 		PreCommit: []string{"my-precommit run"},
 	}
 
+	// Create temp directory for test
+	tmpDir := t.TempDir()
+
 	// Create executor with custom commands
 	executor := &ValidationExecutor{
-		workDir:           "/tmp/work",
+		workDir:           tmpDir,
 		runner:            runner,
 		toolChecker:       toolChecker,
 		formatCommands:    commands.Format,
@@ -788,8 +819,11 @@ func TestValidationExecutor_Execute_UsesTestRaceFromConfig(t *testing.T) {
 		PreCommit: []string{"go-pre-commit run --all-files"},
 	}
 
+	// Create temp directory for test
+	tmpDir := t.TempDir()
+
 	executor := &ValidationExecutor{
-		workDir:           "/tmp/work",
+		workDir:           tmpDir,
 		runner:            runner,
 		toolChecker:       toolChecker,
 		formatCommands:    commands.Format,

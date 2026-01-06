@@ -10,10 +10,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/mrz1836/atlas/internal/ai"
+	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/domain"
 	"github.com/mrz1836/atlas/internal/errors"
@@ -1334,4 +1337,286 @@ func TestRunStart_InvalidModel(t *testing.T) {
 	require.Error(t, err)
 	require.ErrorIs(t, err, errors.ErrInvalidModel)
 	assert.True(t, errors.IsExitCode2Error(err))
+}
+
+// TestFormatDuration tests the formatDuration helper function
+func TestFormatDuration(t *testing.T) {
+	tests := []struct {
+		name     string
+		ms       int64
+		expected string
+	}{
+		{
+			name:     "zero milliseconds",
+			ms:       0,
+			expected: "0s",
+		},
+		{
+			name:     "under one second",
+			ms:       500,
+			expected: "0s",
+		},
+		{
+			name:     "exact one second",
+			ms:       1000,
+			expected: "1s",
+		},
+		{
+			name:     "under one minute",
+			ms:       45000,
+			expected: "45s",
+		},
+		{
+			name:     "exact one minute",
+			ms:       60000,
+			expected: "1m",
+		},
+		{
+			name:     "minutes and seconds",
+			ms:       135000,
+			expected: "2m 15s",
+		},
+		{
+			name:     "large duration",
+			ms:       3661000,
+			expected: "61m 1s",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := formatDuration(tt.ms)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+// TestBuildStepMetrics tests the buildStepMetrics helper function
+func TestBuildStepMetrics(t *testing.T) {
+	tests := []struct {
+		name              string
+		durationMs        int64
+		numTurns          int
+		filesChangedCount int
+		expected          string
+	}{
+		{
+			name:              "all zero",
+			durationMs:        0,
+			numTurns:          0,
+			filesChangedCount: 0,
+			expected:          "",
+		},
+		{
+			name:              "only duration",
+			durationMs:        45000,
+			numTurns:          0,
+			filesChangedCount: 0,
+			expected:          "Duration: 45s",
+		},
+		{
+			name:              "only turns",
+			durationMs:        0,
+			numTurns:          5,
+			filesChangedCount: 0,
+			expected:          "Turns: 5",
+		},
+		{
+			name:              "only files",
+			durationMs:        0,
+			numTurns:          0,
+			filesChangedCount: 3,
+			expected:          "Files: 3",
+		},
+		{
+			name:              "duration and turns",
+			durationMs:        120000,
+			numTurns:          8,
+			filesChangedCount: 0,
+			expected:          "Duration: 2m | Turns: 8",
+		},
+		{
+			name:              "all fields present",
+			durationMs:        75000,
+			numTurns:          4,
+			filesChangedCount: 12,
+			expected:          "Duration: 1m 15s | Turns: 4 | Files: 12",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := buildStepMetrics(tt.durationMs, tt.numTurns, tt.filesChangedCount)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+// TestApplyAgentModelOverrides tests the applyAgentModelOverrides function
+func TestApplyAgentModelOverrides(t *testing.T) {
+	tests := []struct {
+		name        string
+		agent       string
+		model       string
+		expectAgent domain.Agent
+		expectModel string
+	}{
+		{
+			name:        "no overrides",
+			agent:       "",
+			model:       "",
+			expectAgent: "",
+			expectModel: "",
+		},
+		{
+			name:        "agent only",
+			agent:       "dev",
+			model:       "",
+			expectAgent: "dev",
+			expectModel: "",
+		},
+		{
+			name:        "model only",
+			agent:       "",
+			model:       "opus",
+			expectAgent: "",
+			expectModel: "opus",
+		},
+		{
+			name:        "both overrides",
+			agent:       "architect",
+			model:       "sonnet",
+			expectAgent: "architect",
+			expectModel: "sonnet",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmpl := &domain.Template{
+				DefaultAgent: "",
+				DefaultModel: "",
+			}
+
+			applyAgentModelOverrides(tmpl, tt.agent, tt.model)
+
+			assert.Equal(t, tt.expectAgent, tmpl.DefaultAgent)
+			assert.Equal(t, tt.expectModel, tmpl.DefaultModel)
+		})
+	}
+}
+
+// mockAIRunner is a simple mock for ai.Runner interface
+type mockAIRunner struct {
+	ai.Runner
+}
+
+// TestCreateValidationRetryHandler tests the createValidationRetryHandler factory function
+func TestCreateValidationRetryHandler(t *testing.T) {
+	tests := []struct {
+		name      string
+		enabled   bool
+		expectNil bool
+	}{
+		{
+			name:      "disabled returns nil",
+			enabled:   false,
+			expectNil: true,
+		},
+		{
+			name:      "enabled returns handler",
+			enabled:   true,
+			expectNil: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &config.Config{
+				Validation: config.ValidationConfig{
+					AIRetryEnabled:     tt.enabled,
+					MaxAIRetryAttempts: 2,
+				},
+			}
+			aiRunner := &mockAIRunner{}
+			logger := zerolog.Nop()
+
+			handler := createValidationRetryHandler(aiRunner, cfg, logger)
+
+			if tt.expectNil {
+				assert.Nil(t, handler)
+			} else {
+				assert.NotNil(t, handler)
+			}
+		})
+	}
+}
+
+// TestCreateNotifiers tests the createNotifiers factory function
+func TestCreateNotifiers(t *testing.T) {
+	tests := []struct {
+		name        string
+		bellEnabled bool
+	}{
+		{
+			name:        "bell enabled",
+			bellEnabled: true,
+		},
+		{
+			name:        "bell disabled",
+			bellEnabled: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &config.Config{
+				Notifications: config.NotificationsConfig{
+					Bell:   tt.bellEnabled,
+					Events: []string{"task.started", "task.completed"},
+				},
+			}
+
+			notifier, stateNotifier := createNotifiers(cfg)
+
+			require.NotNil(t, notifier)
+			require.NotNil(t, stateNotifier)
+		})
+	}
+}
+
+// TestCreateAIRunner tests the createAIRunner factory function
+func TestCreateAIRunner(t *testing.T) {
+	tests := []struct {
+		name  string
+		model string
+		agent string
+	}{
+		{
+			name:  "with sonnet model",
+			model: "sonnet",
+			agent: "claude",
+		},
+		{
+			name:  "with opus model",
+			model: "opus",
+			agent: "claude",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &config.Config{
+				AI: config.AIConfig{
+					Model: tt.model,
+					Agent: tt.agent,
+				},
+			}
+			logger := zerolog.Nop()
+
+			runner := createAIRunner(cfg, logger)
+
+			require.NotNil(t, runner)
+		})
+	}
 }

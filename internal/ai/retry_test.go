@@ -3,9 +3,12 @@ package ai
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 )
 
 // Test error types for isRetryable testing.
@@ -21,6 +24,8 @@ var (
 	errRateLimit         = errors.New("rate limit exceeded")
 	errGeneric           = errors.New("something went wrong")
 	errConnectionTimeout = errors.New("connection timeout")
+	errNoSuchFile        = errors.New("chdir /path/to/worktree: no such file or directory")
+	errChdirFailed       = errors.New("chdir to working directory failed")
 )
 
 func TestIsRetryable(t *testing.T) {
@@ -98,6 +103,27 @@ func TestIsRetryable(t *testing.T) {
 			name:     "timeout error is retryable",
 			err:      errConnectionTimeout,
 			expected: true,
+		},
+		// Directory/filesystem errors should NOT be retryable
+		{
+			name:     "no such file or directory is not retryable",
+			err:      errNoSuchFile,
+			expected: false,
+		},
+		{
+			name:     "chdir error is not retryable",
+			err:      errChdirFailed,
+			expected: false,
+		},
+		{
+			name:     "ErrWorktreeNotFound is not retryable",
+			err:      atlaserrors.ErrWorktreeNotFound,
+			expected: false,
+		},
+		{
+			name:     "wrapped ErrWorktreeNotFound is not retryable",
+			err:      fmt.Errorf("working directory missing: /path: %w", atlaserrors.ErrWorktreeNotFound),
+			expected: false,
 		},
 	}
 
