@@ -216,12 +216,13 @@ func (e *VerifyExecutor) Type() domain.StepType {
 // buildRequest constructs an AIRequest for verification.
 func (e *VerifyExecutor) buildRequest(task *domain.Task, step *domain.StepDefinition) *domain.AIRequest {
 	req := &domain.AIRequest{
-		Agent:      task.Config.Agent, // Default to task agent
-		Prompt:     e.buildVerificationPrompt(task, step),
-		Model:      task.Config.Model,
-		MaxTurns:   5, // Verification should be quick
-		Timeout:    5 * time.Minute,
-		WorkingDir: e.workingDir,
+		Agent:          task.Config.Agent, // Default to task agent
+		Prompt:         e.buildVerificationPrompt(task, step),
+		Model:          task.Config.Model,
+		MaxTurns:       5, // Verification should be quick
+		Timeout:        5 * time.Minute,
+		WorkingDir:     e.workingDir,
+		PermissionMode: "plan", // Default to read-only for verification (safety)
 	}
 
 	// Apply step-specific config overrides
@@ -249,6 +250,11 @@ func (e *VerifyExecutor) buildRequest(task *domain.Task, step *domain.StepDefini
 
 	if timeout, ok := step.Config["timeout"].(time.Duration); ok {
 		req.Timeout = timeout
+	}
+
+	// Allow override of permission mode (opt-out of read-only)
+	if mode, ok := step.Config["permission_mode"].(string); ok {
+		req.PermissionMode = mode
 	}
 
 	return req

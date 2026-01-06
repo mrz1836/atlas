@@ -904,6 +904,86 @@ func TestVerifyExecutor_CompleteWorkflow(t *testing.T) {
 	assert.Contains(t, capturedPrompt, "Implement user login feature")
 }
 
+func TestVerifyExecutor_PermissionModeDefault(t *testing.T) {
+	ctx := context.Background()
+	var capturedReq *domain.AIRequest
+	runner := &mockVerifyRunner{
+		runFunc: func(_ context.Context, req *domain.AIRequest) (*domain.AIResult, error) {
+			capturedReq = req
+			return &domain.AIResult{
+				Output:    `{"passed": true, "issues": [], "summary": "OK"}`,
+				SessionID: "test",
+				NumTurns:  1,
+			}, nil
+		},
+	}
+	detector := git.NewGarbageDetector(nil)
+	executor := NewVerifyExecutor(runner, detector, zerolog.Nop())
+
+	task := &domain.Task{
+		ID:          "test-task",
+		Description: "Test task",
+		CurrentStep: 0,
+		Config: domain.TaskConfig{
+			Model: "sonnet",
+		},
+	}
+
+	step := &domain.StepDefinition{
+		Name: "verify",
+		Type: domain.StepTypeVerify,
+		// No permission_mode in config - should default to "plan"
+	}
+
+	_, err := executor.Execute(ctx, task, step)
+
+	require.NoError(t, err)
+	require.NotNil(t, capturedReq)
+	// Verify step should default to read-only "plan" mode for safety
+	assert.Equal(t, "plan", capturedReq.PermissionMode)
+}
+
+func TestVerifyExecutor_PermissionModeOverride(t *testing.T) {
+	ctx := context.Background()
+	var capturedReq *domain.AIRequest
+	runner := &mockVerifyRunner{
+		runFunc: func(_ context.Context, req *domain.AIRequest) (*domain.AIResult, error) {
+			capturedReq = req
+			return &domain.AIResult{
+				Output:    `{"passed": true, "issues": [], "summary": "OK"}`,
+				SessionID: "test",
+				NumTurns:  1,
+			}, nil
+		},
+	}
+	detector := git.NewGarbageDetector(nil)
+	executor := NewVerifyExecutor(runner, detector, zerolog.Nop())
+
+	task := &domain.Task{
+		ID:          "test-task",
+		Description: "Test task",
+		CurrentStep: 0,
+		Config: domain.TaskConfig{
+			Model: "sonnet",
+		},
+	}
+
+	step := &domain.StepDefinition{
+		Name: "verify",
+		Type: domain.StepTypeVerify,
+		Config: map[string]any{
+			"permission_mode": "", // Override to allow full access (not recommended)
+		},
+	}
+
+	_, err := executor.Execute(ctx, task, step)
+
+	require.NoError(t, err)
+	require.NotNil(t, capturedReq)
+	// Permission mode should be overridden to empty string
+	assert.Empty(t, capturedReq.PermissionMode)
+}
+
 func TestVerifyExecutor_HandleVerificationIssues(t *testing.T) {
 	ctx := context.Background()
 	runner := &mockVerifyRunner{}
