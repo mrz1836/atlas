@@ -51,6 +51,11 @@ var (
 	// timeout duration.
 	ErrCITimeout = errors.New("ci polling timeout")
 
+	// ErrCIFetchFailed indicates that CI status could not be determined due
+	// to network or API errors. This is distinct from ErrCIFailed - the CI
+	// may have passed, but we couldn't verify.
+	ErrCIFetchFailed = errors.New("ci status fetch failed")
+
 	// ErrUserRejected indicates that the user explicitly rejected the current
 	// task result during the approval step.
 	ErrUserRejected = errors.New("user rejected")

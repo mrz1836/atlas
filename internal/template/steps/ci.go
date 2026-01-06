@@ -203,6 +203,8 @@ func (e *CIExecutor) Execute(ctx context.Context, task *domain.Task, step *domai
 		return e.handleFailure(result, task, step, startTime, artifactPath)
 	case git.CIStatusTimeout:
 		return e.handleTimeout(result, task, step, startTime, artifactPath)
+	case git.CIStatusFetchError:
+		return e.handleFetchError(result, task, step, startTime, artifactPath)
 	case git.CIStatusPending:
 		// Pending should not be returned as a final status; treat as unexpected
 		return e.buildErrorResult(task, step, startTime, fmt.Sprintf("unexpected CI status: %v", result.Status)),
@@ -326,6 +328,38 @@ func (e *CIExecutor) handleTimeout(result *git.CIWatchResult, t *domain.Task, st
 		DurationMs:   completedAt.Sub(startTime).Milliseconds(),
 		Output:       fmt.Sprintf("CI monitoring timed out after %s", result.ElapsedTime.Round(time.Second)),
 		ArtifactPath: artifactPath,
+	}, nil
+}
+
+// handleFetchError returns appropriate StepResult when CI status fetch fails.
+// This is distinct from CI failure - the CI may have passed, but we couldn't verify.
+// Returns awaiting_approval status to allow user to decide how to proceed.
+func (e *CIExecutor) handleFetchError(result *git.CIWatchResult, t *domain.Task, step *domain.StepDefinition, startTime time.Time, artifactPath string) (*domain.StepResult, error) {
+	completedAt := time.Now()
+
+	errMsg := "Unable to determine CI status"
+	if result.Error != nil {
+		errMsg = result.Error.Error()
+	}
+
+	e.logger.Warn().
+		Dur("elapsed", result.ElapsedTime).
+		Str("error", errMsg).
+		Msg("CI status fetch failed - awaiting user decision")
+
+	return &domain.StepResult{
+		StepIndex:    t.CurrentStep,
+		StepName:     step.Name,
+		Status:       "awaiting_approval",
+		StartedAt:    startTime,
+		CompletedAt:  completedAt,
+		DurationMs:   completedAt.Sub(startTime).Milliseconds(),
+		Output:       fmt.Sprintf("Unable to fetch CI status after %s: %s", result.ElapsedTime.Round(time.Second), errMsg),
+		ArtifactPath: artifactPath,
+		Metadata: map[string]any{
+			"failure_type":   "ci_fetch_error",
+			"original_error": errMsg,
+		},
 	}, nil
 }
 

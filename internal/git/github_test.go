@@ -20,6 +20,7 @@ var (
 	errNoChecksReportedGH    = errors.New("gh failed [no checks reported on the 'main' branch]: github operation failed")
 	errNoChecksReportedLower = errors.New("no checks reported")
 	errNoChecksReportedMixed = errors.New("no checks reported on branch")
+	errUnexpectedCall        = errors.New("unexpected mock call")
 )
 
 // mockCommandExecutor is a test double for CommandExecutor.
@@ -1455,13 +1456,17 @@ func TestCLIGitHubRunner_WatchPRChecks_MaxRetriesExhausted(t *testing.T) {
 		}),
 	)
 
-	_, err := runner.WatchPRChecks(context.Background(), CIWatchOptions{
+	result, err := runner.WatchPRChecks(context.Background(), CIWatchOptions{
 		PRNumber: 42,
 	})
 
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to fetch PR checks after 3 attempts")
-	assert.Equal(t, 3, attempts)
+	// With graceful degradation, transient errors after max retries return CIStatusFetchError
+	// instead of an error, allowing the caller to handle it appropriately
+	require.NoError(t, err)
+	assert.Equal(t, CIStatusFetchError, result.Status)
+	assert.Contains(t, result.Error.Error(), "failed to fetch PR checks after 3 attempts")
+	// 3 fetch attempts + 1 fallback verification attempt = 4 total
+	assert.Equal(t, 4, attempts)
 }
 
 func TestCLIGitHubRunner_WatchPRChecks_ElapsedTimeTracked(t *testing.T) {
@@ -2276,4 +2281,175 @@ func TestCLIGitHubRunner_AddPRComment_ContextCanceled(t *testing.T) {
 	err := runner.AddPRComment(ctx, 42, "test")
 	require.Error(t, err)
 	assert.ErrorIs(t, err, context.Canceled)
+}
+
+func TestAddJitter(t *testing.T) {
+	tests := []struct {
+		name     string
+		duration time.Duration
+		factor   float64
+	}{
+		{"zero factor", 100 * time.Millisecond, 0},
+		{"small factor", 100 * time.Millisecond, 0.1},
+		{"medium factor", 100 * time.Millisecond, 0.25},
+		{"large factor", 100 * time.Millisecond, 0.5},
+		{"second scale", 5 * time.Second, 0.2},
+		{"minute scale", 1 * time.Minute, 0.1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Run multiple times to verify jitter behavior
+			results := make([]time.Duration, 100)
+			for i := range 100 {
+				results[i] = addJitter(tt.duration, tt.factor)
+			}
+
+			if tt.factor == 0 {
+				verifyZeroFactorResults(t, results, tt.duration)
+			} else {
+				verifyNonZeroFactorResults(t, results, tt.duration, tt.factor)
+			}
+		})
+	}
+}
+
+// verifyZeroFactorResults checks that all results match the expected duration.
+func verifyZeroFactorResults(t *testing.T, results []time.Duration, expected time.Duration) {
+	t.Helper()
+	for _, r := range results {
+		assert.Equal(t, expected, r, "zero factor should return exact duration")
+	}
+}
+
+// verifyNonZeroFactorResults checks that results are within bounds and have variance.
+func verifyNonZeroFactorResults(t *testing.T, results []time.Duration, duration time.Duration, factor float64) {
+	t.Helper()
+	minExpected := time.Duration(float64(duration) * (1 - factor))
+	maxExpected := time.Duration(float64(duration) * (1 + factor))
+
+	// All results should be within bounds
+	for i, r := range results {
+		assert.GreaterOrEqual(t, r, minExpected, "result %d below min bound", i)
+		assert.LessOrEqual(t, r, maxExpected, "result %d above max bound", i)
+	}
+
+	// Check that there's actual variance (not all same value)
+	allSame := true
+	for i := 1; i < len(results); i++ {
+		if results[i] != results[0] {
+			allSame = false
+			break
+		}
+	}
+	assert.False(t, allSame, "jitter should produce variance across calls")
+}
+
+func TestAddJitter_NegativeFactor(t *testing.T) {
+	// Negative factor should be treated as zero (no jitter)
+	d := 100 * time.Millisecond
+	for range 10 {
+		result := addJitter(d, -0.1)
+		assert.Equal(t, d, result, "negative factor should return exact duration")
+	}
+}
+
+func TestCIStatusFetchError_String(t *testing.T) {
+	assert.Equal(t, "fetch_error", CIStatusFetchError.String())
+}
+
+func TestCLIGitHubRunner_WatchPRChecks_FetchError_FallbackSuccess(t *testing.T) {
+	callCount := 0
+	mock := &mockCommandExecutor{
+		executeFunc: func(_ context.Context, _, cmd string, args ...string) ([]byte, error) {
+			callCount++
+			// First 3 calls are fetch retries (gh pr checks), then fallback (gh pr view)
+			if callCount <= 3 {
+				// Simulate network error during fetch
+				return nil, fmt.Errorf("network timeout: %w", atlaserrors.ErrGitHubOperation)
+			}
+			// Fallback call - gh pr view succeeds
+			if cmd == "gh" && len(args) > 2 && args[1] == "view" {
+				return []byte(`{"state":"MERGED","statusCheckRollup":[{"status":"COMPLETED","conclusion":"SUCCESS"}]}`), nil
+			}
+			return nil, fmt.Errorf("%w: %s %v", errUnexpectedCall, cmd, args)
+		},
+	}
+
+	runner := NewCLIGitHubRunner("/test/dir",
+		WithGHCommandExecutor(mock),
+		WithGHRetryConfig(RetryConfig{
+			MaxAttempts:  3,
+			InitialDelay: 1 * time.Millisecond,
+			MaxDelay:     10 * time.Millisecond,
+			Multiplier:   2.0,
+		}),
+	)
+
+	result, err := runner.WatchPRChecks(context.Background(), CIWatchOptions{
+		PRNumber: 42,
+	})
+
+	require.NoError(t, err)
+	// Fallback determined CI passed
+	assert.Equal(t, CIStatusSuccess, result.Status)
+}
+
+func TestCLIGitHubRunner_WatchPRChecks_FetchError_FallbackAlsoFails(t *testing.T) {
+	callCount := 0
+	mock := &mockCommandExecutor{
+		executeFunc: func(_ context.Context, _, _ string, _ ...string) ([]byte, error) {
+			callCount++
+			// All calls fail (fetch retries + fallback)
+			return nil, fmt.Errorf("network timeout: %w", atlaserrors.ErrGitHubOperation)
+		},
+	}
+
+	runner := NewCLIGitHubRunner("/test/dir",
+		WithGHCommandExecutor(mock),
+		WithGHRetryConfig(RetryConfig{
+			MaxAttempts:  3,
+			InitialDelay: 1 * time.Millisecond,
+			MaxDelay:     10 * time.Millisecond,
+			Multiplier:   2.0,
+		}),
+	)
+
+	result, err := runner.WatchPRChecks(context.Background(), CIWatchOptions{
+		PRNumber: 42,
+	})
+
+	// When fallback also fails, we return CIStatusFetchError (graceful degradation)
+	require.NoError(t, err)
+	assert.Equal(t, CIStatusFetchError, result.Status)
+	assert.Error(t, result.Error)
+}
+
+func TestCLIGitHubRunner_WatchPRChecks_AuthError_NoRetry(t *testing.T) {
+	callCount := 0
+	mock := &mockCommandExecutor{
+		executeFunc: func(_ context.Context, _, _ string, _ ...string) ([]byte, error) {
+			callCount++
+			return nil, atlaserrors.ErrGHAuthFailed
+		},
+	}
+
+	runner := NewCLIGitHubRunner("/test/dir",
+		WithGHCommandExecutor(mock),
+		WithGHRetryConfig(RetryConfig{
+			MaxAttempts:  3,
+			InitialDelay: 1 * time.Millisecond,
+			MaxDelay:     10 * time.Millisecond,
+			Multiplier:   2.0,
+		}),
+	)
+
+	_, err := runner.WatchPRChecks(context.Background(), CIWatchOptions{
+		PRNumber: 42,
+	})
+
+	// Auth errors should not retry and should return error immediately
+	require.Error(t, err)
+	require.ErrorIs(t, err, atlaserrors.ErrGHAuthFailed)
+	assert.Equal(t, 1, callCount, "auth errors should not retry")
 }

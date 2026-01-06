@@ -798,3 +798,75 @@ func TestCIExecutor_Execute_DoesNotSkipWhenFlagFalse(t *testing.T) {
 	// Verify WatchPRChecks was called
 	assert.Equal(t, 1, mockRunner.callCount)
 }
+
+func TestCIExecutor_Execute_FetchError(t *testing.T) {
+	// Test that CIStatusFetchError transitions to awaiting_approval
+	mockRunner := &ciMockHubRunner{
+		watchResult: &git.CIWatchResult{
+			Status:      git.CIStatusFetchError,
+			ElapsedTime: 5 * time.Minute,
+			Error:       atlaserrors.ErrCIFetchFailed,
+		},
+	}
+
+	executor := NewCIExecutor(WithCIHubRunner(mockRunner))
+
+	task := &domain.Task{
+		ID:          "task-fetch-error",
+		CurrentStep: 0,
+		Metadata:    map[string]any{"pr_number": 42},
+	}
+	step := &domain.StepDefinition{
+		Name:    "ci-wait",
+		Type:    domain.StepTypeCI,
+		Timeout: 30 * time.Minute,
+	}
+
+	result, err := executor.Execute(context.Background(), task, step)
+
+	require.NoError(t, err)
+	assert.Equal(t, "awaiting_approval", result.Status)
+	assert.Contains(t, result.Output, "Unable to fetch CI status")
+	assert.Equal(t, "ci-wait", result.StepName)
+
+	// Verify metadata contains failure_type for dispatch
+	require.NotNil(t, result.Metadata)
+	assert.Equal(t, "ci_fetch_error", result.Metadata["failure_type"])
+}
+
+func TestCIExecutor_Execute_FetchError_WithArtifact(t *testing.T) {
+	// Test that fetch error saves artifact with error details
+	tmpDir, err := os.MkdirTemp("", "ci-fetch-error-test")
+	require.NoError(t, err)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
+	mockRunner := &ciMockHubRunner{
+		watchResult: &git.CIWatchResult{
+			Status:      git.CIStatusFetchError,
+			ElapsedTime: 5 * time.Minute,
+			Error:       atlaserrors.ErrCIFetchFailed,
+		},
+	}
+
+	executor := NewCIExecutor(WithCIHubRunner(mockRunner))
+
+	task := &domain.Task{
+		ID:          "task-fetch-error-artifact",
+		CurrentStep: 0,
+		Metadata:    map[string]any{"pr_number": 42, "artifact_dir": tmpDir},
+	}
+	step := &domain.StepDefinition{
+		Name: "ci-wait",
+		Type: domain.StepTypeCI,
+	}
+
+	result, err := executor.Execute(context.Background(), task, step)
+
+	require.NoError(t, err)
+	assert.Equal(t, "awaiting_approval", result.Status)
+	assert.NotEmpty(t, result.ArtifactPath)
+
+	// Verify artifact was saved
+	_, statErr := os.Stat(result.ArtifactPath)
+	assert.NoError(t, statErr)
+}

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/rand"
 	"os"
 	"os/exec"
 	"regexp"
@@ -121,6 +122,9 @@ const (
 	CIStatusFailure
 	// CIStatusTimeout indicates CI polling exceeded the timeout.
 	CIStatusTimeout
+	// CIStatusFetchError indicates CI status could not be determined due to fetch failures.
+	// This is distinct from CIStatusFailure - the CI may have passed, but we couldn't verify.
+	CIStatusFetchError
 )
 
 // String returns a string representation of the CI status.
@@ -134,6 +138,8 @@ func (s CIStatus) String() string {
 		return "failure"
 	case CIStatusTimeout:
 		return "timeout"
+	case CIStatusFetchError:
+		return "fetch_error"
 	default:
 		return "unknown"
 	}
@@ -975,7 +981,80 @@ func (r *CLIGitHubRunner) handleCIFetchError(
 		return handledResult, nil
 	}
 
-	return nil, err
+	// For transient errors (network, rate limit), try fallback verification
+	if errType == PRErrorNetwork || errType == PRErrorRateLimit {
+		r.logger.Info().
+			Err(err).
+			Int("pr_number", opts.PRNumber).
+			Msg("CI fetch failed, attempting fallback verification via gh pr view")
+
+		fallbackStatus, fallbackErr := r.verifyPRCIStatusFallback(ctx, opts.PRNumber)
+		if fallbackErr == nil && fallbackStatus != nil {
+			r.logger.Info().
+				Str("fallback_status", fallbackStatus.String()).
+				Dur("elapsed", elapsed).
+				Msg("determined CI status via fallback verification")
+
+			result.Status = *fallbackStatus
+			result.ElapsedTime = elapsed
+			if *fallbackStatus == CIStatusFailure {
+				result.Error = atlaserrors.ErrCIFailed
+			}
+			r.emitBellIfEnabled(opts.BellEnabled, bellEmitted)
+			return result, nil
+		}
+
+		// Fallback also failed - return fetch error status instead of propagating error
+		r.logger.Warn().
+			Err(err).
+			AnErr("fallback_error", fallbackErr).
+			Dur("elapsed", elapsed).
+			Msg("CI fetch failed after retries and fallback - returning fetch error status")
+
+		result.Status = CIStatusFetchError
+		result.ElapsedTime = elapsed
+		result.Error = fmt.Errorf("CI status fetch failed: %w", err)
+		r.emitBellIfEnabled(opts.BellEnabled, bellEmitted)
+		return result, nil
+	}
+
+	// For permanent errors (auth, not found), return immediately with proper sentinel error
+	switch errType {
+	case PRErrorAuth:
+		return nil, fmt.Errorf("CI fetch failed - authentication error: %w", atlaserrors.ErrGHAuthFailed)
+	case PRErrorNotFound:
+		return nil, fmt.Errorf("CI fetch failed - PR not found: %w", atlaserrors.ErrPRNotFound)
+	case PRErrorNone, PRErrorRateLimit, PRErrorNetwork, PRErrorNoChecksYet, PRErrorOther:
+		return nil, err
+	default:
+		return nil, err
+	}
+}
+
+// verifyPRCIStatusFallback attempts to determine CI status via gh pr view
+// when gh pr checks fails. This is a fallback mechanism for transient errors.
+// Returns an error if status cannot be determined.
+func (r *CLIGitHubRunner) verifyPRCIStatusFallback(ctx context.Context, prNumber int) (*CIStatus, error) {
+	prStatus, err := r.GetPRStatus(ctx, prNumber)
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert PRStatus.CIStatus string to our CIStatus enum
+	switch strings.ToLower(prStatus.CIStatus) {
+	case "success":
+		status := CIStatusSuccess
+		return &status, nil
+	case "failure":
+		status := CIStatusFailure
+		return &status, nil
+	case "pending":
+		status := CIStatusPending
+		return &status, nil
+	}
+
+	// Unable to determine status from the response
+	return nil, fmt.Errorf("unable to determine CI status from PR: %w", atlaserrors.ErrCIFetchFailed)
 }
 
 // handleNoCIConfigured handles the case when no CI checks are configured.
@@ -1027,6 +1106,9 @@ func (r *CLIGitHubRunner) handleTerminalState(
 		}
 	case CIStatusTimeout:
 		// This case is handled at the top of the loop, but included for exhaustive switch
+		return result
+	case CIStatusFetchError:
+		// Fetch error - return the result with error set
 		return result
 	}
 	return nil
@@ -1243,6 +1325,18 @@ func validateCIWatchOptions(opts *CIWatchOptions) error {
 	return nil
 }
 
+// addJitter adds random jitter to a duration to prevent synchronized retry storms.
+// The factor determines the jitter range: 0.2 means +/- 20% of the base duration.
+func addJitter(d time.Duration, factor float64) time.Duration {
+	if factor <= 0 {
+		return d
+	}
+	// Generate random value between -factor and +factor
+	jitterRatio := (rand.Float64()*2 - 1) * factor //nolint:gosec // Non-cryptographic use for jitter
+	jitter := time.Duration(float64(d) * jitterRatio)
+	return d + jitter
+}
+
 // fetchPRChecksWithRetry fetches PR checks with retry logic for transient failures.
 func (r *CLIGitHubRunner) fetchPRChecksWithRetry(ctx context.Context, prNumber int) ([]CheckResult, error) {
 	var checks []CheckResult
@@ -1260,18 +1354,21 @@ func (r *CLIGitHubRunner) fetchPRChecksWithRetry(ctx context.Context, prNumber i
 			return nil, lastErr
 		}
 
+		// Add jitter to delay to prevent synchronized retries
+		jitteredDelay := addJitter(delay, 0.2) // +/- 20% jitter
+
 		r.logger.Warn().
 			Err(lastErr).
 			Int("attempt", attempt).
 			Int("max_attempts", r.config.MaxAttempts).
-			Dur("next_delay", delay).
+			Dur("next_delay", jitteredDelay).
 			Msg("PR checks fetch failed, retrying")
 
 		if attempt < r.config.MaxAttempts {
 			select {
 			case <-ctx.Done():
 				return nil, ctx.Err()
-			case <-time.After(delay):
+			case <-time.After(jitteredDelay):
 			}
 			delay = time.Duration(float64(delay) * r.config.Multiplier)
 			if delay > r.config.MaxDelay {

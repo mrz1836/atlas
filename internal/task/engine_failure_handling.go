@@ -56,6 +56,12 @@ func (e *Engine) DispatchFailureByType(ctx context.Context, task *domain.Task, r
 		}
 		return true, nil
 
+	case "ci_fetch_error":
+		if err := e.handleCIFetchErrorFailure(ctx, task, result); err != nil {
+			return true, err
+		}
+		return true, nil
+
 	default:
 		// Unknown failure type, fall back to default handling
 		return false, nil
@@ -173,6 +179,55 @@ func (e *Engine) handleCITimeout(ctx context.Context, task *domain.Task, result 
 	task.Metadata = e.ensureMetadata(task.Metadata)
 	task.Metadata["ci_timeout_result"] = ciResult
 	task.Metadata["last_error"] = result.Error
+
+	// Save task state
+	if err := e.store.Update(ctx, task.WorkspaceID, task); err != nil {
+		return fmt.Errorf("failed to save task state: %w", err)
+	}
+
+	return nil
+}
+
+// handleCIFetchErrorFailure handles CI status fetch failures (network issues, rate limits).
+// Unlike CI failures, this doesn't mean CI failed - we just couldn't verify the status.
+// Transitions to AwaitingApproval to allow user to decide how to proceed.
+func (e *Engine) handleCIFetchErrorFailure(ctx context.Context, task *domain.Task, result *domain.StepResult) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
+	e.logger.Info().
+		Str("task_id", task.ID).
+		Str("workspace", task.WorkspaceID).
+		Msg("handling CI fetch error - transitioning to awaiting approval")
+
+	oldStatus := task.Status
+
+	// Transition through Validating to AwaitingApproval (not to a failure state)
+	// This allows the user to check GitHub manually and decide
+	if task.Status == constants.TaskStatusRunning {
+		if err := Transition(ctx, task, constants.TaskStatusValidating, "CI fetch failed - awaiting user decision"); err != nil {
+			return fmt.Errorf("failed to transition to validating: %w", err)
+		}
+	}
+
+	if err := Transition(ctx, task, constants.TaskStatusAwaitingApproval, "CI status could not be verified"); err != nil {
+		return fmt.Errorf("failed to transition to awaiting_approval: %w", err)
+	}
+
+	// Notify on transition to attention state
+	e.notifyStateChange(oldStatus, constants.TaskStatusAwaitingApproval)
+
+	// Store error context for user decision
+	task.Metadata = e.ensureMetadata(task.Metadata)
+	task.Metadata["ci_fetch_error"] = true
+	if result.Metadata != nil {
+		if originalErr, ok := result.Metadata["original_error"].(string); ok {
+			task.Metadata["last_error"] = originalErr
+		}
+	}
 
 	// Save task state
 	if err := e.store.Update(ctx, task.WorkspaceID, task); err != nil {
