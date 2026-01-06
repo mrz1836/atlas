@@ -206,7 +206,7 @@ func TestEngine_Start_Success(t *testing.T) {
 		},
 	}
 
-	task, err := engine.Start(ctx, "test-workspace", "test-branch", template, "test description")
+	task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test description")
 
 	require.NoError(t, err)
 	assert.NotNil(t, task)
@@ -237,7 +237,7 @@ func TestEngine_Start_TaskIDFormat(t *testing.T) {
 		},
 	}
 
-	task, err := engine.Start(ctx, "test-workspace", "test-branch", template, "test description")
+	task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test description")
 
 	require.NoError(t, err)
 	// Pattern: task-YYYYMMDD-HHMMSS
@@ -279,7 +279,7 @@ func TestEngine_Start_IteratesSteps(t *testing.T) {
 		},
 	}
 
-	_, err := engine.Start(ctx, "test-workspace", "test-branch", template, "test")
+	_, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test")
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"step1", "step2", "step3"}, executionOrder)
@@ -301,7 +301,7 @@ func TestEngine_Start_ContextCancellation(t *testing.T) {
 		},
 	}
 
-	task, err := engine.Start(ctx, "test-workspace", "test-branch", template, "test")
+	task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test")
 
 	assert.Nil(t, task)
 	assert.ErrorIs(t, err, context.Canceled)
@@ -682,7 +682,7 @@ func TestEngine_StateSavedAfterEachStep(t *testing.T) {
 		},
 	}
 
-	_, err := engine.Start(ctx, "test-workspace", "test-branch", template, "test")
+	_, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test")
 
 	require.NoError(t, err)
 	// Should have: 1 create + multiple updates (one per step + final)
@@ -733,7 +733,7 @@ func TestEngine_EmptyTemplateSteps(t *testing.T) {
 		Steps: []domain.StepDefinition{}, // No steps
 	}
 
-	task, err := engine.Start(ctx, "test-workspace", "test-branch", template, "test")
+	task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test")
 
 	require.NoError(t, err)
 	assert.NotNil(t, task)
@@ -837,7 +837,7 @@ func TestEngine_HandleStepError(t *testing.T) {
 		},
 	}
 
-	task, err := engine.Start(ctx, "test-workspace", "test-branch", template, "test")
+	task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test")
 
 	// Should return the original error
 	require.Error(t, err)
@@ -878,7 +878,7 @@ func TestEngine_HandleStepError_StoreFails(t *testing.T) {
 		},
 	}
 
-	task, err := engine.Start(ctx, "test-workspace", "test-branch", template, "test")
+	task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test")
 
 	// Should return wrapped store error
 	require.Error(t, err)
@@ -928,7 +928,7 @@ func TestEngine_RunSteps_ContextCanceledMidLoop(t *testing.T) {
 		cancel()
 	}()
 
-	task, err := engine.Start(ctx, "test-workspace", "test-branch", template, "test")
+	task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test")
 
 	// Should fail with context canceled
 	require.Error(t, err)
@@ -960,7 +960,7 @@ func TestEngine_RunSteps_CheckpointSaveFails(t *testing.T) {
 	// Make update fail after first step
 	store.updateErr = atlaserrors.ErrLockTimeout
 
-	task, err := engine.Start(ctx, "test-workspace", "test-branch", template, "test")
+	task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test")
 
 	require.Error(t, err)
 	require.ErrorIs(t, err, atlaserrors.ErrLockTimeout)
@@ -1124,7 +1124,7 @@ func TestEngine_CompleteTask_StoreFails(t *testing.T) {
 	}
 
 	// Start task successfully, then make update fail for final save
-	task, err := engine.Start(ctx, "test-workspace", "test-branch", template, "test")
+	task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test")
 
 	// First call works (create), but we can't easily test completeTask store failure
 	// because it happens after all steps succeed. Let's verify the happy path works.
@@ -1187,7 +1187,7 @@ func TestEngine_RunSteps_ShouldPauseSaveSuccess(t *testing.T) {
 		},
 	}
 
-	task, err := engine.Start(ctx, "test-workspace", "test-branch", template, "test")
+	task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test")
 
 	require.NoError(t, err)
 	assert.NotNil(t, task)
@@ -1219,7 +1219,7 @@ func TestEngine_RunSteps_ShouldPauseSaveFails(t *testing.T) {
 		},
 	}
 
-	task, err := engine.Start(ctx, "test-workspace", "test-branch", template, "test")
+	task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test")
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to save checkpoint")
@@ -1267,7 +1267,7 @@ func TestEngine_CompleteTask_TransitionFails(t *testing.T) {
 		Steps: []domain.StepDefinition{},
 	}
 
-	task, err := engine.Start(ctx, "test-workspace", "test-branch", template, "test")
+	task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test")
 
 	// With empty steps, completeTask is called immediately
 	// It transitions Pending->Running->Validating->AwaitingApproval
@@ -1325,7 +1325,7 @@ func TestEngine_CompleteTask_StoreSaveFails(t *testing.T) {
 		},
 	}
 
-	task, err := engine.Start(ctx, "test-workspace", "test-branch", template, "test")
+	task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test")
 
 	// Should fail when completeTask tries to save
 	require.Error(t, err)
@@ -1348,7 +1348,7 @@ func TestEngine_Start_CreateFails(t *testing.T) {
 		Steps: []domain.StepDefinition{},
 	}
 
-	task, err := engine.Start(ctx, "test-workspace", "test-branch", template, "test")
+	task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test")
 
 	require.Error(t, err)
 	require.ErrorIs(t, err, atlaserrors.ErrTaskExists)
@@ -2686,7 +2686,7 @@ func TestEngine_RunSteps_HandleStepErrorPath(t *testing.T) {
 			},
 		}
 
-		task, err := engine.Start(ctx, "test-workspace", "test-branch", template, "test")
+		task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test")
 
 		require.Error(t, err)
 		require.ErrorIs(t, err, atlaserrors.ErrCIFailed)
@@ -2720,7 +2720,7 @@ func TestEngine_CompleteTask_TransitionErrors(t *testing.T) {
 			},
 		}
 
-		task, err := engine.Start(ctx, "test-workspace", "test-branch", template, "test")
+		task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test")
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to save completed state")
@@ -2827,7 +2827,7 @@ func TestEngine_Start_StepBeyondArrayBounds(t *testing.T) {
 		Steps: []domain.StepDefinition{},
 	}
 
-	task, err := engine.Start(ctx, "test-workspace", "test-branch", template, "test")
+	task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test")
 
 	require.NoError(t, err)
 	assert.NotNil(t, task)
@@ -2959,7 +2959,7 @@ func TestEngine_Start_TransitionFails(t *testing.T) {
 		},
 	}
 
-	task, err := engine.Start(ctx, "test-workspace", "test-branch", template, "test")
+	task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test")
 
 	assert.Nil(t, task)
 	assert.ErrorIs(t, err, context.Canceled)
@@ -3041,7 +3041,7 @@ func TestEngine_CompleteTask_SecondTransitionFails(t *testing.T) {
 			},
 		}
 
-		task, err := engine.Start(ctx, "test-workspace", "test-branch", template, "test")
+		task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test")
 
 		require.NoError(t, err)
 		assert.NotNil(t, task)
@@ -3197,7 +3197,7 @@ func TestEngine_RunSteps_MultipleStepsWithPause(t *testing.T) {
 		},
 	}
 
-	task, err := engine.Start(ctx, "test-workspace", "test-branch", template, "test")
+	task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test")
 
 	require.NoError(t, err)
 	assert.NotNil(t, task)
@@ -3323,7 +3323,7 @@ func TestEngine_RunSteps_ExecuteCurrentStepError(t *testing.T) {
 		},
 	}
 
-	task, err := engine.Start(ctx, "test-workspace", "test-branch", template, "test")
+	task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test")
 
 	// Should return the executor error
 	require.Error(t, err)
@@ -3354,7 +3354,7 @@ func TestEngine_Start_StoreCreateFails(t *testing.T) {
 		},
 	}
 
-	task, err := engine.Start(ctx, "test-workspace", "test-branch", template, "test")
+	task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test")
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to save task")
@@ -3386,7 +3386,7 @@ func TestEngine_RunSteps_AdvanceToNextStepError(t *testing.T) {
 		},
 	}
 
-	task, err := engine.Start(ctx, "test-workspace", "test-branch", template, "test")
+	task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test")
 
 	// Should return the store error from advanceToNextStep
 	require.Error(t, err)
@@ -3428,7 +3428,7 @@ func TestEngine_RunSteps_ContextErrorInLoop(t *testing.T) {
 
 	engine := NewEngine(cancellingStore, registry, DefaultEngineConfig(), testLogger())
 
-	task, err := engine.Start(ctx, "test-workspace", "test-branch", template, "test")
+	task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test")
 
 	// Should return context canceled error
 	require.Error(t, err)

@@ -151,7 +151,7 @@ func NewEngine(store Store, registry *steps.ExecutorRegistry, cfg EngineConfig, 
 // Returns the created task and any error that occurred during execution.
 // Even if execution fails partway through, the task is returned so the
 // caller can inspect its state.
-func (e *Engine) Start(ctx context.Context, workspaceName, branch string, template *domain.Template, description string) (*domain.Task, error) {
+func (e *Engine) Start(ctx context.Context, workspaceName, branch, worktreePath string, template *domain.Template, description string) (*domain.Task, error) {
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
@@ -193,7 +193,8 @@ func (e *Engine) Start(ctx context.Context, workspaceName, branch string, templa
 		},
 		SchemaVersion: constants.TaskSchemaVersion,
 		Metadata: map[string]any{
-			"branch": branch,
+			"branch":       branch,
+			"worktree_dir": worktreePath,
 		},
 	}
 
