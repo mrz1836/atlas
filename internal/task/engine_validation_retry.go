@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"time"
 
 	"github.com/mrz1836/atlas/internal/domain"
@@ -25,17 +26,39 @@ var (
 // - The step result contains pipeline_result metadata for retry
 func (e *Engine) shouldAttemptValidationRetry(result *domain.StepResult) bool {
 	if e.validationRetryHandler == nil {
+		e.logger.Debug().Msg("validation retry skipped: handler is nil")
 		return false
 	}
 	if !e.validationRetryHandler.IsEnabled() {
+		e.logger.Debug().Msg("validation retry skipped: handler is disabled")
 		return false
 	}
 	if result == nil || result.Metadata == nil {
+		e.logger.Debug().
+			Bool("result_nil", result == nil).
+			Msg("validation retry skipped: result or metadata is nil")
 		return false
 	}
 	// Check if pipeline_result is available
-	_, ok := result.Metadata["pipeline_result"].(*validation.PipelineResult)
-	return ok
+	pipelineResult, ok := result.Metadata["pipeline_result"].(*validation.PipelineResult)
+	if !ok {
+		// Log the actual type for debugging
+		actualValue := result.Metadata["pipeline_result"]
+		actualType := "<nil>"
+		if actualValue != nil {
+			actualType = reflect.TypeOf(actualValue).String()
+		}
+		e.logger.Debug().
+			Str("expected_type", "*validation.PipelineResult").
+			Str("actual_type", actualType).
+			Bool("value_nil", actualValue == nil).
+			Msg("validation retry skipped: pipeline_result type assertion failed")
+		return false
+	}
+	e.logger.Debug().
+		Str("failed_step", pipelineResult.FailedStepName).
+		Msg("validation retry conditions met")
+	return true
 }
 
 // attemptValidationRetry performs the automatic validation retry loop.
@@ -50,12 +73,18 @@ func (e *Engine) attemptValidationRetry(
 	// Extract pipeline result from metadata
 	pipelineResult, ok := failedResult.Metadata["pipeline_result"].(*validation.PipelineResult)
 	if !ok {
+		e.logger.Debug().
+			Str("task_id", task.ID).
+			Msg("validation retry failed: pipeline_result not found in metadata")
 		return nil, ErrPipelineResultNotFound
 	}
 
 	// Get work directory from task metadata
 	workDir := e.getValidationWorkDir(task)
 	if workDir == "" {
+		e.logger.Debug().
+			Str("task_id", task.ID).
+			Msg("validation retry failed: worktree_dir not set in task metadata")
 		return nil, ErrWorkDirNotFound
 	}
 

@@ -354,7 +354,7 @@ func startTaskExecution(ctx context.Context, ws *domain.Workspace, tmpl *domain.
 	notifier, stateNotifier := createNotifiers(cfg)
 
 	// Create AI runner
-	aiRunner := createAIRunner(cfg)
+	aiRunner := createAIRunner(cfg, logger)
 
 	// Create git services
 	gitRunner, smartCommitter, pusher, hubRunner, prDescGen, ciFailureHandler, err := createGitServices(ctx, ws.WorktreePath, cfg, aiRunner)
@@ -368,6 +368,11 @@ func startTaskExecution(ctx context.Context, ws *domain.Workspace, tmpl *domain.
 
 	// Create validation retry handler for automatic AI-assisted fixes
 	validationRetryHandler := createValidationRetryHandler(aiRunner, cfg, logger)
+	logger.Debug().
+		Bool("handler_created", validationRetryHandler != nil).
+		Bool("ai_retry_enabled", cfg.Validation.AIRetryEnabled).
+		Int("max_retry_attempts", cfg.Validation.MaxAIRetryAttempts).
+		Msg("validation retry handler status")
 
 	// Create engine with progress callback
 	engine := createEngine(ctx, taskStore, execRegistry, logger, stateNotifier, out, ws.Name, validationRetryHandler)
@@ -407,10 +412,10 @@ func createNotifiers(cfg *config.Config) (*tui.Notifier, *task.StateChangeNotifi
 }
 
 // createAIRunner creates and configures the AI runner with all supported agents.
-func createAIRunner(cfg *config.Config) ai.Runner {
+func createAIRunner(cfg *config.Config, logger zerolog.Logger) ai.Runner {
 	runnerRegistry := ai.NewRunnerRegistry()
 	runnerRegistry.Register(domain.AgentClaude, ai.NewClaudeCodeRunner(&cfg.AI, nil))
-	runnerRegistry.Register(domain.AgentGemini, ai.NewGeminiRunner(&cfg.AI, nil))
+	runnerRegistry.Register(domain.AgentGemini, ai.NewGeminiRunnerWithLogger(&cfg.AI, nil, logger))
 	runnerRegistry.Register(domain.AgentCodex, ai.NewCodexRunner(&cfg.AI, nil))
 	return ai.NewMultiRunner(runnerRegistry)
 }
@@ -580,7 +585,7 @@ func applyAgentModelOverrides(tmpl *domain.Template, agent, model string) {
 
 // startTask starts the task execution and handles errors.
 func startTask(ctx context.Context, engine *task.Engine, ws *domain.Workspace, tmpl *domain.Template, description string, logger zerolog.Logger) (*domain.Task, error) {
-	t, err := engine.Start(ctx, ws.Name, ws.Branch, tmpl, description)
+	t, err := engine.Start(ctx, ws.Name, ws.Branch, ws.WorktreePath, tmpl, description)
 	if err != nil {
 		logger.Error().Err(err).
 			Str("workspace_name", ws.Name).

@@ -125,12 +125,16 @@ func (e *VerifyExecutor) Execute(ctx context.Context, task *domain.Task, step *d
 	// Build verification request first so we can log resolved agent/model
 	req := e.buildRequest(task, step)
 
+	// Get checks for logging
+	checks := e.getChecksFromConfig(step.Config)
+
 	e.logger.Info().
 		Str("task_id", task.ID).
 		Str("step_name", step.Name).
 		Str("step_type", string(step.Type)).
 		Str("agent", string(req.Agent)).
 		Str("model", req.Model).
+		Strs("checks", checks).
 		Msg("executing verify step")
 
 	// Debug log for verbose mode - shows exact request configuration
@@ -141,6 +145,8 @@ func (e *VerifyExecutor) Execute(ctx context.Context, task *domain.Task, step *d
 		Str("permission_mode", req.PermissionMode).
 		Str("working_dir", req.WorkingDir).
 		Dur("timeout", req.Timeout).
+		Int("max_turns", req.MaxTurns).
+		Int("prompt_length", len(req.Prompt)).
 		Msg("AI request details")
 
 	// Execute with timeout from step definition if set

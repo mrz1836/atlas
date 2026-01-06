@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"strings"
 
+	"github.com/rs/zerolog"
+
 	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/domain"
@@ -19,6 +21,7 @@ import (
 type GeminiRunner struct {
 	config   *config.AIConfig
 	executor CommandExecutor
+	logger   zerolog.Logger
 }
 
 // NewGeminiRunner creates a new GeminiRunner with the given configuration.
@@ -30,6 +33,19 @@ func NewGeminiRunner(cfg *config.AIConfig, executor CommandExecutor) *GeminiRunn
 	return &GeminiRunner{
 		config:   cfg,
 		executor: executor,
+		logger:   zerolog.Nop(), // Default to no-op logger
+	}
+}
+
+// NewGeminiRunnerWithLogger creates a new GeminiRunner with logging support.
+func NewGeminiRunnerWithLogger(cfg *config.AIConfig, executor CommandExecutor, logger zerolog.Logger) *GeminiRunner {
+	if executor == nil {
+		executor = &DefaultExecutor{}
+	}
+	return &GeminiRunner{
+		config:   cfg,
+		executor: executor,
+		logger:   logger,
 	}
 }
 
@@ -106,6 +122,14 @@ func (r *GeminiRunner) sleepChan(d interface{ Nanoseconds() int64 }) <-chan stru
 func (r *GeminiRunner) execute(ctx context.Context, req *domain.AIRequest) (*domain.AIResult, error) {
 	// Build the command (prompt is passed as positional argument)
 	cmd := r.buildCommand(ctx, req)
+
+	// Log the CLI command being executed (debug level for verbose mode)
+	r.logger.Debug().
+		Str("cli", "gemini").
+		Strs("args", cmd.Args[1:]).
+		Str("working_dir", cmd.Dir).
+		Int("prompt_length", len(req.Prompt)).
+		Msg("executing gemini CLI")
 
 	// Execute the command
 	stdout, stderr, err := r.executor.Execute(ctx, cmd)
