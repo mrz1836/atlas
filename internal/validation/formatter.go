@@ -51,7 +51,7 @@ func formatFailedCommand(r Result, artifactPath string) string {
 	sb.WriteString(fmt.Sprintf("Exit code: %d\n", r.ExitCode))
 
 	if r.Stderr != "" {
-		sb.WriteString("\nError output:\n")
+		sb.WriteString("Error output:\n")
 		// Indent stderr for readability
 		for _, line := range strings.Split(r.Stderr, "\n") {
 			sb.WriteString(fmt.Sprintf("  %s\n", line))
@@ -88,7 +88,7 @@ func formatStdout(stdout, artifactPath string) string {
 	}
 	sb.WriteString("  ...[truncated]\n")
 	if artifactPath != "" {
-		sb.WriteString(fmt.Sprintf("\n📄 Full output saved to: %s\n", artifactPath))
+		sb.WriteString(fmt.Sprintf("📄 Full output saved to: %s\n", artifactPath))
 	}
 	return sb.String()
 }

@@ -69,12 +69,12 @@ func DisplayManualFixInstructions(output Output, task *domain.Task, workspace *d
 
 	sb.WriteString("\n")
 	sb.WriteString("⚠ Validation Failed - Manual Fix Required\n")
-	sb.WriteString("─────────────────────────────────────────\n\n")
+	sb.WriteString("─────────────────────────────────────────\n")
 
-	sb.WriteString(fmt.Sprintf("📁 Worktree Path:\n   %s\n\n", info.WorktreePath))
+	sb.WriteString(fmt.Sprintf("📁 Worktree Path:\n   %s\n", info.WorktreePath))
 
 	if info.FailedStep != "" {
-		sb.WriteString(fmt.Sprintf("❌ Failed Step: %s\n\n", info.FailedStep))
+		sb.WriteString(fmt.Sprintf("❌ Failed Step: %s\n", info.FailedStep))
 	}
 
 	// Show validation output if available, otherwise fall back to error summary
@@ -105,7 +105,7 @@ func DisplayManualFixInstructions(output Output, task *domain.Task, workspace *d
 
 	sb.WriteString(fmt.Sprintf("▶ Resume Command:\n   %s\n\n", info.ResumeCommand))
 
-	sb.WriteString(fmt.Sprintf("💡 Alternatively, to abandon the task and preserve the worktree for manual work:\n   atlas abandon %s\n", info.WorkspaceName))
+	sb.WriteString(fmt.Sprintf("💡 Alternatively, to abandon the task and preserve the worktree for manual work:\n   atlas abandon %s", info.WorkspaceName))
 
 	output.Info(sb.String())
 }
