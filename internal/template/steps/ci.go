@@ -76,6 +76,33 @@ func WithCIConfig(cfg *config.CIConfig) CIExecutorOption {
 	}
 }
 
+// CheckStateCounts holds the count of checks in each state category.
+type CheckStateCounts struct {
+	Pending   int // Checks still running
+	Completed int // Checks passed or skipped
+	Failed    int // Checks failed or canceled
+}
+
+// countChecksByState counts checks in each state category.
+func countChecksByState(checks []git.CheckResult) CheckStateCounts {
+	counts := CheckStateCounts{}
+	for _, check := range checks {
+		bucket := strings.ToLower(check.Bucket)
+		switch bucket {
+		case "pending":
+			counts.Pending++
+		case "pass", "skipping":
+			counts.Completed++
+		case "fail", "cancel":
+			counts.Failed++
+		default:
+			// Unknown state - treat as pending for safety
+			counts.Pending++
+		}
+	}
+	return counts
+}
+
 // Execute polls CI status until completion or timeout.
 // Configuration from step.Config:
 //   - poll_interval: time.Duration (default: 2 minutes)
@@ -175,12 +202,35 @@ func (e *CIExecutor) Execute(ctx context.Context, task *domain.Task, step *domai
 			startTime := time.Now().Add(-elapsed).Format("3:04PM")
 			elapsedStr := formatDuration(elapsed)
 
+			// Count checks by state
+			stateCounts := countChecksByState(checks)
+
+			// Build state summary for message (show non-zero states)
+			var stateDetails []string
+			if stateCounts.Pending > 0 {
+				stateDetails = append(stateDetails, fmt.Sprintf("%d running", stateCounts.Pending))
+			}
+			if stateCounts.Completed > 0 {
+				stateDetails = append(stateDetails, fmt.Sprintf("%d passed", stateCounts.Completed))
+			}
+			if stateCounts.Failed > 0 {
+				stateDetails = append(stateDetails, fmt.Sprintf("%d failed", stateCounts.Failed))
+			}
+
+			stateMsg := ""
+			if len(stateDetails) > 0 {
+				stateMsg = " - " + strings.Join(stateDetails, ", ")
+			}
+
 			e.logger.Debug().
 				Str("elapsed", elapsedStr).
 				Str("started", startTime).
-				Int("check_count", len(checks)).
-				Msgf("CI progress: %s elapsed (started %s) - monitoring %d checks",
-					elapsedStr, startTime, len(checks))
+				Int("check_count_total", len(checks)).
+				Int("check_count_pending", stateCounts.Pending).
+				Int("check_count_completed", stateCounts.Completed).
+				Int("check_count_failed", stateCounts.Failed).
+				Msgf("CI progress: %s elapsed (started %s)%s",
+					elapsedStr, startTime, stateMsg)
 		},
 	}
 
