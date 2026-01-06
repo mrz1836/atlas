@@ -3822,12 +3822,261 @@ func TestEngine_ShouldSkipStep_OptionalSteps(t *testing.T) {
 			},
 			expected: true,
 		},
+		// no_issues_detected tests
+		{
+			name: "required AI step with no_issues_detected=true should be skipped",
+			task: &domain.Task{
+				ID:       "task-8",
+				Metadata: map[string]any{"no_issues_detected": true},
+			},
+			step: &domain.StepDefinition{
+				Name:     "fix",
+				Type:     domain.StepTypeAI,
+				Required: true,
+			},
+			expected: true,
+		},
+		{
+			name: "required validation step (non-detect_only) with no_issues_detected=true should be skipped",
+			task: &domain.Task{
+				ID:       "task-9",
+				Metadata: map[string]any{"no_issues_detected": true},
+			},
+			step: &domain.StepDefinition{
+				Name:     "validate",
+				Type:     domain.StepTypeValidation,
+				Required: true,
+				Config:   map[string]any{}, // no detect_only
+			},
+			expected: true,
+		},
+		{
+			name: "required validation step with detect_only=true and no_issues_detected=true should NOT be skipped",
+			task: &domain.Task{
+				ID:       "task-10",
+				Metadata: map[string]any{"no_issues_detected": true},
+			},
+			step: &domain.StepDefinition{
+				Name:     "detect",
+				Type:     domain.StepTypeValidation,
+				Required: true,
+				Config:   map[string]any{"detect_only": true},
+			},
+			expected: false,
+		},
+		{
+			name: "required human step with no_issues_detected=true should NOT be skipped",
+			task: &domain.Task{
+				ID:       "task-11",
+				Metadata: map[string]any{"no_issues_detected": true},
+			},
+			step: &domain.StepDefinition{
+				Name:     "review",
+				Type:     domain.StepTypeHuman,
+				Required: true,
+			},
+			expected: false,
+		},
+		{
+			name: "required AI step without no_issues_detected should NOT be skipped",
+			task: &domain.Task{
+				ID:       "task-12",
+				Metadata: nil,
+			},
+			step: &domain.StepDefinition{
+				Name:     "implement",
+				Type:     domain.StepTypeAI,
+				Required: true,
+			},
+			expected: false,
+		},
+		{
+			name: "required AI step with no_issues_detected=false should NOT be skipped",
+			task: &domain.Task{
+				ID:       "task-13",
+				Metadata: map[string]any{"no_issues_detected": false},
+			},
+			step: &domain.StepDefinition{
+				Name:     "implement",
+				Type:     domain.StepTypeAI,
+				Required: true,
+			},
+			expected: false,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := engine.shouldSkipStep(tt.task, tt.step)
 			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestEngine_GetSkipReason(t *testing.T) {
+	t.Parallel()
+
+	store := newMockStore()
+	registry := steps.NewExecutorRegistry()
+	engine := NewEngine(store, registry, DefaultEngineConfig(), testLogger())
+
+	tests := []struct {
+		name     string
+		task     *domain.Task
+		step     *domain.StepDefinition
+		expected string
+	}{
+		{
+			name: "optional step reason",
+			task: &domain.Task{ID: "task-1"},
+			step: &domain.StepDefinition{
+				Name:     "verify",
+				Required: false,
+			},
+			expected: "optional step not enabled",
+		},
+		{
+			name: "AI step with no_issues_detected",
+			task: &domain.Task{
+				ID:       "task-2",
+				Metadata: map[string]any{"no_issues_detected": true},
+			},
+			step: &domain.StepDefinition{
+				Name:     "fix",
+				Type:     domain.StepTypeAI,
+				Required: true,
+			},
+			expected: "no issues to fix",
+		},
+		{
+			name: "validation step with no_issues_detected",
+			task: &domain.Task{
+				ID:       "task-3",
+				Metadata: map[string]any{"no_issues_detected": true},
+			},
+			step: &domain.StepDefinition{
+				Name:     "validate",
+				Type:     domain.StepTypeValidation,
+				Required: true,
+			},
+			expected: "no issues to fix",
+		},
+		{
+			name: "git step default reason",
+			task: &domain.Task{
+				ID:       "task-4",
+				Metadata: map[string]any{"skip_git_steps": true},
+			},
+			step: &domain.StepDefinition{
+				Name:     "git_push",
+				Type:     domain.StepTypeGit,
+				Required: true,
+			},
+			expected: "no changes to push/PR",
+		},
+		{
+			name: "human step with no_issues_detected uses default reason",
+			task: &domain.Task{
+				ID:       "task-5",
+				Metadata: map[string]any{"no_issues_detected": true},
+			},
+			step: &domain.StepDefinition{
+				Name:     "review",
+				Type:     domain.StepTypeHuman,
+				Required: true,
+			},
+			expected: "no changes to push/PR", // human steps don't get skipped for no_issues
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := engine.getSkipReason(tt.task, tt.step)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestEngine_HandleStepResult_SetsNoIssuesDetected(t *testing.T) {
+	t.Parallel()
+
+	store := newMockStore()
+	registry := steps.NewExecutorRegistry()
+	engine := NewEngine(store, registry, DefaultEngineConfig(), testLogger())
+	ctx := context.Background()
+
+	tests := []struct {
+		name                   string
+		resultMetadata         map[string]any
+		expectNoIssuesDetected bool
+	}{
+		{
+			name: "detect_only with no issues sets flag",
+			resultMetadata: map[string]any{
+				"detect_only":       true,
+				"validation_failed": false,
+			},
+			expectNoIssuesDetected: true,
+		},
+		{
+			name: "detect_only with issues does NOT set flag",
+			resultMetadata: map[string]any{
+				"detect_only":       true,
+				"validation_failed": true,
+			},
+			expectNoIssuesDetected: false,
+		},
+		{
+			name: "non-detect_only does NOT set flag",
+			resultMetadata: map[string]any{
+				"detect_only":       false,
+				"validation_failed": false,
+			},
+			expectNoIssuesDetected: false,
+		},
+		{
+			name:                   "nil metadata does NOT set flag",
+			resultMetadata:         nil,
+			expectNoIssuesDetected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			task := &domain.Task{
+				ID:          "task-test",
+				CurrentStep: 0,
+				Steps: []domain.Step{
+					{Name: "detect"},
+				},
+				Metadata: nil,
+			}
+			step := &domain.StepDefinition{
+				Name:     "detect",
+				Type:     domain.StepTypeValidation,
+				Required: true,
+			}
+			result := &domain.StepResult{
+				StepIndex: 0,
+				StepName:  "detect",
+				Status:    "success",
+				Metadata:  tt.resultMetadata,
+			}
+
+			err := engine.HandleStepResult(ctx, task, result, step)
+			require.NoError(t, err)
+
+			if tt.expectNoIssuesDetected {
+				require.NotNil(t, task.Metadata)
+				noIssues, ok := task.Metadata["no_issues_detected"].(bool)
+				assert.True(t, ok, "no_issues_detected should be set")
+				assert.True(t, noIssues, "no_issues_detected should be true")
+			} else {
+				if task.Metadata != nil {
+					_, ok := task.Metadata["no_issues_detected"]
+					assert.False(t, ok, "no_issues_detected should NOT be set")
+				}
+			}
 		})
 	}
 }

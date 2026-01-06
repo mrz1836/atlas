@@ -341,54 +341,17 @@ func (e *Engine) HandleStepResult(ctx context.Context, task *domain.Task, result
 
 	switch result.Status {
 	case constants.StepStatusSuccess:
-		// Auto-proceed logic handled by caller (runSteps continues)
-		return nil
-
+		return e.handleSuccessResult(task, step, result)
 	case constants.StepStatusNoChanges:
-		// No changes were made (e.g., AI decided no modifications needed)
-		// Set metadata flag to skip remaining git steps (push, PR)
-		task.Metadata = e.ensureMetadata(task.Metadata)
-		task.Metadata["skip_git_steps"] = true
-		e.logger.Info().
-			Str("task_id", task.ID).
-			Str("step_name", step.Name).
-			Msg("no changes to commit, will skip remaining git steps")
-		return nil
-
+		return e.handleNoChangesResult(task, step)
 	case constants.StepStatusAwaitingApproval:
-		// For human steps, need to transition through Validating first
-		// (Running -> Validating -> AwaitingApproval)
-		oldStatus := task.Status
-		if task.Status == constants.TaskStatusRunning {
-			if err := Transition(ctx, task, constants.TaskStatusValidating, "step requires approval"); err != nil {
-				return err
-			}
-		}
-		if err := Transition(ctx, task, constants.TaskStatusAwaitingApproval, "awaiting user approval"); err != nil {
-			return err
-		}
-		// Notify on transition to attention state
-		e.notifyStateChange(oldStatus, constants.TaskStatusAwaitingApproval)
-		return nil
-
+		return e.handleAwaitingApprovalResult(ctx, task)
 	case constants.StepStatusFailed:
-		// Store error context for retry (FR25)
-		e.setErrorMetadata(task, step.Name, result.Error)
-
-		// Check for specialized failure types (ci_failed, gh_failed, ci_timeout)
-		// These have dedicated handlers with user action options
-		if handled, err := e.DispatchFailureByType(ctx, task, result); handled {
-			return err
-		}
-
-		// Map step type to error status with valid transition path
-		return e.transitionToErrorState(ctx, task, step.Type, result.Error)
-
+		return e.handleFailedResult(ctx, task, step, result)
 	case constants.StepStatusSkipped:
 		// Step was intentionally skipped (e.g., CI step when no PR exists)
 		// No further action needed, just allow continuation
 		return nil
-
 	default:
 		return fmt.Errorf("%w: %s", atlaserrors.ErrUnknownStepResultStatus, result.Status)
 	}
@@ -493,6 +456,71 @@ func (e *Engine) Abandon(ctx context.Context, task *domain.Task, reason string, 
 		Msg("task abandoned successfully")
 
 	return nil
+}
+
+// handleSuccessResult processes a successful step result.
+func (e *Engine) handleSuccessResult(task *domain.Task, step *domain.StepDefinition, result *domain.StepResult) error {
+	// Check for detect_only validation with no issues - skip fix steps
+	if result.Metadata != nil {
+		detectOnly, _ := result.Metadata["detect_only"].(bool)
+		validationFailed, _ := result.Metadata["validation_failed"].(bool)
+		if detectOnly && !validationFailed {
+			task.Metadata = e.ensureMetadata(task.Metadata)
+			task.Metadata["no_issues_detected"] = true
+			e.logger.Info().
+				Str("task_id", task.ID).
+				Str("step_name", step.Name).
+				Msg("no issues detected in validation, will skip fix steps")
+		}
+	}
+	// Auto-proceed logic handled by caller (runSteps continues)
+	return nil
+}
+
+// handleNoChangesResult processes a no-changes step result.
+func (e *Engine) handleNoChangesResult(task *domain.Task, step *domain.StepDefinition) error {
+	// No changes were made (e.g., AI decided no modifications needed)
+	// Set metadata flag to skip remaining git steps (push, PR)
+	task.Metadata = e.ensureMetadata(task.Metadata)
+	task.Metadata["skip_git_steps"] = true
+	e.logger.Info().
+		Str("task_id", task.ID).
+		Str("step_name", step.Name).
+		Msg("no changes to commit, will skip remaining git steps")
+	return nil
+}
+
+// handleAwaitingApprovalResult processes an awaiting-approval step result.
+func (e *Engine) handleAwaitingApprovalResult(ctx context.Context, task *domain.Task) error {
+	// For human steps, need to transition through Validating first
+	// (Running -> Validating -> AwaitingApproval)
+	oldStatus := task.Status
+	if task.Status == constants.TaskStatusRunning {
+		if err := Transition(ctx, task, constants.TaskStatusValidating, "step requires approval"); err != nil {
+			return err
+		}
+	}
+	if err := Transition(ctx, task, constants.TaskStatusAwaitingApproval, "awaiting user approval"); err != nil {
+		return err
+	}
+	// Notify on transition to attention state
+	e.notifyStateChange(oldStatus, constants.TaskStatusAwaitingApproval)
+	return nil
+}
+
+// handleFailedResult processes a failed step result.
+func (e *Engine) handleFailedResult(ctx context.Context, task *domain.Task, step *domain.StepDefinition, result *domain.StepResult) error {
+	// Store error context for retry (FR25)
+	e.setErrorMetadata(task, step.Name, result.Error)
+
+	// Check for specialized failure types (ci_failed, gh_failed, ci_timeout)
+	// These have dedicated handlers with user action options
+	if handled, err := e.DispatchFailureByType(ctx, task, result); handled {
+		return err
+	}
+
+	// Map step type to error status with valid transition path
+	return e.transitionToErrorState(ctx, task, step.Type, result.Error)
 }
 
 // executeStepInternal executes a step without modifying task state.
@@ -702,12 +730,7 @@ func (e *Engine) runSteps(ctx context.Context, task *domain.Task, template *doma
 // handleSkippedStep marks a step as skipped and advances to the next step.
 func (e *Engine) handleSkippedStep(ctx context.Context, task *domain.Task, step *domain.StepDefinition) error {
 	// Determine skip reason for logging and output
-	var reason string
-	if !step.Required {
-		reason = "optional step not enabled"
-	} else {
-		reason = "no changes to push/PR"
-	}
+	reason := e.getSkipReason(task, step)
 
 	e.logger.Info().
 		Str("task_id", task.ID).
@@ -731,6 +754,24 @@ func (e *Engine) handleSkippedStep(ctx context.Context, task *domain.Task, step 
 	})
 
 	return e.advanceToNextStep(ctx, task)
+}
+
+// getSkipReason determines the reason a step is being skipped.
+func (e *Engine) getSkipReason(task *domain.Task, step *domain.StepDefinition) string {
+	if !step.Required {
+		return "optional step not enabled"
+	}
+
+	// Check for no issues detected (fix template skipping AI/validation steps)
+	if task.Metadata != nil {
+		if noIssues, ok := task.Metadata["no_issues_detected"].(bool); ok && noIssues {
+			if step.Type == domain.StepTypeAI || step.Type == domain.StepTypeValidation {
+				return "no issues to fix"
+			}
+		}
+	}
+
+	return "no changes to push/PR"
 }
 
 // handleExecutionError handles errors from step execution.
@@ -797,8 +838,9 @@ func (e *Engine) tryValidationRetry(
 }
 
 // shouldSkipStep returns true if the step should be skipped.
-// Currently, this skips git push and PR steps when the "skip_git_steps" flag is set,
-// which happens when the commit step returns "no_changes" (AI made no modifications).
+// This skips:
+// - git push and PR steps when "skip_git_steps" flag is set (no changes to commit)
+// - AI and validation steps when "no_issues_detected" flag is set (detect_only found no issues)
 func (e *Engine) shouldSkipStep(task *domain.Task, step *domain.StepDefinition) bool {
 	// Skip optional steps (Required == false)
 	if !step.Required {
@@ -810,18 +852,31 @@ func (e *Engine) shouldSkipStep(task *domain.Task, step *domain.StepDefinition) 
 		return false
 	}
 
-	// Check if git steps should be skipped
-	skipGit, ok := task.Metadata["skip_git_steps"].(bool)
-	if !ok || !skipGit {
-		return false
+	// Check if fix-related steps should be skipped (no issues detected in detect_only validation)
+	noIssues, ok := task.Metadata["no_issues_detected"].(bool)
+	if ok && noIssues {
+		switch step.Type {
+		case domain.StepTypeAI:
+			// Skip AI steps (the fix step)
+			return true
+		case domain.StepTypeValidation:
+			// Skip validation steps that aren't detect_only (the validate step)
+			detectOnly, _ := step.Config["detect_only"].(bool)
+			return !detectOnly
+		case domain.StepTypeGit, domain.StepTypeHuman, domain.StepTypeSDD, domain.StepTypeCI, domain.StepTypeVerify:
+			// Other step types are NOT skipped
+			// Human steps in particular are important - review always runs
+		}
 	}
 
-	// Only skip git push and PR operations
-	if step.Type != domain.StepTypeGit {
-		return false
+	// Check if git steps should be skipped (no changes to commit)
+	if skipGit, ok := task.Metadata["skip_git_steps"].(bool); ok && skipGit {
+		if step.Type == domain.StepTypeGit {
+			return e.isSkippableGitOperation(step)
+		}
 	}
 
-	return e.isSkippableGitOperation(step)
+	return false
 }
 
 // isSkippableGitOperation returns true if the step is a push or create_pr operation.
