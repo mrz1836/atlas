@@ -229,20 +229,37 @@ func createResumeEngine(ctx context.Context, ws *domain.Workspace, taskStore *ta
 		return nil, fmt.Errorf("failed to create git runner: %w", err)
 	}
 
+	// Resolve commit agent/model with fallback to global AI config
+	commitAgent := cfg.SmartCommit.Agent
+	if commitAgent == "" {
+		commitAgent = cfg.AI.Agent
+	}
 	commitModel := cfg.SmartCommit.Model
 	if commitModel == "" {
 		commitModel = cfg.AI.Model
 	}
 
+	// Resolve PR description agent/model with fallback to global AI config
+	prDescAgent := cfg.PRDescription.Agent
+	if prDescAgent == "" {
+		prDescAgent = cfg.AI.Agent
+	}
 	prDescModel := cfg.PRDescription.Model
 	if prDescModel == "" {
 		prDescModel = cfg.AI.Model
 	}
 
-	smartCommitter := git.NewSmartCommitRunner(gitRunner, ws.WorktreePath, aiRunner, git.WithModel(commitModel))
+	smartCommitter := git.NewSmartCommitRunner(gitRunner, ws.WorktreePath, aiRunner,
+		git.WithAgent(commitAgent),
+		git.WithModel(commitModel),
+	)
 	pusher := git.NewPushRunner(gitRunner)
 	hubRunner := git.NewCLIGitHubRunner(ws.WorktreePath)
-	prDescGen := git.NewAIDescriptionGenerator(aiRunner, git.WithAIDescModel(prDescModel))
+	prDescGen := git.NewAIDescriptionGenerator(aiRunner,
+		git.WithAIDescAgent(prDescAgent),
+		git.WithAIDescModel(prDescModel),
+		git.WithAIDescLogger(logger),
+	)
 	ciFailureHandler := task.NewCIFailureHandler(hubRunner)
 
 	execRegistry := steps.NewDefaultRegistry(steps.ExecutorDeps{

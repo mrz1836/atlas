@@ -399,7 +399,7 @@ func startTaskExecution(ctx context.Context, ws *domain.Workspace, tmpl *domain.
 	aiRunner := createAIRunner(cfg, logger)
 
 	// Create git services
-	gitRunner, smartCommitter, pusher, hubRunner, prDescGen, ciFailureHandler, err := createGitServices(ctx, ws.WorktreePath, cfg, aiRunner)
+	gitRunner, smartCommitter, pusher, hubRunner, prDescGen, ciFailureHandler, err := createGitServices(ctx, ws.WorktreePath, cfg, aiRunner, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -463,29 +463,42 @@ func createAIRunner(cfg *config.Config, logger zerolog.Logger) ai.Runner {
 }
 
 // createGitServices creates all git-related services.
-func createGitServices(ctx context.Context, worktreePath string, cfg *config.Config, aiRunner ai.Runner) (git.Runner, *git.SmartCommitRunner, *git.PushRunner, *git.CLIGitHubRunner, *git.AIDescriptionGenerator, *task.CIFailureHandler, error) {
+func createGitServices(ctx context.Context, worktreePath string, cfg *config.Config, aiRunner ai.Runner, logger zerolog.Logger) (git.Runner, *git.SmartCommitRunner, *git.PushRunner, *git.CLIGitHubRunner, *git.AIDescriptionGenerator, *task.CIFailureHandler, error) {
 	gitRunner, err := git.NewRunner(ctx, worktreePath)
 	if err != nil {
 		return nil, nil, nil, nil, nil, nil, fmt.Errorf("failed to create git runner: %w", err)
 	}
 
+	// Resolve commit agent/model with fallback to global AI config
+	commitAgent := cfg.SmartCommit.Agent
+	if commitAgent == "" {
+		commitAgent = cfg.AI.Agent
+	}
 	commitModel := cfg.SmartCommit.Model
 	if commitModel == "" {
 		commitModel = cfg.AI.Model
 	}
 
+	// Resolve PR description agent/model with fallback to global AI config
+	prDescAgent := cfg.PRDescription.Agent
+	if prDescAgent == "" {
+		prDescAgent = cfg.AI.Agent
+	}
 	prDescModel := cfg.PRDescription.Model
 	if prDescModel == "" {
 		prDescModel = cfg.AI.Model
 	}
 
 	smartCommitter := git.NewSmartCommitRunner(gitRunner, worktreePath, aiRunner,
+		git.WithAgent(commitAgent),
 		git.WithModel(commitModel),
 	)
 	pusher := git.NewPushRunner(gitRunner)
 	hubRunner := git.NewCLIGitHubRunner(worktreePath)
 	prDescGen := git.NewAIDescriptionGenerator(aiRunner,
+		git.WithAIDescAgent(prDescAgent),
 		git.WithAIDescModel(prDescModel),
+		git.WithAIDescLogger(logger),
 	)
 	ciFailureHandler := task.NewCIFailureHandler(hubRunner)
 
