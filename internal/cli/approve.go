@@ -889,9 +889,24 @@ func closeWorkspace(ctx context.Context, workspaceName string) (warning string, 
 		return "", fmt.Errorf("failed to close workspace: %w", closeErr)
 	}
 
-	// Return any warning about worktree removal failure
-	if result != nil && result.WorktreeWarning != "" {
-		return result.WorktreeWarning, nil
+	// Return any warnings about worktree or branch removal failures
+	var warnings []string
+	if result != nil {
+		if result.WorktreeWarning != "" {
+			warnings = append(warnings, result.WorktreeWarning)
+		}
+		if result.BranchWarning != "" {
+			warnings = append(warnings, result.BranchWarning)
+		}
+	}
+
+	if len(warnings) > 0 {
+		// Join warnings with semicolon separator
+		warning := warnings[0]
+		for i := 1; i < len(warnings); i++ {
+			warning = warning + "; " + warnings[i]
+		}
+		return warning, nil
 	}
 
 	return "", nil

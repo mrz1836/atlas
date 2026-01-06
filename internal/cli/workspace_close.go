@@ -214,10 +214,23 @@ func executeClose(ctx context.Context, store *workspace.FileStore, name, output 
 		return handleCloseError(w, name, output, closeErr)
 	}
 
-	// Get warning message if worktree removal failed
+	// Get warning messages if worktree or branch removal failed
 	var warning string
-	if result != nil && result.WorktreeWarning != "" {
-		warning = result.WorktreeWarning
+	if result != nil {
+		var warnings []string
+		if result.WorktreeWarning != "" {
+			warnings = append(warnings, result.WorktreeWarning)
+		}
+		if result.BranchWarning != "" {
+			warnings = append(warnings, result.BranchWarning)
+		}
+		if len(warnings) > 0 {
+			// Join warnings with semicolon separator
+			warning = warnings[0]
+			for i := 1; i < len(warnings); i++ {
+				warning = warning + "; " + warnings[i]
+			}
+		}
 	}
 
 	// Output success with optional warning
