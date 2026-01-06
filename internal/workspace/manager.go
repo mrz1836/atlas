@@ -22,6 +22,10 @@ type CloseResult struct {
 	// WorktreeWarning is non-empty if worktree removal failed.
 	// The workspace is still marked as closed, but the worktree files remain on disk.
 	WorktreeWarning string
+
+	// BranchWarning is non-empty if branch deletion failed.
+	// The workspace is still closed, but the branch remains in git.
+	BranchWarning string
 }
 
 // Manager orchestrates workspace lifecycle operations.
@@ -29,10 +33,12 @@ type CloseResult struct {
 type Manager interface {
 	// Create creates a new workspace with a git worktree.
 	// If baseBranch is specified, validates it exists (locally or remotely) and creates from it.
+	// By default, prefers remote branches (origin/branch) over local branches for safety.
+	// Set useLocal=true to explicitly prefer local branches when both exist.
 	// Returns ErrWorkspaceExists if an active or paused workspace already exists.
 	// Closed workspaces are automatically cleaned up, allowing the name to be reused.
 	// Returns ErrBranchNotFound if baseBranch is specified but doesn't exist.
-	Create(ctx context.Context, name, repoPath, branchType, baseBranch string) (*domain.Workspace, error)
+	Create(ctx context.Context, name, repoPath, branchType, baseBranch string, useLocal bool) (*domain.Workspace, error)
 
 	// Get retrieves a workspace by name.
 	// Returns ErrWorkspaceNotFound if not found.
@@ -73,7 +79,7 @@ func NewManager(store Store, worktreeRunner WorktreeRunner) *DefaultManager {
 }
 
 // Create creates a new workspace with a git worktree.
-func (m *DefaultManager) Create(ctx context.Context, name, repoPath, branchType, baseBranch string) (*domain.Workspace, error) {
+func (m *DefaultManager) Create(ctx context.Context, name, repoPath, branchType, baseBranch string, useLocal bool) (*domain.Workspace, error) {
 	// Check for cancellation
 	select {
 	case <-ctx.Done():
@@ -117,7 +123,7 @@ func (m *DefaultManager) Create(ctx context.Context, name, repoPath, branchType,
 	resolvedBaseBranch := baseBranch
 	if baseBranch != "" {
 		var resolveErr error
-		resolved, resolveErr := m.ensureBaseBranch(ctx, baseBranch)
+		resolved, resolveErr := m.ensureBaseBranch(ctx, baseBranch, useLocal)
 		if resolveErr != nil {
 			return nil, fmt.Errorf("failed to validate base branch '%s': %w", baseBranch, resolveErr)
 		}
@@ -290,6 +296,12 @@ func (m *DefaultManager) Close(ctx context.Context, name string) (*CloseResult, 
 		worktreeRemoved = (result.WorktreeWarning == "")
 	}
 
+	// Delete branch if worktree was successfully removed
+	// This prevents orphaned local branches after PR merge
+	if worktreeRemoved && m.worktreeRunner != nil && ws.Branch != "" {
+		result.BranchWarning = m.tryDeleteBranch(ctx, ws.Branch)
+	}
+
 	// Update state - only clear path if removal succeeded or was already empty
 	ws.Status = constants.WorkspaceStatusClosed
 	if worktreeRemoved || ws.WorktreePath == "" {
@@ -421,6 +433,31 @@ func (m *DefaultManager) tryRemoveWorktree(ctx context.Context, worktreePath str
 	return "" // Force removal succeeded
 }
 
+// tryDeleteBranch safely attempts to delete a branch after worktree removal.
+// Returns warning message if deletion fails (non-blocking).
+func (m *DefaultManager) tryDeleteBranch(ctx context.Context, branch string) string {
+	// Step 1: Prune BEFORE attempting branch deletion (critical for safety)
+	// This cleans up stale worktree metadata to prevent "branch is checked out" errors
+	if err := m.worktreeRunner.Prune(ctx); err != nil {
+		log.Warn().Err(err).Msg("prune failed before branch deletion")
+	}
+
+	// Step 2: Safety check - ensure no other worktrees use this branch
+	otherWorktreePath := m.worktreeRunner.FindByBranch(ctx, branch)
+	if otherWorktreePath != "" {
+		return fmt.Sprintf("branch '%s' not deleted: in use by worktree at '%s'",
+			branch, otherWorktreePath)
+	}
+
+	// Step 3: Delete branch with force flag
+	if err := m.worktreeRunner.DeleteBranch(ctx, branch, true); err != nil {
+		return fmt.Sprintf("failed to delete branch '%s': %v", branch, err)
+	}
+
+	log.Info().Str("branch", branch).Msg("branch deleted after workspace close")
+	return ""
+}
+
 // loadWorkspaceForDestroy attempts to load a workspace, collecting warnings on failure.
 func (m *DefaultManager) loadWorkspaceForDestroy(ctx context.Context, name string, warnings *[]error) *domain.Workspace {
 	ws, err := m.store.Get(ctx, name)
@@ -545,8 +582,10 @@ func (m *DefaultManager) deleteWorkspaceState(ctx context.Context, name string, 
 }
 
 // ensureBaseBranch ensures the base branch exists, fetching from remote if needed.
-// Returns the resolved branch reference to use (e.g., "origin/develop" if only remote exists).
-func (m *DefaultManager) ensureBaseBranch(ctx context.Context, branch string) (string, error) {
+// Returns the resolved branch reference to use (e.g., "origin/develop" for remote, "develop" for local).
+// By default (useLocal=false), prefers remote branches for safety.
+// When useLocal=true, prefers local branches and errors if local doesn't exist but remote does.
+func (m *DefaultManager) ensureBaseBranch(ctx context.Context, branch string, useLocal bool) (string, error) {
 	// Check for cancellation
 	select {
 	case <-ctx.Done():
@@ -554,15 +593,24 @@ func (m *DefaultManager) ensureBaseBranch(ctx context.Context, branch string) (s
 	default:
 	}
 
-	// Check local first
+	// Check if local branch exists
 	localExists, err := m.worktreeRunner.BranchExists(ctx, branch)
 	if err != nil {
 		return "", fmt.Errorf("failed to check local branch: %w", err)
 	}
-	if localExists {
-		return branch, nil
+
+	// If useLocal is true, use the current logic (local first)
+	if useLocal {
+		if localExists {
+			return branch, nil
+		}
+		// --use-local was specified but branch doesn't exist locally
+		return "", fmt.Errorf("%w: --use-local was specified but branch '%s' does not exist locally. "+
+			"Create a local branch with 'git checkout -b %s origin/%s' or omit --use-local",
+			atlaserrors.ErrBranchNotFound, branch, branch, branch)
 	}
 
+	// NEW DEFAULT: Remote first (useLocal=false)
 	// Try fetching from remote
 	// Fetch may fail if branch doesn't exist or network error
 	// We'll still check if remote branch exists after fetch attempt
@@ -579,6 +627,14 @@ func (m *DefaultManager) ensureBaseBranch(ctx context.Context, branch string) (s
 		return fmt.Sprintf("origin/%s", branch), nil
 	}
 
+	// Fallback to local if remote doesn't exist but local does
+	// This allows working with local-only branches
+	if localExists {
+		return branch, nil
+	}
+
 	// Branch doesn't exist locally or remotely
-	return "", atlaserrors.ErrBranchNotFound
+	return "", fmt.Errorf("%w: branch '%s' does not exist locally or on remote 'origin'. "+
+		"Use 'git branch -a' to see available branches",
+		atlaserrors.ErrBranchNotFound, branch)
 }

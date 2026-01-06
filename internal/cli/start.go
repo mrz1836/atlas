@@ -53,6 +53,7 @@ type startOptions struct {
 	agent         string
 	model         string
 	baseBranch    string
+	useLocal      bool
 	noInteractive bool
 	verify        bool
 	noVerify      bool
@@ -67,6 +68,7 @@ func newStartCmd() *cobra.Command {
 		agent         string
 		model         string
 		baseBranch    string
+		useLocal      bool
 		noInteractive bool
 		verify        bool
 		noVerify      bool
@@ -95,6 +97,7 @@ Examples:
 				agent:         agent,
 				model:         model,
 				baseBranch:    baseBranch,
+				useLocal:      useLocal,
 				noInteractive: noInteractive,
 				verify:        verify,
 				noVerify:      noVerify,
@@ -112,7 +115,9 @@ Examples:
 	cmd.Flags().StringVarP(&model, "model", "m", "",
 		"AI model to use (claude: sonnet, opus, haiku; gemini: flash, pro; codex: codex, max, mini)")
 	cmd.Flags().StringVarP(&baseBranch, "branch", "b", "",
-		"Base branch to create workspace from (fetches from remote if needed)")
+		"Base branch to create workspace from (fetches from remote by default)")
+	cmd.Flags().BoolVar(&useLocal, "use-local", false,
+		"Prefer local branch over remote when both exist")
 	cmd.Flags().BoolVar(&noInteractive, "no-interactive", false,
 		"Disable interactive prompts")
 	cmd.Flags().BoolVar(&verify, "verify", false,
@@ -227,7 +232,7 @@ func runStart(ctx context.Context, cmd *cobra.Command, w io.Writer, description 
 	}
 
 	// Create and configure workspace
-	ws, err := createWorkspace(ctx, sc, wsName, repoPath, tmpl.BranchPrefix, opts.baseBranch, opts.noInteractive)
+	ws, err := createWorkspace(ctx, sc, wsName, repoPath, tmpl.BranchPrefix, opts.baseBranch, opts.useLocal, opts.noInteractive)
 	if err != nil {
 		return err
 	}
@@ -332,7 +337,7 @@ func (sc *startContext) updateWorkspaceStatusToPaused(ctx context.Context, ws *d
 // createWorkspace creates a new workspace or uses an existing one (upsert behavior).
 // If a workspace with the given name already exists and is active/paused, it will be reused.
 // If a closed workspace with the same name exists, it will be automatically cleaned up and a new workspace created.
-func createWorkspace(ctx context.Context, sc *startContext, wsName, repoPath, branchPrefix, baseBranch string, _ bool) (*domain.Workspace, error) {
+func createWorkspace(ctx context.Context, sc *startContext, wsName, repoPath, branchPrefix, baseBranch string, useLocal, _ bool) (*domain.Workspace, error) {
 	logger := GetLogger()
 
 	// Create workspace store
@@ -371,7 +376,7 @@ func createWorkspace(ctx context.Context, sc *startContext, wsName, repoPath, br
 	}
 
 	// Workspace doesn't exist - create new
-	ws, err := wsMgr.Create(ctx, wsName, repoPath, branchPrefix, baseBranch)
+	ws, err := wsMgr.Create(ctx, wsName, repoPath, branchPrefix, baseBranch, useLocal)
 	if err != nil {
 		return nil, sc.handleError(wsName, fmt.Errorf("failed to create workspace: %w", err))
 	}

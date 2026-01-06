@@ -188,8 +188,11 @@ atlas start "do this thing..." -t task -w task-workspace --agent claude --model 
 # Use a specific model
 atlas start "complex refactor" --agent gemini --model pro
 
-# Use a specific branch as the source
+# Use a specific branch as the source (uses remote by default for safety)
 atlas start "add logging" -t task --branch develop
+
+# Use local branch explicitly (when you have local changes you want to include)
+atlas start "continue work" -t task --branch develop --use-local
 
 # Enable/disable AI verification
 atlas start "quick fix" --verify
@@ -213,7 +216,8 @@ atlas start "fix null pointer" --template bugfix --dry-run --output json
 | `--workspace` | `-w` | Custom workspace name | Any string (sanitized) |
 | `--agent` | `-a` | AI agent/CLI to use | `claude`, `gemini`, `codex` |
 | `--model` | `-m` | AI model to use | Claude: `sonnet`, `opus`, `haiku`; Gemini: `flash`, `pro`; Codex: `codex`, `max`, `mini` |
-| `--branch` | `-b` | Base branch to create workspace from | Branch name |
+| `--branch` | `-b` | Base branch to create workspace from (fetches from remote by default) | Branch name |
+| `--use-local` | | Prefer local branch over remote when both exist | |
 | `--verify` | | Enable AI verification step | |
 | `--no-verify` | | Disable AI verification step | |
 | `--no-interactive` | | Disable interactive prompts | |
