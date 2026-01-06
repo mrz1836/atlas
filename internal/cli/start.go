@@ -299,14 +299,17 @@ func (sc *startContext) updateWorkspaceStatusToPaused(ctx context.Context, ws *d
 	ws.Status = constants.WorkspaceStatusPaused
 	wsStore, err := workspace.NewFileStore("")
 	if err != nil {
+		logger.Error().Err(err).
+			Str("workspace_name", ws.Name).
+			Msg("CRITICAL: failed to create workspace store for pause update - workspace may not be resumable")
 		return
 	}
 
 	updateErr := wsStore.Update(ctx, ws)
 	if updateErr != nil {
-		logger.Warn().Err(updateErr).
+		logger.Error().Err(updateErr).
 			Str("workspace_name", ws.Name).
-			Msg("failed to update workspace status to paused")
+			Msg("CRITICAL: failed to persist workspace pause status - workspace may not be resumable")
 		return
 	}
 
@@ -314,6 +317,16 @@ func (sc *startContext) updateWorkspaceStatusToPaused(ctx context.Context, ws *d
 		Str("workspace_name", ws.Name).
 		Str("workspace_status", string(ws.Status)).
 		Msg("workspace status updated to paused for resume")
+
+	// Verify worktree still exists after pause to detect race conditions
+	if ws.WorktreePath != "" {
+		if _, statErr := os.Stat(ws.WorktreePath); os.IsNotExist(statErr) {
+			logger.Error().
+				Str("workspace_name", ws.Name).
+				Str("worktree_path", ws.WorktreePath).
+				Msg("CRITICAL: worktree directory missing after pause - possible race condition or external deletion")
+		}
+	}
 }
 
 // createWorkspace creates a new workspace or uses an existing one (upsert behavior).
