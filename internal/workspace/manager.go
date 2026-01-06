@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -245,25 +244,6 @@ func removeOrphanedDirectory(path string) error {
 func (m *DefaultManager) Close(ctx context.Context, name string) (*CloseResult, error) {
 	result := &CloseResult{}
 
-	// Capture caller information for debugging workspace closure issues
-	// This helps trace unexpected Close() calls that might be corrupting workspace state
-	pc := make([]uintptr, 10)
-	n := runtime.Callers(2, pc)
-	frames := runtime.CallersFrames(pc[:n])
-	var callers []string
-	for {
-		frame, more := frames.Next()
-		callers = append(callers, fmt.Sprintf("%s:%d %s", frame.File, frame.Line, frame.Function))
-		if !more || len(callers) >= 5 {
-			break
-		}
-	}
-
-	log.Info().
-		Str("workspace", name).
-		Strs("call_stack", callers).
-		Msg("workspace Close() called - tracing for debugging")
-
 	// Check for cancellation
 	select {
 	case <-ctx.Done():
@@ -276,15 +256,6 @@ func (m *DefaultManager) Close(ctx context.Context, name string) (*CloseResult, 
 	if err != nil {
 		return nil, fmt.Errorf("failed to close workspace '%s': %w", name, err)
 	}
-
-	// Log workspace state before close
-	log.Info().
-		Str("workspace", name).
-		Str("current_status", string(ws.Status)).
-		Str("worktree_path", ws.WorktreePath).
-		Str("branch", ws.Branch).
-		Int("task_count", len(ws.Tasks)).
-		Msg("workspace state before close")
 
 	// Check for running tasks
 	for _, task := range ws.Tasks {
@@ -330,12 +301,11 @@ func (m *DefaultManager) Close(ctx context.Context, name string) (*CloseResult, 
 		return nil, fmt.Errorf("failed to update workspace status: %w", err)
 	}
 
-	log.Info().
-		Str("workspace", name).
-		Str("worktree_removed", worktreePath).
-		Str("warning", result.WorktreeWarning).
-		Bool("path_cleared", worktreeRemoved || ws.WorktreePath == "").
-		Msg("workspace Close() completed successfully")
+	logEvent := log.Info().Str("workspace", name)
+	if result.WorktreeWarning != "" {
+		logEvent = logEvent.Str("warning", result.WorktreeWarning)
+	}
+	logEvent.Msg("workspace closed")
 
 	return result, nil
 }

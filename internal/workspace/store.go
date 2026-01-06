@@ -10,11 +10,8 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strings"
 	"time"
-
-	"github.com/rs/zerolog/log"
 
 	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/domain"
@@ -213,12 +210,6 @@ func (s *FileStore) Update(ctx context.Context, ws *domain.Workspace) error {
 	}
 	defer func() { _ = s.releaseLock(lockFile) }()
 
-	// Debug: Log when workspace status is being changed to "closed"
-	// This helps trace unexpected closure issues
-	if ws.Status == constants.WorkspaceStatusClosed {
-		s.logStatusChangeIfClosing(ws)
-	}
-
 	// Update timestamp
 	ws.UpdatedAt = time.Now()
 
@@ -342,53 +333,6 @@ func (s *FileStore) Exists(ctx context.Context, name string) (bool, error) {
 	}
 
 	return true, nil
-}
-
-// logStatusChangeIfClosing logs debug info when a workspace status is changing to closed.
-// This helper reduces nesting complexity in Update().
-func (s *FileStore) logStatusChangeIfClosing(ws *domain.Workspace) {
-	wsFile := s.workspaceFilePath(ws.Name)
-	oldData, readErr := os.ReadFile(wsFile) //#nosec G304 -- path is validated
-	if readErr != nil {
-		return
-	}
-
-	var oldWs domain.Workspace
-	if err := json.Unmarshal(oldData, &oldWs); err != nil {
-		return
-	}
-
-	if oldWs.Status == constants.WorkspaceStatusClosed {
-		return // Status not changing to closed
-	}
-
-	// Status is changing TO closed - log with caller info
-	callers := getCallerInfo()
-	log.Info().
-		Str("workspace", ws.Name).
-		Str("old_status", string(oldWs.Status)).
-		Str("new_status", string(ws.Status)).
-		Str("old_worktree_path", oldWs.WorktreePath).
-		Str("new_worktree_path", ws.WorktreePath).
-		Strs("call_stack", callers).
-		Msg("workspace status changing to CLOSED - tracing for debugging")
-}
-
-// getCallerInfo returns the call stack for debugging purposes.
-func getCallerInfo() []string {
-	pc := make([]uintptr, 10)
-	n := runtime.Callers(3, pc) // Skip getCallerInfo, logStatusChangeIfClosing, and Update
-	frames := runtime.CallersFrames(pc[:n])
-
-	var callers []string
-	for {
-		frame, more := frames.Next()
-		callers = append(callers, fmt.Sprintf("%s:%d %s", frame.File, frame.Line, frame.Function))
-		if !more || len(callers) >= 5 {
-			break
-		}
-	}
-	return callers
 }
 
 // workspacesDir returns the path to the workspaces directory.
