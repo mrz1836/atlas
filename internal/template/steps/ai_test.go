@@ -14,6 +14,7 @@ import (
 
 	"github.com/mrz1836/atlas/internal/domain"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
+	"github.com/mrz1836/atlas/internal/validation"
 )
 
 // mockAIRunner implements ai.Runner for testing without making real API calls.
@@ -291,4 +292,169 @@ func TestAIExecutor_Execute_AgentOverrideWithExplicitModel(t *testing.T) {
 	require.NotNil(t, runner.request)
 	assert.Equal(t, domain.AgentGemini, runner.request.Agent)
 	assert.Equal(t, "pro", runner.request.Model)
+}
+
+func TestAIExecutor_Execute_IncludePreviousErrors(t *testing.T) {
+	t.Run("injects validation errors when flag is set", func(t *testing.T) {
+		ctx := context.Background()
+		runner := &mockAIRunner{
+			result: &domain.AIResult{Output: "fixed"},
+		}
+		executor := NewAIExecutor(runner)
+
+		// Create a task with previous validation step results containing errors
+		task := &domain.Task{
+			ID:          "task-123",
+			Description: "Fix any issues",
+			Config:      domain.TaskConfig{Model: "sonnet"},
+			StepResults: []domain.StepResult{
+				{
+					StepName: "detect",
+					Status:   "success",
+					Metadata: map[string]any{
+						"validation_failed": true,
+						"pipeline_result": &validation.PipelineResult{
+							Success: false,
+							LintResults: []validation.Result{
+								{
+									Command: "golangci-lint",
+									Success: false,
+									Stderr:  "main.go:10:5: undefined: foo",
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+		step := &domain.StepDefinition{
+			Name: "fix",
+			Type: domain.StepTypeAI,
+			Config: map[string]any{
+				"include_previous_errors": true,
+			},
+		}
+
+		result, err := executor.Execute(ctx, task, step)
+
+		require.NoError(t, err)
+		assert.Equal(t, "success", result.Status)
+		require.NotNil(t, runner.request)
+		// Verify validation errors were injected into the prompt
+		assert.Contains(t, runner.request.Prompt, "Fix any issues")
+		assert.Contains(t, runner.request.Prompt, "Validation Errors to Fix")
+		assert.Contains(t, runner.request.Prompt, "main.go:10:5")
+	})
+
+	t.Run("no injection when no validation errors exist", func(t *testing.T) {
+		ctx := context.Background()
+		runner := &mockAIRunner{
+			result: &domain.AIResult{Output: "done"},
+		}
+		executor := NewAIExecutor(runner)
+
+		// Create a task with successful validation (no errors)
+		task := &domain.Task{
+			ID:          "task-123",
+			Description: "Fix any issues",
+			Config:      domain.TaskConfig{Model: "sonnet"},
+			StepResults: []domain.StepResult{
+				{
+					StepName: "detect",
+					Status:   "success",
+					Metadata: map[string]any{
+						"validation_failed": false, // No failures
+						"pipeline_result": &validation.PipelineResult{
+							Success: true,
+						},
+					},
+				},
+			},
+		}
+		step := &domain.StepDefinition{
+			Name: "fix",
+			Type: domain.StepTypeAI,
+			Config: map[string]any{
+				"include_previous_errors": true,
+			},
+		}
+
+		result, err := executor.Execute(ctx, task, step)
+
+		require.NoError(t, err)
+		assert.Equal(t, "success", result.Status)
+		require.NotNil(t, runner.request)
+		// Original prompt should be unchanged
+		assert.Equal(t, "Fix any issues", runner.request.Prompt)
+		assert.NotContains(t, runner.request.Prompt, "Validation Errors to Fix")
+	})
+
+	t.Run("no injection when flag is not set", func(t *testing.T) {
+		ctx := context.Background()
+		runner := &mockAIRunner{
+			result: &domain.AIResult{Output: "done"},
+		}
+		executor := NewAIExecutor(runner)
+
+		task := &domain.Task{
+			ID:          "task-123",
+			Description: "Fix any issues",
+			Config:      domain.TaskConfig{Model: "sonnet"},
+			StepResults: []domain.StepResult{
+				{
+					StepName: "detect",
+					Status:   "success",
+					Metadata: map[string]any{
+						"validation_failed": true,
+						"pipeline_result": &validation.PipelineResult{
+							Success: false,
+							LintResults: []validation.Result{
+								{Command: "lint", Success: false, Stderr: "error"},
+							},
+						},
+					},
+				},
+			},
+		}
+		step := &domain.StepDefinition{
+			Name: "fix",
+			Type: domain.StepTypeAI,
+			// No include_previous_errors config
+		}
+
+		result, err := executor.Execute(ctx, task, step)
+
+		require.NoError(t, err)
+		assert.Equal(t, "success", result.Status)
+		// Prompt should NOT contain validation errors
+		assert.Equal(t, "Fix any issues", runner.request.Prompt)
+	})
+
+	t.Run("no injection when no previous step results", func(t *testing.T) {
+		ctx := context.Background()
+		runner := &mockAIRunner{
+			result: &domain.AIResult{Output: "done"},
+		}
+		executor := NewAIExecutor(runner)
+
+		task := &domain.Task{
+			ID:          "task-123",
+			Description: "Fix any issues",
+			Config:      domain.TaskConfig{Model: "sonnet"},
+			StepResults: []domain.StepResult{}, // Empty
+		}
+		step := &domain.StepDefinition{
+			Name: "fix",
+			Type: domain.StepTypeAI,
+			Config: map[string]any{
+				"include_previous_errors": true,
+			},
+		}
+
+		result, err := executor.Execute(ctx, task, step)
+
+		require.NoError(t, err)
+		assert.Equal(t, "success", result.Status)
+		assert.Equal(t, "Fix any issues", runner.request.Prompt)
+	})
 }

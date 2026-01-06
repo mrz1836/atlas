@@ -10,6 +10,7 @@ import (
 
 	"github.com/mrz1836/atlas/internal/ai"
 	"github.com/mrz1836/atlas/internal/domain"
+	"github.com/mrz1836/atlas/internal/validation"
 )
 
 // AIExecutor handles AI steps (analyze, implement).
@@ -149,7 +150,37 @@ func (e *AIExecutor) buildRequest(task *domain.Task, step *domain.StepDefinition
 	// Override with step-specific config if present
 	e.applyStepConfig(req, task.Description, step.Config)
 
+	// Check for include_previous_errors config (used by fix template)
+	// This injects validation errors from a previous detect_only validation step
+	if includePrevErrors, ok := step.Config["include_previous_errors"].(bool); ok && includePrevErrors {
+		e.injectPreviousValidationErrors(req, task)
+	}
+
 	return req
+}
+
+// injectPreviousValidationErrors finds the most recent failed validation result
+// and appends error context to the AI prompt. This is used by the fix template
+// to pass validation errors to the AI step for fixing.
+func (e *AIExecutor) injectPreviousValidationErrors(req *domain.AIRequest, task *domain.Task) {
+	// Find the most recent validation step result with errors
+	for i := len(task.StepResults) - 1; i >= 0; i-- {
+		result := task.StepResults[i]
+
+		// Check if this step has validation failed flag (from detect_only mode)
+		if validationFailed, ok := result.Metadata["validation_failed"].(bool); ok && validationFailed {
+			// Try to get the pipeline result for error context
+			if pipelineResult, ok := result.Metadata["pipeline_result"].(*validation.PipelineResult); ok {
+				// Extract error context and build AI prompt
+				errorCtx := validation.ExtractErrorContext(pipelineResult, 1, 1)
+				errorPrompt := validation.BuildAIPrompt(errorCtx)
+
+				// Append validation errors to the prompt
+				req.Prompt = fmt.Sprintf("%s\n\n--- Validation Errors to Fix ---\n%s", req.Prompt, errorPrompt)
+				return
+			}
+		}
+	}
 }
 
 // applyStepConfig applies step-specific configuration overrides to the request.
