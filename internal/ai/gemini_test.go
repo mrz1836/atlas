@@ -197,6 +197,7 @@ func TestGeminiRunner_BuildCommand(t *testing.T) {
 		assert.Equal(t, "gemini", cmd.Path[len(cmd.Path)-6:]) // Ends with "gemini"
 		assert.Contains(t, cmd.Args, "--output-format")
 		assert.Contains(t, cmd.Args, "json")
+		assert.Contains(t, cmd.Args, "--yolo") // Auto-approve for non-interactive execution
 		assert.Contains(t, cmd.Args, "-m")
 		// Model should be resolved to full name
 		assert.Contains(t, cmd.Args, "gemini-3-flash-preview")

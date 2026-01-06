@@ -171,6 +171,7 @@ func (r *GeminiRunner) tryParseErrorResponse(execErr error, stdout, stderr []byt
 func (r *GeminiRunner) buildCommand(ctx context.Context, req *domain.AIRequest) *exec.Cmd {
 	args := []string{
 		"--output-format", "json", // JSON output format
+		"--yolo", // Auto-approve all actions for non-interactive execution
 	}
 
 	// Determine model: request > config
