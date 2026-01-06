@@ -101,9 +101,7 @@ func NewBugfixTemplate() *domain.Template {
 				Description: "Wait for CI pipeline to complete",
 				Required:    true,
 				Timeout:     constants.DefaultCITimeout,
-				Config: map[string]any{
-					"poll_interval": constants.CIPollInterval,
-				},
+				Config:      map[string]any{},
 			},
 			{
 				Name:        "review",

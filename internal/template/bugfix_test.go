@@ -153,10 +153,9 @@ func TestBugfixTemplate_StepConfigurations(t *testing.T) {
 	require.NotNil(t, gitPRStep)
 	assert.Equal(t, "create_pr", gitPRStep.Config["operation"])
 
-	// Check ci_wait step config
+	// Check ci_wait step exists (config values come from runtime config or constants)
 	ciWaitStep := findStep(tmpl, "ci_wait")
 	require.NotNil(t, ciWaitStep)
-	assert.Equal(t, constants.CIPollInterval, ciWaitStep.Config["poll_interval"])
 
 	// Check review step config
 	reviewStep := findStep(tmpl, "review")
