@@ -1262,6 +1262,14 @@ smart_commit:
   # Model for commit message generation; empty = uses ai.model setting
   # Default: ""
   model: ""
+
+#------------------------------------------------------------------------------
+# PR Description Configuration
+#------------------------------------------------------------------------------
+pr_description:
+  # Model for PR description generation; empty = uses ai.model setting
+  # Default: ""
+  model: ""
 ```
 
 ---
