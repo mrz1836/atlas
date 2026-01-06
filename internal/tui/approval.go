@@ -197,20 +197,42 @@ func (s *ApprovalSummary) collectFileChanges(results []domain.StepResult) {
 }
 
 // extractValidationStatus finds and parses validation results from step results (AC: #4).
+// Priority: steps with actual validation metadata > steps with "validate" in name.
+// This ensures we find results from "detect" steps (detect_only mode) when the
+// "validate" step was skipped.
 func (s *ApprovalSummary) extractValidationStatus(results []domain.StepResult) {
+	// First pass: look for steps with actual validation metadata
+	// This is the most reliable indicator since it means validation actually ran
 	for _, result := range results {
-		if !isValidationStep(result.StepName) {
-			continue
+		if hasValidationMetadata(result.Metadata) {
+			s.Validation = buildValidationSummary(result)
+			return
 		}
+	}
 
-		s.Validation = buildValidationSummary(result)
-		return // Use first validation result found
+	// Fallback: look by step name (for backwards compatibility)
+	for _, result := range results {
+		if isValidationStep(result.StepName) {
+			s.Validation = buildValidationSummary(result)
+			return
+		}
 	}
 }
 
 // isValidationStep checks if a step name indicates a validation step.
 func isValidationStep(stepName string) bool {
 	return strings.Contains(strings.ToLower(stepName), "validate")
+}
+
+// hasValidationMetadata checks if a step has actual validation results in metadata.
+// This is a more reliable indicator than step name, since validation can run
+// in steps with different names (e.g., "detect" vs "validate").
+func hasValidationMetadata(metadata map[string]any) bool {
+	if metadata == nil {
+		return false
+	}
+	_, hasChecks := metadata["validation_checks"]
+	return hasChecks
 }
 
 // buildValidationSummary creates a ValidationSummary from a step result.
@@ -393,6 +415,8 @@ func normalizeValidationStatus(status string) string {
 		return "passed"
 	case "failed":
 		return "failed"
+	case "skipped":
+		return "skipped"
 	default:
 		return "pending"
 	}

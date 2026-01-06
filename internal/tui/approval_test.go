@@ -154,6 +154,58 @@ func TestApprovalSummary_ValidationStatus(t *testing.T) {
 		require.NotNil(t, summary.Validation)
 		assert.Equal(t, "failed", summary.Validation.Status)
 	})
+
+	t.Run("detect step with metadata prioritized over skipped validate step", func(t *testing.T) {
+		// This tests the fix template scenario where:
+		// - detect step runs validation in detect_only mode (has validation_checks metadata)
+		// - validate step is skipped because no issues were found
+		// The approval summary should show the validation results from detect, not "pending"
+		task := &domain.Task{
+			ID:          "task-detect-fix",
+			WorkspaceID: "ws-test",
+			Status:      constants.TaskStatusAwaitingApproval,
+			CurrentStep: 7,
+			Steps: []domain.Step{
+				{Name: "detect", Status: "completed"},
+				{Name: "fix", Status: "skipped"},
+				{Name: "validate", Status: "skipped"},
+				{Name: "git_commit", Status: "completed"},
+				{Name: "git_push", Status: "skipped"},
+				{Name: "git_pr", Status: "skipped"},
+				{Name: "ci_wait", Status: "skipped"},
+				{Name: "review", Status: "pending"},
+			},
+			StepResults: []domain.StepResult{
+				{
+					StepName: "detect",
+					Status:   "success",
+					Metadata: map[string]any{
+						"validation_checks": []map[string]any{
+							{"name": "Pre-commit", "passed": true, "skipped": false},
+							{"name": "Format", "passed": true, "skipped": false},
+							{"name": "Lint", "passed": true, "skipped": false},
+							{"name": "Test", "passed": true, "skipped": false},
+						},
+						"detect_only":       true,
+						"validation_failed": false,
+					},
+				},
+				{
+					StepName: "validate",
+					Status:   "skipped",
+					// No metadata - step was skipped
+				},
+			},
+		}
+
+		workspace := &domain.Workspace{Name: "test", Branch: "fix/test"}
+		summary := NewApprovalSummary(task, workspace)
+
+		require.NotNil(t, summary.Validation)
+		assert.Equal(t, "passed", summary.Validation.Status, "should show passed from detect step, not pending from skipped validate")
+		assert.Len(t, summary.Validation.Checks, 4, "should have validation checks from detect step")
+		assert.Equal(t, 4, summary.Validation.PassCount, "all 4 checks should be counted as passed")
+	})
 }
 
 // TestApprovalSummary_NilInputs tests behavior with nil inputs.
@@ -842,6 +894,34 @@ func TestExtractValidationStatus_WithMetadata(t *testing.T) {
 		// Fallback to legacy count
 		assert.Equal(t, 1, summary.Validation.PassCount)
 		assert.Equal(t, 0, summary.Validation.FailCount)
+	})
+}
+
+// TestHasValidationMetadata tests the helper function for detecting validation metadata.
+func TestHasValidationMetadata(t *testing.T) {
+	t.Run("returns true when validation_checks present", func(t *testing.T) {
+		metadata := map[string]any{
+			"validation_checks": []map[string]any{
+				{"name": "Lint", "passed": true},
+			},
+		}
+		assert.True(t, hasValidationMetadata(metadata))
+	})
+
+	t.Run("returns false when validation_checks missing", func(t *testing.T) {
+		metadata := map[string]any{
+			"other_key": "value",
+		}
+		assert.False(t, hasValidationMetadata(metadata))
+	})
+
+	t.Run("returns false when metadata is nil", func(t *testing.T) {
+		assert.False(t, hasValidationMetadata(nil))
+	})
+
+	t.Run("returns false when metadata is empty", func(t *testing.T) {
+		metadata := map[string]any{}
+		assert.False(t, hasValidationMetadata(metadata))
 	})
 }
 
