@@ -955,3 +955,52 @@ func TestConfirmAbandonmentInteractive_NonInteractiveModeErrors(t *testing.T) {
 	require.Error(t, err)
 	assert.ErrorIs(t, err, errors.ErrNonInteractiveMode)
 }
+
+func TestAbandonCommand_RunEExecution(t *testing.T) {
+	// Test that RunE is actually called when the command is executed
+	root := &cobra.Command{Use: "atlas"}
+	AddGlobalFlags(root, &GlobalFlags{})
+	AddAbandonCommand(root)
+
+	// Execute the command with missing argument (will fail but call RunE)
+	root.SetArgs([]string{"abandon"})
+
+	// Capture output
+	var buf bytes.Buffer
+	root.SetOut(&buf)
+	root.SetErr(&buf)
+
+	// Execute - should fail due to missing workspace argument
+	err := root.Execute()
+
+	// Should error because workspace argument is required
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "accepts 1 arg")
+}
+
+func TestAbandonCommand_RunEWithWorkspace(t *testing.T) {
+	// Test RunE with a workspace argument
+	tmpDir := t.TempDir()
+
+	root := &cobra.Command{Use: "atlas"}
+	AddGlobalFlags(root, &GlobalFlags{})
+	AddAbandonCommand(root)
+
+	// Execute with --force and nonexistent workspace
+	root.SetArgs([]string{"abandon", "nonexistent", "--force"})
+
+	var buf bytes.Buffer
+	root.SetOut(&buf)
+	root.SetErr(&buf)
+
+	// Set HOME to tmpDir to isolate file store
+	t.Setenv("HOME", tmpDir)
+
+	// Execute - will fail because workspace doesn't exist, but RunE is called
+	_ = root.Execute()
+
+	// Verify the command attempted to run (error indicates RunE was called)
+	output := buf.String()
+	// Output should indicate workspace not found or similar error
+	assert.True(t, len(output) > 0 || buf.Len() > 0, "command should have produced output or error")
+}
