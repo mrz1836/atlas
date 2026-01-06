@@ -928,3 +928,151 @@ func TestValidationExecutor_BuildRunnerConfig(t *testing.T) {
 		assert.Empty(t, config.PreCommitCommands)
 	})
 }
+
+func TestValidationExecutor_Execute_DetectOnlyMode(t *testing.T) {
+	t.Run("detect_only returns success even when validation fails", func(t *testing.T) {
+		ctx := context.Background()
+		runner := newMockCommandRunner()
+		// Set lint to fail
+		runner.SetResult("magex lint", mockCommandResult{
+			stdout:   "",
+			stderr:   "lint error: unused variable",
+			exitCode: 1,
+			err:      atlaserrors.ErrValidationFailed,
+		})
+		// Other commands succeed
+		runner.SetResult("magex format:fix", mockCommandResult{exitCode: 0})
+		runner.SetResult("magex test:race", mockCommandResult{exitCode: 0})
+
+		toolChecker := &mockToolChecker{installed: false} // No pre-commit
+
+		tmpDir := t.TempDir()
+
+		executor := &ValidationExecutor{
+			workDir:        tmpDir,
+			runner:         runner,
+			toolChecker:    toolChecker,
+			formatCommands: []string{"magex format:fix"},
+			lintCommands:   []string{"magex lint"},
+			testCommands:   []string{"magex test:race"},
+		}
+
+		task := &domain.Task{
+			ID:          "task-detect-only",
+			WorkspaceID: "ws-detect-only",
+			CurrentStep: 0,
+		}
+
+		// Step with detect_only: true
+		step := &domain.StepDefinition{
+			Name: "detect",
+			Type: domain.StepTypeValidation,
+			Config: map[string]any{
+				"detect_only": true,
+			},
+		}
+
+		result, err := executor.Execute(ctx, task, step)
+
+		// Should return success (no error) even though validation failed
+		require.NoError(t, err)
+		assert.Equal(t, "success", result.Status)
+
+		// Check metadata contains validation_failed flag
+		validationFailed, ok := result.Metadata["validation_failed"].(bool)
+		require.True(t, ok, "metadata should contain validation_failed")
+		assert.True(t, validationFailed, "validation_failed should be true")
+
+		// Check detect_only flag is in metadata
+		detectOnly, ok := result.Metadata["detect_only"].(bool)
+		require.True(t, ok, "metadata should contain detect_only")
+		assert.True(t, detectOnly, "detect_only should be true")
+
+		// Check pipeline_result is in metadata
+		_, ok = result.Metadata["pipeline_result"].(*validation.PipelineResult)
+		assert.True(t, ok, "metadata should contain pipeline_result")
+	})
+
+	t.Run("detect_only with all passing returns validation_failed=false", func(t *testing.T) {
+		ctx := context.Background()
+		runner := newMockCommandRunner()
+		runner.SetDefaultSuccess()
+
+		toolChecker := &mockToolChecker{installed: false}
+		tmpDir := t.TempDir()
+
+		executor := &ValidationExecutor{
+			workDir:        tmpDir,
+			runner:         runner,
+			toolChecker:    toolChecker,
+			formatCommands: []string{"magex format:fix"},
+			lintCommands:   []string{"magex lint"},
+			testCommands:   []string{"magex test:race"},
+		}
+
+		task := &domain.Task{
+			ID:          "task-detect-only-pass",
+			WorkspaceID: "ws-detect-only-pass",
+			CurrentStep: 0,
+		}
+
+		step := &domain.StepDefinition{
+			Name: "detect",
+			Type: domain.StepTypeValidation,
+			Config: map[string]any{
+				"detect_only": true,
+			},
+		}
+
+		result, err := executor.Execute(ctx, task, step)
+
+		require.NoError(t, err)
+		assert.Equal(t, "success", result.Status)
+
+		// Should have validation_failed=false since all passed
+		validationFailed, ok := result.Metadata["validation_failed"].(bool)
+		require.True(t, ok)
+		assert.False(t, validationFailed, "validation_failed should be false when all pass")
+	})
+
+	t.Run("normal mode (detect_only=false) fails on validation error", func(t *testing.T) {
+		ctx := context.Background()
+		runner := newMockCommandRunner()
+		runner.SetResult("magex lint", mockCommandResult{
+			stderr:   "lint error",
+			exitCode: 1,
+			err:      atlaserrors.ErrValidationFailed,
+		})
+		runner.SetResult("magex format:fix", mockCommandResult{exitCode: 0})
+
+		toolChecker := &mockToolChecker{installed: false}
+		tmpDir := t.TempDir()
+
+		executor := &ValidationExecutor{
+			workDir:        tmpDir,
+			runner:         runner,
+			toolChecker:    toolChecker,
+			formatCommands: []string{"magex format:fix"},
+			lintCommands:   []string{"magex lint"},
+		}
+
+		task := &domain.Task{
+			ID:          "task-normal-mode",
+			WorkspaceID: "ws-normal-mode",
+			CurrentStep: 0,
+		}
+
+		// Step without detect_only (normal mode)
+		step := &domain.StepDefinition{
+			Name:   "validate",
+			Type:   domain.StepTypeValidation,
+			Config: map[string]any{},
+		}
+
+		result, err := executor.Execute(ctx, task, step)
+
+		// Should return error in normal mode
+		require.Error(t, err)
+		assert.Equal(t, "failed", result.Status)
+	})
+}

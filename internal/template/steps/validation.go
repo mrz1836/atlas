@@ -168,6 +168,43 @@ func (e *ValidationExecutor) Execute(ctx context.Context, task *domain.Task, ste
 	// Build validation checks metadata for verbose display
 	validationChecks := buildValidationChecks(pipelineResult)
 
+	// Check for detect_only mode from step config
+	detectOnly := false
+	if d, ok := step.Config["detect_only"].(bool); ok {
+		detectOnly = d
+	}
+
+	// In detect_only mode, always return success (for issue detection without failing)
+	// This allows the fix template to detect issues and pass them to an AI step for fixing
+	if detectOnly {
+		log.Info().
+			Str("task_id", task.ID).
+			Str("step_name", step.Name).
+			Bool("validation_passed", pipelineResult.Success).
+			Msg("validation step completed in detect_only mode")
+
+		metadata := map[string]any{
+			"validation_checks": validationChecks,
+			"pipeline_result":   pipelineResult,
+			"validation_failed": !pipelineResult.Success,
+			"detect_only":       true,
+		}
+		if artifactPath != "" {
+			metadata["artifact_path"] = artifactPath
+		}
+
+		return &domain.StepResult{
+			StepIndex:   task.CurrentStep,
+			StepName:    step.Name,
+			Status:      "success", // Always success in detect_only mode
+			StartedAt:   startTime,
+			CompletedAt: time.Now(),
+			DurationMs:  elapsed.Milliseconds(),
+			Output:      output.String(),
+			Metadata:    metadata,
+		}, nil
+	}
+
 	// Handle execution error (validation failed or context canceled)
 	if pipelineErr != nil {
 		log.Error().
