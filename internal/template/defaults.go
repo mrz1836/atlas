@@ -13,6 +13,7 @@ func NewDefaultRegistry() *Registry {
 	_ = r.Register(NewFeatureTemplate())
 	_ = r.Register(NewCommitTemplate())
 	_ = r.Register(NewTaskTemplate())
+	_ = r.Register(NewFixTemplate())
 
 	return r
 }

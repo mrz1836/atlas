@@ -20,9 +20,9 @@ func TestDefaultRegistry_ContainsAllTemplates(t *testing.T) {
 	r := NewDefaultRegistry()
 
 	templates := r.List()
-	assert.Len(t, templates, 4)
+	assert.Len(t, templates, 5)
 
-	// Verify all four templates are present
+	// Verify all five templates are present
 	names := make(map[string]bool)
 	for _, tmpl := range templates {
 		names[tmpl.Name] = true
@@ -32,6 +32,7 @@ func TestDefaultRegistry_ContainsAllTemplates(t *testing.T) {
 	assert.True(t, names["feature"], "missing feature template")
 	assert.True(t, names["commit"], "missing commit template")
 	assert.True(t, names["task"], "missing task template")
+	assert.True(t, names["fix"], "missing fix template")
 }
 
 func TestDefaultRegistry_GetBugfix(t *testing.T) {
@@ -74,13 +75,23 @@ func TestDefaultRegistry_GetTask(t *testing.T) {
 	assert.Equal(t, "sonnet", tmpl.DefaultModel)
 }
 
+func TestDefaultRegistry_GetFix(t *testing.T) {
+	r := NewDefaultRegistry()
+
+	tmpl, err := r.Get("fix")
+	require.NoError(t, err)
+	assert.Equal(t, "fix", tmpl.Name)
+	assert.Equal(t, "fix", tmpl.BranchPrefix)
+	assert.Equal(t, "sonnet", tmpl.DefaultModel)
+}
+
 func TestDefaultRegistry_TemplatesAreCompiledIn(t *testing.T) {
 	// This test verifies that templates are Go code, not loaded from files.
 	// If templates were loaded from files, this would fail or require file I/O.
 	r := NewDefaultRegistry()
 
 	// All templates should be immediately available without file loading
-	for _, name := range []string{"bugfix", "feature", "commit", "task"} {
+	for _, name := range []string{"bugfix", "feature", "commit", "task", "fix"} {
 		tmpl, err := r.Get(name)
 		require.NoError(t, err, "template %s should be available", name)
 		assert.NotEmpty(t, tmpl.Steps, "template %s should have steps", name)
@@ -152,8 +163,8 @@ func TestNewRegistryWithConfig_NoCustom(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, r)
 
-	// Should have all 4 built-in templates
-	assert.Len(t, r.List(), 4)
+	// Should have all 5 built-in templates
+	assert.Len(t, r.List(), 5)
 }
 
 func TestNewRegistryWithConfig_EmptyCustom(t *testing.T) {
@@ -161,8 +172,8 @@ func TestNewRegistryWithConfig_EmptyCustom(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, r)
 
-	// Should have all 4 built-in templates
-	assert.Len(t, r.List(), 4)
+	// Should have all 5 built-in templates
+	assert.Len(t, r.List(), 5)
 }
 
 func TestNewRegistryWithConfig_CustomAdded(t *testing.T) {
@@ -175,8 +186,8 @@ func TestNewRegistryWithConfig_CustomAdded(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, r)
 
-	// Should have 5 templates (4 built-in + 1 custom)
-	assert.Len(t, r.List(), 5)
+	// Should have 6 templates (5 built-in + 1 custom)
+	assert.Len(t, r.List(), 6)
 
 	// Verify custom template is available
 	custom, err := r.Get("custom-workflow")
@@ -196,8 +207,8 @@ func TestNewRegistryWithConfig_OverrideBuiltin(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, r)
 
-	// Should still have 4 templates (custom replaces built-in)
-	assert.Len(t, r.List(), 4)
+	// Should still have 5 templates (custom replaces built-in)
+	assert.Len(t, r.List(), 5)
 
 	// Verify the bugfix template was replaced
 	bugfix, err := r.Get("bugfix")
@@ -268,8 +279,8 @@ steps:
 	})
 	require.NoError(t, err)
 
-	// Should have 6 templates (4 built-in + 2 custom)
-	assert.Len(t, r.List(), 6)
+	// Should have 7 templates (5 built-in + 2 custom)
+	assert.Len(t, r.List(), 7)
 
 	// Verify both custom templates are available
 	w1, err := r.Get("workflow1")
