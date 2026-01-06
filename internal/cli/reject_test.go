@@ -1036,3 +1036,328 @@ Please also add proper error handling for network timeouts.`
 	assert.Contains(t, content, "OAuth2")
 	assert.Contains(t, content, "network timeouts")
 }
+
+// TestProcessJSONReject_RoutesToRetry tests routing to retry path.
+func TestProcessJSONReject_RoutesToRetry(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	ctx := context.Background()
+
+	ws := &domain.Workspace{
+		Name:         "test-ws",
+		Branch:       "feat/test",
+		WorktreePath: "/path/to/worktree",
+	}
+	task := &domain.Task{
+		ID:          "task-1",
+		WorkspaceID: "test-ws",
+		Status:      constants.TaskStatusAwaitingApproval,
+		Steps:       []domain.Step{{Name: "implement"}},
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
+	}
+
+	mockStore := &mockTaskStoreForReject{
+		tasks:     map[string][]*domain.Task{"test-ws": {task}},
+		artifacts: make(map[string][]byte),
+	}
+
+	opts := &rejectOptions{
+		workspace: "test-ws",
+		retry:     true,
+		feedback:  "Fix the issue",
+		step:      0,
+	}
+
+	err := processJSONReject(ctx, &buf, mockStore, ws, task, opts)
+	require.NoError(t, err)
+
+	var resp rejectResponse
+	jsonErr := json.Unmarshal(buf.Bytes(), &resp)
+	require.NoError(t, jsonErr)
+	assert.True(t, resp.Success)
+	assert.Equal(t, "retry", resp.Action)
+}
+
+// TestProcessJSONReject_RoutesToDone tests routing to done path.
+func TestProcessJSONReject_RoutesToDone(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	ctx := context.Background()
+
+	ws := &domain.Workspace{
+		Name:         "test-ws",
+		Branch:       "feat/test",
+		WorktreePath: "/path/to/worktree",
+	}
+	task := &domain.Task{
+		ID:          "task-1",
+		WorkspaceID: "test-ws",
+		Status:      constants.TaskStatusAwaitingApproval,
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
+	}
+
+	mockStore := &mockTaskStoreForReject{
+		tasks: map[string][]*domain.Task{"test-ws": {task}},
+	}
+
+	opts := &rejectOptions{
+		workspace: "test-ws",
+		done:      true,
+	}
+
+	err := processJSONReject(ctx, &buf, mockStore, ws, task, opts)
+	require.NoError(t, err)
+
+	var resp rejectResponse
+	jsonErr := json.Unmarshal(buf.Bytes(), &resp)
+	require.NoError(t, jsonErr)
+	assert.True(t, resp.Success)
+	assert.Equal(t, "done", resp.Action)
+}
+
+// TestProcessJSONRejectDone_TransitionError tests transition failure.
+func TestProcessJSONRejectDone_TransitionError(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	ctx := context.Background()
+
+	ws := &domain.Workspace{
+		Name:         "test-ws",
+		Branch:       "feat/test",
+		WorktreePath: "/path/to/worktree",
+	}
+	// Task with invalid status for transition
+	task := &domain.Task{
+		ID:          "task-1",
+		WorkspaceID: "test-ws",
+		Status:      constants.TaskStatusCompleted, // Cannot transition from completed to rejected
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
+	}
+
+	mockStore := &mockTaskStoreForReject{
+		tasks: map[string][]*domain.Task{"test-ws": {task}},
+	}
+
+	err := processJSONRejectDone(ctx, &buf, mockStore, ws, task)
+	require.ErrorIs(t, err, atlaserrors.ErrJSONErrorOutput)
+
+	var resp rejectResponse
+	jsonErr := json.Unmarshal(buf.Bytes(), &resp)
+	require.NoError(t, jsonErr)
+	assert.False(t, resp.Success)
+	assert.Contains(t, resp.Error, "failed to transition task")
+}
+
+// TestProcessJSONRejectDone_UpdateError tests update failure.
+func TestProcessJSONRejectDone_UpdateError(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	ctx := context.Background()
+
+	ws := &domain.Workspace{
+		Name:         "test-ws",
+		Branch:       "feat/test",
+		WorktreePath: "/path/to/worktree",
+	}
+	task := &domain.Task{
+		ID:          "task-1",
+		WorkspaceID: "test-ws",
+		Status:      constants.TaskStatusAwaitingApproval,
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
+	}
+
+	mockStore := &mockTaskStoreForReject{
+		tasks:     map[string][]*domain.Task{"test-ws": {task}},
+		updateErr: atlaserrors.ErrTaskNotFound,
+	}
+
+	err := processJSONRejectDone(ctx, &buf, mockStore, ws, task)
+	require.ErrorIs(t, err, atlaserrors.ErrJSONErrorOutput)
+
+	var resp rejectResponse
+	jsonErr := json.Unmarshal(buf.Bytes(), &resp)
+	require.NoError(t, jsonErr)
+	assert.False(t, resp.Success)
+	assert.Contains(t, resp.Error, "failed to save task")
+}
+
+// TestProcessJSONRejectRetry_AutoSelectStep tests auto-selection of step (step=0).
+func TestProcessJSONRejectRetry_AutoSelectStep(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	ctx := context.Background()
+
+	ws := &domain.Workspace{
+		Name:         "test-ws",
+		Branch:       "feat/test",
+		WorktreePath: "/path/to/worktree",
+	}
+	task := &domain.Task{
+		ID:          "task-1",
+		WorkspaceID: "test-ws",
+		Status:      constants.TaskStatusAwaitingApproval,
+		Steps:       []domain.Step{{Name: "analyze"}, {Name: "implement"}, {Name: "validate"}},
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
+	}
+
+	mockStore := &mockTaskStoreForReject{
+		tasks:     map[string][]*domain.Task{"test-ws": {task}},
+		artifacts: make(map[string][]byte),
+	}
+
+	opts := &rejectOptions{
+		workspace: "test-ws",
+		retry:     true,
+		feedback:  "Fix the issue",
+		step:      0, // Auto-select
+	}
+
+	err := processJSONRejectRetry(ctx, &buf, mockStore, ws, task, opts)
+	require.NoError(t, err)
+
+	var resp rejectResponse
+	jsonErr := json.Unmarshal(buf.Bytes(), &resp)
+	require.NoError(t, jsonErr)
+	assert.True(t, resp.Success)
+	assert.Equal(t, 2, resp.ResumeStep) // Should auto-select "implement" step (index 1, displayed as 2)
+}
+
+// TestProcessJSONRejectRetry_SaveArtifactError tests artifact save failure.
+func TestProcessJSONRejectRetry_SaveArtifactError(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	ctx := context.Background()
+
+	ws := &domain.Workspace{
+		Name:         "test-ws",
+		Branch:       "feat/test",
+		WorktreePath: "/path/to/worktree",
+	}
+	task := &domain.Task{
+		ID:          "task-1",
+		WorkspaceID: "test-ws",
+		Status:      constants.TaskStatusAwaitingApproval,
+		Steps:       []domain.Step{{Name: "implement"}},
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
+	}
+
+	mockStore := &mockTaskStoreForReject{
+		tasks:      map[string][]*domain.Task{"test-ws": {task}},
+		saveArtErr: atlaserrors.ErrArtifactNotFound,
+	}
+
+	opts := &rejectOptions{
+		workspace: "test-ws",
+		retry:     true,
+		feedback:  "Fix the issue",
+		step:      1,
+	}
+
+	err := processJSONRejectRetry(ctx, &buf, mockStore, ws, task, opts)
+	require.ErrorIs(t, err, atlaserrors.ErrJSONErrorOutput)
+
+	var resp rejectResponse
+	jsonErr := json.Unmarshal(buf.Bytes(), &resp)
+	require.NoError(t, jsonErr)
+	assert.False(t, resp.Success)
+	assert.Contains(t, resp.Error, "failed to save feedback")
+}
+
+// TestProcessJSONRejectRetry_TransitionError tests transition failure.
+func TestProcessJSONRejectRetry_TransitionError(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	ctx := context.Background()
+
+	ws := &domain.Workspace{
+		Name:         "test-ws",
+		Branch:       "feat/test",
+		WorktreePath: "/path/to/worktree",
+	}
+	task := &domain.Task{
+		ID:          "task-1",
+		WorkspaceID: "test-ws",
+		Status:      constants.TaskStatusCompleted, // Invalid status for transition
+		Steps:       []domain.Step{{Name: "implement"}},
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
+	}
+
+	mockStore := &mockTaskStoreForReject{
+		tasks:     map[string][]*domain.Task{"test-ws": {task}},
+		artifacts: make(map[string][]byte),
+	}
+
+	opts := &rejectOptions{
+		workspace: "test-ws",
+		retry:     true,
+		feedback:  "Fix the issue",
+		step:      1,
+	}
+
+	err := processJSONRejectRetry(ctx, &buf, mockStore, ws, task, opts)
+	require.ErrorIs(t, err, atlaserrors.ErrJSONErrorOutput)
+
+	var resp rejectResponse
+	jsonErr := json.Unmarshal(buf.Bytes(), &resp)
+	require.NoError(t, jsonErr)
+	assert.False(t, resp.Success)
+	assert.Contains(t, resp.Error, "failed to transition task")
+}
+
+// TestProcessJSONRejectRetry_UpdateError tests update failure.
+func TestProcessJSONRejectRetry_UpdateError(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	ctx := context.Background()
+
+	ws := &domain.Workspace{
+		Name:         "test-ws",
+		Branch:       "feat/test",
+		WorktreePath: "/path/to/worktree",
+	}
+	task := &domain.Task{
+		ID:          "task-1",
+		WorkspaceID: "test-ws",
+		Status:      constants.TaskStatusAwaitingApproval,
+		Steps:       []domain.Step{{Name: "implement"}},
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
+	}
+
+	mockStore := &mockTaskStoreForReject{
+		tasks:     map[string][]*domain.Task{"test-ws": {task}},
+		artifacts: make(map[string][]byte),
+		updateErr: atlaserrors.ErrTaskNotFound,
+	}
+
+	opts := &rejectOptions{
+		workspace: "test-ws",
+		retry:     true,
+		feedback:  "Fix the issue",
+		step:      1,
+	}
+
+	err := processJSONRejectRetry(ctx, &buf, mockStore, ws, task, opts)
+	require.ErrorIs(t, err, atlaserrors.ErrJSONErrorOutput)
+
+	var resp rejectResponse
+	jsonErr := json.Unmarshal(buf.Bytes(), &resp)
+	require.NoError(t, jsonErr)
+	assert.False(t, resp.Success)
+	assert.Contains(t, resp.Error, "failed to save task")
+}

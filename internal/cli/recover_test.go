@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"os/exec"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -936,4 +938,213 @@ func TestFindRunningTasks_NoRunningTasks(t *testing.T) {
 	result, err := findRunningTasks(ctx, wsStore, taskStore)
 	require.NoError(t, err)
 	assert.Empty(t, result)
+}
+
+// TestProcessJSONRecover_Retry tests JSON retry routing.
+func TestProcessJSONRecover_Retry(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	ctx := context.Background()
+
+	ws := &domain.Workspace{
+		Name:         "test-ws",
+		Branch:       "feat/test",
+		WorktreePath: "/path/to/worktree",
+	}
+	task := &domain.Task{
+		ID:          "task-1",
+		WorkspaceID: "test-ws",
+		Status:      constants.TaskStatusValidationFailed,
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
+	}
+
+	mockStore := &mockRecoverTaskStore{
+		tasks: map[string][]*domain.Task{"test-ws": {task}},
+	}
+
+	opts := &recoverOptions{retry: true}
+	err := processJSONRecover(ctx, &buf, mockStore, ws, task, opts)
+	require.NoError(t, err)
+
+	var resp recoverResponse
+	jsonErr := json.Unmarshal(buf.Bytes(), &resp)
+	require.NoError(t, jsonErr)
+	assert.True(t, resp.Success)
+	assert.Equal(t, "retry", resp.Action)
+	assert.Equal(t, "test-ws", resp.WorkspaceName)
+}
+
+// TestProcessJSONRecover_Manual tests JSON manual routing.
+func TestProcessJSONRecover_Manual(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+
+	ws := &domain.Workspace{
+		Name:         "test-ws",
+		WorktreePath: "/path/to/worktree",
+	}
+	task := &domain.Task{
+		ID:     "task-1",
+		Status: constants.TaskStatusValidationFailed,
+	}
+
+	err := processJSONManual(&buf, ws, task)
+	require.NoError(t, err)
+
+	var resp recoverResponse
+	jsonErr := json.Unmarshal(buf.Bytes(), &resp)
+	require.NoError(t, jsonErr)
+	assert.True(t, resp.Success)
+	assert.Equal(t, "manual", resp.Action)
+	assert.Contains(t, resp.Instructions, "atlas resume")
+}
+
+// TestProcessJSONRecover_Abandon tests JSON abandon routing.
+func TestProcessJSONRecover_Abandon(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	ctx := context.Background()
+
+	ws := &domain.Workspace{
+		Name:   "test-ws",
+		Branch: "feat/test",
+	}
+	task := &domain.Task{
+		ID:          "task-1",
+		WorkspaceID: "test-ws",
+		Status:      constants.TaskStatusValidationFailed,
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
+	}
+
+	mockStore := &mockRecoverTaskStore{
+		tasks: map[string][]*domain.Task{"test-ws": {task}},
+	}
+
+	opts := &recoverOptions{abandon: true}
+	err := processJSONRecover(ctx, &buf, mockStore, ws, task, opts)
+	require.NoError(t, err)
+
+	var resp recoverResponse
+	jsonErr := json.Unmarshal(buf.Bytes(), &resp)
+	require.NoError(t, jsonErr)
+	assert.True(t, resp.Success)
+	assert.Equal(t, "abandon", resp.Action)
+}
+
+// TestProcessJSONRecover_Continue tests JSON continue routing.
+func TestProcessJSONRecover_Continue(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	ctx := context.Background()
+
+	ws := &domain.Workspace{
+		Name: "test-ws",
+	}
+	task := &domain.Task{
+		ID:          "task-1",
+		WorkspaceID: "test-ws",
+		Status:      constants.TaskStatusCITimeout,
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
+	}
+
+	mockStore := &mockRecoverTaskStore{
+		tasks: map[string][]*domain.Task{"test-ws": {task}},
+	}
+
+	opts := &recoverOptions{continue_: true}
+	err := processJSONRecover(ctx, &buf, mockStore, ws, task, opts)
+	require.NoError(t, err)
+
+	var resp recoverResponse
+	jsonErr := json.Unmarshal(buf.Bytes(), &resp)
+	require.NoError(t, jsonErr)
+	assert.True(t, resp.Success)
+	assert.Equal(t, "continue", resp.Action)
+}
+
+// TestHandleViewErrors_NoArtifact tests viewing errors with no artifact.
+func TestHandleViewErrors_NoArtifact(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	ctx := context.Background()
+	out := tui.NewOutput(&buf, "text")
+
+	mockStore := &mockRecoverTaskStore{
+		artifacts: map[string][]byte{}, // Empty map - will return ErrArtifactNotFound
+	}
+
+	done, err := handleViewErrors(ctx, out, mockStore, "test-ws", "task-1")
+	require.NoError(t, err)
+	assert.False(t, done) // Should return to menu
+	assert.Contains(t, buf.String(), "Could not load")
+}
+
+// TestHandleViewErrors_EmptyArtifact tests viewing empty validation results.
+func TestHandleViewErrors_EmptyArtifact(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	ctx := context.Background()
+	out := tui.NewOutput(&buf, "text")
+
+	mockStore := &mockRecoverTaskStore{
+		artifacts: map[string][]byte{"validation.json": {}},
+	}
+
+	done, err := handleViewErrors(ctx, out, mockStore, "test-ws", "task-1")
+	require.NoError(t, err)
+	assert.False(t, done)
+	assert.Contains(t, buf.String(), "No validation errors")
+}
+
+// TestHandleViewLogs_NoURL tests viewing logs with no GitHub URL.
+func TestHandleViewLogs_NoURL(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	ctx := context.Background()
+	out := tui.NewOutput(&buf, "text")
+
+	ws := &domain.Workspace{Name: "test-ws"}
+	task := &domain.Task{ID: "task-1"}
+
+	done, err := handleViewLogs(ctx, out, ws, task)
+	require.NoError(t, err)
+	assert.False(t, done) // Should return to menu
+	assert.Contains(t, buf.String(), "No GitHub Actions URL")
+}
+
+// TestHandleViewLogs_WithCIURL tests viewing logs with CI URL.
+func TestHandleViewLogs_WithCIURL(t *testing.T) {
+	// Not parallel because it would need to mock openInBrowser
+
+	var buf bytes.Buffer
+	ctx := context.Background()
+	out := tui.NewOutput(&buf, "text")
+
+	ws := &domain.Workspace{Name: "test-ws"}
+	task := &domain.Task{
+		ID:       "task-1",
+		Metadata: map[string]interface{}{"ci_url": "https://github.com/owner/repo/actions/runs/123"},
+	}
+
+	// Mock execCommandContextFunc to avoid actual browser
+	oldExecFunc := execCommandContextFunc
+	defer func() { execCommandContextFunc = oldExecFunc }()
+	execCommandContextFunc = func(ctx context.Context, _ string, _ ...string) *exec.Cmd {
+		return exec.CommandContext(ctx, "true")
+	}
+
+	done, err := handleViewLogs(ctx, out, ws, task)
+	require.NoError(t, err)
+	assert.False(t, done)
+	assert.Contains(t, buf.String(), "Opened")
 }

@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -1570,4 +1571,364 @@ func TestApproveOptions_MergeMessage(t *testing.T) {
 	}
 
 	assert.Equal(t, "Custom merge message", opts.mergeMessage)
+}
+
+// TestApproveAndOutputJSON_Success tests successful JSON approval.
+func TestApproveAndOutputJSON_Success(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	ctx := context.Background()
+
+	ws := &domain.Workspace{
+		Name:         "test-ws",
+		Branch:       "feat/test",
+		WorktreePath: "/path/to/worktree",
+		Status:       constants.WorkspaceStatusActive,
+	}
+	task := &domain.Task{
+		ID:          "task-1",
+		WorkspaceID: "test-ws",
+		TemplateID:  "default",
+		Description: "Test task",
+		Status:      constants.TaskStatusAwaitingApproval,
+		Steps:       make([]domain.Step, 3),
+		CurrentStep: 2,
+		Metadata:    map[string]interface{}{"pr_url": "https://github.com/owner/repo/pull/123"},
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
+	}
+
+	mockStore := &mockTaskStoreForApprove{
+		tasks: map[string][]*domain.Task{"test-ws": {task}},
+	}
+
+	err := approveAndOutputJSON(ctx, &buf, mockStore, ws, task, false)
+	require.NoError(t, err)
+
+	var resp approveResponse
+	jsonErr := json.Unmarshal(buf.Bytes(), &resp)
+	require.NoError(t, jsonErr)
+	assert.True(t, resp.Success)
+	assert.Equal(t, "test-ws", resp.Workspace.Name)
+	assert.Equal(t, "task-1", resp.Task.ID)
+	assert.Equal(t, "https://github.com/owner/repo/pull/123", resp.PRURL)
+	assert.False(t, resp.WorkspaceClosed)
+}
+
+// TestApproveAndOutputJSON_TransitionError tests transition failure.
+func TestApproveAndOutputJSON_TransitionError(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	ctx := context.Background()
+
+	ws := &domain.Workspace{Name: "test-ws"}
+	task := &domain.Task{
+		ID:          "task-1",
+		WorkspaceID: "test-ws",
+		Status:      constants.TaskStatusCompleted, // Invalid status for transition
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
+	}
+
+	mockStore := &mockTaskStoreForApprove{
+		tasks: map[string][]*domain.Task{"test-ws": {task}},
+	}
+
+	err := approveAndOutputJSON(ctx, &buf, mockStore, ws, task, false)
+	require.ErrorIs(t, err, atlaserrors.ErrJSONErrorOutput)
+
+	var resp approveResponse
+	jsonErr := json.Unmarshal(buf.Bytes(), &resp)
+	require.NoError(t, jsonErr)
+	assert.False(t, resp.Success)
+	assert.NotEmpty(t, resp.Error)
+}
+
+// TestApproveAndOutputJSON_UpdateError tests update failure.
+func TestApproveAndOutputJSON_UpdateError(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	ctx := context.Background()
+
+	ws := &domain.Workspace{Name: "test-ws"}
+	task := &domain.Task{
+		ID:          "task-1",
+		WorkspaceID: "test-ws",
+		Status:      constants.TaskStatusAwaitingApproval,
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
+	}
+
+	mockStore := &mockTaskStoreForApprove{
+		tasks:     map[string][]*domain.Task{"test-ws": {task}},
+		updateErr: atlaserrors.ErrTaskNotFound,
+	}
+
+	err := approveAndOutputJSON(ctx, &buf, mockStore, ws, task, false)
+	require.ErrorIs(t, err, atlaserrors.ErrJSONErrorOutput)
+
+	var resp approveResponse
+	jsonErr := json.Unmarshal(buf.Bytes(), &resp)
+	require.NoError(t, jsonErr)
+	assert.False(t, resp.Success)
+}
+
+// TestViewDiff_NoDiff tests diff with no changes.
+func TestViewDiff_NoDiff(t *testing.T) {
+	// Not parallel because it modifies global execCommandContextFunc
+
+	var cmdCalled bool
+	oldExecFunc := execCommandContextFunc
+	defer func() { execCommandContextFunc = oldExecFunc }()
+
+	execCommandContextFunc = func(ctx context.Context, _ string, _ ...string) *exec.Cmd {
+		cmdCalled = true
+		// Return a command that outputs nothing
+		cmd := exec.CommandContext(ctx, "echo", "")
+		return cmd
+	}
+
+	ctx := context.Background()
+	err := viewDiff(ctx, "/path/to/worktree")
+
+	assert.True(t, cmdCalled)
+	// Should complete without error but show "No changes"
+	assert.NoError(t, err)
+}
+
+// TestViewLogs_EmptyLog tests viewing empty log file.
+func TestViewLogs_EmptyLog(t *testing.T) {
+	t.Parallel()
+
+	mockStore := &mockTaskStoreForApprove{
+		logData: []byte{}, // Empty log
+	}
+
+	ctx := context.Background()
+	err := viewLogs(ctx, mockStore, "test-ws", "task-1")
+
+	// Should complete without error
+	assert.NoError(t, err)
+}
+
+// TestExecuteApprovalAction_Approve tests approve action.
+func TestExecuteApprovalAction_Approve(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	var buf bytes.Buffer
+	out := tui.NewOutput(&buf, "text")
+
+	task := &domain.Task{
+		ID:          "task-1",
+		WorkspaceID: "test-ws",
+		Status:      constants.TaskStatusAwaitingApproval,
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
+	}
+
+	mockStore := &mockTaskStoreForApprove{
+		tasks: map[string][]*domain.Task{"test-ws": {task}},
+	}
+
+	ws := &domain.Workspace{Name: "test-ws"}
+	notifier := tui.NewNotifier(false, false)
+
+	done, err := executeApprovalAction(ctx, out, mockStore, ws, task, notifier, actionApprove)
+	require.NoError(t, err)
+	assert.True(t, done)
+	assert.Equal(t, constants.TaskStatusCompleted, task.Status)
+}
+
+// TestExecuteApprovalAction_ApproveAndClose tests approve and close action.
+func TestExecuteApprovalAction_ApproveAndClose(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	var buf bytes.Buffer
+	out := tui.NewOutput(&buf, "text")
+
+	task := &domain.Task{
+		ID:          "task-1",
+		WorkspaceID: "test-ws",
+		Status:      constants.TaskStatusAwaitingApproval,
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
+	}
+
+	mockStore := &mockTaskStoreForApprove{
+		tasks: map[string][]*domain.Task{"test-ws": {task}},
+	}
+
+	ws := &domain.Workspace{Name: "test-ws"}
+	notifier := tui.NewNotifier(false, false)
+
+	done, err := executeApprovalAction(ctx, out, mockStore, ws, task, notifier, actionApproveAndClose)
+	require.NoError(t, err)
+	assert.True(t, done)
+	assert.Equal(t, constants.TaskStatusCompleted, task.Status)
+}
+
+// TestExecuteApprovalAction_Reject tests reject action.
+func TestExecuteApprovalAction_Reject(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	var buf bytes.Buffer
+	out := tui.NewOutput(&buf, "text")
+
+	task := &domain.Task{ID: "task-1", WorkspaceID: "test-ws"}
+	mockStore := &mockTaskStoreForApprove{}
+	ws := &domain.Workspace{Name: "test-ws"}
+	notifier := tui.NewNotifier(false, false)
+
+	done, err := executeApprovalAction(ctx, out, mockStore, ws, task, notifier, actionReject)
+	require.NoError(t, err)
+	assert.True(t, done)
+	assert.Contains(t, buf.String(), "reject")
+}
+
+// TestExecuteApprovalAction_Cancel tests cancel action.
+func TestExecuteApprovalAction_Cancel(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	var buf bytes.Buffer
+	out := tui.NewOutput(&buf, "text")
+
+	task := &domain.Task{ID: "task-1"}
+	mockStore := &mockTaskStoreForApprove{}
+	ws := &domain.Workspace{Name: "test-ws"}
+	notifier := tui.NewNotifier(false, false)
+
+	done, err := executeApprovalAction(ctx, out, mockStore, ws, task, notifier, actionCancel)
+	require.NoError(t, err)
+	assert.True(t, done)
+	assert.Contains(t, buf.String(), "canceled")
+}
+
+// TestExecuteApprovalAction_ViewDiff tests view diff action.
+func TestExecuteApprovalAction_ViewDiff(t *testing.T) {
+	// Not parallel because it modifies global execCommandContextFunc
+
+	ctx := context.Background()
+	var buf bytes.Buffer
+	out := tui.NewOutput(&buf, "text")
+
+	task := &domain.Task{ID: "task-1"}
+	mockStore := &mockTaskStoreForApprove{}
+	ws := &domain.Workspace{Name: "test-ws", WorktreePath: "/path/to/worktree"}
+	notifier := tui.NewNotifier(false, false)
+
+	// Mock execCommandContextFunc to avoid actual git command
+	oldExecFunc := execCommandContextFunc
+	defer func() { execCommandContextFunc = oldExecFunc }()
+	execCommandContextFunc = func(ctx context.Context, _ string, _ ...string) *exec.Cmd {
+		return exec.CommandContext(ctx, "echo", "diff output")
+	}
+
+	done, err := executeApprovalAction(ctx, out, mockStore, ws, task, notifier, actionViewDiff)
+	require.NoError(t, err)
+	assert.False(t, done) // Should continue loop
+}
+
+// TestExecuteApprovalAction_ViewLogs tests view logs action.
+func TestExecuteApprovalAction_ViewLogs(t *testing.T) {
+	// Not parallel because it modifies global execCommandContextFunc
+
+	ctx := context.Background()
+	var buf bytes.Buffer
+	out := tui.NewOutput(&buf, "text")
+
+	task := &domain.Task{ID: "task-1"}
+	mockStore := &mockTaskStoreForApprove{
+		logData: []byte("test log data"),
+	}
+	ws := &domain.Workspace{Name: "test-ws"}
+	notifier := tui.NewNotifier(false, false)
+
+	// Mock execCommandContextFunc to avoid actual less command
+	oldExecFunc := execCommandContextFunc
+	defer func() { execCommandContextFunc = oldExecFunc }()
+	execCommandContextFunc = func(ctx context.Context, _ string, _ ...string) *exec.Cmd {
+		return exec.CommandContext(ctx, "cat") // Just pass through
+	}
+
+	done, err := executeApprovalAction(ctx, out, mockStore, ws, task, notifier, actionViewLogs)
+	require.NoError(t, err)
+	assert.False(t, done) // Should continue loop
+}
+
+// TestExecuteApprovalAction_OpenPR tests open PR action.
+func TestExecuteApprovalAction_OpenPR(t *testing.T) {
+	// Not parallel because it modifies global execCommandContextFunc
+
+	ctx := context.Background()
+	var buf bytes.Buffer
+	out := tui.NewOutput(&buf, "text")
+
+	task := &domain.Task{
+		ID:       "task-1",
+		Metadata: map[string]interface{}{"pr_url": "https://github.com/owner/repo/pull/123"},
+	}
+	mockStore := &mockTaskStoreForApprove{}
+	ws := &domain.Workspace{Name: "test-ws"}
+	notifier := tui.NewNotifier(false, false)
+
+	// Mock openInBrowser to avoid actual browser
+	oldExecFunc := execCommandContextFunc
+	defer func() { execCommandContextFunc = oldExecFunc }()
+	execCommandContextFunc = func(ctx context.Context, _ string, _ ...string) *exec.Cmd {
+		// Return a command that succeeds
+		return exec.CommandContext(ctx, "true")
+	}
+
+	done, err := executeApprovalAction(ctx, out, mockStore, ws, task, notifier, actionOpenPR)
+	require.NoError(t, err)
+	assert.False(t, done) // Should continue loop
+}
+
+// TestExecuteApprovalAction_OpenPR_NoPRURL tests open PR with no URL.
+func TestExecuteApprovalAction_OpenPR_NoPRURL(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	var buf bytes.Buffer
+	out := tui.NewOutput(&buf, "text")
+
+	task := &domain.Task{ID: "task-1"} // No PR URL
+	mockStore := &mockTaskStoreForApprove{}
+	ws := &domain.Workspace{Name: "test-ws"}
+	notifier := tui.NewNotifier(false, false)
+
+	done, err := executeApprovalAction(ctx, out, mockStore, ws, task, notifier, actionOpenPR)
+	require.NoError(t, err)
+	assert.False(t, done)
+	assert.Contains(t, buf.String(), "No PR URL")
+}
+
+// TestOpenInBrowser tests browser opening.
+func TestOpenInBrowser(t *testing.T) {
+	// Not parallel because it modifies global execCommandContextFunc
+
+	// Mock execCommandContextFunc
+	oldExecFunc := execCommandContextFunc
+	defer func() { execCommandContextFunc = oldExecFunc }()
+
+	var cmdName string
+	var cmdArgs []string
+	execCommandContextFunc = func(ctx context.Context, name string, args ...string) *exec.Cmd {
+		cmdName = name
+		cmdArgs = args
+		return exec.CommandContext(ctx, "true") // Always succeed
+	}
+
+	ctx := context.Background()
+	err := openInBrowser(ctx, "https://github.com/owner/repo/pull/123")
+	require.NoError(t, err)
+	assert.Equal(t, "open", cmdName)
+	assert.Equal(t, []string{"https://github.com/owner/repo/pull/123"}, cmdArgs)
 }
