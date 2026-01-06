@@ -60,12 +60,16 @@ func TestSmartCommitRunner_Options(t *testing.T) {
 		WithTemplateName("bugfix"),
 		WithArtifactsDir(artifactsDir),
 		WithGarbageConfig(customConfig),
+		WithAgent("claude"),
+		WithModel("haiku"),
 	)
 
 	assert.Equal(t, "task-test-abc", runner.taskID)
 	assert.Equal(t, "bugfix", runner.templateName)
 	assert.Equal(t, artifactsDir, runner.artifactsDir)
 	assert.Equal(t, []string{"*.debug"}, runner.garbageDetector.config.DebugPatterns)
+	assert.Equal(t, "claude", runner.agent)
+	assert.Equal(t, "haiku", runner.model)
 }
 
 func TestSmartCommitRunner_Analyze_EmptyRepo(t *testing.T) {

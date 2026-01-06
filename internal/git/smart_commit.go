@@ -29,6 +29,7 @@ type SmartCommitRunner struct {
 	taskID          string           // Current task ID (kept for artifact metadata)
 	templateName    string           // Template name (kept for artifact metadata)
 	artifactsDir    string           // Directory for saving artifacts
+	agent           string           // AI agent for commit message generation
 	model           string           // AI model for commit message generation
 }
 
@@ -68,6 +69,14 @@ func WithGarbageConfig(config *GarbageConfig) SmartCommitRunnerOption {
 func WithModel(model string) SmartCommitRunnerOption {
 	return func(r *SmartCommitRunner) {
 		r.model = model
+	}
+}
+
+// WithAgent sets the AI agent for commit message generation.
+// If not set, the AIRunner's default agent is used.
+func WithAgent(agent string) SmartCommitRunnerOption {
+	return func(r *SmartCommitRunner) {
+		r.agent = agent
 	}
 }
 
@@ -322,8 +331,9 @@ func (r *SmartCommitRunner) generateAIMessage(ctx context.Context, group FileGro
 	// Build the prompt with diff context
 	prompt := r.buildAIPromptWithDiff(group, diffSummary)
 
-	// Create AI request with optional model override
+	// Create AI request with optional agent/model override
 	req := &domain.AIRequest{
+		Agent:      domain.Agent(r.agent), // Use configured agent (empty uses AIRunner's default)
 		Prompt:     prompt,
 		Model:      r.model, // Use configured model (empty string uses AIRunner's default)
 		MaxTurns:   1,
@@ -331,8 +341,9 @@ func (r *SmartCommitRunner) generateAIMessage(ctx context.Context, group FileGro
 		WorkingDir: r.workDir,
 	}
 
-	// Log AI call with model info
+	// Log AI call with agent/model info
 	log.Info().
+		Str("agent", r.agent).
 		Str("model", r.model).
 		Str("package", group.Package).
 		Int("files", len(group.Files)).
