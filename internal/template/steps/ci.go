@@ -171,10 +171,16 @@ func (e *CIExecutor) Execute(ctx context.Context, task *domain.Task, step *domai
 		InitialGracePeriod: gracePeriod,
 		GracePollInterval:  gracePollInterval,
 		ProgressCallback: func(elapsed time.Duration, checks []git.CheckResult) {
+			// Calculate start time for display
+			startTime := time.Now().Add(-elapsed).Format("3:04PM")
+			elapsedStr := formatDuration(elapsed)
+
 			e.logger.Debug().
-				Dur("elapsed", elapsed).
+				Str("elapsed", elapsedStr).
+				Str("started", startTime).
 				Int("check_count", len(checks)).
-				Msg("CI progress update")
+				Msgf("CI progress: %s elapsed (started %s) - monitoring %d checks",
+					elapsedStr, startTime, len(checks))
 		},
 	}
 
@@ -541,4 +547,22 @@ func extractStringSlice(config map[string]any, key string) []string {
 	default:
 		return nil
 	}
+}
+
+// formatDuration formats a time.Duration into a human-readable string.
+// Examples: "45s", "2m 18s", "15m 30s"
+func formatDuration(d time.Duration) string {
+	if d < time.Minute {
+		// Under 1 minute: show seconds only
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	}
+
+	// 1 minute or more: show minutes and remaining seconds
+	minutes := int(d.Minutes())
+	seconds := int(d.Seconds()) % 60
+
+	if seconds == 0 {
+		return fmt.Sprintf("%dm", minutes)
+	}
+	return fmt.Sprintf("%dm %ds", minutes, seconds)
 }
