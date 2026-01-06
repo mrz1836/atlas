@@ -171,7 +171,13 @@ func (r *GeminiRunner) tryParseErrorResponse(execErr error, stdout, stderr []byt
 func (r *GeminiRunner) buildCommand(ctx context.Context, req *domain.AIRequest) *exec.Cmd {
 	args := []string{
 		"--output-format", "json", // JSON output format
-		"--yolo", // Auto-approve all actions for non-interactive execution
+	}
+
+	// Handle permission mode - sandbox for read-only, yolo for full access
+	if req.PermissionMode == "plan" {
+		args = append(args, "--sandbox") // Read-only sandbox mode
+	} else {
+		args = append(args, "--yolo") // Auto-approve all actions for non-interactive execution
 	}
 
 	// Determine model: request > config

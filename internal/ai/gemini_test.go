@@ -205,6 +205,46 @@ func TestGeminiRunner_BuildCommand(t *testing.T) {
 		assert.Contains(t, cmd.Args, "test prompt here")
 	})
 
+	t.Run("uses sandbox mode when permission_mode is plan", func(t *testing.T) {
+		cfg := &config.AIConfig{
+			Model:   "flash",
+			Timeout: 30 * time.Minute,
+		}
+		runner := NewGeminiRunner(cfg, &MockExecutor{})
+
+		req := &domain.AIRequest{
+			Prompt:         "verify the implementation",
+			Model:          "flash",
+			PermissionMode: "plan", // Read-only mode
+		}
+
+		cmd := runner.buildCommand(context.Background(), req)
+
+		// Should use --sandbox for read-only mode, NOT --yolo
+		assert.Contains(t, cmd.Args, "--sandbox")
+		assert.NotContains(t, cmd.Args, "--yolo")
+	})
+
+	t.Run("uses yolo mode when permission_mode is empty", func(t *testing.T) {
+		cfg := &config.AIConfig{
+			Model:   "flash",
+			Timeout: 30 * time.Minute,
+		}
+		runner := NewGeminiRunner(cfg, &MockExecutor{})
+
+		req := &domain.AIRequest{
+			Prompt:         "implement the feature",
+			Model:          "flash",
+			PermissionMode: "", // Full access mode
+		}
+
+		cmd := runner.buildCommand(context.Background(), req)
+
+		// Should use --yolo for full access mode, NOT --sandbox
+		assert.Contains(t, cmd.Args, "--yolo")
+		assert.NotContains(t, cmd.Args, "--sandbox")
+	})
+
 	t.Run("resolves model alias to full name", func(t *testing.T) {
 		cfg := &config.AIConfig{
 			Model:   "pro",
