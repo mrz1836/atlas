@@ -159,3 +159,8 @@ pr_description:
   # Model for PR description generation; empty = uses ai.model setting
   # Default: ""
   model: "haiku"
+
+approval:
+  # Default message for approve + merge + close operations
+  # Default: "Approved and Merged by ATLAS"
+  merge_message: "LGTM!"

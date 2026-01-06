@@ -260,6 +260,9 @@ func setDefaults(v *viper.Viper) {
 	// Notifications defaults
 	v.SetDefault("notifications.bell", true)
 	v.SetDefault("notifications.events", []string{"awaiting_approval", "validation_failed"})
+
+	// Approval defaults
+	v.SetDefault("approval.merge_message", "Approved and Merged by ATLAS")
 }
 
 // applyOverrides merges non-zero override values into the config.

@@ -44,6 +44,9 @@ type Config struct {
 
 	// PRDescription contains settings for PR description generation.
 	PRDescription PRDescriptionConfig `yaml:"pr_description" mapstructure:"pr_description"`
+
+	// Approval contains settings for approval operations (approve + merge + close).
+	Approval ApprovalConfig `yaml:"approval" mapstructure:"approval"`
 }
 
 // AIConfig contains settings for AI/LLM operations.
@@ -237,4 +240,13 @@ type PRDescriptionConfig struct {
 	// Common values: "sonnet", "opus", "haiku"
 	// Default: "" (uses AI.Model)
 	Model string `yaml:"model,omitempty" mapstructure:"model"`
+}
+
+// ApprovalConfig contains settings for approval operations.
+// These settings control the approve + merge + close workflow.
+type ApprovalConfig struct {
+	// MergeMessage is the default message used when approving and merging PRs.
+	// This message is used for both the PR review and comment (fallback).
+	// Default: "Approved and Merged by ATLAS"
+	MergeMessage string `yaml:"merge_message" mapstructure:"merge_message"`
 }

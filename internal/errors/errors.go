@@ -264,6 +264,12 @@ var (
 	// ErrPRNotFound indicates that the requested PR was not found.
 	ErrPRNotFound = errors.New("PR not found")
 
+	// ErrPRReviewNotAllowed indicates the user cannot add a review (e.g., own PR).
+	ErrPRReviewNotAllowed = errors.New("cannot add PR review")
+
+	// ErrPRMergeFailed indicates the PR merge operation failed.
+	ErrPRMergeFailed = errors.New("PR merge failed")
+
 	// ErrCICheckNotFound indicates that a required CI check was not found.
 	ErrCICheckNotFound = errors.New("required CI check not found")
 
