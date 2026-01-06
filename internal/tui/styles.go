@@ -356,8 +356,8 @@ func formatStatusWithIconAny(status any, text string) string {
 	}
 }
 
-// DefaultBoxWidth is the default width for TUI boxes (65 chars per UX scenarios).
-const DefaultBoxWidth = 65
+// DefaultBoxWidth is the default width for TUI boxes.
+const DefaultBoxWidth = 100
 
 // BoxBorder defines the characters used for box borders.
 type BoxBorder struct {
