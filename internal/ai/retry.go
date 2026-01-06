@@ -5,6 +5,8 @@ import (
 	"errors"
 	"strings"
 	"time"
+
+	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 )
 
 // timeSleep is a wrapper for time.After that can be overridden in tests.
@@ -53,6 +55,18 @@ func isRetryable(err error) bool {
 	// CLI not found is not retryable
 	if strings.Contains(errStr, "not found") ||
 		strings.Contains(errStr, "executable file not found") {
+		return false
+	}
+
+	// Directory/file system errors are not retryable (worktree deleted/missing)
+	// These occur when cmd.Dir points to a non-existent directory
+	if strings.Contains(errStr, "no such file or directory") ||
+		strings.Contains(errStr, "chdir") {
+		return false
+	}
+
+	// Worktree-specific errors are not retryable
+	if errors.Is(err, atlaserrors.ErrWorktreeNotFound) {
 		return false
 	}
 

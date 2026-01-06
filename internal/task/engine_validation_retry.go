@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"reflect"
 	"time"
 
@@ -86,6 +87,16 @@ func (e *Engine) attemptValidationRetry(
 			Str("task_id", task.ID).
 			Msg("validation retry failed: worktree_dir not set in task metadata")
 		return nil, ErrWorkDirNotFound
+	}
+
+	// Pre-flight check: verify worktree directory exists before attempting retry
+	// This catches cases where the worktree was deleted (externally or by race condition)
+	if _, err := os.Stat(workDir); os.IsNotExist(err) {
+		e.logger.Error().
+			Str("task_id", task.ID).
+			Str("work_dir", workDir).
+			Msg("CRITICAL: worktree directory missing - cannot perform AI retry")
+		return nil, fmt.Errorf("worktree directory missing: %s: %w", workDir, ErrWorkDirNotFound)
 	}
 
 	// Build runner config from task (nil uses defaults)

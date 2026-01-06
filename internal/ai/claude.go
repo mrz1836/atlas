@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 
@@ -130,6 +131,15 @@ func (r *ClaudeCodeRunner) sleepChan(d interface{ Nanoseconds() int64 }) <-chan 
 
 // execute performs a single AI request execution.
 func (r *ClaudeCodeRunner) execute(ctx context.Context, req *domain.AIRequest) (*domain.AIResult, error) {
+	// Pre-flight check: verify working directory exists before attempting to run command
+	// This prevents wasteful retry attempts when the worktree has been deleted
+	if req.WorkingDir != "" {
+		if _, err := os.Stat(req.WorkingDir); os.IsNotExist(err) {
+			return nil, fmt.Errorf("working directory missing: %s: %w",
+				req.WorkingDir, atlaserrors.ErrWorktreeNotFound)
+		}
+	}
+
 	// Build the command
 	cmd := r.buildCommand(ctx, req)
 

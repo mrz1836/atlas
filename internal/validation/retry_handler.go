@@ -3,6 +3,7 @@ package validation
 import (
 	"context"
 	"fmt"
+	"os"
 
 	"github.com/rs/zerolog"
 
@@ -120,6 +121,19 @@ func (h *RetryHandler) RetryWithAI(
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	default:
+	}
+
+	// Pre-flight check: verify workDir exists before attempting AI retry
+	// This prevents wasteful AI invocations when the worktree has been deleted
+	if workDir == "" {
+		h.logger.Error().Msg("work directory is empty for AI retry")
+		return nil, fmt.Errorf("work directory is empty: %w", atlaserrors.ErrWorktreeNotFound)
+	}
+	if _, err := os.Stat(workDir); os.IsNotExist(err) {
+		h.logger.Error().
+			Str("work_dir", workDir).
+			Msg("CRITICAL: worktree directory missing before AI retry")
+		return nil, fmt.Errorf("worktree directory missing: %s: %w", workDir, atlaserrors.ErrWorktreeNotFound)
 	}
 
 	h.logger.Info().

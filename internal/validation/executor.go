@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -92,6 +93,23 @@ func (e *Executor) RunSingle(ctx context.Context, command, workDir string) (*Res
 // runSingleWithPhase executes a single command with phase context for logging.
 func (e *Executor) runSingleWithPhase(ctx context.Context, command, workDir, phase string, cmdNum, totalCmds int) (*Result, error) {
 	log := zerolog.Ctx(ctx)
+
+	// Pre-flight check: verify workDir exists before running command
+	// This catches cases where the worktree was deleted between validation steps
+	if workDir != "" {
+		if _, err := os.Stat(workDir); os.IsNotExist(err) {
+			log.Error().
+				Str("work_dir", workDir).
+				Str("command", command).
+				Msg("CRITICAL: work directory missing before validation command")
+			return &Result{
+				Command: command,
+				Success: false,
+				Error:   fmt.Sprintf("work directory missing: %s", workDir),
+			}, fmt.Errorf("work directory missing: %s: %w", workDir, atlaserrors.ErrWorktreeNotFound)
+		}
+	}
+
 	startTime := time.Now()
 
 	// Build log event with phase context if available
