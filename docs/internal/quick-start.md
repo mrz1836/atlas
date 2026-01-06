@@ -320,6 +320,9 @@ atlas approve --auto-approve
 # Approve and close workspace (removes worktree, keeps history)
 atlas approve my-workspace --close
 
+# Custom message for approve+merge operations
+atlas approve my-workspace --message "Merged by CI pipeline"
+
 # JSON output for scripting
 atlas approve my-workspace --output json
 ```
@@ -330,15 +333,23 @@ atlas approve my-workspace --output json
 |------|-------------|
 | `--auto-approve` | Skip interactive menu, approve directly |
 | `--close` | Also close the workspace after approval (removes worktree, preserves history) |
+| `--message` | Custom message for approve+merge (overrides `approval.merge_message` config) |
 
 **Interactive Options:**
 - Approve and complete
 - Approve and close workspace (removes worktree)
+- **Approve + Merge + Close** (review PR, squash merge, close workspace)
 - View git diff
 - View execution logs
 - Open PR in browser
 - Reject task
 - Cancel
+
+The **Approve + Merge + Close** option performs:
+1. Adds a PR review (APPROVE) or comment if reviewing own PR
+2. Merges the PR using squash merge (with admin bypass if needed)
+3. Approves the task in ATLAS
+4. Closes the workspace
 
 ---
 
@@ -1270,6 +1281,14 @@ pr_description:
   # Model for PR description generation; empty = uses ai.model setting
   # Default: ""
   model: ""
+
+#------------------------------------------------------------------------------
+# Approval Configuration
+#------------------------------------------------------------------------------
+approval:
+  # Default message for approve + merge + close operations
+  # Default: "Approved and Merged by ATLAS"
+  merge_message: "Approved and Merged by ATLAS"
 ```
 
 ---
