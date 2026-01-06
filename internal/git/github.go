@@ -348,8 +348,9 @@ func buildPRSuccessResult(result *PRResult, attemptResult prAttemptResult, opts 
 }
 
 // shouldRetryPR determines if the error type is retryable.
+// PRErrorOther is now retryable since unknown gh errors may be transient.
 func shouldRetryPR(errType PRErrorType) bool {
-	return errType == PRErrorNetwork || errType == PRErrorRateLimit
+	return errType == PRErrorNetwork || errType == PRErrorRateLimit || errType == PRErrorOther
 }
 
 // buildPRFinalError builds the appropriate error based on the error type.
@@ -382,6 +383,17 @@ func classifyGHError(err error) PRErrorType {
 	// Check for context timeout
 	if errors.Is(err, context.DeadlineExceeded) {
 		return PRErrorNetwork
+	}
+
+	// Check for sentinel errors first (more reliable than string matching)
+	if errors.Is(err, atlaserrors.ErrGHAuthFailed) {
+		return PRErrorAuth
+	}
+	if errors.Is(err, atlaserrors.ErrGHRateLimited) {
+		return PRErrorRateLimit
+	}
+	if errors.Is(err, atlaserrors.ErrPRNotFound) {
+		return PRErrorNotFound
 	}
 
 	errStr := strings.ToLower(err.Error())
@@ -981,10 +993,12 @@ func (r *CLIGitHubRunner) handleCIFetchError(
 		return handledResult, nil
 	}
 
-	// For transient errors (network, rate limit), try fallback verification
-	if errType == PRErrorNetwork || errType == PRErrorRateLimit {
+	// For transient errors (network, rate limit, unknown), try fallback verification
+	// PRErrorOther is treated as transient since unknown gh errors may be recoverable
+	if errType == PRErrorNetwork || errType == PRErrorRateLimit || errType == PRErrorOther {
 		r.logger.Info().
 			Err(err).
+			Str("error_type", errType.String()).
 			Int("pr_number", opts.PRNumber).
 			Msg("CI fetch failed, attempting fallback verification via gh pr view")
 
@@ -1019,14 +1033,20 @@ func (r *CLIGitHubRunner) handleCIFetchError(
 	}
 
 	// For permanent errors (auth, not found), return immediately with proper sentinel error
+	// PRErrorNetwork, PRErrorRateLimit, and PRErrorOther are handled above with fallback
 	switch errType {
 	case PRErrorAuth:
 		return nil, fmt.Errorf("CI fetch failed - authentication error: %w", atlaserrors.ErrGHAuthFailed)
 	case PRErrorNotFound:
 		return nil, fmt.Errorf("CI fetch failed - PR not found: %w", atlaserrors.ErrPRNotFound)
-	case PRErrorNone, PRErrorRateLimit, PRErrorNetwork, PRErrorNoChecksYet, PRErrorOther:
+	case PRErrorNetwork, PRErrorRateLimit, PRErrorOther:
+		// These are handled above with fallback - should not reach here
+		return nil, err
+	case PRErrorNone, PRErrorNoChecksYet:
+		// These should not reach here - PRErrorNone means no error, PRErrorNoChecksYet is handled earlier
 		return nil, err
 	default:
+		// Unreachable for known error types, but return error for safety
 		return nil, err
 	}
 }
@@ -1177,11 +1197,16 @@ func (r *CLIGitHubRunner) processCheckResults(
 		opts.ProgressCallback(result.ElapsedTime, filteredChecks)
 	}
 
+	// Log poll completion with formatted elapsed time
+	elapsedStr := formatDuration(result.ElapsedTime)
+	startTimeStr := startTime.Format("3:04PM")
 	r.logger.Debug().
 		Str("status", status.String()).
+		Str("elapsed", elapsedStr).
+		Str("started", startTimeStr).
 		Int("check_count", len(filteredChecks)).
-		Dur("elapsed", result.ElapsedTime).
-		Msg("CI poll completed")
+		Msgf("CI poll completed: %s status (started %s, %s elapsed)",
+			status.String(), startTimeStr, elapsedStr)
 
 	return nil
 }
@@ -1570,7 +1595,18 @@ func formatDuration(d time.Duration) string {
 		return fmt.Sprintf("%ds", int(d.Seconds()))
 	}
 	if d < time.Hour {
-		return fmt.Sprintf("%dm", int(d.Minutes()))
+		// Show minutes and seconds for better granularity
+		minutes := int(d.Minutes())
+		seconds := int(d.Seconds()) % 60
+		if seconds == 0 {
+			return fmt.Sprintf("%dm", minutes)
+		}
+		return fmt.Sprintf("%dm %ds", minutes, seconds)
 	}
-	return fmt.Sprintf("%dh%dm", int(d.Hours()), int(d.Minutes())%60)
+	hours := int(d.Hours())
+	minutes := int(d.Minutes()) % 60
+	if minutes == 0 {
+		return fmt.Sprintf("%dh", hours)
+	}
+	return fmt.Sprintf("%dh %dm", hours, minutes)
 }

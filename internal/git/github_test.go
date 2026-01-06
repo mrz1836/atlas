@@ -21,6 +21,7 @@ var (
 	errNoChecksReportedLower = errors.New("no checks reported")
 	errNoChecksReportedMixed = errors.New("no checks reported on branch")
 	errUnexpectedCall        = errors.New("unexpected mock call")
+	errUnexpectedCommand     = errors.New("unexpected command")
 )
 
 // mockCommandExecutor is a test double for CommandExecutor.
@@ -675,7 +676,7 @@ func TestShouldRetryPR(t *testing.T) {
 		{PRErrorRateLimit, true},
 		{PRErrorNetwork, true},
 		{PRErrorNotFound, false},
-		{PRErrorOther, false},
+		{PRErrorOther, true}, // PRErrorOther is now retryable since unknown gh errors may be transient
 	}
 
 	for _, tt := range tests {
@@ -1090,6 +1091,120 @@ func TestCLIGitHubRunner_WatchPRChecks_NoRetryOnAuth(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Equal(t, 1, attempts) // No retry for auth errors
+}
+
+func TestCLIGitHubRunner_WatchPRChecks_RetryOnOtherError(t *testing.T) {
+	attempts := 0
+	mock := &mockCommandExecutor{
+		executeFunc: func(_ context.Context, _, _ string, _ ...string) ([]byte, error) {
+			attempts++
+			if attempts < 3 {
+				// Generic error that doesn't match known patterns
+				return nil, fmt.Errorf("gh failed: %w", atlaserrors.ErrGitHubOperation)
+			}
+			return []byte(`[{"name":"CI","state":"SUCCESS","bucket":"pass"}]`), nil
+		},
+	}
+
+	runner := NewCLIGitHubRunner("/test/dir",
+		WithGHCommandExecutor(mock),
+		WithGHRetryConfig(RetryConfig{
+			MaxAttempts:  3,
+			InitialDelay: 10 * time.Millisecond,
+			MaxDelay:     100 * time.Millisecond,
+			Multiplier:   2.0,
+		}),
+	)
+
+	result, err := runner.WatchPRChecks(context.Background(), CIWatchOptions{
+		PRNumber: 42,
+		Interval: 10 * time.Millisecond,
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, CIStatusSuccess, result.Status)
+	assert.Equal(t, 3, attempts) // PRErrorOther should be retried
+}
+
+func TestCLIGitHubRunner_WatchPRChecks_OtherErrorExhaustsRetriesReturnsFetchError(t *testing.T) {
+	attempts := 0
+	mock := &mockCommandExecutor{
+		executeFunc: func(_ context.Context, _, _ string, args ...string) ([]byte, error) {
+			// Track only "gh pr checks" calls, not fallback "gh pr view" calls
+			if len(args) >= 2 && args[0] == "pr" && args[1] == "checks" {
+				attempts++
+			}
+			// For fallback "gh pr view", also return error
+			if len(args) >= 2 && args[0] == "pr" && args[1] == "view" {
+				return nil, fmt.Errorf("gh failed: %w", atlaserrors.ErrGitHubOperation)
+			}
+			// Always return error that classifies as PRErrorOther
+			return nil, fmt.Errorf("gh failed: %w", atlaserrors.ErrGitHubOperation)
+		},
+	}
+
+	runner := NewCLIGitHubRunner("/test/dir",
+		WithGHCommandExecutor(mock),
+		WithGHRetryConfig(RetryConfig{
+			MaxAttempts:  3,
+			InitialDelay: 10 * time.Millisecond,
+			MaxDelay:     100 * time.Millisecond,
+			Multiplier:   2.0,
+		}),
+	)
+
+	result, err := runner.WatchPRChecks(context.Background(), CIWatchOptions{
+		PRNumber: 42,
+		Interval: 10 * time.Millisecond,
+	})
+
+	// Should NOT return error - should return CIStatusFetchError result
+	require.NoError(t, err)
+	assert.Equal(t, CIStatusFetchError, result.Status)
+	assert.Equal(t, 3, attempts) // All retries exhausted
+	require.Error(t, result.Error)
+	assert.Contains(t, result.Error.Error(), "CI status fetch failed")
+}
+
+func TestCLIGitHubRunner_WatchPRChecks_OtherErrorFallbackSucceeds(t *testing.T) {
+	checkAttempts := 0
+	fallbackCalled := false
+	mock := &mockCommandExecutor{
+		executeFunc: func(_ context.Context, _, _ string, args ...string) ([]byte, error) {
+			if len(args) >= 2 && args[0] == "pr" && args[1] == "checks" {
+				checkAttempts++
+				// Always fail checks with PRErrorOther
+				return nil, fmt.Errorf("gh failed: %w", atlaserrors.ErrGitHubOperation)
+			}
+			// Fallback "gh pr view" succeeds with SUCCESS status
+			if len(args) >= 2 && args[0] == "pr" && args[1] == "view" {
+				fallbackCalled = true
+				return []byte(`{"number":42,"state":"OPEN","mergeable":"MERGEABLE","statusCheckRollup":[{"conclusion":"SUCCESS"}]}`), nil
+			}
+			return nil, errUnexpectedCommand
+		},
+	}
+
+	runner := NewCLIGitHubRunner("/test/dir",
+		WithGHCommandExecutor(mock),
+		WithGHRetryConfig(RetryConfig{
+			MaxAttempts:  3,
+			InitialDelay: 10 * time.Millisecond,
+			MaxDelay:     100 * time.Millisecond,
+			Multiplier:   2.0,
+		}),
+	)
+
+	result, err := runner.WatchPRChecks(context.Background(), CIWatchOptions{
+		PRNumber: 42,
+		Interval: 10 * time.Millisecond,
+	})
+
+	// Fallback should succeed
+	require.NoError(t, err)
+	assert.Equal(t, CIStatusSuccess, result.Status)
+	assert.True(t, fallbackCalled, "fallback via gh pr view should have been called")
+	assert.GreaterOrEqual(t, checkAttempts, 3, "should have retried checks at least 3 times before fallback")
 }
 
 func TestCLIGitHubRunner_WatchPRChecks_EmptyChecks(t *testing.T) {
@@ -1610,7 +1725,7 @@ func TestFormatCIProgressMessage(t *testing.T) {
 			checks: []CheckResult{
 				{Name: "Long Test", Workflow: "Test"},
 			},
-			expected: "Waiting for CI... (1h5m elapsed, checking: Test)",
+			expected: "Waiting for CI... (1h 5m elapsed, checking: Test)",
 		},
 	}
 
@@ -1631,10 +1746,15 @@ func TestFormatDuration(t *testing.T) {
 		{59 * time.Second, "59s"},
 		{1 * time.Minute, "1m"},
 		{5 * time.Minute, "5m"},
+		{1*time.Minute + 15*time.Second, "1m 15s"},
+		{2*time.Minute + 30*time.Second, "2m 30s"},
 		{59 * time.Minute, "59m"},
-		{60 * time.Minute, "1h0m"},
-		{65 * time.Minute, "1h5m"},
-		{125 * time.Minute, "2h5m"},
+		{59*time.Minute + 45*time.Second, "59m 45s"},
+		{60 * time.Minute, "1h"},
+		{65 * time.Minute, "1h 5m"},
+		{65*time.Minute + 30*time.Second, "1h 5m"},
+		{125 * time.Minute, "2h 5m"},
+		{2 * time.Hour, "2h"},
 	}
 
 	for _, tt := range tests {
