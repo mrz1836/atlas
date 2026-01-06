@@ -370,7 +370,7 @@ func TestStyleSystem_Icons(t *testing.T) {
 func TestBoxStyle_DefaultWidth(t *testing.T) {
 	box := NewBoxStyle()
 	assert.Equal(t, DefaultBoxWidth, box.Width)
-	assert.Equal(t, 65, box.Width) // Per UX spec
+	assert.Equal(t, 100, box.Width) // Per UX spec
 }
 
 // TestBoxStyle_DefaultBorder verifies square corners per UX spec.

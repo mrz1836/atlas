@@ -19,6 +19,7 @@ func FormatResult(result *PipelineResult) string {
 // FormatResultWithArtifact formats a PipelineResult with an optional artifact path.
 // When artifactPath is provided, it will be shown in truncated output messages
 // to help users find the full validation output.
+// Output is plain text suitable for terminal display.
 func FormatResultWithArtifact(result *PipelineResult, artifactPath string) string {
 	var sb strings.Builder
 
@@ -37,26 +38,24 @@ func FormatResultWithArtifact(result *PipelineResult, artifactPath string) strin
 		}
 	}
 
-	sb.WriteString("\n### Suggested Actions\n\n")
-	sb.WriteString("1. **Retry with AI fix** - Let AI attempt to fix the issues\n")
-	sb.WriteString("2. **Fix manually** - Make changes in worktree, then `atlas resume`\n")
-	sb.WriteString("3. **Abandon task** - End task, preserve branch\n")
-
 	return sb.String()
 }
 
 // formatFailedCommand formats a single failed command result.
 // The artifactPath is included in truncation messages when provided.
+// Output is plain text suitable for terminal display.
 func formatFailedCommand(r Result, artifactPath string) string {
 	var sb strings.Builder
 
-	sb.WriteString(fmt.Sprintf("### Command: %s\n", r.Command))
+	sb.WriteString(fmt.Sprintf("Command: %s\n", r.Command))
 	sb.WriteString(fmt.Sprintf("Exit code: %d\n", r.ExitCode))
 
 	if r.Stderr != "" {
-		sb.WriteString("**Error output:**\n```\n")
-		sb.WriteString(r.Stderr)
-		sb.WriteString("\n```\n")
+		sb.WriteString("\nError output:\n")
+		// Indent stderr for readability
+		for _, line := range strings.Split(r.Stderr, "\n") {
+			sb.WriteString(fmt.Sprintf("  %s\n", line))
+		}
 	}
 
 	// Show stdout, truncating if necessary
@@ -69,15 +68,27 @@ func formatFailedCommand(r Result, artifactPath string) string {
 }
 
 // formatStdout formats stdout output, truncating if necessary.
+// Output is plain text suitable for terminal display.
 func formatStdout(stdout, artifactPath string) string {
+	var sb strings.Builder
+
 	if len(stdout) < maxStdoutDisplay {
-		return fmt.Sprintf("**Standard output:**\n```\n%s\n```\n", stdout)
+		sb.WriteString("\nStandard output:\n")
+		// Indent stdout for readability
+		for _, line := range strings.Split(stdout, "\n") {
+			sb.WriteString(fmt.Sprintf("  %s\n", line))
+		}
+		return sb.String()
 	}
 
 	// Truncated output
-	truncatedMsg := "\n...[truncated, see validation.json artifact for full output]\n```\n"
-	if artifactPath != "" {
-		truncatedMsg = fmt.Sprintf("\n...[truncated, see validation.json artifact for full output]\n\n📄 Full output saved to: %s\n```\n", artifactPath)
+	sb.WriteString("\nStandard output (truncated):\n")
+	for _, line := range strings.Split(stdout[:maxStdoutDisplay], "\n") {
+		sb.WriteString(fmt.Sprintf("  %s\n", line))
 	}
-	return fmt.Sprintf("**Standard output (truncated):**\n```\n%s%s", stdout[:maxStdoutDisplay], truncatedMsg)
+	sb.WriteString("  ...[truncated]\n")
+	if artifactPath != "" {
+		sb.WriteString(fmt.Sprintf("\n📄 Full output saved to: %s\n", artifactPath))
+	}
+	return sb.String()
 }

@@ -61,7 +61,7 @@ func TestFormatResult_Failure_ShowsFailedCommands(t *testing.T) {
 	assert.Contains(t, output, "undefined variable 'foo'")
 }
 
-func TestFormatResult_Failure_ShowsSuggestedActions(t *testing.T) {
+func TestFormatResult_Failure_PlainTextOutput(t *testing.T) {
 	t.Parallel()
 
 	result := &PipelineResult{
@@ -74,10 +74,13 @@ func TestFormatResult_Failure_ShowsSuggestedActions(t *testing.T) {
 
 	output := FormatResult(result)
 
-	assert.Contains(t, output, "Suggested Actions")
-	assert.Contains(t, output, "Retry with AI fix")
-	assert.Contains(t, output, "Fix manually")
-	assert.Contains(t, output, "Abandon task")
+	// Should show failure info in plain text (no markdown)
+	assert.Contains(t, output, "Command: go test")
+	assert.Contains(t, output, "Exit code: 1")
+	// Should NOT contain markdown syntax
+	assert.NotContains(t, output, "###")
+	assert.NotContains(t, output, "**")
+	assert.NotContains(t, output, "```")
 }
 
 func TestFormatResult_MultipleFailures(t *testing.T) {

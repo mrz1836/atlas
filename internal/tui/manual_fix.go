@@ -78,11 +78,12 @@ func DisplayManualFixInstructions(output Output, task *domain.Task, workspace *d
 	}
 
 	// Show validation output if available, otherwise fall back to error summary
+	// ValidationOutput already contains properly formatted markdown from formatter.go
+	// with code blocks for stderr/stdout, so we don't wrap it in additional code blocks
 	if info.ValidationOutput != "" {
 		sb.WriteString("📋 Validation Output:\n")
-		sb.WriteString("```\n")
 		sb.WriteString(info.ValidationOutput)
-		sb.WriteString("\n```\n\n")
+		sb.WriteString("\n")
 	} else if info.ErrorSummary != "" {
 		sb.WriteString("📋 Error Details:\n")
 		// Indent error output
