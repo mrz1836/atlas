@@ -1460,3 +1460,114 @@ func TestPrintApprovalSummaryTo_WithNewline(t *testing.T) {
 	// Verify the output ends with a newline
 	assert.True(t, strings.HasSuffix(output, "\n"), "output should end with newline")
 }
+
+// TestExtractPRNumber tests PR number extraction from task metadata.
+func TestExtractPRNumber(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		task     *domain.Task
+		expected int
+	}{
+		{
+			name:     "nil task",
+			task:     nil,
+			expected: 0,
+		},
+		{
+			name:     "nil metadata",
+			task:     &domain.Task{},
+			expected: 0,
+		},
+		{
+			name: "no pr_number key",
+			task: &domain.Task{
+				Metadata: map[string]interface{}{"other_key": "value"},
+			},
+			expected: 0,
+		},
+		{
+			name: "int value",
+			task: &domain.Task{
+				Metadata: map[string]interface{}{"pr_number": 42},
+			},
+			expected: 42,
+		},
+		{
+			name: "float64 value",
+			task: &domain.Task{
+				Metadata: map[string]interface{}{"pr_number": float64(123)},
+			},
+			expected: 123,
+		},
+		{
+			name: "string value",
+			task: &domain.Task{
+				Metadata: map[string]interface{}{"pr_number": "456"},
+			},
+			expected: 456,
+		},
+		{
+			name: "invalid string value",
+			task: &domain.Task{
+				Metadata: map[string]interface{}{"pr_number": "not-a-number"},
+			},
+			expected: 0,
+		},
+		{
+			name: "unsupported type",
+			task: &domain.Task{
+				Metadata: map[string]interface{}{"pr_number": true},
+			},
+			expected: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			result := extractPRNumber(tt.task)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+// TestApproveAction_ApproveMergeClose tests the new action constant.
+func TestApproveAction_ApproveMergeClose(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, "approve_merge_close", string(actionApproveMergeClose))
+}
+
+// TestApproveCommand_MessageFlag tests that --message flag is defined.
+func TestApproveCommand_MessageFlag(t *testing.T) {
+	t.Parallel()
+
+	root := &cobra.Command{Use: "atlas"}
+	AddApproveCommand(root)
+
+	approveCmd, _, err := root.Find([]string{"approve"})
+	require.NoError(t, err)
+
+	// Check that --message flag exists
+	flag := approveCmd.Flags().Lookup("message")
+	require.NotNil(t, flag)
+	assert.Equal(t, "string", flag.Value.Type())
+	assert.Empty(t, flag.DefValue)
+	assert.Contains(t, flag.Usage, "merge")
+}
+
+// TestApproveOptions_MergeMessage tests approveOptions.mergeMessage field.
+func TestApproveOptions_MergeMessage(t *testing.T) {
+	t.Parallel()
+
+	opts := approveOptions{
+		workspace:    "my-workspace",
+		autoApprove:  true,
+		closeWS:      false,
+		mergeMessage: "Custom merge message",
+	}
+
+	assert.Equal(t, "Custom merge message", opts.mergeMessage)
+}

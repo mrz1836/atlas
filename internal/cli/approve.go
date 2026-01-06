@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strconv"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -17,6 +18,7 @@ import (
 	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/domain"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
+	"github.com/mrz1836/atlas/internal/git"
 	"github.com/mrz1836/atlas/internal/task"
 	"github.com/mrz1836/atlas/internal/tui"
 	"github.com/mrz1836/atlas/internal/workspace"
@@ -29,15 +31,17 @@ func AddApproveCommand(root *cobra.Command) {
 
 // approveOptions contains all options for the approve command.
 type approveOptions struct {
-	workspace   string // Optional workspace name
-	autoApprove bool   // Skip interactive menu and approve directly
-	closeWS     bool   // Also close the workspace after approval
+	workspace    string // Optional workspace name
+	autoApprove  bool   // Skip interactive menu and approve directly
+	closeWS      bool   // Also close the workspace after approval
+	mergeMessage string // Custom message for approve+merge operations
 }
 
 // newApproveCmd creates the approve command.
 func newApproveCmd() *cobra.Command {
 	var autoApprove bool
 	var closeWS bool
+	var mergeMessage string
 
 	cmd := &cobra.Command{
 		Use:   "approve [workspace]",
@@ -50,6 +54,7 @@ You can also specify a workspace name directly to skip the selection.
 The approval flow shows a summary of the task and provides options to:
   - Approve and complete the task
   - Approve and close the workspace (removes worktree, preserves history)
+  - Approve, merge PR, and close workspace (all in one)
   - View the git diff of changes
   - View task execution logs
   - Open the PR in your browser
@@ -65,12 +70,14 @@ Examples:
   atlas approve my-feature   # Approve task in my-feature workspace
   atlas approve my-feature --auto-approve  # Approve directly without menu
   atlas approve my-feature --close         # Approve and close workspace
+  atlas approve my-feature --message "Merged by CI"  # Custom merge message
   atlas approve -o json my-feature  # Output result as JSON`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts := approveOptions{
-				autoApprove: autoApprove,
-				closeWS:     closeWS,
+				autoApprove:  autoApprove,
+				closeWS:      closeWS,
+				mergeMessage: mergeMessage,
 			}
 			if len(args) > 0 {
 				opts.workspace = args[0]
@@ -81,6 +88,7 @@ Examples:
 
 	cmd.Flags().BoolVar(&autoApprove, "auto-approve", false, "Skip interactive menu and approve directly")
 	cmd.Flags().BoolVar(&closeWS, "close", false, "Also close the workspace after approval (removes worktree, preserves history)")
+	cmd.Flags().StringVar(&mergeMessage, "message", "", "Custom message for approve+merge (overrides config)")
 
 	return cmd
 }
@@ -100,13 +108,14 @@ type approveResponse struct {
 type approvalAction string
 
 const (
-	actionApprove         approvalAction = "approve"
-	actionApproveAndClose approvalAction = "approve_and_close"
-	actionViewDiff        approvalAction = "view_diff"
-	actionViewLogs        approvalAction = "view_logs"
-	actionOpenPR          approvalAction = "open_pr"
-	actionReject          approvalAction = "reject"
-	actionCancel          approvalAction = "cancel"
+	actionApprove           approvalAction = "approve"
+	actionApproveAndClose   approvalAction = "approve_and_close"
+	actionApproveMergeClose approvalAction = "approve_merge_close"
+	actionViewDiff          approvalAction = "view_diff"
+	actionViewLogs          approvalAction = "view_logs"
+	actionOpenPR            approvalAction = "open_pr"
+	actionReject            approvalAction = "reject"
+	actionCancel            approvalAction = "cancel"
 )
 
 // Injection points for testing - these can be overridden in tests
@@ -456,6 +465,16 @@ func executeApprovalAction(ctx context.Context, out tui.Output, taskStore task.S
 		notifier.Bell()
 		return true, nil
 
+	case actionApproveMergeClose:
+		// Load config to get the default merge message
+		cfg, _ := config.Load(ctx)
+		message := cfg.Approval.MergeMessage
+		if err := executeApproveMergeClose(ctx, out, taskStore, ws, t, notifier, message); err != nil {
+			//nolint:nilerr // Error already displayed to user; continue interactive loop
+			return false, nil
+		}
+		return true, nil
+
 	case actionViewDiff:
 		if err := viewDiff(ctx, ws.WorktreePath); err != nil {
 			out.Warning("Could not display diff: " + err.Error())
@@ -496,9 +515,21 @@ func selectApprovalAction(t *domain.Task) (approvalAction, error) {
 	options := []tui.Option{
 		{Label: "Approve and complete", Description: "Mark task as completed", Value: string(actionApprove)},
 		{Label: "Approve and close workspace", Description: "Mark completed and remove worktree", Value: string(actionApproveAndClose)},
-		{Label: "View diff", Description: "Show file changes", Value: string(actionViewDiff)},
-		{Label: "View logs", Description: "Show task execution log", Value: string(actionViewLogs)},
 	}
+
+	// Only show merge option if PR exists
+	if prNumber := extractPRNumber(t); prNumber > 0 {
+		options = append(options, tui.Option{
+			Label:       "Approve + Merge + Close",
+			Description: "Review PR, squash merge, close workspace",
+			Value:       string(actionApproveMergeClose),
+		})
+	}
+
+	options = append(options,
+		tui.Option{Label: "View diff", Description: "Show file changes", Value: string(actionViewDiff)},
+		tui.Option{Label: "View logs", Description: "Show task execution log", Value: string(actionViewLogs)},
+	)
 
 	// Only show Open PR if URL is available
 	if prURL := extractPRURL(t); prURL != "" {
@@ -615,6 +646,123 @@ func extractPRURL(t *domain.Task) string {
 		return prURL
 	}
 	return ""
+}
+
+// extractPRNumber extracts the PR number from task metadata.
+func extractPRNumber(t *domain.Task) int {
+	if t == nil || t.Metadata == nil {
+		return 0
+	}
+
+	prNumber, ok := t.Metadata["pr_number"]
+	if !ok {
+		return 0
+	}
+
+	switch v := prNumber.(type) {
+	case int:
+		return v
+	case float64:
+		return int(v)
+	case string:
+		n, _ := strconv.Atoi(v)
+		return n
+	default:
+		return 0
+	}
+}
+
+// createHubRunnerFunc creates a GitHub runner for the given work directory.
+// This is a variable to allow test injection.
+//
+//nolint:gochecknoglobals // Test injection point - standard Go testing pattern
+var createHubRunnerFunc = func(workDir string) git.HubRunner {
+	return git.NewCLIGitHubRunner(workDir)
+}
+
+// addReviewOrComment attempts to add a review, falling back to a comment if needed.
+func addReviewOrComment(ctx context.Context, out tui.Output, hubRunner git.HubRunner, prNumber int, message string) {
+	reviewErr := hubRunner.AddPRReview(ctx, prNumber, message, "APPROVE")
+	if reviewErr == nil {
+		out.Success("PR approved")
+		return
+	}
+
+	// Log appropriate warning based on error type
+	if errors.Is(reviewErr, atlaserrors.ErrPRReviewNotAllowed) {
+		out.Warning("Cannot add review (own PR). Adding comment instead.")
+	} else {
+		out.Warning(fmt.Sprintf("Could not add review: %s. Adding comment instead.", reviewErr))
+	}
+
+	// Attempt to add comment as fallback
+	if commentErr := hubRunner.AddPRComment(ctx, prNumber, message); commentErr != nil {
+		out.Warning(fmt.Sprintf("Could not add comment: %s", commentErr))
+	} else {
+		out.Info("Added comment to PR")
+	}
+}
+
+// executeApproveMergeClose performs the approve+merge+close workflow.
+// 1. Adds PR review (APPROVE) or falls back to comment
+// 2. Merges PR with squash (falls back to admin bypass if needed)
+// 3. Approves task and closes workspace
+func executeApproveMergeClose(
+	ctx context.Context,
+	out tui.Output,
+	taskStore task.Store,
+	ws *domain.Workspace,
+	t *domain.Task,
+	notifier *tui.Notifier,
+	message string,
+) error {
+	prNumber := extractPRNumber(t)
+	if prNumber == 0 {
+		err := fmt.Errorf("no PR number found in task metadata: %w", atlaserrors.ErrEmptyValue)
+		out.Error(err)
+		return err
+	}
+
+	// Get the worktree path for GitHub runner
+	hubRunner := createHubRunnerFunc(ws.WorktreePath)
+
+	// Step 1: Try to add PR review (APPROVE), fallback to comment
+	addReviewOrComment(ctx, out, hubRunner, prNumber, message)
+
+	// Step 2: Merge PR with squash, fallback to admin bypass
+	mergeErr := hubRunner.MergePR(ctx, prNumber, "squash", false)
+	if mergeErr != nil {
+		out.Warning(fmt.Sprintf("Standard merge failed: %s. Trying with admin bypass...", mergeErr))
+		mergeErr = hubRunner.MergePR(ctx, prNumber, "squash", true)
+		if mergeErr != nil {
+			out.Error(tui.WrapWithSuggestion(mergeErr))
+			return mergeErr
+		}
+		out.Success("PR merged (squash) with admin bypass")
+	} else {
+		out.Success("PR merged (squash)")
+	}
+
+	// Step 3: Approve task in ATLAS
+	if err := approveTask(ctx, taskStore, t); err != nil {
+		out.Error(tui.WrapWithSuggestion(err))
+		return err
+	}
+	out.Success("Task approved")
+
+	// Step 4: Close workspace
+	warning, err := closeWorkspace(ctx, ws.Name)
+	if err != nil {
+		out.Warning(fmt.Sprintf("Failed to close workspace: %s", err))
+	} else {
+		out.Success(fmt.Sprintf("Workspace '%s' closed. History preserved.", ws.Name))
+		if warning != "" {
+			out.Warning(warning)
+		}
+	}
+
+	notifier.Bell()
+	return nil
 }
 
 // openInBrowser opens a URL in the default browser (macOS).
