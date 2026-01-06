@@ -219,9 +219,13 @@ func (e *CIExecutor) Execute(ctx context.Context, task *domain.Task, step *domai
 
 			stateMsg := ""
 			if len(stateDetails) > 0 {
-				stateMsg = " - " + strings.Join(stateDetails, ", ")
+				stateMsg = strings.Join(stateDetails, ", ")
 			}
 
+			// Simple progress for Info level (always visible)
+			e.logger.Info().Msgf("CI: ⏳ %s (%s)", stateMsg, elapsedStr)
+
+			// Detailed progress for Debug level (verbose mode)
 			e.logger.Debug().
 				Str("elapsed", elapsedStr).
 				Str("started", startTime).
@@ -229,7 +233,7 @@ func (e *CIExecutor) Execute(ctx context.Context, task *domain.Task, step *domai
 				Int("check_count_pending", stateCounts.Pending).
 				Int("check_count_completed", stateCounts.Completed).
 				Int("check_count_failed", stateCounts.Failed).
-				Msgf("CI progress: %s elapsed (started %s)%s",
+				Msgf("CI progress: %s elapsed (started %s) - %s",
 					elapsedStr, startTime, stateMsg)
 		},
 	}
@@ -313,10 +317,8 @@ func (e *CIExecutor) extractPRNumber(t *domain.Task) (int, error) {
 // handleSuccess returns a completed StepResult for successful CI.
 func (e *CIExecutor) handleSuccess(result *git.CIWatchResult, t *domain.Task, step *domain.StepDefinition, startTime time.Time, artifactPath string) (*domain.StepResult, error) {
 	completedAt := time.Now()
-	e.logger.Info().
-		Dur("elapsed", result.ElapsedTime).
-		Int("checks_passed", len(result.CheckResults)).
-		Msg("CI checks passed")
+	e.logger.Info().Msgf("CI: ✓ All %d checks passed (%s)",
+		len(result.CheckResults), formatDuration(result.ElapsedTime))
 
 	return &domain.StepResult{
 		StepIndex:    t.CurrentStep,
@@ -333,9 +335,9 @@ func (e *CIExecutor) handleSuccess(result *git.CIWatchResult, t *domain.Task, st
 // handleFailure returns appropriate StepResult for CI failure.
 func (e *CIExecutor) handleFailure(result *git.CIWatchResult, t *domain.Task, step *domain.StepDefinition, startTime time.Time, artifactPath string) (*domain.StepResult, error) {
 	completedAt := time.Now()
-	e.logger.Warn().
-		Dur("elapsed", result.ElapsedTime).
-		Msg("CI checks failed")
+	stateCounts := countChecksByState(result.CheckResults)
+	e.logger.Warn().Msgf("CI: ✗ %d failed, %d passed (%s)",
+		stateCounts.Failed, stateCounts.Completed, formatDuration(result.ElapsedTime))
 
 	// Format failure message
 	failureMsg := e.formatCIFailureMessage(result)
