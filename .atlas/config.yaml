@@ -151,11 +151,21 @@ notifications:
     - github_failed
 
 smart_commit:
+  # Agent for commit message generation; empty = uses ai.agent setting
+  # Valid values: "claude", "gemini", "codex"
+  # Default: "" (uses ai.agent)
+  agent: "claude"
+
   # Model for commit message generation; empty = uses ai.model setting
   # Default: ""
   model: "haiku"
 
 pr_description:
+  # Agent for PR description generation; empty = uses ai.agent setting
+  # Valid values: "claude", "gemini", "codex"
+  # Default: "" (uses ai.agent)
+  agent: "claude"
+
   # Model for PR description generation; empty = uses ai.model setting
   # Default: ""
   model: "haiku"

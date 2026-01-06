@@ -1274,6 +1274,11 @@ notifications:
 # Smart Commit Configuration
 #------------------------------------------------------------------------------
 smart_commit:
+  # Agent for commit message generation; empty = uses ai.agent setting
+  # Valid values: "claude", "gemini", "codex"
+  # Default: "" (uses ai.agent)
+  agent: ""
+
   # Model for commit message generation; empty = uses ai.model setting
   # Default: ""
   model: ""
@@ -1282,6 +1287,11 @@ smart_commit:
 # PR Description Configuration
 #------------------------------------------------------------------------------
 pr_description:
+  # Agent for PR description generation; empty = uses ai.agent setting
+  # Valid values: "claude", "gemini", "codex"
+  # Default: "" (uses ai.agent)
+  agent: ""
+
   # Model for PR description generation; empty = uses ai.model setting
   # Default: ""
   model: ""

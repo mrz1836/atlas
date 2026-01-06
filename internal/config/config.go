@@ -225,6 +225,12 @@ type NotificationsConfig struct {
 // SmartCommitConfig contains settings for smart commit message generation.
 // These settings control AI-powered commit message creation.
 type SmartCommitConfig struct {
+	// Agent overrides the AI agent for commit message generation.
+	// If empty, falls back to AI.Agent setting.
+	// Valid values: "claude", "gemini", "codex"
+	// Default: "" (uses AI.Agent)
+	Agent string `yaml:"agent,omitempty" mapstructure:"agent"`
+
 	// Model overrides the AI model for commit message generation.
 	// If empty, falls back to AI.Model setting.
 	// Common values: "sonnet", "opus", "haiku"
@@ -235,6 +241,12 @@ type SmartCommitConfig struct {
 // PRDescriptionConfig contains settings for PR description generation.
 // These settings control AI-powered PR title and body creation.
 type PRDescriptionConfig struct {
+	// Agent overrides the AI agent for PR description generation.
+	// If empty, falls back to AI.Agent setting.
+	// Valid values: "claude", "gemini", "codex"
+	// Default: "" (uses AI.Agent)
+	Agent string `yaml:"agent,omitempty" mapstructure:"agent"`
+
 	// Model overrides the AI model for PR description generation.
 	// If empty, falls back to AI.Model setting.
 	// Common values: "sonnet", "opus", "haiku"
