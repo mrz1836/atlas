@@ -54,6 +54,9 @@ type mockHubRunner struct {
 	getPRStatusFunc  func(ctx context.Context, prNumber int) (*git.PRStatus, error)
 	watchPRFunc      func(ctx context.Context, opts git.CIWatchOptions) (*git.CIWatchResult, error)
 	convertDraftFunc func(ctx context.Context, prNumber int) error
+	mergePRFunc      func(ctx context.Context, prNumber int, mergeMethod string, adminBypass bool) error
+	addPRReviewFunc  func(ctx context.Context, prNumber int, body, event string) error
+	addPRCommentFunc func(ctx context.Context, prNumber int, body string) error
 }
 
 func (m *mockHubRunner) CreatePR(ctx context.Context, opts git.PRCreateOptions) (*git.PRResult, error) {
@@ -80,6 +83,27 @@ func (m *mockHubRunner) WatchPRChecks(ctx context.Context, opts git.CIWatchOptio
 func (m *mockHubRunner) ConvertToDraft(ctx context.Context, prNumber int) error {
 	if m.convertDraftFunc != nil {
 		return m.convertDraftFunc(ctx, prNumber)
+	}
+	return nil
+}
+
+func (m *mockHubRunner) MergePR(ctx context.Context, prNumber int, mergeMethod string, adminBypass bool) error {
+	if m.mergePRFunc != nil {
+		return m.mergePRFunc(ctx, prNumber, mergeMethod, adminBypass)
+	}
+	return nil
+}
+
+func (m *mockHubRunner) AddPRReview(ctx context.Context, prNumber int, body, event string) error {
+	if m.addPRReviewFunc != nil {
+		return m.addPRReviewFunc(ctx, prNumber, body, event)
+	}
+	return nil
+}
+
+func (m *mockHubRunner) AddPRComment(ctx context.Context, prNumber int, body string) error {
+	if m.addPRCommentFunc != nil {
+		return m.addPRCommentFunc(ctx, prNumber, body)
 	}
 	return nil
 }

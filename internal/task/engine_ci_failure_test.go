@@ -40,6 +40,18 @@ func (m *mockHubRunner) ConvertToDraft(_ context.Context, prNumber int) error {
 	return m.convertToDraftErr
 }
 
+func (m *mockHubRunner) MergePR(_ context.Context, _ int, _ string, _ bool) error {
+	return nil
+}
+
+func (m *mockHubRunner) AddPRReview(_ context.Context, _ int, _, _ string) error {
+	return nil
+}
+
+func (m *mockHubRunner) AddPRComment(_ context.Context, _ int, _ string) error {
+	return nil
+}
+
 // testLogger returns a no-op logger for testing.
 func ciTestLogger() zerolog.Logger {
 	return zerolog.Nop()

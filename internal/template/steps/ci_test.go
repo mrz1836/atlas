@@ -48,6 +48,18 @@ func (m *ciMockHubRunner) ConvertToDraft(_ context.Context, _ int) error {
 	return nil
 }
 
+func (m *ciMockHubRunner) MergePR(_ context.Context, _ int, _ string, _ bool) error {
+	return nil
+}
+
+func (m *ciMockHubRunner) AddPRReview(_ context.Context, _ int, _, _ string) error {
+	return nil
+}
+
+func (m *ciMockHubRunner) AddPRComment(_ context.Context, _ int, _ string) error {
+	return nil
+}
+
 // mockCIFailureHandler implements CIFailureHandlerInterface for testing.
 type mockCIFailureHandler struct {
 	hasHandler bool

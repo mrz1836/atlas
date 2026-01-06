@@ -24,6 +24,9 @@ type MockHubRunner struct {
 	GetPRStatusFunc    func(ctx context.Context, prNumber int) (*git.PRStatus, error)
 	WatchPRChecksFunc  func(ctx context.Context, opts git.CIWatchOptions) (*git.CIWatchResult, error)
 	ConvertToDraftFunc func(ctx context.Context, prNumber int) error
+	MergePRFunc        func(ctx context.Context, prNumber int, mergeMethod string, adminBypass bool) error
+	AddPRReviewFunc    func(ctx context.Context, prNumber int, body, event string) error
+	AddPRCommentFunc   func(ctx context.Context, prNumber int, body string) error
 }
 
 func (m *MockHubRunner) CreatePR(ctx context.Context, opts git.PRCreateOptions) (*git.PRResult, error) {
@@ -52,6 +55,27 @@ func (m *MockHubRunner) ConvertToDraft(ctx context.Context, prNumber int) error 
 		return m.ConvertToDraftFunc(ctx, prNumber)
 	}
 	return fmt.Errorf("ConvertToDraft not implemented: %w", atlaserrors.ErrCommandNotConfigured)
+}
+
+func (m *MockHubRunner) MergePR(ctx context.Context, prNumber int, mergeMethod string, adminBypass bool) error {
+	if m.MergePRFunc != nil {
+		return m.MergePRFunc(ctx, prNumber, mergeMethod, adminBypass)
+	}
+	return fmt.Errorf("MergePR not implemented: %w", atlaserrors.ErrCommandNotConfigured)
+}
+
+func (m *MockHubRunner) AddPRReview(ctx context.Context, prNumber int, body, event string) error {
+	if m.AddPRReviewFunc != nil {
+		return m.AddPRReviewFunc(ctx, prNumber, body, event)
+	}
+	return fmt.Errorf("AddPRReview not implemented: %w", atlaserrors.ErrCommandNotConfigured)
+}
+
+func (m *MockHubRunner) AddPRComment(ctx context.Context, prNumber int, body string) error {
+	if m.AddPRCommentFunc != nil {
+		return m.AddPRCommentFunc(ctx, prNumber, body)
+	}
+	return fmt.Errorf("AddPRComment not implemented: %w", atlaserrors.ErrCommandNotConfigured)
 }
 
 func TestCIFailureAction_String(t *testing.T) {
