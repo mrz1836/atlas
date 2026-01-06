@@ -7,6 +7,7 @@ package ai
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os/exec"
@@ -641,6 +642,289 @@ func TestGeminiExecutor_Execute(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "test output\n", string(stdout))
 		assert.Empty(t, stderr)
+	})
+}
+
+func TestGeminiError_UnmarshalJSON(t *testing.T) {
+	t.Parallel()
+
+	t.Run("unmarshals string error", func(t *testing.T) {
+		t.Parallel()
+		data := []byte(`"simple error message"`)
+
+		var ge GeminiError
+		err := json.Unmarshal(data, &ge)
+
+		require.NoError(t, err)
+		assert.Equal(t, "simple error message", ge.RawString)
+		assert.Empty(t, ge.Type)
+		assert.Empty(t, ge.Message)
+	})
+
+	t.Run("unmarshals object error with type and message", func(t *testing.T) {
+		t.Parallel()
+		data := []byte(`{"type":"ApiError","message":"Rate limit exceeded"}`)
+
+		var ge GeminiError
+		err := json.Unmarshal(data, &ge)
+
+		require.NoError(t, err)
+		assert.Equal(t, "ApiError", ge.Type)
+		assert.Equal(t, "Rate limit exceeded", ge.Message)
+		assert.Equal(t, 0, ge.Code)
+		assert.Empty(t, ge.RawString)
+	})
+
+	t.Run("unmarshals object error with code", func(t *testing.T) {
+		t.Parallel()
+		data := []byte(`{"type":"AuthError","message":"Invalid API key","code":401}`)
+
+		var ge GeminiError
+		err := json.Unmarshal(data, &ge)
+
+		require.NoError(t, err)
+		assert.Equal(t, "AuthError", ge.Type)
+		assert.Equal(t, "Invalid API key", ge.Message)
+		assert.Equal(t, 401, ge.Code)
+		assert.Empty(t, ge.RawString)
+	})
+
+	t.Run("returns error for invalid JSON", func(t *testing.T) {
+		t.Parallel()
+		data := []byte(`{invalid json}`)
+
+		var ge GeminiError
+		err := json.Unmarshal(data, &ge)
+
+		require.Error(t, err)
+	})
+}
+
+func TestGeminiError_String(t *testing.T) {
+	t.Parallel()
+
+	t.Run("returns raw string when present", func(t *testing.T) {
+		t.Parallel()
+		ge := &GeminiError{
+			RawString: "simple error",
+		}
+
+		assert.Equal(t, "simple error", ge.String())
+	})
+
+	t.Run("returns type and message with code", func(t *testing.T) {
+		t.Parallel()
+		ge := &GeminiError{
+			Type:    "ApiError",
+			Message: "Rate limit exceeded",
+			Code:    429,
+		}
+
+		result := ge.String()
+		assert.Equal(t, "ApiError (code 429): Rate limit exceeded", result)
+	})
+
+	t.Run("returns type and message without code", func(t *testing.T) {
+		t.Parallel()
+		ge := &GeminiError{
+			Type:    "AuthError",
+			Message: "Invalid API key",
+		}
+
+		assert.Equal(t, "AuthError: Invalid API key", ge.String())
+	})
+
+	t.Run("returns only message when type is empty", func(t *testing.T) {
+		t.Parallel()
+		ge := &GeminiError{
+			Message: "Something went wrong",
+		}
+
+		assert.Equal(t, "Something went wrong", ge.String())
+	})
+
+	t.Run("returns only type when message is empty", func(t *testing.T) {
+		t.Parallel()
+		ge := &GeminiError{
+			Type: "UnknownError",
+		}
+
+		assert.Equal(t, "UnknownError", ge.String())
+	})
+
+	t.Run("returns unknown error when all fields empty", func(t *testing.T) {
+		t.Parallel()
+		ge := &GeminiError{}
+
+		assert.Equal(t, "unknown error", ge.String())
+	})
+}
+
+func TestParseGeminiResponse(t *testing.T) {
+	t.Parallel()
+
+	t.Run("parses valid success response", func(t *testing.T) {
+		t.Parallel()
+		data := []byte(`{"success":true,"response":"Task completed","session_id":"gem-123","duration_ms":2000,"num_turns":2,"total_cost_usd":0.03}`)
+
+		resp, err := parseGeminiResponse(data)
+
+		require.NoError(t, err)
+		assert.True(t, resp.Success)
+		assert.Equal(t, "Task completed", resp.Response)
+		assert.Equal(t, "gem-123", resp.SessionID)
+		assert.Equal(t, 2000, resp.DurationMs)
+		assert.Equal(t, 2, resp.NumTurns)
+		assert.InDelta(t, 0.03, resp.TotalCostUSD, 0.001)
+	})
+
+	t.Run("parses error response with structured error", func(t *testing.T) {
+		t.Parallel()
+		data := []byte(`{"success":false,"error":{"type":"ApiError","message":"Rate limit","code":429}}`)
+
+		resp, err := parseGeminiResponse(data)
+
+		require.NoError(t, err)
+		assert.False(t, resp.Success)
+		require.NotNil(t, resp.Error)
+		assert.Equal(t, "ApiError", resp.Error.Type)
+		assert.Equal(t, "Rate limit", resp.Error.Message)
+		assert.Equal(t, 429, resp.Error.Code)
+	})
+
+	t.Run("parses error response with string error", func(t *testing.T) {
+		t.Parallel()
+		data := []byte(`{"success":false,"error":"Simple error message"}`)
+
+		resp, err := parseGeminiResponse(data)
+
+		require.NoError(t, err)
+		assert.False(t, resp.Success)
+		require.NotNil(t, resp.Error)
+		assert.Equal(t, "Simple error message", resp.Error.RawString)
+	})
+
+	t.Run("returns error for empty data", func(t *testing.T) {
+		t.Parallel()
+		resp, err := parseGeminiResponse([]byte{})
+
+		assert.Nil(t, resp)
+		require.ErrorIs(t, err, atlaserrors.ErrGeminiInvocation)
+		assert.Contains(t, err.Error(), "empty response")
+	})
+
+	t.Run("returns error for invalid JSON", func(t *testing.T) {
+		t.Parallel()
+		resp, err := parseGeminiResponse([]byte("not valid json"))
+
+		assert.Nil(t, resp)
+		require.ErrorIs(t, err, atlaserrors.ErrGeminiInvocation)
+		assert.Contains(t, err.Error(), "parse json")
+	})
+}
+
+func TestGeminiResponse_toAIResult(t *testing.T) {
+	t.Parallel()
+
+	t.Run("converts success response with response field", func(t *testing.T) {
+		t.Parallel()
+		resp := &GeminiResponse{
+			Success:      true,
+			Response:     "response content",
+			SessionID:    "gem-456",
+			DurationMs:   3000,
+			NumTurns:     3,
+			TotalCostUSD: 0.04,
+		}
+
+		result := resp.toAIResult("")
+
+		assert.True(t, result.Success)
+		assert.Equal(t, "response content", result.Output)
+		assert.Equal(t, "gem-456", result.SessionID)
+		assert.Equal(t, 3000, result.DurationMs)
+		assert.Equal(t, 3, result.NumTurns)
+		assert.InDelta(t, 0.04, result.TotalCostUSD, 0.001)
+		assert.Empty(t, result.Error)
+	})
+
+	t.Run("uses content field when response is empty", func(t *testing.T) {
+		t.Parallel()
+		resp := &GeminiResponse{
+			Success: true,
+			Content: "content field data",
+		}
+
+		result := resp.toAIResult("")
+
+		assert.Equal(t, "content field data", result.Output)
+	})
+
+	t.Run("uses result field when response and content are empty", func(t *testing.T) {
+		t.Parallel()
+		resp := &GeminiResponse{
+			Success: true,
+			Result:  "result field data",
+		}
+
+		result := resp.toAIResult("")
+
+		assert.Equal(t, "result field data", result.Output)
+	})
+
+	t.Run("prefers response over content over result", func(t *testing.T) {
+		t.Parallel()
+		resp := &GeminiResponse{
+			Success:  true,
+			Response: "response",
+			Content:  "content",
+			Result:   "result",
+		}
+
+		result := resp.toAIResult("")
+
+		assert.Equal(t, "response", result.Output)
+	})
+
+	t.Run("includes error from error object", func(t *testing.T) {
+		t.Parallel()
+		resp := &GeminiResponse{
+			Success: false,
+			Error: &GeminiError{
+				Type:    "ApiError",
+				Message: "Rate limit exceeded",
+				Code:    429,
+			},
+		}
+
+		result := resp.toAIResult("")
+
+		assert.False(t, result.Success)
+		assert.Equal(t, "ApiError (code 429): Rate limit exceeded", result.Error)
+	})
+
+	t.Run("uses stderr when error object is nil", func(t *testing.T) {
+		t.Parallel()
+		resp := &GeminiResponse{
+			Success: false,
+		}
+
+		result := resp.toAIResult("stderr error content")
+
+		assert.False(t, result.Success)
+		assert.Equal(t, "stderr error content", result.Error)
+	})
+
+	t.Run("empty error when success is false but no error info", func(t *testing.T) {
+		t.Parallel()
+		resp := &GeminiResponse{
+			Success: false,
+		}
+
+		result := resp.toAIResult("")
+
+		assert.False(t, result.Success)
+		assert.Empty(t, result.Error)
 	})
 }
 
