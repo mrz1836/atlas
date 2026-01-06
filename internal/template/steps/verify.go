@@ -64,10 +64,12 @@ type VerifyConfig struct {
 }
 
 // DefaultVerifyConfig returns the default verification configuration.
+// By default, only code_correctness is checked for speed. Other checks
+// (test_coverage, garbage_files, security) can be enabled via step config.
 func DefaultVerifyConfig() *VerifyConfig {
 	return &VerifyConfig{
 		Model:          "", // Use task default or step config
-		Checks:         []string{"code_correctness", "garbage_files"},
+		Checks:         []string{"code_correctness"},
 		FailOnWarnings: false,
 	}
 }
@@ -130,6 +132,16 @@ func (e *VerifyExecutor) Execute(ctx context.Context, task *domain.Task, step *d
 		Str("agent", string(req.Agent)).
 		Str("model", req.Model).
 		Msg("executing verify step")
+
+	// Debug log for verbose mode - shows exact request configuration
+	e.logger.Debug().
+		Str("task_id", task.ID).
+		Str("agent", string(req.Agent)).
+		Str("model", req.Model).
+		Str("permission_mode", req.PermissionMode).
+		Str("working_dir", req.WorkingDir).
+		Dur("timeout", req.Timeout).
+		Msg("AI request details")
 
 	// Execute with timeout from step definition if set
 	execCtx := ctx
@@ -261,39 +273,23 @@ func (e *VerifyExecutor) buildRequest(task *domain.Task, step *domain.StepDefini
 }
 
 // buildVerificationPrompt creates the prompt for AI verification.
+// The prompt is kept concise to minimize AI processing time.
 func (e *VerifyExecutor) buildVerificationPrompt(task *domain.Task, step *domain.StepDefinition) string {
 	checks := e.getChecksFromConfig(step.Config)
 
-	prompt := fmt.Sprintf(`You are a code reviewer validating an implementation.
+	// Build a concise prompt - the simpler the prompt, the faster the response
+	prompt := fmt.Sprintf(`Review if the implementation matches the task.
 
-## Task Description
-%s
-
-## Verification Checks to Perform
+## Task
 %s
 
 ## Instructions
-1. Review the changes made for this task
-2. Check each verification item listed above
-3. Report any issues found with severity, category, file, line, message, and suggestion
+Quickly verify:
+%s
 
-## Response Format
-Respond with a JSON object:
-{
-  "passed": true/false,
-  "issues": [
-    {
-      "severity": "error|warning|info",
-      "category": "code_correctness|test_coverage|garbage|security",
-      "file": "path/to/file.go",
-      "line": 42,
-      "message": "Description of issue",
-      "suggestion": "How to fix"
-    }
-  ],
-  "summary": "Brief overall assessment"
-}
-`, task.Description, e.formatChecks(checks))
+Respond with JSON:
+{"passed": true/false, "issues": [{"severity": "error|warning", "category": "code_correctness", "file": "path", "line": 0, "message": "issue", "suggestion": "fix"}], "summary": "Brief assessment"}
+`, task.Description, e.formatChecksCompact(checks))
 
 	return prompt
 }
@@ -324,13 +320,13 @@ func (e *VerifyExecutor) getChecksFromConfig(config map[string]any) []string {
 	return DefaultVerifyConfig().Checks
 }
 
-// formatChecks formats the checks list for the prompt.
-func (e *VerifyExecutor) formatChecks(checks []string) string {
+// formatChecksCompact formats the checks list for the prompt (compact version for speed).
+func (e *VerifyExecutor) formatChecksCompact(checks []string) string {
 	checkDescriptions := map[string]string{
-		"code_correctness": "- Code Correctness: Does the implementation correctly address the task description? Are there any obvious bugs or logic errors?",
-		"test_coverage":    "- Test Coverage: Are there tests for the new/modified code? Do tests cover edge cases?",
-		"garbage_files":    "- Garbage Files: Are there any temporary, debug, or build artifact files that shouldn't be committed?",
-		"security":         "- Security: Are there any security concerns (hardcoded secrets, injection vulnerabilities, improper input validation)?",
+		"code_correctness": "1. Does the code address the task? Any obvious bugs?",
+		"test_coverage":    "2. Are there tests for the changes?",
+		"garbage_files":    "3. Any temp/debug files to remove?",
+		"security":         "4. Any hardcoded secrets or vulnerabilities?",
 	}
 
 	result := ""

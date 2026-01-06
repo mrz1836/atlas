@@ -57,6 +57,16 @@ func (e *AIExecutor) Execute(ctx context.Context, task *domain.Task, step *domai
 		Str("model", req.Model).
 		Msg("executing ai step")
 
+	// Debug log for verbose mode - shows exact request configuration
+	log.Debug().
+		Str("task_id", task.ID).
+		Str("agent", string(req.Agent)).
+		Str("model", req.Model).
+		Str("permission_mode", req.PermissionMode).
+		Str("working_dir", req.WorkingDir).
+		Dur("timeout", req.Timeout).
+		Msg("AI request details")
+
 	// Execute with timeout from step definition if set
 	execCtx := ctx
 	if step.Timeout > 0 {
