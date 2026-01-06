@@ -451,3 +451,69 @@ func TestSpinnerAdapter(t *testing.T) {
 	// Calling Stop multiple times should not panic
 	adapter.Stop()
 }
+
+func TestJSONOutput_URL(t *testing.T) {
+	t.Run("url with display text", func(t *testing.T) {
+		var buf bytes.Buffer
+		out := NewJSONOutput(&buf)
+		out.URL("https://github.com/mrz1836/atlas", "Atlas Repository")
+
+		var result jsonURL
+		err := json.Unmarshal(buf.Bytes(), &result)
+		require.NoError(t, err)
+		assert.Equal(t, "url", result.Type)
+		assert.Equal(t, "https://github.com/mrz1836/atlas", result.URL)
+		assert.Equal(t, "Atlas Repository", result.Display)
+	})
+
+	t.Run("url without display text", func(t *testing.T) {
+		var buf bytes.Buffer
+		out := NewJSONOutput(&buf)
+		out.URL("https://github.com/mrz1836/atlas", "")
+
+		var result jsonURL
+		err := json.Unmarshal(buf.Bytes(), &result)
+		require.NoError(t, err)
+		assert.Equal(t, "url", result.Type)
+		assert.Equal(t, "https://github.com/mrz1836/atlas", result.URL)
+		assert.Empty(t, result.Display)
+	})
+
+	t.Run("url with display text same as url", func(t *testing.T) {
+		var buf bytes.Buffer
+		out := NewJSONOutput(&buf)
+		url := "https://github.com/mrz1836/atlas"
+		out.URL(url, url)
+
+		var result jsonURL
+		err := json.Unmarshal(buf.Bytes(), &result)
+		require.NoError(t, err)
+		assert.Equal(t, "url", result.Type)
+		assert.Equal(t, url, result.URL)
+		// Display should be omitted when same as URL (per AC: #147 line 154)
+		assert.Empty(t, result.Display)
+	})
+}
+
+func TestTTYOutput_URL(t *testing.T) {
+	t.Run("url with display text", func(t *testing.T) {
+		var buf bytes.Buffer
+		out := NewTTYOutput(&buf)
+		out.URL("https://github.com/mrz1836/atlas", "Atlas Repository")
+
+		output := buf.String()
+		// Should contain display text
+		assert.Contains(t, output, "Atlas Repository")
+		assert.Contains(t, output, "https://github.com/mrz1836/atlas")
+	})
+
+	t.Run("url without display text", func(t *testing.T) {
+		var buf bytes.Buffer
+		out := NewTTYOutput(&buf)
+		out.URL("https://github.com/mrz1836/atlas", "")
+
+		output := buf.String()
+		// Should contain URL directly
+		assert.Contains(t, output, "https://github.com/mrz1836/atlas")
+	})
+}
