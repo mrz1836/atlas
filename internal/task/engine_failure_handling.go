@@ -159,11 +159,13 @@ func (e *Engine) handleCITimeout(ctx context.Context, task *domain.Task, result 
 	default:
 	}
 
-	e.logger.Info().
+	logger := e.logger.Info().
 		Str("task_id", task.ID).
-		Str("workspace", task.WorkspaceID).
-		Dur("elapsed", ciResult.ElapsedTime).
-		Msg("handling CI timeout")
+		Str("workspace", task.WorkspaceID)
+	if ciResult != nil {
+		logger = logger.Dur("elapsed", ciResult.ElapsedTime)
+	}
+	logger.Msg("handling CI timeout")
 
 	oldStatus := task.Status
 
