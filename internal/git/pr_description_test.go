@@ -767,9 +767,13 @@ func TestNewAIDescriptionGenerator_Options(t *testing.T) {
 	gen := NewAIDescriptionGenerator(mockRunner,
 		WithAIDescLogger(logger),
 		WithAIDescTimeout(timeout),
+		WithAIDescAgent("gemini"),
+		WithAIDescModel("flash"),
 	)
 
 	assert.Equal(t, timeout, gen.timeout)
+	assert.Equal(t, "gemini", gen.agent)
+	assert.Equal(t, "flash", gen.model)
 }
 
 func TestNewTemplateDescriptionGenerator_Options(t *testing.T) {

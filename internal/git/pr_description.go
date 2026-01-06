@@ -119,6 +119,7 @@ type AIDescriptionGenerator struct {
 	aiRunner ai.Runner
 	logger   zerolog.Logger
 	timeout  time.Duration
+	agent    string // AI agent for PR description generation
 	model    string // AI model for PR description generation
 }
 
@@ -160,6 +161,14 @@ func WithAIDescModel(model string) AIDescGenOption {
 	}
 }
 
+// WithAIDescAgent sets the AI agent for PR description generation.
+// If not set, the AIRunner's default agent is used.
+func WithAIDescAgent(agent string) AIDescGenOption {
+	return func(g *AIDescriptionGenerator) {
+		g.agent = agent
+	}
+}
+
 // Generate creates a PR description using AI.
 func (g *AIDescriptionGenerator) Generate(ctx context.Context, opts PRDescOptions) (*PRDescription, error) {
 	// Check for cancellation at entry
@@ -177,6 +186,7 @@ func (g *AIDescriptionGenerator) Generate(ctx context.Context, opts PRDescOption
 	g.logger.Info().
 		Str("task_id", opts.TaskID).
 		Str("template", opts.TemplateName).
+		Str("agent", g.agent).
 		Str("model", g.model).
 		Int("commit_count", len(opts.CommitMessages)).
 		Int("file_count", len(opts.FilesChanged)).
@@ -190,6 +200,7 @@ func (g *AIDescriptionGenerator) Generate(ctx context.Context, opts PRDescOption
 	defer cancel()
 
 	req := &domain.AIRequest{
+		Agent:          domain.Agent(g.agent), // Use configured agent (empty uses AIRunner's default)
 		Prompt:         prompt,
 		Model:          g.model, // Use configured model (empty string uses AIRunner's default)
 		PermissionMode: "plan",  // Read-only for description generation
