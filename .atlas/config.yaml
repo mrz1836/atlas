@@ -164,3 +164,10 @@ approval:
   # Default message for approve + merge + close operations
   # Default: "Approved and Merged by ATLAS"
   merge_message: "LGTM!"
+
+verify:
+  # Permission mode for AI verification steps
+  # "plan" = read-only sandbox mode (recommended, default)
+  # "" = full access (not recommended - allows destructive operations)
+  # Default: "plan"
+  permission_mode: plan

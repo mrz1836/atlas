@@ -1289,6 +1289,16 @@ approval:
   # Default message for approve + merge + close operations
   # Default: "Approved and Merged by ATLAS"
   merge_message: "Approved and Merged by ATLAS"
+
+#------------------------------------------------------------------------------
+# Verification Configuration
+#------------------------------------------------------------------------------
+verify:
+  # Permission mode for AI verification steps
+  # "plan" = read-only sandbox mode (recommended)
+  # "" = full access (not recommended - allows destructive operations)
+  # Default: "plan"
+  permission_mode: plan
 ```
 
 ---
