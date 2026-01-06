@@ -182,11 +182,8 @@ atlas start "fix null pointer in parseConfig"
 # Specify template
 atlas start "fix null pointer" --template bugfix
 
-# Custom workspace name
+# Custom workspace name & agent + model
 atlas start "do this thing..." -t task -w task-workspace --agent claude --model opus
-
-# Use a specific model
-atlas start "complex refactor" --agent gemini --model pro
 
 # Use a specific branch as the source (uses remote by default for safety)
 atlas start "add logging" -t task --branch develop
@@ -195,8 +192,8 @@ atlas start "add logging" -t task --branch develop
 atlas start "continue work" -t task --branch develop --use-local
 
 # Enable/disable AI verification
-atlas start "quick fix" --verify
-atlas start "quick fix" --no-verify
+atlas start "simple edit" -t task --verify
+atlas start "simple edit" -t task --no-verify
 
 # Non-interactive mode (requires --template)
 atlas start "fix bug" -t bugfix --no-interactive
@@ -770,6 +767,7 @@ ATLAS provides pre-defined workflow templates:
 | **bugfix** | Analyze → Implement → Validate → Commit → PR | `fix` | Bug fixes requiring analysis |
 | **feature** | Speckit SDD: Specify → Plan → Tasks → Implement → Validate → PR | `feat` | New features with specifications |
 | **task** | Implement → (Verify) → Validate → Commit → PR | `task` | Simple, well-defined tasks |
+| **fix** | Scan → Fix → Validate → Commit → PR | `fix` | Automated issue discovery and fixing |
 | **commit** | Smart commits: Garbage detection, logical grouping, message generation | `chore` | Commit assistance |
 
 **Template Details:**
@@ -777,6 +775,7 @@ ATLAS provides pre-defined workflow templates:
 - **bugfix**: Best for issues requiring investigation. Includes an `analyze` step to understand the problem before implementing.
 - **feature**: Full Speckit SDD workflow with specification, planning, and task breakdown. Ideal for complex features.
 - **task**: Fastest workflow for straightforward changes. Skips analysis and goes straight to implementation. Add `--verify` for optional AI cross-validation.
+- **fix**: Automated issue discovery. Runs validation commands to find lint/format/test issues, then fixes them. Best for codebase maintenance.
 - **commit**: Specialized template for creating intelligent commits from existing changes.
 
 **Utility Templates:**
@@ -1029,6 +1028,33 @@ atlas start "refactor HTTP client" --template task --verify
 - **Task**: Simple, well-defined work with clear requirements (e.g., "add logging", "update dependencies", "rename function", "update documentation")
 - **Bugfix**: Problem analysis needed (e.g., "fix null pointer", "resolve race condition")
 - **Feature**: Complex changes requiring specification (e.g., "add authentication", "implement caching layer")
+
+### Fix Workflow
+
+The **fix** template discovers and fixes validation issues automatically:
+
+```bash
+# Scan and fix any issues in the codebase
+atlas start "Fix any issues" -t fix
+
+# With specific workspace and branch
+atlas start "Fix any issues" -t fix -w test-ws --branch master --verbose
+
+# Monitor progress
+atlas status --watch
+
+# Steps:
+# 1. scan - Run validations, identify all issues (lint errors, test failures, etc.)
+# 2. fix - AI fixes all identified issues
+# 3. validate - Confirm fixes work
+# 4. git_commit → git_push → git_pr → ci_wait → review
+
+# If no issues found, task completes quickly (no PR created)
+```
+
+**When to use Fix vs Bugfix:**
+- **Fix**: No known issue - discover problems via validation commands ("Fix any issues", "Clean up the codebase")
+- **Bugfix**: Known issue from user description ("fix null pointer in parseConfig")
 
 ### Parallel Features
 
@@ -1411,6 +1437,7 @@ cat ~/.atlas/workspaces/*/tasks/*/task.log | jq 'select(.event=="model_complete"
 | Claude CLI not found | claude not installed | `npm install -g @anthropic-ai/claude-code` |
 | Gemini CLI not found | gemini not installed | `npm install -g @google/gemini-cli` |
 | Codex CLI not found | codex not installed | `npm install -g @openai/codex` |
+| No issues found (fix template) | Fix template found clean codebase | No action needed - task completes without PR |
 
 ### Debugging
 
@@ -1449,5 +1476,5 @@ atlas config --help
 
 ---
 
-**Version:** 1.1.15
+**Version:** 1.1.16
 **Last Updated:** 2026-01-06
