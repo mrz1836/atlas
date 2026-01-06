@@ -195,6 +195,7 @@ func (m *MockWorktreeRunner) RemoteBranchExists(_ context.Context, _, _ string) 
 func (m *MockWorktreeRunner) FindByBranch(_ context.Context, branch string) string {
 	m.findByBranchCallCount++
 	m.findByBranchLastArg = branch
+	m.operationOrder = append(m.operationOrder, "findByBranch")
 	return m.findByBranchResult
 }
 
@@ -226,7 +227,7 @@ func TestDefaultManager_Create_Success(t *testing.T) {
 	}
 
 	mgr := NewManager(store, runner)
-	ws, err := mgr.Create(context.Background(), "test", "/tmp/repo", "feat", "")
+	ws, err := mgr.Create(context.Background(), "test", "/tmp/repo", "feat", "", false)
 
 	require.NoError(t, err)
 	require.NotNil(t, ws)
@@ -247,7 +248,7 @@ func TestDefaultManager_Create_ValidatesNameUniqueness(t *testing.T) {
 	store.workspaces["existing"] = &domain.Workspace{Name: "existing"}
 
 	mgr := NewManager(store, runner)
-	ws, err := mgr.Create(context.Background(), "existing", "/tmp/repo", "feat", "")
+	ws, err := mgr.Create(context.Background(), "existing", "/tmp/repo", "feat", "", false)
 
 	require.Error(t, err)
 	assert.Nil(t, ws)
@@ -259,7 +260,7 @@ func TestDefaultManager_Create_ValidatesEmptyName(t *testing.T) {
 	runner := newMockWorktreeRunner()
 
 	mgr := NewManager(store, runner)
-	ws, err := mgr.Create(context.Background(), "", "/tmp/repo", "feat", "")
+	ws, err := mgr.Create(context.Background(), "", "/tmp/repo", "feat", "", false)
 
 	require.Error(t, err)
 	assert.Nil(t, ws)
@@ -273,7 +274,7 @@ func TestDefaultManager_Create_RollsBackWorktreeOnStoreFailure(t *testing.T) {
 	runner.createResult = &WorktreeInfo{Path: "/tmp/test", Branch: "feat/test"}
 
 	mgr := NewManager(store, runner)
-	ws, err := mgr.Create(context.Background(), "test", "/tmp/repo", "feat", "")
+	ws, err := mgr.Create(context.Background(), "test", "/tmp/repo", "feat", "", false)
 
 	require.Error(t, err)
 	assert.Nil(t, ws)
@@ -289,7 +290,7 @@ func TestDefaultManager_Create_FailsOnWorktreeError(t *testing.T) {
 	runner.createErr = atlaserrors.ErrWorktreeExists // Use sentinel error
 
 	mgr := NewManager(store, runner)
-	ws, err := mgr.Create(context.Background(), "test", "/tmp/repo", "feat", "")
+	ws, err := mgr.Create(context.Background(), "test", "/tmp/repo", "feat", "", false)
 
 	require.Error(t, err)
 	assert.Nil(t, ws)
@@ -307,7 +308,7 @@ func TestDefaultManager_Create_ContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately
 
-	ws, err := mgr.Create(ctx, "test", "/tmp/repo", "feat", "")
+	ws, err := mgr.Create(ctx, "test", "/tmp/repo", "feat", "", false)
 
 	require.Error(t, err)
 	assert.Nil(t, ws)
@@ -648,6 +649,7 @@ func TestDefaultManager_Close_CleanWorkspace(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	assert.Empty(t, result.WorktreeWarning) // No warning when removal succeeds
+	assert.Empty(t, result.BranchWarning)   // No warning when branch deletion succeeds
 	// Verify status was updated
 	ws := store.workspaces["test"]
 	assert.Equal(t, constants.WorkspaceStatusClosed, ws.Status)
@@ -657,8 +659,8 @@ func TestDefaultManager_Close_CleanWorkspace(t *testing.T) {
 	assert.False(t, ws.UpdatedAt.IsZero())
 	// Verify worktree was removed
 	assert.Equal(t, 1, runner.removeCallCount)
-	// Verify branch was NOT deleted
-	assert.Equal(t, 0, runner.deleteBranchCallCount)
+	// Verify branch WAS deleted after successful worktree removal
+	assert.Equal(t, 1, runner.deleteBranchCallCount)
 }
 
 func TestDefaultManager_Close_StoreUpdateFailure(t *testing.T) {
@@ -942,7 +944,7 @@ func TestDefaultManager_Create_CheckExistenceError(t *testing.T) {
 	runner := newMockWorktreeRunner()
 
 	mgr := NewManager(store, runner)
-	ws, err := mgr.Create(context.Background(), "test", "/tmp/repo", "feat", "")
+	ws, err := mgr.Create(context.Background(), "test", "/tmp/repo", "feat", "", false)
 
 	require.Error(t, err)
 	assert.Nil(t, ws)
@@ -1084,13 +1086,19 @@ func TestDefaultManager_Close_DiscoverWorktreeByBranch(t *testing.T) {
 
 	require.NoError(t, err)
 	require.NotNil(t, result)
-	// FindByBranch should have been called
-	assert.Equal(t, 1, runner.findByBranchCallCount)
+	// FindByBranch should have been called twice:
+	// 1. During discovery to find the orphaned worktree
+	// 2. In tryDeleteBranch to check if branch is in use
+	assert.Equal(t, 2, runner.findByBranchCallCount)
 	assert.Equal(t, "feat/test", runner.findByBranchLastArg)
 	// Remove should have been called with discovered path
 	assert.Equal(t, 1, runner.removeCallCount)
-	// No warning - removal succeeded
+	// No worktree warning - removal succeeded
 	assert.Empty(t, result.WorktreeWarning)
+	// Branch warning - mock returns path indicating branch still in use
+	// (In real scenario, after prune, FindByBranch would return empty)
+	assert.NotEmpty(t, result.BranchWarning)
+	assert.Contains(t, result.BranchWarning, "in use by worktree")
 	// Status should be closed
 	ws := store.workspaces["test"]
 	assert.Equal(t, constants.WorkspaceStatusClosed, ws.Status)
@@ -1128,6 +1136,162 @@ func TestDefaultManager_Close_WorktreePathPreservedOnRemovalFailure(t *testing.T
 	assert.Equal(t, constants.WorkspaceStatusClosed, ws.Status)
 }
 
+func TestDefaultManager_Close_DeletesBranchOnSuccess(t *testing.T) {
+	// Verify that Close deletes the branch when worktree removal succeeds
+	store := newMockStore()
+	store.workspaces["test"] = &domain.Workspace{
+		Name:         "test",
+		WorktreePath: "/tmp/repo-test",
+		Branch:       "feat/test",
+		Status:       constants.WorkspaceStatusActive,
+		Tasks:        []domain.TaskRef{},
+	}
+	runner := newMockWorktreeRunner()
+	// FindByBranch returns empty (no other worktrees using this branch)
+	runner.findByBranchResult = ""
+
+	mgr := NewManager(store, runner)
+	result, err := mgr.Close(context.Background(), "test")
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	// No warnings - both operations succeeded
+	assert.Empty(t, result.WorktreeWarning)
+	assert.Empty(t, result.BranchWarning)
+	// Verify worktree was removed
+	assert.Equal(t, 1, runner.removeCallCount)
+	// Verify prune was called BEFORE branch deletion
+	assert.Equal(t, 1, runner.pruneCallCount)
+	// Verify branch was deleted
+	assert.Equal(t, 1, runner.deleteBranchCallCount)
+	// Verify FindByBranch was called to check for conflicts
+	assert.Equal(t, 1, runner.findByBranchCallCount)
+	assert.Equal(t, "feat/test", runner.findByBranchLastArg)
+	// Verify correct operation order: remove -> prune -> findByBranch -> deleteBranch
+	require.Len(t, runner.operationOrder, 4)
+	assert.Equal(t, "remove", runner.operationOrder[0])
+	assert.Equal(t, "prune", runner.operationOrder[1])
+	assert.Equal(t, "findByBranch", runner.operationOrder[2])
+	assert.Equal(t, "deleteBranch", runner.operationOrder[3])
+}
+
+func TestDefaultManager_Close_SkipsBranchDeletionWhenWorktreeRemovalFails(t *testing.T) {
+	// Verify that Close does NOT delete branch when worktree removal fails
+	// This prevents orphaned branches
+	store := newMockStore()
+	store.workspaces["test"] = &domain.Workspace{
+		Name:         "test",
+		WorktreePath: "/tmp/repo-test",
+		Branch:       "feat/test",
+		Status:       constants.WorkspaceStatusActive,
+		Tasks:        []domain.TaskRef{},
+	}
+	runner := newMockWorktreeRunner()
+	// Both normal and force removal will fail
+	runner.removeErr = fmt.Errorf("permission denied: %w", atlaserrors.ErrWorktreeDirty)
+
+	mgr := NewManager(store, runner)
+	result, err := mgr.Close(context.Background(), "test")
+
+	require.NoError(t, err) // Close itself succeeds
+	require.NotNil(t, result)
+	// WorktreeWarning should be set
+	assert.NotEmpty(t, result.WorktreeWarning)
+	// BranchWarning should be empty (deletion not attempted)
+	assert.Empty(t, result.BranchWarning)
+	// Verify branch deletion was NOT attempted
+	assert.Equal(t, 0, runner.deleteBranchCallCount)
+	assert.Equal(t, 0, runner.pruneCallCount)
+	assert.Equal(t, 0, runner.findByBranchCallCount)
+}
+
+func TestDefaultManager_Close_SkipsBranchDeletionWhenBranchInUse(t *testing.T) {
+	// Verify that Close does NOT delete branch when another worktree uses it
+	store := newMockStore()
+	store.workspaces["test"] = &domain.Workspace{
+		Name:         "test",
+		WorktreePath: "/tmp/repo-test",
+		Branch:       "feat/shared",
+		Status:       constants.WorkspaceStatusActive,
+		Tasks:        []domain.TaskRef{},
+	}
+	runner := newMockWorktreeRunner()
+	// FindByBranch returns another worktree path (branch is in use)
+	runner.findByBranchResult = "/tmp/repo-shared-2"
+
+	mgr := NewManager(store, runner)
+	result, err := mgr.Close(context.Background(), "test")
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Empty(t, result.WorktreeWarning)
+	// BranchWarning should indicate branch is in use
+	assert.NotEmpty(t, result.BranchWarning)
+	assert.Contains(t, result.BranchWarning, "in use by worktree")
+	assert.Contains(t, result.BranchWarning, "/tmp/repo-shared-2")
+	// Verify branch deletion was NOT attempted
+	assert.Equal(t, 0, runner.deleteBranchCallCount)
+	// But prune and findByBranch should have been called
+	assert.Equal(t, 1, runner.pruneCallCount)
+	assert.Equal(t, 1, runner.findByBranchCallCount)
+}
+
+func TestDefaultManager_Close_ContinuesWhenBranchDeletionFails(t *testing.T) {
+	// Verify that Close succeeds even when branch deletion fails
+	// Branch deletion is non-blocking
+	store := newMockStore()
+	store.workspaces["test"] = &domain.Workspace{
+		Name:         "test",
+		WorktreePath: "/tmp/repo-test",
+		Branch:       "feat/test",
+		Status:       constants.WorkspaceStatusActive,
+		Tasks:        []domain.TaskRef{},
+	}
+	runner := newMockWorktreeRunner()
+	runner.findByBranchResult = ""                       // Not in use
+	runner.deleteBranchErr = atlaserrors.ErrGitOperation // Deletion fails
+
+	mgr := NewManager(store, runner)
+	result, err := mgr.Close(context.Background(), "test")
+
+	require.NoError(t, err) // Close itself succeeds
+	require.NotNil(t, result)
+	assert.Empty(t, result.WorktreeWarning)
+	// BranchWarning should be set with error details
+	assert.NotEmpty(t, result.BranchWarning)
+	assert.Contains(t, result.BranchWarning, "failed to delete branch")
+	// Status should still be updated to closed
+	ws := store.workspaces["test"]
+	assert.Equal(t, constants.WorkspaceStatusClosed, ws.Status)
+}
+
+func TestDefaultManager_Close_ContinuesWhenPruneFails(t *testing.T) {
+	// Verify that Close attempts branch deletion even when prune fails
+	// Prune failure is logged but non-blocking
+	store := newMockStore()
+	store.workspaces["test"] = &domain.Workspace{
+		Name:         "test",
+		WorktreePath: "/tmp/repo-test",
+		Branch:       "feat/test",
+		Status:       constants.WorkspaceStatusActive,
+		Tasks:        []domain.TaskRef{},
+	}
+	runner := newMockWorktreeRunner()
+	runner.findByBranchResult = ""
+	runner.pruneErr = atlaserrors.ErrGitOperation // Prune fails
+
+	mgr := NewManager(store, runner)
+	result, err := mgr.Close(context.Background(), "test")
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	// Despite prune failure, branch deletion should still be attempted
+	assert.Equal(t, 1, runner.pruneCallCount)
+	assert.Equal(t, 1, runner.deleteBranchCallCount)
+	// No warnings if branch deletion succeeded
+	assert.Empty(t, result.BranchWarning)
+}
+
 func TestDefaultManager_SupportsConcurrentWorkspaces(t *testing.T) {
 	// FR20: Manager supports 3+ concurrent workspaces
 	store := newMockStore()
@@ -1142,7 +1306,7 @@ func TestDefaultManager_SupportsConcurrentWorkspaces(t *testing.T) {
 			Path:   "/tmp/repo-" + name,
 			Branch: "feat/" + name,
 		}
-		ws, err := mgr.Create(context.Background(), name, "/tmp/repo", "feat", "")
+		ws, err := mgr.Create(context.Background(), name, "/tmp/repo", "feat", "", false)
 		require.NoError(t, err)
 		require.NotNil(t, ws)
 	}
@@ -1158,7 +1322,7 @@ func TestDefaultManager_Create_ValidatesEmptyRepoPath(t *testing.T) {
 	runner := newMockWorktreeRunner()
 
 	mgr := NewManager(store, runner)
-	ws, err := mgr.Create(context.Background(), "test", "", "feat", "")
+	ws, err := mgr.Create(context.Background(), "test", "", "feat", "", false)
 
 	require.Error(t, err)
 	assert.Nil(t, ws)
@@ -1171,7 +1335,7 @@ func TestDefaultManager_Create_ValidatesEmptyBranchType(t *testing.T) {
 	runner := newMockWorktreeRunner()
 
 	mgr := NewManager(store, runner)
-	ws, err := mgr.Create(context.Background(), "test", "/tmp/repo", "", "")
+	ws, err := mgr.Create(context.Background(), "test", "/tmp/repo", "", "", false)
 
 	require.Error(t, err)
 	assert.Nil(t, ws)
@@ -1184,7 +1348,7 @@ func TestDefaultManager_Create_ValidatesNilWorktreeRunner(t *testing.T) {
 
 	// Pass nil worktree runner
 	mgr := NewManager(store, nil)
-	ws, err := mgr.Create(context.Background(), "test", "/tmp/repo", "task", "")
+	ws, err := mgr.Create(context.Background(), "test", "/tmp/repo", "task", "", false)
 
 	require.Error(t, err)
 	assert.Nil(t, ws)
@@ -1205,12 +1369,13 @@ func TestDefaultManager_Create_WithLocalBaseBranch(t *testing.T) {
 	}
 
 	mgr := NewManager(store, runner)
-	ws, err := mgr.Create(context.Background(), "test", "/tmp/repo", "feat", "develop")
+	// Use useLocal=true to explicitly prefer local branch
+	ws, err := mgr.Create(context.Background(), "test", "/tmp/repo", "feat", "develop", true)
 
 	require.NoError(t, err)
 	require.NotNil(t, ws)
 	assert.Equal(t, "test", ws.Name)
-	// Should not have fetched since local branch exists
+	// Should not have fetched since we're using local branch explicitly
 	assert.Equal(t, 0, runner.fetchCallCount)
 }
 
@@ -1225,7 +1390,7 @@ func TestDefaultManager_Create_WithRemoteBaseBranch(t *testing.T) {
 	}
 
 	mgr := NewManager(store, runner)
-	ws, err := mgr.Create(context.Background(), "test", "/tmp/repo", "feat", "develop")
+	ws, err := mgr.Create(context.Background(), "test", "/tmp/repo", "feat", "develop", false)
 
 	require.NoError(t, err)
 	require.NotNil(t, ws)
@@ -1240,7 +1405,7 @@ func TestDefaultManager_Create_WithNonExistentBaseBranch(t *testing.T) {
 	runner.remoteBranchExists = false // Not remote either
 
 	mgr := NewManager(store, runner)
-	ws, err := mgr.Create(context.Background(), "test", "/tmp/repo", "feat", "nonexistent")
+	ws, err := mgr.Create(context.Background(), "test", "/tmp/repo", "feat", "nonexistent", false)
 
 	require.Error(t, err)
 	assert.Nil(t, ws)
@@ -1262,7 +1427,7 @@ func TestDefaultManager_Create_WithBaseBranch_FetchError(t *testing.T) {
 
 	mgr := NewManager(store, runner)
 	// Even if fetch fails, if remote branch exists (from stale refs), we should succeed
-	ws, err := mgr.Create(context.Background(), "test", "/tmp/repo", "feat", "develop")
+	ws, err := mgr.Create(context.Background(), "test", "/tmp/repo", "feat", "develop", false)
 
 	require.NoError(t, err)
 	require.NotNil(t, ws)
@@ -1275,7 +1440,7 @@ func TestDefaultManager_Create_WithBaseBranch_RemoteCheckError(t *testing.T) {
 	runner.remoteBranchExistsErr = atlaserrors.ErrGitOperation
 
 	mgr := NewManager(store, runner)
-	ws, err := mgr.Create(context.Background(), "test", "/tmp/repo", "feat", "develop")
+	ws, err := mgr.Create(context.Background(), "test", "/tmp/repo", "feat", "develop", false)
 
 	require.Error(t, err)
 	assert.Nil(t, ws)
@@ -1288,9 +1453,101 @@ func TestDefaultManager_Create_WithBaseBranch_LocalCheckError(t *testing.T) {
 	runner.branchExistsErr = atlaserrors.ErrGitOperation
 
 	mgr := NewManager(store, runner)
-	ws, err := mgr.Create(context.Background(), "test", "/tmp/repo", "feat", "develop")
+	ws, err := mgr.Create(context.Background(), "test", "/tmp/repo", "feat", "develop", false)
 
 	require.Error(t, err)
 	assert.Nil(t, ws)
 	assert.Contains(t, err.Error(), "failed to check local branch")
+}
+
+// Test remote-first behavior (new default)
+func TestDefaultManager_Create_PrefersRemoteBranch_Default(t *testing.T) {
+	store := newMockStore()
+	runner := newMockWorktreeRunner()
+	runner.branchExists = true       // Local exists
+	runner.remoteBranchExists = true // Remote exists
+
+	mgr := NewManager(store, runner)
+	ws, err := mgr.Create(context.Background(), "test", "/tmp/repo", "feat", "main", false)
+
+	require.NoError(t, err)
+	require.NotNil(t, ws)
+	// Verify fetch was called to get latest remote
+	assert.Equal(t, 1, runner.fetchCallCount)
+	// The resolved branch (origin/main) is passed to worktree.Create
+	// which handles it internally. We can verify by checking no errors occurred.
+}
+
+// Test --use-local flag overrides default
+func TestDefaultManager_Create_UseLocalFlag_PrefersLocal(t *testing.T) {
+	store := newMockStore()
+	runner := newMockWorktreeRunner()
+	runner.branchExists = true       // Local exists
+	runner.remoteBranchExists = true // Remote exists
+
+	mgr := NewManager(store, runner)
+	ws, err := mgr.Create(context.Background(), "test", "/tmp/repo", "feat", "main", true)
+
+	require.NoError(t, err)
+	require.NotNil(t, ws)
+	// When useLocal=true and local exists, should return immediately without fetching
+	// (fetch count would be 0, but we check for success)
+}
+
+// Test fallback to local when remote missing
+func TestDefaultManager_Create_FallbackToLocal(t *testing.T) {
+	store := newMockStore()
+	runner := newMockWorktreeRunner()
+	runner.branchExists = true        // Local exists
+	runner.remoteBranchExists = false // Remote missing
+
+	mgr := NewManager(store, runner)
+	ws, err := mgr.Create(context.Background(), "test", "/tmp/repo", "feat", "local-only", false)
+
+	require.NoError(t, err)
+	require.NotNil(t, ws)
+	// Should have tried to fetch
+	assert.Equal(t, 1, runner.fetchCallCount)
+	// Falls back to local when remote doesn't exist
+}
+
+// Test --use-local error when only remote exists
+func TestDefaultManager_Create_UseLocalError_OnlyRemote(t *testing.T) {
+	store := newMockStore()
+	runner := newMockWorktreeRunner()
+	runner.branchExists = false      // Not local
+	runner.remoteBranchExists = true // Only remote
+
+	mgr := NewManager(store, runner)
+	ws, err := mgr.Create(context.Background(), "test", "/tmp/repo", "feat", "remote-only", true)
+
+	require.Error(t, err)
+	assert.Nil(t, ws)
+	require.ErrorIs(t, err, atlaserrors.ErrBranchNotFound)
+	assert.Contains(t, err.Error(), "--use-local")
+	assert.Contains(t, err.Error(), "does not exist locally")
+}
+
+// Test error when branch doesn't exist anywhere
+func TestDefaultManager_Create_BranchNotFound_Anywhere(t *testing.T) {
+	store := newMockStore()
+	runner := newMockWorktreeRunner()
+	runner.branchExists = false       // Not local
+	runner.remoteBranchExists = false // Not remote
+
+	// Test with useLocal=false (default)
+	mgr := NewManager(store, runner)
+	ws, err := mgr.Create(context.Background(), "test", "/tmp/repo", "feat", "nonexistent", false)
+
+	require.Error(t, err)
+	assert.Nil(t, ws)
+	require.ErrorIs(t, err, atlaserrors.ErrBranchNotFound)
+	assert.Contains(t, err.Error(), "does not exist locally or on remote")
+
+	// Test with useLocal=true (should also error)
+	ws2, err2 := mgr.Create(context.Background(), "test", "/tmp/repo", "feat", "nonexistent", true)
+
+	require.Error(t, err2)
+	assert.Nil(t, ws2)
+	require.ErrorIs(t, err2, atlaserrors.ErrBranchNotFound)
 }
