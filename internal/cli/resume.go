@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 
+	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
 
 	"github.com/mrz1836/atlas/internal/ai"
@@ -20,6 +21,7 @@ import (
 	"github.com/mrz1836/atlas/internal/template"
 	"github.com/mrz1836/atlas/internal/template/steps"
 	"github.com/mrz1836/atlas/internal/tui"
+	"github.com/mrz1836/atlas/internal/validation"
 	"github.com/mrz1836/atlas/internal/workspace"
 )
 
@@ -218,10 +220,17 @@ func runResume(ctx context.Context, cmd *cobra.Command, w io.Writer, workspaceNa
 		PreCommitCommands:      cfg.Validation.Commands.PreCommit,
 	})
 
+	// Create validation retry handler for automatic AI-assisted fixes
+	validationRetryHandler := createResumeValidationRetryHandler(aiRunner, cfg, logger)
+
 	engineCfg := task.DefaultEngineConfig()
-	engine := task.NewEngine(taskStore, execRegistry, engineCfg, logger,
+	engineOpts := []task.EngineOption{
 		task.WithNotifier(stateNotifier),
-	)
+	}
+	if validationRetryHandler != nil {
+		engineOpts = append(engineOpts, task.WithValidationRetryHandler(validationRetryHandler))
+	}
+	engine := task.NewEngine(taskStore, execRegistry, engineCfg, logger, engineOpts...)
 
 	// Display resume information
 	out.Info(fmt.Sprintf("Resuming task in workspace '%s'...", workspaceName))
@@ -318,4 +327,23 @@ func displayResumeResult(out tui.Output, ws *domain.Workspace, t *domain.Task, e
 	}
 
 	return nil
+}
+
+// createResumeValidationRetryHandler creates the validation retry handler for automatic AI-assisted fixes.
+func createResumeValidationRetryHandler(aiRunner ai.Runner, cfg *config.Config, logger zerolog.Logger) *validation.RetryHandler {
+	if !cfg.Validation.AIRetryEnabled {
+		return nil
+	}
+
+	// Create validation executor for retry
+	executor := validation.NewExecutorWithRunner(validation.DefaultTimeout, &validation.DefaultCommandRunner{})
+
+	// Create retry handler with config
+	return validation.NewRetryHandlerFromConfig(
+		aiRunner,
+		executor,
+		cfg.Validation.AIRetryEnabled,
+		cfg.Validation.MaxAIRetryAttempts,
+		logger,
+	)
 }

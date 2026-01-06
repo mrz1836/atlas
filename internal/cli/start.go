@@ -26,6 +26,7 @@ import (
 	"github.com/mrz1836/atlas/internal/template"
 	"github.com/mrz1836/atlas/internal/template/steps"
 	"github.com/mrz1836/atlas/internal/tui"
+	"github.com/mrz1836/atlas/internal/validation"
 	"github.com/mrz1836/atlas/internal/workspace"
 )
 
@@ -365,8 +366,11 @@ func startTaskExecution(ctx context.Context, ws *domain.Workspace, tmpl *domain.
 	execRegistry := createExecutorRegistry(ws.WorktreePath, taskStore, notifier, aiRunner, logger,
 		smartCommitter, pusher, hubRunner, prDescGen, gitRunner, ciFailureHandler, cfg)
 
+	// Create validation retry handler for automatic AI-assisted fixes
+	validationRetryHandler := createValidationRetryHandler(aiRunner, cfg, logger)
+
 	// Create engine with progress callback
-	engine := createEngine(ctx, taskStore, execRegistry, logger, stateNotifier, out, ws.Name)
+	engine := createEngine(ctx, taskStore, execRegistry, logger, stateNotifier, out, ws.Name, validationRetryHandler)
 
 	// Apply agent and model overrides to template
 	applyAgentModelOverrides(tmpl, agent, model)
@@ -465,13 +469,36 @@ func createExecutorRegistry(workDir string, taskStore *task.FileStore, notifier 
 }
 
 // createEngine creates the task engine with progress callback.
-func createEngine(ctx context.Context, taskStore *task.FileStore, execRegistry *steps.ExecutorRegistry, _ zerolog.Logger, stateNotifier *task.StateChangeNotifier, out tui.Output, wsName string) *task.Engine {
+func createEngine(ctx context.Context, taskStore *task.FileStore, execRegistry *steps.ExecutorRegistry, _ zerolog.Logger, stateNotifier *task.StateChangeNotifier, out tui.Output, wsName string, validationRetryHandler *validation.RetryHandler) *task.Engine {
 	engineCfg := task.DefaultEngineConfig()
 	engineCfg.ProgressCallback = createProgressCallback(ctx, out, wsName)
 
 	taskLogger := GetLoggerWithTaskStore(taskStore)
-	return task.NewEngine(taskStore, execRegistry, engineCfg, taskLogger,
+	opts := []task.EngineOption{
 		task.WithNotifier(stateNotifier),
+	}
+	if validationRetryHandler != nil {
+		opts = append(opts, task.WithValidationRetryHandler(validationRetryHandler))
+	}
+	return task.NewEngine(taskStore, execRegistry, engineCfg, taskLogger, opts...)
+}
+
+// createValidationRetryHandler creates the validation retry handler for automatic AI-assisted fixes.
+func createValidationRetryHandler(aiRunner ai.Runner, cfg *config.Config, logger zerolog.Logger) *validation.RetryHandler {
+	if !cfg.Validation.AIRetryEnabled {
+		return nil
+	}
+
+	// Create validation executor for retry
+	executor := validation.NewExecutorWithRunner(validation.DefaultTimeout, &validation.DefaultCommandRunner{})
+
+	// Create retry handler with config
+	return validation.NewRetryHandlerFromConfig(
+		aiRunner,
+		executor,
+		cfg.Validation.AIRetryEnabled,
+		cfg.Validation.MaxAIRetryAttempts,
+		logger,
 	)
 }
 

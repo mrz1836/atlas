@@ -84,12 +84,13 @@ func DefaultEngineConfig() EngineConfig {
 // It coordinates step executors, manages state transitions, and
 // provides checkpointing after each step.
 type Engine struct {
-	store            Store
-	registry         *steps.ExecutorRegistry
-	config           EngineConfig
-	logger           zerolog.Logger
-	ciFailureHandler *CIFailureHandler
-	notifier         *StateChangeNotifier
+	store                  Store
+	registry               *steps.ExecutorRegistry
+	config                 EngineConfig
+	logger                 zerolog.Logger
+	ciFailureHandler       *CIFailureHandler
+	notifier               *StateChangeNotifier
+	validationRetryHandler ValidationRetryHandler
 }
 
 // EngineOption configures an Engine.
@@ -108,6 +109,16 @@ func WithCIFailureHandler(handler *CIFailureHandler) EngineOption {
 func WithNotifier(notifier *StateChangeNotifier) EngineOption {
 	return func(e *Engine) {
 		e.notifier = notifier
+	}
+}
+
+// WithValidationRetryHandler sets the validation retry handler for automatic
+// AI-assisted fixes when validation fails. When configured, the engine will
+// automatically attempt to fix validation failures using AI before transitioning
+// to the validation_failed state.
+func WithValidationRetryHandler(handler ValidationRetryHandler) EngineOption {
+	return func(e *Engine) {
+		e.validationRetryHandler = handler
 	}
 }
 
@@ -663,12 +674,9 @@ func (e *Engine) runSteps(ctx context.Context, task *domain.Task, template *doma
 		e.notifyStepStart(task, step, totalSteps)
 
 		result, err := e.executeCurrentStep(ctx, task, template)
+		result, err = e.handleStepExecutionResult(ctx, task, step, result, err, totalSteps)
 		if err != nil {
-			// Notify step complete even on error (with error status)
-			if result != nil {
-				e.notifyStepComplete(task, step, result, totalSteps)
-			}
-			return e.handleExecutionError(ctx, task, step, result, err)
+			return err
 		}
 
 		// Notify step complete for UI feedback
@@ -731,6 +739,60 @@ func (e *Engine) handleExecutionError(ctx context.Context, task *domain.Task, st
 		task.StepResults = append(task.StepResults, *result)
 	}
 	return e.handleStepError(ctx, task, step, err)
+}
+
+// handleStepExecutionResult processes the result of step execution.
+// On error, it notifies completion and attempts validation retry before returning error.
+// On success, returns the result with nil error.
+func (e *Engine) handleStepExecutionResult(
+	ctx context.Context,
+	task *domain.Task,
+	step *domain.StepDefinition,
+	result *domain.StepResult,
+	err error,
+	totalSteps int,
+) (*domain.StepResult, error) {
+	if err == nil {
+		return result, nil
+	}
+
+	// Notify step complete even on error (with error status)
+	if result != nil {
+		e.notifyStepComplete(task, step, result, totalSteps)
+	}
+
+	// Attempt automatic validation retry before error handling
+	result, err = e.tryValidationRetry(ctx, task, step, result, err, totalSteps)
+	if err != nil {
+		return result, e.handleExecutionError(ctx, task, step, result, err)
+	}
+	return result, nil
+}
+
+// tryValidationRetry attempts automatic validation retry for validation step failures.
+// If retry succeeds, returns the updated result with nil error.
+// Otherwise, returns the original result and error unchanged.
+func (e *Engine) tryValidationRetry(
+	ctx context.Context,
+	task *domain.Task,
+	step *domain.StepDefinition,
+	result *domain.StepResult,
+	err error,
+	totalSteps int,
+) (*domain.StepResult, error) {
+	if step.Type != domain.StepTypeValidation || !e.shouldAttemptValidationRetry(result) {
+		return result, err
+	}
+
+	retryResult, retryErr := e.attemptValidationRetry(ctx, task, result)
+	if retryErr != nil || retryResult == nil || !retryResult.Success {
+		return result, err
+	}
+
+	// Retry succeeded - update result and notify
+	newResult := e.convertRetryResultToStepResult(task, step, retryResult)
+	e.notifyStepComplete(task, step, newResult, totalSteps)
+	return newResult, nil
 }
 
 // shouldSkipStep returns true if the step should be skipped.

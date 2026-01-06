@@ -180,6 +180,7 @@ func (e *ValidationExecutor) Execute(ctx context.Context, task *domain.Task, ste
 
 		metadata := map[string]any{
 			"validation_checks": validationChecks,
+			"pipeline_result":   pipelineResult, // For AI-assisted retry
 		}
 		// Include artifact path in metadata for display in manual fix instructions
 		if artifactPath != "" {
@@ -216,6 +217,7 @@ func (e *ValidationExecutor) Execute(ctx context.Context, task *domain.Task, ste
 		Output:      output.String(),
 		Metadata: map[string]any{
 			"validation_checks": validationChecks,
+			"pipeline_result":   pipelineResult, // For consistency
 		},
 	}, nil
 }

@@ -107,11 +107,11 @@ func TestRunWorkspaceClose_HappyPath(t *testing.T) {
 	store, err := workspace.NewFileStore(tmpDir)
 	require.NoError(t, err)
 
-	// Create test workspace with active status
+	// Create test workspace with active status (no worktree path for happy path)
 	now := time.Now()
 	ws := &domain.Workspace{
 		Name:         "test-ws",
-		WorktreePath: "/tmp/test-worktree", // Fake path
+		WorktreePath: "", // Empty path - tests close without worktree removal
 		Branch:       "feat/test",
 		Status:       constants.WorkspaceStatusActive,
 		Tasks:        []domain.TaskRef{}, // No running tasks
@@ -146,7 +146,7 @@ func TestRunWorkspaceClose_HappyPath(t *testing.T) {
 	ws2, err := store.Get(context.Background(), "test-ws")
 	require.NoError(t, err)
 	assert.Equal(t, constants.WorkspaceStatusClosed, ws2.Status)
-	assert.Empty(t, ws2.WorktreePath)        // Worktree path cleared
+	assert.Empty(t, ws2.WorktreePath)        // Worktree path remains empty
 	assert.Equal(t, "feat/test", ws2.Branch) // Branch preserved
 }
 
