@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 
 	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
@@ -22,6 +23,7 @@ import (
 	"github.com/mrz1836/atlas/internal/template/steps"
 	"github.com/mrz1836/atlas/internal/tui"
 	"github.com/mrz1836/atlas/internal/validation"
+	"github.com/mrz1836/atlas/internal/workspace"
 )
 
 // AddResumeCommand adds the resume command to the root command.
@@ -95,6 +97,13 @@ func runResume(ctx context.Context, cmd *cobra.Command, w io.Writer, workspaceNa
 	if !isResumableStatus(currentTask.Status) {
 		return handleResumeError(outputFormat, w, workspaceName, currentTask.ID,
 			fmt.Errorf("%w: task status %s is not resumable", atlaserrors.ErrInvalidTransition, currentTask.Status))
+	}
+
+	// Check if worktree exists and recreate if needed
+	ws, err = ensureWorktreeExists(ctx, ws, out, logger)
+	if err != nil {
+		return handleResumeError(outputFormat, w, workspaceName, currentTask.ID,
+			fmt.Errorf("failed to ensure worktree exists: %w", err))
 	}
 
 	// Get template
@@ -312,4 +321,121 @@ func createResumeValidationRetryHandler(aiRunner ai.Runner, cfg *config.Config, 
 		cfg.Validation.MaxAIRetryAttempts,
 		logger,
 	)
+}
+
+// ensureWorktreeExists checks if the workspace worktree exists and recreates it if missing.
+// This handles the case where a task failed and the worktree was removed (e.g., due to a bug),
+// but the branch still exists and can be recovered.
+func ensureWorktreeExists(ctx context.Context, ws *domain.Workspace, out tui.Output, logger zerolog.Logger) (*domain.Workspace, error) {
+	// Check if worktree path is set and exists
+	if ws.WorktreePath != "" {
+		if _, err := os.Stat(ws.WorktreePath); err == nil {
+			// Worktree exists, nothing to do
+			return ws, nil
+		}
+	}
+
+	// Worktree is missing - try to recreate it
+	logger.Info().
+		Str("workspace_name", ws.Name).
+		Str("branch", ws.Branch).
+		Msg("worktree missing, attempting to recreate")
+
+	out.Warning("Worktree is missing. Attempting to recreate from branch...")
+
+	// Get the main repo path (parent directory of expected worktree)
+	repoPath, err := detectMainRepoPath(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to detect main repository: %w", err)
+	}
+
+	// Check if branch exists
+	branchExists := checkBranchExists(ctx, repoPath, ws.Branch)
+	if !branchExists {
+		return nil, fmt.Errorf("%w: %s", atlaserrors.ErrBranchNotFound, ws.Branch)
+	}
+
+	// Calculate worktree path (sibling to main repo)
+	worktreePath := calculateWorktreePath(repoPath, ws.Name)
+
+	// Create worktree for existing branch
+	if createErr := createWorktreeForBranch(ctx, repoPath, worktreePath, ws.Branch); createErr != nil {
+		return nil, fmt.Errorf("failed to create worktree: %w", createErr)
+	}
+
+	// Update workspace with new worktree path
+	ws.WorktreePath = worktreePath
+	ws.Status = constants.WorkspaceStatusActive
+
+	// Save updated workspace
+	wsStore, err := workspace.NewFileStore("")
+	if err != nil {
+		logger.Warn().Err(err).Msg("failed to create workspace store for update")
+	} else if updateErr := wsStore.Update(ctx, ws); updateErr != nil {
+		logger.Warn().Err(updateErr).Msg("failed to update workspace with new worktree path")
+	}
+
+	out.Success(fmt.Sprintf("Worktree recreated at '%s'", worktreePath))
+	logger.Info().
+		Str("workspace_name", ws.Name).
+		Str("worktree_path", worktreePath).
+		Msg("worktree recreated successfully")
+
+	return ws, nil
+}
+
+// detectMainRepoPath finds the main repository path.
+func detectMainRepoPath(ctx context.Context) (string, error) {
+	// Start from current directory and find git repo root
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("failed to get current directory: %w", err)
+	}
+
+	// Use git rev-parse to find repo root
+	output, err := git.RunCommand(ctx, cwd, "rev-parse", "--show-toplevel")
+	if err != nil {
+		return "", err
+	}
+
+	return output, nil
+}
+
+// checkBranchExists checks if a branch exists locally or on remote.
+func checkBranchExists(ctx context.Context, repoPath, branchName string) bool {
+	// Check local branch
+	_, localErr := git.RunCommand(ctx, repoPath, "rev-parse", "--verify", branchName)
+	if localErr == nil {
+		return true
+	}
+
+	// Check remote branch (try to fetch first)
+	_, _ = git.RunCommand(ctx, repoPath, "fetch", "origin", branchName)
+	_, remoteErr := git.RunCommand(ctx, repoPath, "rev-parse", "--verify", "origin/"+branchName)
+	return remoteErr == nil
+}
+
+// calculateWorktreePath calculates the worktree path as a sibling to the main repo.
+func calculateWorktreePath(repoPath, workspaceName string) string {
+	parentDir := filepath.Dir(repoPath)
+	repoBaseName := filepath.Base(repoPath)
+	return filepath.Join(parentDir, repoBaseName+"-"+workspaceName)
+}
+
+// createWorktreeForBranch creates a worktree for an existing branch.
+func createWorktreeForBranch(ctx context.Context, repoPath, worktreePath, branchName string) error {
+	// Remove any existing directory at the worktree path
+	if _, err := os.Stat(worktreePath); err == nil {
+		if removeErr := os.RemoveAll(worktreePath); removeErr != nil {
+			return fmt.Errorf("failed to remove existing directory at worktree path: %w", removeErr)
+		}
+	}
+
+	// Create worktree for existing branch (no -b flag)
+	_, err := git.RunCommand(ctx, repoPath, "worktree", "add", worktreePath, branchName)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }

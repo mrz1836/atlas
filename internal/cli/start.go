@@ -277,6 +277,8 @@ func (sc *startContext) handleTaskStartError(ctx context.Context, ws *domain.Wor
 			Str("task_id", t.ID).
 			Str("task_status", string(t.Status)).
 			Msg("preserving workspace for resume (task exists)")
+
+		sc.updateWorkspaceStatusToPaused(ctx, ws, logger)
 		return
 	}
 
@@ -290,6 +292,28 @@ func (sc *startContext) handleTaskStartError(ctx context.Context, ws *domain.Wor
 			Str("workspace_name", ws.Name).
 			Msg("failed to cleanup workspace after task creation failure")
 	}
+}
+
+// updateWorkspaceStatusToPaused updates the workspace status to paused to preserve it for resume.
+func (sc *startContext) updateWorkspaceStatusToPaused(ctx context.Context, ws *domain.Workspace, logger zerolog.Logger) {
+	ws.Status = constants.WorkspaceStatusPaused
+	wsStore, err := workspace.NewFileStore("")
+	if err != nil {
+		return
+	}
+
+	updateErr := wsStore.Update(ctx, ws)
+	if updateErr != nil {
+		logger.Warn().Err(updateErr).
+			Str("workspace_name", ws.Name).
+			Msg("failed to update workspace status to paused")
+		return
+	}
+
+	logger.Debug().
+		Str("workspace_name", ws.Name).
+		Str("workspace_status", string(ws.Status)).
+		Msg("workspace status updated to paused for resume")
 }
 
 // createWorkspace creates a new workspace or uses an existing one (upsert behavior).

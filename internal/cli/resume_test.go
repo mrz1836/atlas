@@ -426,3 +426,38 @@ func TestRunResume_NoTasksFound(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, exists)
 }
+
+func TestCalculateWorktreePath(t *testing.T) {
+	tests := []struct {
+		name          string
+		repoPath      string
+		workspaceName string
+		expected      string
+	}{
+		{
+			name:          "simple path",
+			repoPath:      "/Users/user/projects/myapp",
+			workspaceName: "feature-x",
+			expected:      "/Users/user/projects/myapp-feature-x",
+		},
+		{
+			name:          "path with hyphen",
+			repoPath:      "/Users/user/my-project",
+			workspaceName: "bugfix-123",
+			expected:      "/Users/user/my-project-bugfix-123",
+		},
+		{
+			name:          "nested path",
+			repoPath:      "/home/dev/code/work/atlas",
+			workspaceName: "test-ws",
+			expected:      "/home/dev/code/work/atlas-test-ws",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := calculateWorktreePath(tc.repoPath, tc.workspaceName)
+			assert.Equal(t, tc.expected, result)
+		})
+	}
+}
