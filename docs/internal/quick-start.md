@@ -1299,6 +1299,20 @@ verify:
   # "" = full access (not recommended - allows destructive operations)
   # Default: "plan"
   permission_mode: plan
+
+  # Verification checks to run (affects verify step speed)
+  # Available checks:
+  #   - code_correctness: Does the code address the task? Any bugs? (~10-20s)
+  #   - test_coverage: Are there tests for the changes? (~15-30s)
+  #   - garbage_files: Any temp/debug files to remove? (~5-10s, redundant with smart_commit)
+  #   - security: Any hardcoded secrets or vulnerabilities? (~10-20s)
+  # Default: ["code_correctness"] for fast verification
+  # Full: ["code_correctness", "test_coverage", "garbage_files", "security"]
+  checks:
+    - code_correctness
+    # - test_coverage
+    # - garbage_files
+    # - security
 ```
 
 ---

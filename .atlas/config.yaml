@@ -171,3 +171,14 @@ verify:
   # "" = full access (not recommended - allows destructive operations)
   # Default: "plan"
   permission_mode: plan
+
+  # Verification checks to run (affects verify step speed)
+  # Available: "code_correctness", "test_coverage", "garbage_files", "security"
+  # Default: ["code_correctness"] (fast - ~10-20s)
+  # Full: ["code_correctness", "test_coverage", "garbage_files", "security"] (~60-90s)
+  # Note: garbage_files is already handled by smart_commit, so it's redundant here
+  checks:
+    - code_correctness
+    # - test_coverage    # Enable for test coverage checks
+    # - garbage_files    # Enable for garbage file detection (redundant with smart_commit)
+    # - security         # Enable for security vulnerability scanning
