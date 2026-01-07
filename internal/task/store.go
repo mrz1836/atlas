@@ -465,8 +465,10 @@ func (s *FileStore) SaveArtifact(ctx context.Context, workspaceName, taskID, fil
 		return fmt.Errorf("failed to save artifact: filename %w", atlaserrors.ErrEmptyValue)
 	}
 
-	// Prevent path traversal
-	if strings.Contains(filename, "..") || strings.Contains(filename, "/") || strings.Contains(filename, "\\") {
+	// Prevent path traversal - reject absolute paths and ".." sequences
+	// Use filepath.Clean to normalize the path and detect traversal attempts
+	cleanFilename := filepath.Clean(filename)
+	if filepath.IsAbs(cleanFilename) || strings.HasPrefix(cleanFilename, "..") {
 		return fmt.Errorf("failed to save artifact: %w", atlaserrors.ErrPathTraversal)
 	}
 
@@ -483,8 +485,13 @@ func (s *FileStore) SaveArtifact(ctx context.Context, workspaceName, taskID, fil
 		return fmt.Errorf("failed to create artifacts directory: %w", err)
 	}
 
-	// Write artifact file atomically to prevent partial writes on crash
-	artifactPath := filepath.Join(artifactDir, filename)
+	// Build artifact path and ensure it stays within artifacts directory
+	artifactPath := filepath.Join(artifactDir, cleanFilename)
+
+	// Create subdirectories if needed (e.g., for "sdd/spec.md")
+	if err := os.MkdirAll(filepath.Dir(artifactPath), dirPerm); err != nil {
+		return fmt.Errorf("failed to create artifact subdirectory: %w", err)
+	}
 	if err := atomicWrite(artifactPath, data); err != nil {
 		return fmt.Errorf("failed to save artifact '%s': %w", filename, err)
 	}
@@ -504,18 +511,13 @@ func (s *FileStore) SaveVersionedArtifact(ctx context.Context, workspaceName, ta
 	}
 
 	// Validate inputs
-	if workspaceName == "" {
-		return "", fmt.Errorf("failed to save versioned artifact: workspace name %w", atlaserrors.ErrEmptyValue)
-	}
-	if taskID == "" {
-		return "", fmt.Errorf("failed to save versioned artifact: task ID %w", atlaserrors.ErrEmptyValue)
-	}
-	if baseName == "" {
-		return "", fmt.Errorf("failed to save versioned artifact: base name %w", atlaserrors.ErrEmptyValue)
+	if err := validateVersionedArtifactInputs(workspaceName, taskID, baseName); err != nil {
+		return "", err
 	}
 
-	// Prevent path traversal
-	if strings.Contains(baseName, "..") || strings.Contains(baseName, "/") || strings.Contains(baseName, "\\") {
+	// Prevent path traversal - reject absolute paths and ".." sequences
+	cleanBaseName := filepath.Clean(baseName)
+	if filepath.IsAbs(cleanBaseName) || strings.HasPrefix(cleanBaseName, "..") {
 		return "", fmt.Errorf("failed to save versioned artifact: %w", atlaserrors.ErrPathTraversal)
 	}
 
@@ -532,29 +534,13 @@ func (s *FileStore) SaveVersionedArtifact(ctx context.Context, workspaceName, ta
 		return "", fmt.Errorf("failed to create artifacts directory: %w", err)
 	}
 
-	// Find next version number
-	ext := filepath.Ext(baseName)
-	nameWithoutExt := strings.TrimSuffix(baseName, ext)
-
-	version := 1
-	for {
-		filename := fmt.Sprintf("%s.%d%s", nameWithoutExt, version, ext)
-		fullPath := filepath.Join(artifactDir, filename)
-		if _, err := os.Stat(fullPath); os.IsNotExist(err) {
-			// This version doesn't exist, use it
-			// Write atomically to prevent partial writes on crash
-			if err := atomicWrite(fullPath, data); err != nil {
-				return "", fmt.Errorf("failed to save versioned artifact: %w", err)
-			}
-			return filename, nil
-		}
-		version++
-
-		// Safety limit to prevent infinite loop
-		if version > 10000 {
-			return "", fmt.Errorf("failed to save versioned artifact: %w", atlaserrors.ErrTooManyVersions)
-		}
+	// Find and save the next versioned file
+	filename, err := s.saveNextVersionedFile(artifactDir, cleanBaseName, data)
+	if err != nil {
+		return "", err
 	}
+
+	return filename, nil
 }
 
 // GetArtifact retrieves an artifact file.
@@ -577,12 +563,14 @@ func (s *FileStore) GetArtifact(ctx context.Context, workspaceName, taskID, file
 		return nil, fmt.Errorf("failed to get artifact: filename %w", atlaserrors.ErrEmptyValue)
 	}
 
-	// Prevent path traversal
-	if strings.Contains(filename, "..") || strings.Contains(filename, "/") || strings.Contains(filename, "\\") {
+	// Prevent path traversal - reject absolute paths and ".." sequences
+	// Use filepath.Clean to normalize the path and detect traversal attempts
+	cleanFilename := filepath.Clean(filename)
+	if filepath.IsAbs(cleanFilename) || strings.HasPrefix(cleanFilename, "..") {
 		return nil, fmt.Errorf("failed to get artifact: %w", atlaserrors.ErrPathTraversal)
 	}
 
-	artifactPath := filepath.Join(s.artifactsDir(workspaceName, taskID), filename)
+	artifactPath := filepath.Join(s.artifactsDir(workspaceName, taskID), cleanFilename)
 
 	data, err := os.ReadFile(artifactPath) //#nosec G304 -- path is validated and constructed from trusted base
 	if err != nil {
@@ -635,6 +623,70 @@ func (s *FileStore) ListArtifacts(ctx context.Context, workspaceName, taskID str
 	sort.Strings(filenames)
 
 	return filenames, nil
+}
+
+// validateVersionedArtifactInputs validates the input parameters for SaveVersionedArtifact.
+func validateVersionedArtifactInputs(workspaceName, taskID, baseName string) error {
+	if workspaceName == "" {
+		return fmt.Errorf("failed to save versioned artifact: workspace name %w", atlaserrors.ErrEmptyValue)
+	}
+	if taskID == "" {
+		return fmt.Errorf("failed to save versioned artifact: task ID %w", atlaserrors.ErrEmptyValue)
+	}
+	if baseName == "" {
+		return fmt.Errorf("failed to save versioned artifact: base name %w", atlaserrors.ErrEmptyValue)
+	}
+	return nil
+}
+
+// saveNextVersionedFile finds the next available version number and saves the file.
+func (s *FileStore) saveNextVersionedFile(artifactDir, cleanBaseName string, data []byte) (string, error) {
+	dir := filepath.Dir(cleanBaseName)
+	base := filepath.Base(cleanBaseName)
+	ext := filepath.Ext(base)
+	nameWithoutExt := strings.TrimSuffix(base, ext)
+
+	version := 1
+	for {
+		versionedName := fmt.Sprintf("%s.%d%s", nameWithoutExt, version, ext)
+		filename := s.buildVersionedFilename(dir, versionedName)
+		fullPath := filepath.Join(artifactDir, filename)
+
+		if _, err := os.Stat(fullPath); os.IsNotExist(err) {
+			// This version doesn't exist, use it
+			if err := s.writeVersionedFile(fullPath, data); err != nil {
+				return "", err
+			}
+			return filename, nil
+		}
+
+		version++
+		// Safety limit to prevent infinite loop
+		if version > 10000 {
+			return "", fmt.Errorf("failed to save versioned artifact: %w", atlaserrors.ErrTooManyVersions)
+		}
+	}
+}
+
+// buildVersionedFilename constructs the filename with directory preservation.
+func (s *FileStore) buildVersionedFilename(dir, versionedName string) string {
+	if dir == "." {
+		return versionedName
+	}
+	return filepath.Join(dir, versionedName)
+}
+
+// writeVersionedFile writes the versioned file atomically, creating subdirectories if needed.
+func (s *FileStore) writeVersionedFile(fullPath string, data []byte) error {
+	// Create subdirectories if needed (e.g., for "sdd/spec.md")
+	if err := os.MkdirAll(filepath.Dir(fullPath), dirPerm); err != nil {
+		return fmt.Errorf("failed to create artifact subdirectory: %w", err)
+	}
+	// Write atomically to prevent partial writes on crash
+	if err := atomicWrite(fullPath, data); err != nil {
+		return fmt.Errorf("failed to save versioned artifact: %w", err)
+	}
+	return nil
 }
 
 // Helper methods for path construction
