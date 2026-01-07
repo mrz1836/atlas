@@ -223,7 +223,8 @@ type HubRunner interface {
 	// MergePR merges a pull request using the specified merge method.
 	// mergeMethod: "squash", "merge", or "rebase"
 	// adminBypass: if true, attempts merge with admin privileges (bypasses branch protection)
-	MergePR(ctx context.Context, prNumber int, mergeMethod string, adminBypass bool) error
+	// deleteBranch: if true, deletes the source branch after successful merge
+	MergePR(ctx context.Context, prNumber int, mergeMethod string, adminBypass, deleteBranch bool) error
 
 	// AddPRReview adds a review to a pull request.
 	// event: "APPROVE", "REQUEST_CHANGES", or "COMMENT"
@@ -728,7 +729,7 @@ func (r *CLIGitHubRunner) ConvertToDraft(ctx context.Context, prNumber int) erro
 }
 
 // MergePR merges a pull request using the specified merge method.
-func (r *CLIGitHubRunner) MergePR(ctx context.Context, prNumber int, mergeMethod string, adminBypass bool) error {
+func (r *CLIGitHubRunner) MergePR(ctx context.Context, prNumber int, mergeMethod string, adminBypass, deleteBranch bool) error {
 	// Check for cancellation at entry
 	select {
 	case <-ctx.Done():
@@ -759,8 +760,12 @@ func (r *CLIGitHubRunner) MergePR(ctx context.Context, prNumber int, mergeMethod
 		args = append(args, "--admin")
 	}
 
-	// Don't delete branch - workspace close handles that
-	args = append(args, "--delete-branch=false")
+	// Handle branch deletion - default to keeping branch (workspace close handles deletion)
+	if deleteBranch {
+		args = append(args, "--delete-branch")
+	} else {
+		args = append(args, "--delete-branch=false")
+	}
 
 	_, err := r.cmdExec.Execute(ctx, r.workDir, "gh", args...)
 	if err != nil {
@@ -776,7 +781,12 @@ func (r *CLIGitHubRunner) MergePR(ctx context.Context, prNumber int, mergeMethod
 		}
 	}
 
-	r.logger.Info().Int("pr_number", prNumber).Str("method", mergeMethod).Bool("admin", adminBypass).Msg("PR merged")
+	r.logger.Info().
+		Int("pr_number", prNumber).
+		Str("method", mergeMethod).
+		Bool("admin", adminBypass).
+		Bool("delete_branch", deleteBranch).
+		Msg("PR merged")
 	return nil
 }
 

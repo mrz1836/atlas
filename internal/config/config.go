@@ -119,6 +119,34 @@ type GitConfig struct {
 	// Remote is the name of the remote repository.
 	// Default: "origin"
 	Remote string `yaml:"remote" mapstructure:"remote"`
+
+	// PR contains default settings for pull request operations.
+	// These defaults are used by git steps and can be overridden per-step in templates.
+	PR PRConfig `yaml:"pr,omitempty" mapstructure:"pr"`
+}
+
+// PRConfig contains default settings for PR operations.
+// These settings control the default behavior for merge_pr, add_pr_review,
+// and add_pr_comment git operations.
+type PRConfig struct {
+	// MergeMethod is the default merge method for PRs.
+	// Valid values: "squash", "merge", "rebase"
+	// Default: "squash"
+	MergeMethod string `yaml:"merge_method,omitempty" mapstructure:"merge_method"`
+
+	// DeleteBranch controls whether to delete the source branch after merging.
+	// Default: false (keep branch for reference)
+	DeleteBranch bool `yaml:"delete_branch,omitempty" mapstructure:"delete_branch"`
+
+	// AdminBypass allows merging PRs even when branch protection checks haven't passed.
+	// Use with caution - this bypasses required status checks.
+	// Default: false
+	AdminBypass bool `yaml:"admin_bypass,omitempty" mapstructure:"admin_bypass"`
+
+	// ReviewEvent is the default review event type for add_pr_review operations.
+	// Valid values: "APPROVE", "REQUEST_CHANGES", "COMMENT"
+	// Default: "APPROVE"
+	ReviewEvent string `yaml:"review_event,omitempty" mapstructure:"review_event"`
 }
 
 // WorktreeConfig contains settings for git worktree management.

@@ -22,9 +22,12 @@ type GitOperation string
 
 // Git operation constants.
 const (
-	GitOpCommit   GitOperation = "commit"
-	GitOpPush     GitOperation = "push"
-	GitOpCreatePR GitOperation = "create_pr"
+	GitOpCommit     GitOperation = "commit"
+	GitOpPush       GitOperation = "push"
+	GitOpCreatePR   GitOperation = "create_pr"
+	GitOpMergePR    GitOperation = "merge_pr"
+	GitOpAddReview  GitOperation = "add_pr_review"
+	GitOpAddComment GitOperation = "add_pr_comment"
 )
 
 // GarbageHandlingAction defines how to handle detected garbage files.
@@ -40,7 +43,7 @@ const (
 	GarbageAbortManual
 )
 
-// GitExecutor handles git operations: commit, push, PR creation.
+// GitExecutor handles git operations: commit, push, PR creation, merge, review, comment.
 type GitExecutor struct {
 	smartCommitter git.SmartCommitService
 	pusher         git.PushService
@@ -49,6 +52,7 @@ type GitExecutor struct {
 	gitRunner      git.Runner
 	workDir        string
 	artifactSaver  ArtifactSaver
+	artifactHelper *ArtifactHelper
 	baseBranch     string
 	logger         zerolog.Logger
 }
@@ -117,6 +121,14 @@ func WithGitArtifactSaver(saver ArtifactSaver) GitExecutorOption {
 	}
 }
 
+// WithGitArtifactHelper sets the artifact helper for git results.
+// This is the preferred option over WithGitArtifactSaver for new code.
+func WithGitArtifactHelper(helper *ArtifactHelper) GitExecutorOption {
+	return func(e *GitExecutor) {
+		e.artifactHelper = helper
+	}
+}
+
 // WithBaseBranch sets the default base branch for PR creation.
 func WithBaseBranch(branch string) GitExecutorOption {
 	return func(e *GitExecutor) {
@@ -164,6 +176,12 @@ func (e *GitExecutor) Execute(ctx context.Context, task *domain.Task, step *doma
 		result, err = e.executePush(ctx, step, task)
 	case GitOpCreatePR:
 		result, err = e.executeCreatePR(ctx, step, task)
+	case GitOpMergePR:
+		result, err = e.executeMergePR(ctx, step, task)
+	case GitOpAddReview:
+		result, err = e.executeAddReview(ctx, step, task)
+	case GitOpAddComment:
+		result, err = e.executeAddComment(ctx, step, task)
 	default:
 		return nil, fmt.Errorf("unknown git operation %q: %w", operation, atlaserrors.ErrGitOperation)
 	}
@@ -506,6 +524,213 @@ func (e *GitExecutor) storePRMetadata(task *domain.Task, prResult *git.PRResult)
 	}
 	task.Metadata["pr_number"] = prResult.Number
 	task.Metadata["pr_url"] = prResult.URL
+}
+
+// executeMergePR merges a pull request.
+func (e *GitExecutor) executeMergePR(ctx context.Context, step *domain.StepDefinition, task *domain.Task) (*domain.StepResult, error) {
+	log := e.logger.With().Str("operation", "merge_pr").Logger()
+	log.Debug().Msg("executing merge PR")
+
+	if e.hubRunner == nil {
+		return nil, fmt.Errorf("hub runner not configured: %w", atlaserrors.ErrGitHubOperation)
+	}
+
+	// Extract PR number (from config or task metadata)
+	prNumber := e.getPRNumber(step.Config, task)
+	if prNumber <= 0 {
+		return &domain.StepResult{
+			Status: "failed",
+			Output: "PR number not found in config or task metadata",
+			Error:  "missing pr_number",
+		}, nil
+	}
+
+	// Extract merge method (default: squash)
+	mergeMethod := MergeMethodSquash
+	if m, ok := step.Config["merge_method"].(string); ok && m != "" {
+		if ValidMergeMethod(m) {
+			mergeMethod = m
+		}
+	}
+
+	// Extract admin bypass flag
+	adminBypass := false
+	if ab, ok := step.Config["admin_bypass"].(bool); ok {
+		adminBypass = ab
+	}
+
+	// Extract delete branch flag (default: false - keep branch)
+	deleteBranch := false
+	if db, ok := step.Config["delete_branch"].(bool); ok {
+		deleteBranch = db
+	}
+
+	log.Debug().
+		Int("pr_number", prNumber).
+		Str("merge_method", mergeMethod).
+		Bool("admin_bypass", adminBypass).
+		Bool("delete_branch", deleteBranch).
+		Msg("merging PR")
+
+	// Execute merge
+	if err := e.hubRunner.MergePR(ctx, prNumber, mergeMethod, adminBypass, deleteBranch); err != nil {
+		return &domain.StepResult{
+			Status: "failed",
+			Output: fmt.Sprintf("Failed to merge PR #%d: %v", prNumber, err),
+			Error:  err.Error(),
+		}, nil
+	}
+
+	// Save artifact using helper
+	result := &MergeResult{
+		PRNumber:     prNumber,
+		MergeMethod:  mergeMethod,
+		AdminBypass:  adminBypass,
+		DeleteBranch: deleteBranch,
+		MergedAt:     time.Now(),
+	}
+	artifactPath := e.artifactHelper.SaveJSON(ctx, task, step.Name, "merge-result.json", result)
+
+	return &domain.StepResult{
+		Status:       "success",
+		Output:       fmt.Sprintf("Merged PR #%d using %s", prNumber, mergeMethod),
+		ArtifactPath: artifactPath,
+	}, nil
+}
+
+// executeAddReview adds a review to a pull request.
+func (e *GitExecutor) executeAddReview(ctx context.Context, step *domain.StepDefinition, task *domain.Task) (*domain.StepResult, error) {
+	log := e.logger.With().Str("operation", "add_pr_review").Logger()
+	log.Debug().Msg("executing add PR review")
+
+	if e.hubRunner == nil {
+		return nil, fmt.Errorf("hub runner not configured: %w", atlaserrors.ErrGitHubOperation)
+	}
+
+	prNumber := e.getPRNumber(step.Config, task)
+	if prNumber <= 0 {
+		return &domain.StepResult{
+			Status: "failed",
+			Output: "PR number not found in config or task metadata",
+			Error:  "missing pr_number",
+		}, nil
+	}
+
+	// Event: APPROVE, REQUEST_CHANGES, or COMMENT (default: APPROVE)
+	event := ReviewEventApprove
+	if ev, ok := step.Config["event"].(string); ok && ev != "" {
+		upperEvent := strings.ToUpper(ev)
+		if ValidReviewEvent(upperEvent) {
+			event = upperEvent
+		}
+	}
+
+	body, _ := step.Config["body"].(string)
+
+	log.Debug().
+		Int("pr_number", prNumber).
+		Str("event", event).
+		Msg("adding review to PR")
+
+	if err := e.hubRunner.AddPRReview(ctx, prNumber, body, event); err != nil {
+		return &domain.StepResult{
+			Status: "failed",
+			Output: fmt.Sprintf("Failed to add review to PR #%d: %v", prNumber, err),
+			Error:  err.Error(),
+		}, nil
+	}
+
+	// Save artifact using helper
+	result := &ReviewResult{
+		PRNumber: prNumber,
+		Event:    event,
+		Body:     body,
+		AddedAt:  time.Now(),
+	}
+	artifactPath := e.artifactHelper.SaveJSON(ctx, task, step.Name, "review-result.json", result)
+
+	return &domain.StepResult{
+		Status:       "success",
+		Output:       fmt.Sprintf("Added %s review to PR #%d", event, prNumber),
+		ArtifactPath: artifactPath,
+	}, nil
+}
+
+// executeAddComment adds a comment to a pull request.
+func (e *GitExecutor) executeAddComment(ctx context.Context, step *domain.StepDefinition, task *domain.Task) (*domain.StepResult, error) {
+	log := e.logger.With().Str("operation", "add_pr_comment").Logger()
+	log.Debug().Msg("executing add PR comment")
+
+	if e.hubRunner == nil {
+		return nil, fmt.Errorf("hub runner not configured: %w", atlaserrors.ErrGitHubOperation)
+	}
+
+	prNumber := e.getPRNumber(step.Config, task)
+	if prNumber <= 0 {
+		return &domain.StepResult{
+			Status: "failed",
+			Output: "PR number not found in config or task metadata",
+			Error:  "missing pr_number",
+		}, nil
+	}
+
+	body, ok := step.Config["body"].(string)
+	if !ok || body == "" {
+		return &domain.StepResult{
+			Status: "failed",
+			Output: "Comment body is required",
+			Error:  "missing body",
+		}, nil
+	}
+
+	log.Debug().
+		Int("pr_number", prNumber).
+		Msg("adding comment to PR")
+
+	if err := e.hubRunner.AddPRComment(ctx, prNumber, body); err != nil {
+		return &domain.StepResult{
+			Status: "failed",
+			Output: fmt.Sprintf("Failed to add comment to PR #%d: %v", prNumber, err),
+			Error:  err.Error(),
+		}, nil
+	}
+
+	// Save artifact using helper
+	result := &CommentResult{
+		PRNumber: prNumber,
+		Body:     body,
+		AddedAt:  time.Now(),
+	}
+	artifactPath := e.artifactHelper.SaveJSON(ctx, task, step.Name, "comment-result.json", result)
+
+	return &domain.StepResult{
+		Status:       "success",
+		Output:       fmt.Sprintf("Added comment to PR #%d", prNumber),
+		ArtifactPath: artifactPath,
+	}, nil
+}
+
+// getPRNumber extracts PR number from config or task metadata.
+func (e *GitExecutor) getPRNumber(config map[string]any, task *domain.Task) int {
+	// 1. Try step config
+	if num, ok := config["pr_number"].(int); ok && num > 0 {
+		return num
+	}
+	if numFloat, ok := config["pr_number"].(float64); ok && numFloat > 0 {
+		return int(numFloat)
+	}
+
+	// 2. Try task metadata (set by CreatePR step)
+	if task.Metadata != nil {
+		if num, ok := task.Metadata["pr_number"].(int); ok && num > 0 {
+			return num
+		}
+		if numFloat, ok := task.Metadata["pr_number"].(float64); ok && numFloat > 0 {
+			return int(numFloat)
+		}
+	}
+
+	return 0
 }
 
 // Helper functions
