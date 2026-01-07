@@ -300,11 +300,20 @@ func (e *GitExecutor) executeCommit(ctx context.Context, step *domain.StepDefini
 		filesChanged = append(filesChanged, commit.FilesChanged...)
 	}
 
+	// Store commit messages in metadata for PR description generation
+	commitMessages := make([]string, len(result.Commits))
+	for i, commit := range result.Commits {
+		commitMessages[i] = commit.Message
+	}
+
 	return &domain.StepResult{
 		Status:       "success",
 		Output:       fmt.Sprintf("Created %d commit(s), %d files changed", len(result.Commits), result.TotalFiles),
 		FilesChanged: filesChanged,
 		ArtifactPath: joinArtifactPaths(artifactPaths),
+		Metadata: map[string]any{
+			"commit_messages": commitMessages,
+		},
 	}, nil
 }
 
@@ -864,13 +873,81 @@ func getBranchFromConfig(config map[string]any, task *domain.Task) string {
 func extractCommitMessages(results []domain.StepResult) []string {
 	var messages []string
 	for _, r := range results {
-		if r.Output != "" && r.Status == "success" {
-			// Check if this was a commit step by looking for commit-related output
-			// This is a simplified heuristic
-			messages = append(messages, r.Output)
+		if r.Status != "success" {
+			continue
 		}
+		msgs := extractMessagesFromResult(r)
+		messages = append(messages, msgs...)
 	}
 	return messages
+}
+
+// extractMessagesFromResult extracts commit messages from a single step result.
+func extractMessagesFromResult(r domain.StepResult) []string {
+	// Try to extract from metadata first (preferred method)
+	if msgs := extractFromMetadata(r.Metadata); len(msgs) > 0 {
+		return msgs
+	}
+
+	// Fallback: use Output for backward compatibility
+	if r.Output != "" && looksLikeCommitMessage(r.Output) {
+		return []string{r.Output}
+	}
+
+	return nil
+}
+
+// extractFromMetadata extracts commit messages from metadata.
+func extractFromMetadata(metadata map[string]any) []string {
+	if metadata == nil {
+		return nil
+	}
+
+	// Try []string type first
+	if commitMsgs, ok := metadata["commit_messages"].([]string); ok {
+		return commitMsgs
+	}
+
+	// Handle []any type
+	if commitMsgsAny, ok := metadata["commit_messages"].([]any); ok {
+		var msgs []string
+		for _, msg := range commitMsgsAny {
+			if msgStr, ok := msg.(string); ok {
+				msgs = append(msgs, msgStr)
+			}
+		}
+		return msgs
+	}
+
+	return nil
+}
+
+// looksLikeCommitMessage checks if a string looks like a commit message.
+// Returns true if the string starts with a conventional commit type and has a description.
+func looksLikeCommitMessage(s string) bool {
+	conventionalTypes := []string{"feat:", "fix:", "docs:", "style:", "refactor:", "test:", "chore:", "build:", "ci:", "perf:", "revert:"}
+	for _, prefix := range conventionalTypes {
+		// Check for simple format: type: description
+		if len(s) > len(prefix) && s[:len(prefix)] == prefix {
+			// Make sure there's actual content after the colon (not just whitespace)
+			remaining := strings.TrimSpace(s[len(prefix):])
+			if len(remaining) > 0 {
+				return true
+			}
+		}
+		// Also check for scoped format: type(scope): description
+		if len(s) > len(prefix)+2 && s[:len(prefix)-1] == prefix[:len(prefix)-1] && s[len(prefix)-1] == '(' {
+			// Find the closing paren and colon
+			closeParenIdx := strings.Index(s[len(prefix)-1:], "):")
+			if closeParenIdx > 0 {
+				afterColon := s[len(prefix)-1+closeParenIdx+2:]
+				if len(strings.TrimSpace(afterColon)) > 0 {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 // extractFilesChanged extracts files changed from previous step results.

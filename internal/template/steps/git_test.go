@@ -808,17 +808,28 @@ func TestGetBranchFromConfig(t *testing.T) {
 }
 
 func TestExtractCommitMessages(t *testing.T) {
+	// Updated to use actual commit message formats and metadata
 	results := []domain.StepResult{
-		{Status: "success", Output: "Message 1"},
-		{Status: "failed", Output: "Message 2"},
-		{Status: "success", Output: "Message 3"},
+		{
+			Status: "success",
+			Metadata: map[string]any{
+				"commit_messages": []string{"feat(api): add endpoint"},
+			},
+		},
+		{Status: "failed", Output: "fix: this failed"}, // Should be ignored (failed status)
+		{
+			Status: "success",
+			Metadata: map[string]any{
+				"commit_messages": []string{"docs: update readme"},
+			},
+		},
 	}
 
 	messages := extractCommitMessages(results)
 
 	assert.Len(t, messages, 2)
-	assert.Contains(t, messages, "Message 1")
-	assert.Contains(t, messages, "Message 3")
+	assert.Contains(t, messages, "feat(api): add endpoint")
+	assert.Contains(t, messages, "docs: update readme")
 }
 
 func TestExtractFilesChanged(t *testing.T) {
