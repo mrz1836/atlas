@@ -264,6 +264,22 @@ type SmartCommitConfig struct {
 	// Common values: "sonnet", "opus", "haiku"
 	// Default: "" (uses AI.Model)
 	Model string `yaml:"model,omitempty" mapstructure:"model"`
+
+	// Timeout is the maximum duration for AI commit message generation.
+	// If the AI takes longer than this, it will timeout and fall back to template generation.
+	// Default: 30 seconds
+	Timeout time.Duration `yaml:"timeout,omitempty" mapstructure:"timeout"`
+
+	// MaxRetries is the maximum number of retry attempts for AI generation.
+	// Retries use exponential backoff to handle transient failures.
+	// Default: 2
+	MaxRetries int `yaml:"max_retries,omitempty" mapstructure:"max_retries"`
+
+	// RetryBackoffFactor is the multiplier for exponential backoff between retries.
+	// Each retry timeout = previous_timeout * retry_backoff_factor.
+	// Example: With timeout=30s and factor=1.5, retries use 30s, 45s, 67.5s...
+	// Default: 1.5
+	RetryBackoffFactor float64 `yaml:"retry_backoff_factor,omitempty" mapstructure:"retry_backoff_factor"`
 }
 
 // PRDescriptionConfig contains settings for PR description generation.

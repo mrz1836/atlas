@@ -179,6 +179,22 @@ smart_commit:
   # Default: ""
   model: "haiku"
 
+  # Timeout for AI commit message generation (e.g., "30s", "1m")
+  # If AI takes longer, it will timeout and fall back to template generation
+  # Default: 30s
+  timeout: 30s
+
+  # Maximum number of retry attempts for AI generation
+  # Retries use exponential backoff to handle transient failures
+  # Default: 2
+  max_retries: 2
+
+  # Exponential backoff factor for retries
+  # Each retry timeout = previous_timeout * retry_backoff_factor
+  # Example: With timeout=30s and factor=1.5, retries use 30s, 45s, 67.5s...
+  # Default: 1.5
+  retry_backoff_factor: 1.5
+
 pr_description:
   # Agent for PR description generation; empty = uses ai.agent setting
   # Valid values: "claude", "gemini", "codex"
