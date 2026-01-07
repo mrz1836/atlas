@@ -118,6 +118,35 @@ const (
 	actionCancel            approvalAction = "cancel"
 )
 
+// approveStep represents a step in the approval workflow
+type approveStep struct {
+	name    string          // Display name (e.g., "Add PR Review")
+	execute approveStepFunc // Function to execute
+}
+
+// approveStepFunc executes a step and returns an optional message
+type approveStepFunc func(ctx context.Context, stepCtx *approveStepContext) (message string, err error)
+
+// approveStepContext contains context needed for executing approval steps
+type approveStepContext struct {
+	out       tui.Output
+	taskStore task.Store
+	ws        *domain.Workspace
+	t         *domain.Task
+	notifier  *tui.Notifier
+	hubRunner git.HubRunner
+	message   string // PR merge message
+}
+
+// approveStepTracker manages step execution and progress display
+type approveStepTracker struct {
+	steps        []approveStep
+	currentStep  int
+	totalSteps   int
+	out          tui.Output
+	outputFormat string // Skip progress in JSON mode
+}
+
 // Injection points for testing - these can be overridden in tests
 //
 //nolint:gochecknoglobals // Test injection points - standard Go testing pattern
@@ -356,29 +385,34 @@ func selectWorkspaceForApproval(tasks []awaitingTask) (*awaitingTask, error) {
 
 // runAutoApprove performs automatic approval without interactive menu.
 func runAutoApprove(ctx context.Context, out tui.Output, taskStore task.Store, ws *domain.Workspace, t *domain.Task, notifier *tui.Notifier, closeWS bool) error {
-	// Approve the task directly
-	if err := approveTask(ctx, taskStore, t); err != nil {
+	// Build step workflow based on whether we're closing workspace
+	var steps []approveStep
+	if closeWS {
+		steps = buildApproveAndCloseSteps()
+	} else {
+		steps = buildSimpleApproveSteps()
+	}
+
+	// Create step context
+	stepCtx := &approveStepContext{
+		out:       out,
+		taskStore: taskStore,
+		ws:        ws,
+		t:         t,
+		notifier:  notifier,
+	}
+
+	// Auto-approve mode uses TTY output (not JSON)
+	tracker := newApproveStepTracker(steps, out, "")
+	if err := tracker.executeSteps(ctx, stepCtx); err != nil {
 		return fmt.Errorf("failed to approve task: %w", err)
 	}
 
-	out.Success(fmt.Sprintf("Task approved: %s", t.Description))
+	// Display summary info
 	out.Info(fmt.Sprintf("  Workspace: %s", ws.Name))
 	out.Info(fmt.Sprintf("  Task ID:   %s", t.ID))
 	if prURL := extractPRURL(t); prURL != "" {
 		out.Info(fmt.Sprintf("  PR URL:    %s", prURL))
-	}
-
-	// Close workspace if requested
-	if closeWS {
-		warning, err := closeWorkspace(ctx, ws.Name)
-		if err != nil {
-			out.Warning(fmt.Sprintf("Failed to close workspace: %s", err.Error()))
-		} else {
-			out.Success(fmt.Sprintf("Workspace '%s' closed. History preserved.", ws.Name))
-		}
-		if warning != "" {
-			out.Warning(warning)
-		}
 	}
 
 	notifier.Bell()
@@ -439,29 +473,42 @@ func runApprovalActionLoop(ctx context.Context, out tui.Output, taskStore task.S
 func executeApprovalAction(ctx context.Context, out tui.Output, taskStore task.Store, ws *domain.Workspace, t *domain.Task, notifier *tui.Notifier, action approvalAction) (bool, error) {
 	switch action {
 	case actionApprove:
-		if err := approveTask(ctx, taskStore, t); err != nil {
+		// Build single-step workflow
+		steps := buildSimpleApproveSteps()
+		stepCtx := &approveStepContext{
+			out:       out,
+			taskStore: taskStore,
+			ws:        ws,
+			t:         t,
+			notifier:  notifier,
+		}
+		// Interactive mode always uses TTY output (not JSON)
+		tracker := newApproveStepTracker(steps, out, "")
+		if err := tracker.executeSteps(ctx, stepCtx); err != nil {
 			out.Error(tui.WrapWithSuggestion(err))
 			return false, nil // Continue loop on error
 		}
-		out.Success("Task approved. PR ready for merge.")
+		out.Info("PR ready for merge.")
 		notifier.Bell()
 		return true, nil
 
 	case actionApproveAndClose:
-		if err := approveTask(ctx, taskStore, t); err != nil {
+		// Build two-step workflow
+		steps := buildApproveAndCloseSteps()
+		stepCtx := &approveStepContext{
+			out:       out,
+			taskStore: taskStore,
+			ws:        ws,
+			t:         t,
+			notifier:  notifier,
+		}
+		// Interactive mode always uses TTY output (not JSON)
+		tracker := newApproveStepTracker(steps, out, "")
+		if err := tracker.executeSteps(ctx, stepCtx); err != nil {
 			out.Error(tui.WrapWithSuggestion(err))
 			return false, nil // Continue loop on error
 		}
-		out.Success("Task approved. PR ready for merge.")
-		warning, err := closeWorkspace(ctx, ws.Name)
-		if err != nil {
-			out.Warning(fmt.Sprintf("Failed to close workspace: %s", err.Error()))
-		} else {
-			out.Success(fmt.Sprintf("Workspace '%s' closed. History preserved.", ws.Name))
-			if warning != "" {
-				out.Warning(warning)
-			}
-		}
+		out.Info("PR ready for merge.")
 		notifier.Bell()
 		return true, nil
 
@@ -469,7 +516,8 @@ func executeApprovalAction(ctx context.Context, out tui.Output, taskStore task.S
 		// Load config to get the default merge message
 		cfg, _ := config.Load(ctx)
 		message := cfg.Approval.MergeMessage
-		if err := executeApproveMergeClose(ctx, out, taskStore, ws, t, notifier, message); err != nil {
+		// Interactive mode always uses TTY output (not JSON)
+		if err := executeApproveMergeClose(ctx, out, taskStore, ws, t, notifier, message, ""); err != nil {
 			//nolint:nilerr // Error already displayed to user; continue interactive loop
 			return false, nil
 		}
@@ -680,33 +728,11 @@ var createHubRunnerFunc = func(workDir string) git.HubRunner {
 	return git.NewCLIGitHubRunner(workDir)
 }
 
-// addReviewOrComment attempts to add a review, falling back to a comment if needed.
-func addReviewOrComment(ctx context.Context, out tui.Output, hubRunner git.HubRunner, prNumber int, message string) {
-	reviewErr := hubRunner.AddPRReview(ctx, prNumber, message, "APPROVE")
-	if reviewErr == nil {
-		out.Success("PR approved")
-		return
-	}
-
-	// Log appropriate warning based on error type
-	if errors.Is(reviewErr, atlaserrors.ErrPRReviewNotAllowed) {
-		out.Warning("Cannot add review (own PR). Adding comment instead.")
-	} else {
-		out.Warning(fmt.Sprintf("Could not add review: %s. Adding comment instead.", reviewErr))
-	}
-
-	// Attempt to add comment as fallback
-	if commentErr := hubRunner.AddPRComment(ctx, prNumber, message); commentErr != nil {
-		out.Warning(fmt.Sprintf("Could not add comment: %s", commentErr))
-	} else {
-		out.Info("Added comment to PR")
-	}
-}
-
-// executeApproveMergeClose performs the approve+merge+close workflow.
+// executeApproveMergeClose performs the approve+merge+close workflow with step tracking.
 // 1. Adds PR review (APPROVE) or falls back to comment
 // 2. Merges PR with squash (falls back to admin bypass if needed)
-// 3. Approves task and closes workspace
+// 3. Approves task
+// 4. Closes workspace
 func executeApproveMergeClose(
 	ctx context.Context,
 	out tui.Output,
@@ -715,7 +741,9 @@ func executeApproveMergeClose(
 	t *domain.Task,
 	notifier *tui.Notifier,
 	message string,
+	outputFormat string,
 ) error {
+	// Validate PR exists
 	prNumber := extractPRNumber(t)
 	if prNumber == 0 {
 		err := fmt.Errorf("no PR number found in task metadata: %w", atlaserrors.ErrEmptyValue)
@@ -726,41 +754,27 @@ func executeApproveMergeClose(
 	// Get the worktree path for GitHub runner
 	hubRunner := createHubRunnerFunc(ws.WorktreePath)
 
-	// Step 1: Try to add PR review (APPROVE), fallback to comment
-	addReviewOrComment(ctx, out, hubRunner, prNumber, message)
+	// Build step definitions
+	steps := buildApproveMergeCloseSteps()
 
-	// Step 2: Merge PR with squash, fallback to admin bypass
-	mergeErr := hubRunner.MergePR(ctx, prNumber, "squash", false)
-	if mergeErr != nil {
-		out.Warning(fmt.Sprintf("Standard merge failed: %s. Trying with admin bypass...", mergeErr))
-		mergeErr = hubRunner.MergePR(ctx, prNumber, "squash", true)
-		if mergeErr != nil {
-			out.Error(tui.WrapWithSuggestion(mergeErr))
-			return mergeErr
-		}
-		out.Success("PR merged (squash) with admin bypass")
-	} else {
-		out.Success("PR merged (squash)")
+	// Create step context
+	stepCtx := &approveStepContext{
+		out:       out,
+		taskStore: taskStore,
+		ws:        ws,
+		t:         t,
+		notifier:  notifier,
+		hubRunner: hubRunner,
+		message:   message,
 	}
 
-	// Step 3: Approve task in ATLAS
-	if err := approveTask(ctx, taskStore, t); err != nil {
-		out.Error(tui.WrapWithSuggestion(err))
+	// Create tracker and execute steps
+	tracker := newApproveStepTracker(steps, out, outputFormat)
+	if err := tracker.executeSteps(ctx, stepCtx); err != nil {
 		return err
 	}
-	out.Success("Task approved")
 
-	// Step 4: Close workspace
-	warning, err := closeWorkspace(ctx, ws.Name)
-	if err != nil {
-		out.Warning(fmt.Sprintf("Failed to close workspace: %s", err))
-	} else {
-		out.Success(fmt.Sprintf("Workspace '%s' closed. History preserved.", ws.Name))
-		if warning != "" {
-			out.Warning(warning)
-		}
-	}
-
+	// Ring bell on success
 	notifier.Bell()
 	return nil
 }
@@ -850,6 +864,196 @@ func outputApproveErrorJSON(w io.Writer, workspaceName, taskID, errMsg string) e
 	return atlaserrors.ErrJSONErrorOutput
 }
 
+// newApproveStepTracker creates a new step tracker
+func newApproveStepTracker(steps []approveStep, out tui.Output, outputFormat string) *approveStepTracker {
+	return &approveStepTracker{
+		steps:        steps,
+		currentStep:  0,
+		totalSteps:   len(steps),
+		out:          out,
+		outputFormat: outputFormat,
+	}
+}
+
+// executeSteps runs all steps in sequence with progress tracking
+func (t *approveStepTracker) executeSteps(ctx context.Context, stepCtx *approveStepContext) error {
+	for i, step := range t.steps {
+		// Check context cancellation
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		t.currentStep = i
+
+		// Notify step start
+		t.notifyStepStart(step)
+
+		// Execute step
+		message, err := step.execute(ctx, stepCtx)
+		if err != nil {
+			t.notifyStepFailed(step, err)
+			return err
+		}
+
+		// Notify step complete
+		t.notifyStepComplete(step, message)
+	}
+
+	return nil
+}
+
+// notifyStepStart displays the step start message (skip in JSON mode)
+func (t *approveStepTracker) notifyStepStart(step approveStep) {
+	if t.outputFormat == OutputJSON {
+		return
+	}
+
+	msg := fmt.Sprintf("Step %d/%d: %s...", t.currentStep+1, t.totalSteps, step.name)
+	t.out.Info(msg)
+}
+
+// notifyStepComplete displays the step completion message (skip in JSON mode)
+func (t *approveStepTracker) notifyStepComplete(step approveStep, message string) {
+	if t.outputFormat == OutputJSON {
+		return
+	}
+
+	msg := fmt.Sprintf("Step %d/%d: %s completed", t.currentStep+1, t.totalSteps, step.name)
+	t.out.Success(msg)
+
+	// Display additional message if provided
+	if message != "" {
+		t.out.Info("  " + message)
+	}
+}
+
+// notifyStepFailed displays the step failure message (skip in JSON mode)
+func (t *approveStepTracker) notifyStepFailed(step approveStep, err error) {
+	if t.outputFormat == OutputJSON {
+		return
+	}
+
+	msg := fmt.Sprintf("Step %d/%d: %s failed", t.currentStep+1, t.totalSteps, step.name)
+	t.out.Error(fmt.Errorf("%s: %w", msg, err))
+}
+
+// buildApproveMergeCloseSteps creates the step definitions for approve+merge+close workflow
+func buildApproveMergeCloseSteps() []approveStep {
+	return []approveStep{
+		{
+			name:    "Add PR Review",
+			execute: executeAddReviewStep,
+		},
+		{
+			name:    "Merge PR",
+			execute: executeMergePRStep,
+		},
+		{
+			name:    "Approve Task",
+			execute: executeApproveTaskStep,
+		},
+		{
+			name:    "Close Workspace",
+			execute: executeCloseWorkspaceStep,
+		},
+	}
+}
+
+// buildApproveAndCloseSteps creates the step definitions for approve+close workflow
+func buildApproveAndCloseSteps() []approveStep {
+	return []approveStep{
+		{
+			name:    "Approve Task",
+			execute: executeApproveTaskStep,
+		},
+		{
+			name:    "Close Workspace",
+			execute: executeCloseWorkspaceStep,
+		},
+	}
+}
+
+// buildSimpleApproveSteps creates the step definitions for simple approve workflow
+func buildSimpleApproveSteps() []approveStep {
+	return []approveStep{
+		{
+			name:    "Approve Task",
+			execute: executeApproveTaskStep,
+		},
+	}
+}
+
+// executeAddReviewStep handles adding PR review or comment with fallback
+func executeAddReviewStep(ctx context.Context, stepCtx *approveStepContext) (string, error) {
+	prNumber := extractPRNumber(stepCtx.t)
+	if prNumber == 0 {
+		return "", fmt.Errorf("no PR number found in task metadata: %w", atlaserrors.ErrEmptyValue)
+	}
+
+	// Try to add review first
+	reviewErr := stepCtx.hubRunner.AddPRReview(ctx, prNumber, stepCtx.message, "APPROVE")
+	if reviewErr == nil {
+		return "PR approved", nil
+	}
+
+	// Fallback to comment if review not allowed (own PR)
+	if errors.Is(reviewErr, atlaserrors.ErrPRReviewNotAllowed) {
+		if commentErr := stepCtx.hubRunner.AddPRComment(ctx, prNumber, stepCtx.message); commentErr != nil {
+			return "", fmt.Errorf("could not add comment: %w", commentErr)
+		}
+		return "Comment added (own PR)", nil
+	}
+
+	// Try comment fallback for other errors too
+	if commentErr := stepCtx.hubRunner.AddPRComment(ctx, prNumber, stepCtx.message); commentErr != nil {
+		return "", fmt.Errorf("could not add review or comment: %w", reviewErr)
+	}
+	return "Comment added (review failed)", nil
+}
+
+// executeMergePRStep handles merging PR with admin bypass fallback
+func executeMergePRStep(ctx context.Context, stepCtx *approveStepContext) (string, error) {
+	prNumber := extractPRNumber(stepCtx.t)
+
+	// Try standard merge first
+	mergeErr := stepCtx.hubRunner.MergePR(ctx, prNumber, "squash", false)
+	if mergeErr == nil {
+		return "PR merged (squash)", nil
+	}
+
+	// Try with admin bypass
+	mergeErr = stepCtx.hubRunner.MergePR(ctx, prNumber, "squash", true)
+	if mergeErr != nil {
+		return "", fmt.Errorf("merge failed: %w", mergeErr)
+	}
+
+	return "PR merged (squash) with admin bypass", nil
+}
+
+// executeApproveTaskStep handles task approval
+func executeApproveTaskStep(ctx context.Context, stepCtx *approveStepContext) (string, error) {
+	if err := approveTask(ctx, stepCtx.taskStore, stepCtx.t); err != nil {
+		return "", fmt.Errorf("failed to approve task: %w", err)
+	}
+	return "Task approved", nil
+}
+
+// executeCloseWorkspaceStep handles workspace closure
+func executeCloseWorkspaceStep(ctx context.Context, stepCtx *approveStepContext) (string, error) {
+	warning, err := closeWorkspace(ctx, stepCtx.ws.Name)
+	if err != nil {
+		return "", fmt.Errorf("failed to close workspace: %w", err)
+	}
+
+	msg := fmt.Sprintf("Workspace '%s' closed", stepCtx.ws.Name)
+	if warning != "" {
+		msg += " (warning: " + warning + ")"
+	}
+	return msg, nil
+}
+
 // closeWorkspace closes the workspace, removing the worktree but preserving history.
 // Returns a warning string if worktree removal failed (workspace is still closed).
 func closeWorkspace(ctx context.Context, workspaceName string) (warning string, err error) {
@@ -862,6 +1066,10 @@ func closeWorkspace(ctx context.Context, workspaceName string) (warning string, 
 	// Get workspace to find worktree path
 	ws, err := wsStore.Get(ctx, workspaceName)
 	if err != nil {
+		// If workspace not found, treat it as already closed
+		if errors.Is(err, atlaserrors.ErrWorkspaceNotFound) {
+			return "workspace already closed or not found", nil
+		}
 		return "", fmt.Errorf("failed to get workspace: %w", err)
 	}
 
