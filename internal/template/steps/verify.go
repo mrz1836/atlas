@@ -30,26 +30,29 @@ type VerifyExecutor struct {
 	garbageDetector *git.GarbageDetector
 	logger          zerolog.Logger
 	workingDir      string
+	artifactHelper  *ArtifactHelper
 }
 
 // NewVerifyExecutor creates a new verify executor with the given dependencies.
-func NewVerifyExecutor(runner ai.Runner, garbageDetector *git.GarbageDetector, logger zerolog.Logger) *VerifyExecutor {
+func NewVerifyExecutor(runner ai.Runner, garbageDetector *git.GarbageDetector, artifactSaver ArtifactSaver, logger zerolog.Logger) *VerifyExecutor {
 	return &VerifyExecutor{
 		runner:          runner,
 		garbageDetector: garbageDetector,
 		logger:          logger,
+		artifactHelper:  NewArtifactHelper(artifactSaver, logger),
 	}
 }
 
 // NewVerifyExecutorWithWorkingDir creates a verify executor with a working directory.
 // The working directory is used to set the Claude CLI's working directory,
 // ensuring file operations happen in the correct location (e.g., worktree).
-func NewVerifyExecutorWithWorkingDir(runner ai.Runner, garbageDetector *git.GarbageDetector, logger zerolog.Logger, workingDir string) *VerifyExecutor {
+func NewVerifyExecutorWithWorkingDir(runner ai.Runner, garbageDetector *git.GarbageDetector, artifactSaver ArtifactSaver, logger zerolog.Logger, workingDir string) *VerifyExecutor {
 	return &VerifyExecutor{
 		runner:          runner,
 		garbageDetector: garbageDetector,
 		logger:          logger,
 		workingDir:      workingDir,
+		artifactHelper:  NewArtifactHelper(artifactSaver, logger),
 	}
 }
 
@@ -159,8 +162,12 @@ func (e *VerifyExecutor) Execute(ctx context.Context, task *domain.Task, step *d
 
 	// Run AI verification
 	result, err := e.runner.Run(execCtx, req)
+	elapsed := time.Since(startTime)
+
+	// Save AI artifact for audit trail (versioned to handle multiple verification calls)
+	e.saveVerificationArtifact(ctx, task, step, req, result, startTime, elapsed, err)
+
 	if err != nil {
-		elapsed := time.Since(startTime)
 		e.logger.Error().
 			Err(err).
 			Str("task_id", task.ID).
@@ -180,8 +187,6 @@ func (e *VerifyExecutor) Execute(ctx context.Context, task *domain.Task, step *d
 			Error:       err.Error(),
 		}, err
 	}
-
-	elapsed := time.Since(startTime)
 
 	// Parse verification result
 	verifyResult, parseErr := e.parseVerificationResult(result.Output)
@@ -1014,4 +1019,41 @@ func (e *VerifyExecutor) handleViewReport(report *VerificationReport) (*Verifica
 		ShouldContinue: false, // After viewing, need another action choice
 		Message:        content,
 	}, nil
+}
+
+// saveVerificationArtifact saves the verification AI request/response as an artifact for audit trail.
+// Uses versioned saving to handle multiple verification attempts without overwriting.
+// This is non-blocking - artifact save failures are logged but don't fail the task.
+func (e *VerifyExecutor) saveVerificationArtifact(ctx context.Context, task *domain.Task, step *domain.StepDefinition,
+	req *domain.AIRequest, result *domain.AIResult, startTime time.Time, elapsed time.Duration, runErr error,
+) {
+	if e.artifactHelper == nil {
+		return
+	}
+
+	artifact := &ai.Artifact{
+		Timestamp:       startTime,
+		StepName:        step.Name,
+		StepIndex:       task.CurrentStep,
+		Agent:           string(req.Agent),
+		Model:           req.Model,
+		Request:         req,
+		Response:        result,
+		ExecutionTimeMs: elapsed.Milliseconds(),
+		Success:         runErr == nil,
+	}
+
+	if runErr != nil {
+		artifact.ErrorMessage = runErr.Error()
+	}
+
+	// Use versioned saving for multiple verification attempts
+	path, err := e.artifactHelper.SaveAIInteractionVersioned(ctx, task, "verify_step", artifact)
+	if err != nil {
+		e.logger.Warn().Err(err).Msg("failed to save verification artifact (non-fatal)")
+	} else if path != "" {
+		e.logger.Debug().
+			Str("artifact_path", path).
+			Msg("saved verification interaction artifact")
+	}
 }

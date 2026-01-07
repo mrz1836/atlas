@@ -42,9 +42,11 @@ var speckitChecker = struct {
 // SDDExecutor handles Speckit SDD steps.
 // It invokes Speckit via the AI runner to generate specification artifacts.
 type SDDExecutor struct {
-	runner        ai.Runner
-	artifactSaver ArtifactSaver
-	workingDir    string
+	runner         ai.Runner
+	artifactSaver  ArtifactSaver
+	workingDir     string
+	artifactHelper *ArtifactHelper
+	logger         zerolog.Logger
 }
 
 // NewSDDExecutor creates a new SDD executor.
@@ -52,6 +54,7 @@ type SDDExecutor struct {
 func NewSDDExecutor(runner ai.Runner, _ string) *SDDExecutor {
 	return &SDDExecutor{
 		runner: runner,
+		logger: zerolog.Nop(),
 	}
 }
 
@@ -61,15 +64,18 @@ func NewSDDExecutorWithWorkingDir(runner ai.Runner, _, workingDir string) *SDDEx
 	return &SDDExecutor{
 		runner:     runner,
 		workingDir: workingDir,
+		logger:     zerolog.Nop(),
 	}
 }
 
 // NewSDDExecutorWithArtifactSaver creates a new SDD executor with artifact saving support.
-func NewSDDExecutorWithArtifactSaver(runner ai.Runner, saver ArtifactSaver, workingDir string) *SDDExecutor {
+func NewSDDExecutorWithArtifactSaver(runner ai.Runner, saver ArtifactSaver, workingDir string, logger zerolog.Logger) *SDDExecutor {
 	return &SDDExecutor{
-		runner:        runner,
-		artifactSaver: saver,
-		workingDir:    workingDir,
+		runner:         runner,
+		artifactSaver:  saver,
+		workingDir:     workingDir,
+		artifactHelper: NewArtifactHelper(saver, logger),
+		logger:         logger,
 	}
 }
 
@@ -162,8 +168,12 @@ func (e *SDDExecutor) Execute(ctx context.Context, task *domain.Task, step *doma
 
 	// Execute via AI runner
 	result, err := e.runner.Run(execCtx, req)
+	elapsed := time.Since(startTime)
+
+	// Save AI artifact for audit trail (non-blocking, errors logged but don't fail task)
+	e.saveSDDArtifact(ctx, task, step, req, result, startTime, elapsed, err)
+
 	if err != nil {
-		elapsed := time.Since(startTime)
 		log.Error().
 			Err(err).
 			Str("task_id", task.ID).
@@ -220,7 +230,7 @@ func (e *SDDExecutor) Execute(ctx context.Context, task *domain.Task, step *doma
 		}
 	}
 
-	elapsed := time.Since(startTime)
+	// elapsed is already calculated earlier after runner.Run()
 	log.Info().
 		Str("task_id", task.ID).
 		Str("step_name", step.Name).
@@ -358,4 +368,37 @@ func SetSpeckitChecked(checked bool) {
 	speckitChecker.mu.Lock()
 	defer speckitChecker.mu.Unlock()
 	speckitChecker.checked = checked
+}
+
+// saveSDDArtifact saves the SDD AI request/response as an artifact for audit trail.
+// This is non-blocking - artifact save failures are logged but don't fail the task.
+func (e *SDDExecutor) saveSDDArtifact(ctx context.Context, task *domain.Task, step *domain.StepDefinition,
+	req *domain.AIRequest, result *domain.AIResult, startTime time.Time, elapsed time.Duration, runErr error,
+) {
+	if e.artifactHelper == nil {
+		return
+	}
+
+	artifact := &ai.Artifact{
+		Timestamp:       startTime,
+		StepName:        step.Name,
+		StepIndex:       task.CurrentStep,
+		Agent:           string(req.Agent),
+		Model:           req.Model,
+		Request:         req,
+		Response:        result,
+		ExecutionTimeMs: elapsed.Milliseconds(),
+		Success:         runErr == nil,
+	}
+
+	if runErr != nil {
+		artifact.ErrorMessage = runErr.Error()
+	}
+
+	path := e.artifactHelper.SaveAIInteraction(ctx, task, "sdd_step", artifact)
+	if path != "" {
+		e.logger.Debug().
+			Str("artifact_path", path).
+			Msg("saved SDD interaction artifact")
+	}
 }

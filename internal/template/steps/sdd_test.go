@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -35,7 +36,7 @@ func TestNewSDDExecutorWithWorkingDir(t *testing.T) {
 func TestNewSDDExecutorWithArtifactSaver(t *testing.T) {
 	runner := &mockAIRunner{}
 	saver := newTestArtifactSaver()
-	executor := NewSDDExecutorWithArtifactSaver(runner, saver, "/tmp/worktree")
+	executor := NewSDDExecutorWithArtifactSaver(runner, saver, "/tmp/worktree", zerolog.Nop())
 
 	require.NotNil(t, executor)
 	assert.Equal(t, runner, executor.runner)
@@ -70,7 +71,7 @@ func TestSDDExecutor_Execute_Success(t *testing.T) {
 			Output: "# Specification\nThis is the specification...",
 		},
 	}
-	executor := NewSDDExecutorWithArtifactSaver(runner, saver, "")
+	executor := NewSDDExecutorWithArtifactSaver(runner, saver, "", zerolog.Nop())
 
 	task := &domain.Task{
 		ID:          "task-123",
@@ -92,12 +93,17 @@ func TestSDDExecutor_Execute_Success(t *testing.T) {
 	assert.Contains(t, result.Output, "Specification")
 	assert.NotEmpty(t, result.ArtifactPath)
 
-	// Verify artifact was saved to the artifact saver with semantic name
-	assert.Len(t, saver.savedArtifacts, 1)
-	// The versioned artifact will be sdd/spec.md.1
-	savedKey := "sdd/spec.md.1"
-	assert.Contains(t, saver.savedArtifacts, savedKey)
-	assert.Contains(t, string(saver.savedArtifacts[savedKey]), "Specification")
+	// Verify artifacts were saved (SDD spec + AI metadata)
+	assert.Len(t, saver.savedArtifacts, 2, "should save both SDD spec and AI metadata")
+
+	// Check SDD spec artifact
+	sddKey := "sdd/spec.md.1"
+	assert.Contains(t, saver.savedArtifacts, sddKey)
+	assert.Contains(t, string(saver.savedArtifacts[sddKey]), "Specification")
+
+	// Check AI metadata artifact
+	metadataKey := "sdd_step/metadata.json"
+	assert.Contains(t, saver.savedArtifacts, metadataKey)
 }
 
 func TestSDDExecutor_Execute_SlashCommandFormat(t *testing.T) {
@@ -364,7 +370,7 @@ func TestSDDExecutor_Execute_DefaultCommand(t *testing.T) {
 func TestSDDExecutor_saveArtifact_SemanticNaming(t *testing.T) {
 	ctx := context.Background()
 	saver := newTestArtifactSaver()
-	executor := NewSDDExecutorWithArtifactSaver(&mockAIRunner{}, saver, "")
+	executor := NewSDDExecutorWithArtifactSaver(&mockAIRunner{}, saver, "", zerolog.Nop())
 
 	tests := []struct {
 		command      SDDCommand
@@ -392,7 +398,7 @@ func TestSDDExecutor_saveArtifact_SemanticNaming(t *testing.T) {
 func TestSDDExecutor_saveArtifact_Versioning(t *testing.T) {
 	ctx := context.Background()
 	saver := newTestArtifactSaver()
-	executor := NewSDDExecutorWithArtifactSaver(&mockAIRunner{}, saver, "")
+	executor := NewSDDExecutorWithArtifactSaver(&mockAIRunner{}, saver, "", zerolog.Nop())
 	task := &domain.Task{ID: "task-version", WorkspaceID: "test-ws"}
 
 	// Save multiple versions - versioning is now handled by the artifact saver
@@ -422,7 +428,7 @@ func TestSDDExecutor_saveArtifact_NoArtifactSaver(t *testing.T) {
 func TestSDDExecutor_saveArtifact_UnknownCommand(t *testing.T) {
 	ctx := context.Background()
 	saver := newTestArtifactSaver()
-	executor := NewSDDExecutorWithArtifactSaver(&mockAIRunner{}, saver, "")
+	executor := NewSDDExecutorWithArtifactSaver(&mockAIRunner{}, saver, "", zerolog.Nop())
 	task := &domain.Task{ID: "task-123", WorkspaceID: "test-ws"}
 
 	// Unknown command should use timestamp-based naming with SaveArtifact (non-versioned)
@@ -524,7 +530,7 @@ func TestSDDExecutor_Execute_ArtifactSaverCalled(t *testing.T) {
 	runner := &mockAIRunner{
 		result: &domain.AIResult{Output: "sensitive spec content"},
 	}
-	executor := NewSDDExecutorWithArtifactSaver(runner, saver, "")
+	executor := NewSDDExecutorWithArtifactSaver(runner, saver, "", zerolog.Nop())
 
 	task := &domain.Task{ID: "task-123", WorkspaceID: "test-ws", Description: "Test"}
 	step := &domain.StepDefinition{Name: "sdd", Type: domain.StepTypeSDD}
@@ -534,11 +540,17 @@ func TestSDDExecutor_Execute_ArtifactSaverCalled(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, result.ArtifactPath)
 
-	// Verify artifact was saved to the artifact saver
-	assert.Len(t, saver.savedArtifacts, 1)
-	savedKey := "sdd/spec.md.1"
-	assert.Contains(t, saver.savedArtifacts, savedKey)
-	assert.Equal(t, "sensitive spec content", string(saver.savedArtifacts[savedKey]))
+	// Verify artifacts were saved (SDD spec + AI metadata)
+	assert.Len(t, saver.savedArtifacts, 2, "should save both SDD spec and AI metadata")
+
+	// Check SDD spec artifact
+	sddKey := "sdd/spec.md.1"
+	assert.Contains(t, saver.savedArtifacts, sddKey)
+	assert.Equal(t, "sensitive spec content", string(saver.savedArtifacts[sddKey]))
+
+	// Check AI metadata artifact
+	metadataKey := "sdd_step/metadata.json"
+	assert.Contains(t, saver.savedArtifacts, metadataKey)
 }
 
 func TestGetArtifactFilename_ImplementReturnsEmpty(t *testing.T) {

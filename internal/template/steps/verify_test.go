@@ -35,7 +35,7 @@ func (m *mockVerifyRunner) Run(ctx context.Context, req *domain.AIRequest) (*dom
 func TestVerifyExecutor_Type(t *testing.T) {
 	runner := &mockVerifyRunner{}
 	detector := git.NewGarbageDetector(nil)
-	executor := NewVerifyExecutor(runner, detector, zerolog.Nop())
+	executor := NewVerifyExecutor(runner, detector, nil, zerolog.Nop())
 
 	assert.Equal(t, domain.StepTypeVerify, executor.Type())
 }
@@ -54,7 +54,7 @@ func TestVerifyExecutor_Execute_Success(t *testing.T) {
 		},
 	}
 	detector := git.NewGarbageDetector(nil)
-	executor := NewVerifyExecutor(runner, detector, zerolog.Nop())
+	executor := NewVerifyExecutor(runner, detector, nil, zerolog.Nop())
 
 	task := &domain.Task{
 		ID:          "test-task",
@@ -108,7 +108,7 @@ func TestVerifyExecutor_Execute_WithIssues(t *testing.T) {
 		},
 	}
 	detector := git.NewGarbageDetector(nil)
-	executor := NewVerifyExecutor(runner, detector, zerolog.Nop())
+	executor := NewVerifyExecutor(runner, detector, nil, zerolog.Nop())
 
 	task := &domain.Task{
 		ID:          "test-task",
@@ -141,7 +141,7 @@ func TestVerifyExecutor_Execute_AIError(t *testing.T) {
 		},
 	}
 	detector := git.NewGarbageDetector(nil)
-	executor := NewVerifyExecutor(runner, detector, zerolog.Nop())
+	executor := NewVerifyExecutor(runner, detector, nil, zerolog.Nop())
 
 	task := &domain.Task{
 		ID:          "test-task",
@@ -167,7 +167,7 @@ func TestVerifyExecutor_Execute_ContextCancellation(t *testing.T) {
 
 	runner := &mockVerifyRunner{}
 	detector := git.NewGarbageDetector(nil)
-	executor := NewVerifyExecutor(runner, detector, zerolog.Nop())
+	executor := NewVerifyExecutor(runner, detector, nil, zerolog.Nop())
 
 	task := &domain.Task{
 		ID:          "test-task",
@@ -203,7 +203,7 @@ func TestVerifyExecutor_Execute_WithTimeout(t *testing.T) {
 		},
 	}
 	detector := git.NewGarbageDetector(nil)
-	executor := NewVerifyExecutor(runner, detector, zerolog.Nop())
+	executor := NewVerifyExecutor(runner, detector, nil, zerolog.Nop())
 
 	task := &domain.Task{
 		ID:          "test-task",
@@ -237,7 +237,7 @@ func TestVerifyExecutor_Execute_ModelOverride(t *testing.T) {
 		},
 	}
 	detector := git.NewGarbageDetector(nil)
-	executor := NewVerifyExecutor(runner, detector, zerolog.Nop())
+	executor := NewVerifyExecutor(runner, detector, nil, zerolog.Nop())
 
 	task := &domain.Task{
 		ID:          "test-task",
@@ -279,7 +279,7 @@ func TestVerifyExecutor_Execute_AgentOverrideUsesAgentDefaultModel(t *testing.T)
 		},
 	}
 	detector := git.NewGarbageDetector(nil)
-	executor := NewVerifyExecutor(runner, detector, zerolog.Nop())
+	executor := NewVerifyExecutor(runner, detector, nil, zerolog.Nop())
 
 	task := &domain.Task{
 		ID:          "test-task",
@@ -325,7 +325,7 @@ func TestVerifyExecutor_Execute_AgentOverrideWithExplicitModel(t *testing.T) {
 		},
 	}
 	detector := git.NewGarbageDetector(nil)
-	executor := NewVerifyExecutor(runner, detector, zerolog.Nop())
+	executor := NewVerifyExecutor(runner, detector, nil, zerolog.Nop())
 
 	task := &domain.Task{
 		ID:          "test-task",
@@ -359,7 +359,7 @@ func TestNewVerifyExecutor(t *testing.T) {
 	detector := git.NewGarbageDetector(nil)
 	logger := zerolog.Nop()
 
-	executor := NewVerifyExecutor(runner, detector, logger)
+	executor := NewVerifyExecutor(runner, detector, nil, logger)
 
 	require.NotNil(t, executor)
 	assert.Equal(t, domain.StepTypeVerify, executor.Type())
@@ -387,7 +387,7 @@ func TestVerifyExecutor_CheckCodeCorrectness(t *testing.T) {
 			},
 		}
 		detector := git.NewGarbageDetector(nil)
-		executor := NewVerifyExecutor(runner, detector, zerolog.Nop())
+		executor := NewVerifyExecutor(runner, detector, nil, zerolog.Nop())
 
 		files := []ChangedFile{
 			{Path: "auth.go", Language: "go", Content: "package auth\n\nfunc Auth() {}"},
@@ -405,7 +405,7 @@ func TestVerifyExecutor_CheckCodeCorrectness(t *testing.T) {
 	t.Run("handles empty files", func(t *testing.T) {
 		runner := &mockVerifyRunner{}
 		detector := git.NewGarbageDetector(nil)
-		executor := NewVerifyExecutor(runner, detector, zerolog.Nop())
+		executor := NewVerifyExecutor(runner, detector, nil, zerolog.Nop())
 
 		issues, err := executor.CheckCodeCorrectness(ctx, "Task", nil)
 
@@ -418,7 +418,7 @@ func TestVerifyExecutor_CheckTestCoverage(t *testing.T) {
 	ctx := context.Background()
 	runner := &mockVerifyRunner{}
 	detector := git.NewGarbageDetector(nil)
-	executor := NewVerifyExecutor(runner, detector, zerolog.Nop())
+	executor := NewVerifyExecutor(runner, detector, nil, zerolog.Nop())
 
 	t.Run("detects missing test files", func(t *testing.T) {
 		files := []ChangedFile{
@@ -473,7 +473,7 @@ func TestVerifyExecutor_CheckGarbageFiles(t *testing.T) {
 	ctx := context.Background()
 	runner := &mockVerifyRunner{}
 	detector := git.NewGarbageDetector(nil)
-	executor := NewVerifyExecutor(runner, detector, zerolog.Nop())
+	executor := NewVerifyExecutor(runner, detector, nil, zerolog.Nop())
 
 	t.Run("detects debug files", func(t *testing.T) {
 		files := []string{"__debug_bin123", "main.go"}
@@ -521,7 +521,7 @@ func TestVerifyExecutor_CheckSecurityIssues(t *testing.T) {
 	ctx := context.Background()
 	runner := &mockVerifyRunner{}
 	detector := git.NewGarbageDetector(nil)
-	executor := NewVerifyExecutor(runner, detector, zerolog.Nop())
+	executor := NewVerifyExecutor(runner, detector, nil, zerolog.Nop())
 
 	t.Run("detects hardcoded password", func(t *testing.T) {
 		files := []ChangedFile{
@@ -819,7 +819,7 @@ func TestVerifyExecutor_RunAllChecks(t *testing.T) {
 		},
 	}
 	detector := git.NewGarbageDetector(nil)
-	executor := NewVerifyExecutor(runner, detector, zerolog.Nop())
+	executor := NewVerifyExecutor(runner, detector, nil, zerolog.Nop())
 
 	// Test code correctness check
 	changedFiles := []ChangedFile{
@@ -868,7 +868,7 @@ func TestVerifyExecutor_CompleteWorkflow(t *testing.T) {
 		},
 	}
 	detector := git.NewGarbageDetector(nil)
-	executor := NewVerifyExecutor(runner, detector, zerolog.Nop())
+	executor := NewVerifyExecutor(runner, detector, nil, zerolog.Nop())
 
 	// Create a task
 	task := &domain.Task{
@@ -919,7 +919,7 @@ func TestVerifyExecutor_PermissionModeDefault(t *testing.T) {
 		},
 	}
 	detector := git.NewGarbageDetector(nil)
-	executor := NewVerifyExecutor(runner, detector, zerolog.Nop())
+	executor := NewVerifyExecutor(runner, detector, nil, zerolog.Nop())
 
 	task := &domain.Task{
 		ID:          "test-task",
@@ -958,7 +958,7 @@ func TestVerifyExecutor_PermissionModeOverride(t *testing.T) {
 		},
 	}
 	detector := git.NewGarbageDetector(nil)
-	executor := NewVerifyExecutor(runner, detector, zerolog.Nop())
+	executor := NewVerifyExecutor(runner, detector, nil, zerolog.Nop())
 
 	task := &domain.Task{
 		ID:          "test-task",
@@ -989,7 +989,7 @@ func TestVerifyExecutor_HandleVerificationIssues(t *testing.T) {
 	ctx := context.Background()
 	runner := &mockVerifyRunner{}
 	detector := git.NewGarbageDetector(nil)
-	executor := NewVerifyExecutor(runner, detector, zerolog.Nop())
+	executor := NewVerifyExecutor(runner, detector, nil, zerolog.Nop())
 
 	report := &VerificationReport{
 		TaskID:       "test-task",

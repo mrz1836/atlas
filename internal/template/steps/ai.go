@@ -16,20 +16,28 @@ import (
 // AIExecutor handles AI steps (analyze, implement).
 // It uses the ai.Runner interface to execute prompts via Claude Code CLI.
 type AIExecutor struct {
-	runner     ai.Runner
-	workingDir string
+	runner         ai.Runner
+	workingDir     string
+	artifactHelper *ArtifactHelper
 }
 
 // NewAIExecutor creates a new AI executor with the given runner.
-func NewAIExecutor(runner ai.Runner) *AIExecutor {
-	return &AIExecutor{runner: runner}
+func NewAIExecutor(runner ai.Runner, artifactSaver ArtifactSaver, logger zerolog.Logger) *AIExecutor {
+	return &AIExecutor{
+		runner:         runner,
+		artifactHelper: NewArtifactHelper(artifactSaver, logger),
+	}
 }
 
 // NewAIExecutorWithWorkingDir creates an AI executor with a working directory.
 // The working directory is used to set the Claude CLI's working directory,
 // ensuring file operations happen in the correct location (e.g., worktree).
-func NewAIExecutorWithWorkingDir(runner ai.Runner, workingDir string) *AIExecutor {
-	return &AIExecutor{runner: runner, workingDir: workingDir}
+func NewAIExecutorWithWorkingDir(runner ai.Runner, workingDir string, artifactSaver ArtifactSaver, logger zerolog.Logger) *AIExecutor {
+	return &AIExecutor{
+		runner:         runner,
+		workingDir:     workingDir,
+		artifactHelper: NewArtifactHelper(artifactSaver, logger),
+	}
 }
 
 // Execute runs an AI step using Claude Code.
@@ -78,8 +86,12 @@ func (e *AIExecutor) Execute(ctx context.Context, task *domain.Task, step *domai
 
 	// Run the AI
 	result, err := e.runner.Run(execCtx, req)
+	elapsed := time.Since(startTime)
+
+	// Save AI artifact for audit trail (non-blocking, errors logged but don't fail task)
+	e.saveAIArtifact(ctx, task, step, req, result, startTime, elapsed, err)
+
 	if err != nil {
-		elapsed := time.Since(startTime)
 		log.Error().
 			Err(err).
 			Str("task_id", task.ID).
@@ -99,8 +111,6 @@ func (e *AIExecutor) Execute(ctx context.Context, task *domain.Task, step *domai
 			Error:       err.Error(),
 		}, err
 	}
-
-	elapsed := time.Since(startTime)
 
 	log.Info().
 		Str("task_id", task.ID).
@@ -213,5 +223,38 @@ func (e *AIExecutor) applyStepConfig(req *domain.AIRequest, description string, 
 	}
 	if timeout, ok := config["timeout"].(time.Duration); ok {
 		req.Timeout = timeout
+	}
+}
+
+// saveAIArtifact saves the AI request/response as an artifact for audit trail.
+// This is non-blocking - artifact save failures are logged but don't fail the task.
+func (e *AIExecutor) saveAIArtifact(ctx context.Context, task *domain.Task, step *domain.StepDefinition,
+	req *domain.AIRequest, result *domain.AIResult, startTime time.Time, elapsed time.Duration, runErr error,
+) {
+	if e.artifactHelper == nil {
+		return
+	}
+
+	artifact := &ai.Artifact{
+		Timestamp:       startTime,
+		StepName:        step.Name,
+		StepIndex:       task.CurrentStep,
+		Agent:           string(req.Agent),
+		Model:           req.Model,
+		Request:         req,
+		Response:        result,
+		ExecutionTimeMs: elapsed.Milliseconds(),
+		Success:         runErr == nil,
+	}
+
+	if runErr != nil {
+		artifact.ErrorMessage = runErr.Error()
+	}
+
+	path := e.artifactHelper.SaveAIInteraction(ctx, task, "ai_step", artifact)
+	if path != "" {
+		zerolog.Ctx(ctx).Debug().
+			Str("artifact_path", path).
+			Msg("saved AI interaction artifact")
 	}
 }

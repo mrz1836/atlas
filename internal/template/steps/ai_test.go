@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -36,14 +37,14 @@ func (m *mockAIRunner) Run(_ context.Context, req *domain.AIRequest) (*domain.AI
 
 func TestNewAIExecutor(t *testing.T) {
 	runner := &mockAIRunner{}
-	executor := NewAIExecutor(runner)
+	executor := NewAIExecutor(runner, nil, zerolog.Nop())
 
 	require.NotNil(t, executor)
 	assert.Equal(t, runner, executor.runner)
 }
 
 func TestAIExecutor_Type(t *testing.T) {
-	executor := NewAIExecutor(&mockAIRunner{})
+	executor := NewAIExecutor(&mockAIRunner{}, nil, zerolog.Nop())
 
 	assert.Equal(t, domain.StepTypeAI, executor.Type())
 }
@@ -59,7 +60,7 @@ func TestAIExecutor_Execute_Success(t *testing.T) {
 			FilesChanged: []string{"file1.go", "file2.go"},
 		},
 	}
-	executor := NewAIExecutor(runner)
+	executor := NewAIExecutor(runner, nil, zerolog.Nop())
 
 	task := &domain.Task{
 		ID:          "task-123",
@@ -89,7 +90,7 @@ func TestAIExecutor_Execute_ContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately
 
-	executor := NewAIExecutor(&mockAIRunner{})
+	executor := NewAIExecutor(&mockAIRunner{}, nil, zerolog.Nop())
 	task := &domain.Task{ID: "task-123"}
 	step := &domain.StepDefinition{Name: "implement", Type: domain.StepTypeAI}
 
@@ -103,7 +104,7 @@ func TestAIExecutor_Execute_RunnerError(t *testing.T) {
 	runner := &mockAIRunner{
 		err: atlaserrors.ErrClaudeInvocation,
 	}
-	executor := NewAIExecutor(runner)
+	executor := NewAIExecutor(runner, nil, zerolog.Nop())
 
 	task := &domain.Task{ID: "task-123", Description: "Test"}
 	step := &domain.StepDefinition{Name: "implement", Type: domain.StepTypeAI}
@@ -121,7 +122,7 @@ func TestAIExecutor_Execute_PassesCorrectRequest(t *testing.T) {
 	runner := &mockAIRunner{
 		result: &domain.AIResult{Output: "done"},
 	}
-	executor := NewAIExecutor(runner)
+	executor := NewAIExecutor(runner, nil, zerolog.Nop())
 
 	task := &domain.Task{
 		ID:          "task-123",
@@ -155,7 +156,7 @@ func TestAIExecutor_Execute_StepConfigOverrides(t *testing.T) {
 	runner := &mockAIRunner{
 		result: &domain.AIResult{Output: "done"},
 	}
-	executor := NewAIExecutor(runner)
+	executor := NewAIExecutor(runner, nil, zerolog.Nop())
 
 	task := &domain.Task{
 		ID:          "task-123",
@@ -186,7 +187,7 @@ func TestAIExecutor_Execute_NilStepConfig(t *testing.T) {
 	runner := &mockAIRunner{
 		result: &domain.AIResult{Output: "done"},
 	}
-	executor := NewAIExecutor(runner)
+	executor := NewAIExecutor(runner, nil, zerolog.Nop())
 
 	task := &domain.Task{
 		ID:          "task-123",
@@ -210,7 +211,7 @@ func TestAIExecutor_Execute_StepTimeout(t *testing.T) {
 	runner := &mockAIRunner{
 		result: &domain.AIResult{Output: "done"},
 	}
-	executor := NewAIExecutor(runner)
+	executor := NewAIExecutor(runner, nil, zerolog.Nop())
 
 	task := &domain.Task{ID: "task-123", Description: "Test"}
 	step := &domain.StepDefinition{
@@ -232,7 +233,7 @@ func TestAIExecutor_Execute_AgentOverrideUsesAgentDefaultModel(t *testing.T) {
 	runner := &mockAIRunner{
 		result: &domain.AIResult{Output: "done"},
 	}
-	executor := NewAIExecutor(runner)
+	executor := NewAIExecutor(runner, nil, zerolog.Nop())
 
 	task := &domain.Task{
 		ID:          "task-123",
@@ -267,7 +268,7 @@ func TestAIExecutor_Execute_AgentOverrideWithExplicitModel(t *testing.T) {
 	runner := &mockAIRunner{
 		result: &domain.AIResult{Output: "done"},
 	}
-	executor := NewAIExecutor(runner)
+	executor := NewAIExecutor(runner, nil, zerolog.Nop())
 
 	task := &domain.Task{
 		ID:          "task-123",
@@ -300,7 +301,7 @@ func TestAIExecutor_Execute_IncludePreviousErrors(t *testing.T) {
 		runner := &mockAIRunner{
 			result: &domain.AIResult{Output: "fixed"},
 		}
-		executor := NewAIExecutor(runner)
+		executor := NewAIExecutor(runner, nil, zerolog.Nop())
 
 		// Create a task with previous validation step results containing errors
 		task := &domain.Task{
@@ -351,7 +352,7 @@ func TestAIExecutor_Execute_IncludePreviousErrors(t *testing.T) {
 		runner := &mockAIRunner{
 			result: &domain.AIResult{Output: "done"},
 		}
-		executor := NewAIExecutor(runner)
+		executor := NewAIExecutor(runner, nil, zerolog.Nop())
 
 		// Create a task with successful validation (no errors)
 		task := &domain.Task{
@@ -394,7 +395,7 @@ func TestAIExecutor_Execute_IncludePreviousErrors(t *testing.T) {
 		runner := &mockAIRunner{
 			result: &domain.AIResult{Output: "done"},
 		}
-		executor := NewAIExecutor(runner)
+		executor := NewAIExecutor(runner, nil, zerolog.Nop())
 
 		task := &domain.Task{
 			ID:          "task-123",
@@ -435,7 +436,7 @@ func TestAIExecutor_Execute_IncludePreviousErrors(t *testing.T) {
 		runner := &mockAIRunner{
 			result: &domain.AIResult{Output: "done"},
 		}
-		executor := NewAIExecutor(runner)
+		executor := NewAIExecutor(runner, nil, zerolog.Nop())
 
 		task := &domain.Task{
 			ID:          "task-123",
