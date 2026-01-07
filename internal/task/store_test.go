@@ -513,11 +513,58 @@ func TestFileStore_Artifacts(t *testing.T) {
 		err := store.Create(context.Background(), "test-ws", task)
 		require.NoError(t, err)
 
+		// Parent directory traversal - MUST be rejected
 		err = store.SaveArtifact(context.Background(), "test-ws", task.ID, "../evil.json", []byte("{}"))
 		require.ErrorIs(t, err, atlaserrors.ErrPathTraversal)
 
-		err = store.SaveArtifact(context.Background(), "test-ws", task.ID, "sub/dir.json", []byte("{}"))
+		// Multiple parent traversal - MUST be rejected
+		err = store.SaveArtifact(context.Background(), "test-ws", task.ID, "../../etc/passwd", []byte("{}"))
 		require.ErrorIs(t, err, atlaserrors.ErrPathTraversal)
+
+		// Hidden traversal in middle of path - MUST be rejected
+		err = store.SaveArtifact(context.Background(), "test-ws", task.ID, "foo/../bar/../../evil.json", []byte("{}"))
+		require.ErrorIs(t, err, atlaserrors.ErrPathTraversal)
+
+		// Absolute paths - MUST be rejected
+		err = store.SaveArtifact(context.Background(), "test-ws", task.ID, "/etc/passwd", []byte("{}"))
+		require.ErrorIs(t, err, atlaserrors.ErrPathTraversal)
+
+		// Windows absolute paths - MUST be rejected (uses filepath.IsAbs which handles this)
+		// On Unix, this won't be detected as absolute, but the ".." check still applies
+		// The key is that on Windows, filepath.IsAbs will catch it
+		_ = store.SaveArtifact(context.Background(), "test-ws", task.ID, "C:\\Windows\\System32\\evil.dll", []byte("{}"))
+		// Platform-specific behavior: error assertion skipped as behavior differs by OS
+	})
+
+	t.Run("allows subdirectories in filename", func(t *testing.T) {
+		store, dir := setupTestStore(t)
+
+		task := createTestTask("task-20251228-100063-sub")
+		err := store.Create(context.Background(), "test-ws", task)
+		require.NoError(t, err)
+
+		// Single level subdirectory - MUST be allowed (per interface contract)
+		err = store.SaveArtifact(context.Background(), "test-ws", task.ID, "sub/file.json", []byte(`{"sub":true}`))
+		require.NoError(t, err)
+
+		// Multi-level subdirectory - MUST be allowed
+		err = store.SaveArtifact(context.Background(), "test-ws", task.ID, "git_commit/results/commit-result.json", []byte(`{"nested":true}`))
+		require.NoError(t, err)
+
+		// Verify files were created in correct locations
+		artifactsDir := filepath.Join(dir, constants.WorkspacesDir, "test-ws", constants.TasksDir, task.ID, "artifacts")
+		subContent, err := os.ReadFile(filepath.Join(artifactsDir, "sub", "file.json")) //#nosec G304 -- test file path
+		require.NoError(t, err)
+		assert.Equal(t, `{"sub":true}`, string(subContent))
+
+		nestedContent, err := os.ReadFile(filepath.Join(artifactsDir, "git_commit", "results", "commit-result.json")) //#nosec G304 -- test file path
+		require.NoError(t, err)
+		assert.Equal(t, `{"nested":true}`, string(nestedContent))
+
+		// GetArtifact should also work with subdirectories
+		retrieved, err := store.GetArtifact(context.Background(), "test-ws", task.ID, "sub/file.json")
+		require.NoError(t, err)
+		assert.Equal(t, `{"sub":true}`, string(retrieved))
 	})
 
 	t.Run("errors on non-existent task", func(t *testing.T) {
@@ -591,9 +638,62 @@ func TestFileStore_SaveVersionedArtifact(t *testing.T) {
 		err := store.Create(context.Background(), "test-ws", task)
 		require.NoError(t, err)
 
+		// Parent directory traversal - MUST be rejected
 		_, err = store.SaveVersionedArtifact(context.Background(), "test-ws", task.ID, "../evil.json", []byte("{}"))
 		require.Error(t, err)
+		require.ErrorIs(t, err, atlaserrors.ErrPathTraversal)
+
+		// Multiple parent traversal - MUST be rejected
+		_, err = store.SaveVersionedArtifact(context.Background(), "test-ws", task.ID, "../../etc/passwd", []byte("{}"))
+		require.Error(t, err)
+		require.ErrorIs(t, err, atlaserrors.ErrPathTraversal)
+
+		// Hidden traversal in path - MUST be rejected
+		_, err = store.SaveVersionedArtifact(context.Background(), "test-ws", task.ID, "foo/../bar/../../evil.json", []byte("{}"))
+		require.Error(t, err)
+		require.ErrorIs(t, err, atlaserrors.ErrPathTraversal)
+
+		// Absolute paths - MUST be rejected
+		_, err = store.SaveVersionedArtifact(context.Background(), "test-ws", task.ID, "/etc/passwd", []byte("{}"))
+		require.Error(t, err)
 		assert.ErrorIs(t, err, atlaserrors.ErrPathTraversal)
+	})
+
+	t.Run("allows subdirectories in baseName", func(t *testing.T) {
+		store, dir := setupTestStore(t)
+
+		task := createTestTask("task-20251228-100072-sub")
+		err := store.Create(context.Background(), "test-ws", task)
+		require.NoError(t, err)
+
+		// Single level subdirectory - MUST be allowed (per interface contract)
+		name1, err := store.SaveVersionedArtifact(context.Background(), "test-ws", task.ID, "sdd/spec.md", []byte("# Spec v1"))
+		require.NoError(t, err)
+		assert.Equal(t, "sdd/spec.1.md", name1)
+
+		// Version increments within subdirectory
+		name2, err := store.SaveVersionedArtifact(context.Background(), "test-ws", task.ID, "sdd/spec.md", []byte("# Spec v2"))
+		require.NoError(t, err)
+		assert.Equal(t, "sdd/spec.2.md", name2)
+
+		// Multi-level subdirectory
+		name3, err := store.SaveVersionedArtifact(context.Background(), "test-ws", task.ID, "git/pr/description.md", []byte("# PR"))
+		require.NoError(t, err)
+		assert.Equal(t, "git/pr/description.1.md", name3)
+
+		// Verify files were created in correct locations
+		artifactsDir := filepath.Join(dir, constants.WorkspacesDir, "test-ws", constants.TasksDir, task.ID, "artifacts")
+		spec1Content, err := os.ReadFile(filepath.Join(artifactsDir, "sdd", "spec.1.md")) //#nosec G304 -- test file path
+		require.NoError(t, err)
+		assert.Equal(t, "# Spec v1", string(spec1Content))
+
+		spec2Content, err := os.ReadFile(filepath.Join(artifactsDir, "sdd", "spec.2.md")) //#nosec G304 -- test file path
+		require.NoError(t, err)
+		assert.Equal(t, "# Spec v2", string(spec2Content))
+
+		prContent, err := os.ReadFile(filepath.Join(artifactsDir, "git", "pr", "description.1.md")) //#nosec G304 -- test file path
+		require.NoError(t, err)
+		assert.Equal(t, "# PR", string(prContent))
 	})
 }
 
