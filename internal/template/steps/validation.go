@@ -4,11 +4,13 @@ package steps
 import (
 	"bytes"
 	"context"
+	"errors"
 	"time"
 
 	"github.com/rs/zerolog"
 
 	"github.com/mrz1836/atlas/internal/domain"
+	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 	"github.com/mrz1836/atlas/internal/validation"
 )
 
@@ -156,9 +158,9 @@ func (e *ValidationExecutor) Execute(ctx context.Context, task *domain.Task, ste
 
 	// Handle result first (save artifact, emit notification) to get artifact path
 	artifactPath, artifactErr := e.handlePipelineResult(ctx, task, pipelineResult, log)
-	if artifactErr != nil {
+	// Only warn for actual artifact/notification errors, not for expected validation failures
+	if artifactErr != nil && !errors.Is(artifactErr, atlaserrors.ErrValidationFailed) {
 		log.Warn().Err(artifactErr).Msg("failed to handle pipeline result (artifact/notification)")
-		// Don't fail the step for artifact save failures
 	}
 
 	// Build output from pipeline results, including artifact path for truncated output
