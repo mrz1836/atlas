@@ -527,9 +527,26 @@ func createGitServices(ctx context.Context, worktreePath string, cfg *config.Con
 		prDescModel = cfg.AI.Model
 	}
 
+	// Resolve smart commit timeout/retry settings with defaults
+	commitTimeout := cfg.SmartCommit.Timeout
+	if commitTimeout == 0 {
+		commitTimeout = 30 * time.Second
+	}
+	commitMaxRetries := cfg.SmartCommit.MaxRetries
+	if commitMaxRetries == 0 {
+		commitMaxRetries = 2
+	}
+	commitRetryBackoffFactor := cfg.SmartCommit.RetryBackoffFactor
+	if commitRetryBackoffFactor == 0 {
+		commitRetryBackoffFactor = 1.5
+	}
+
 	smartCommitter := git.NewSmartCommitRunner(gitRunner, worktreePath, aiRunner,
 		git.WithAgent(commitAgent),
 		git.WithModel(commitModel),
+		git.WithTimeout(commitTimeout),
+		git.WithMaxRetries(commitMaxRetries),
+		git.WithRetryBackoffFactor(commitRetryBackoffFactor),
 		git.WithLogger(logger),
 	)
 	pusher := git.NewPushRunner(gitRunner)

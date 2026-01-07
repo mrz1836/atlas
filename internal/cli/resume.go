@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
@@ -249,9 +250,26 @@ func createResumeEngine(ctx context.Context, ws *domain.Workspace, taskStore *ta
 		prDescModel = cfg.AI.Model
 	}
 
+	// Resolve smart commit timeout/retry settings with defaults
+	commitTimeout := cfg.SmartCommit.Timeout
+	if commitTimeout == 0 {
+		commitTimeout = 30 * time.Second
+	}
+	commitMaxRetries := cfg.SmartCommit.MaxRetries
+	if commitMaxRetries == 0 {
+		commitMaxRetries = 2
+	}
+	commitRetryBackoffFactor := cfg.SmartCommit.RetryBackoffFactor
+	if commitRetryBackoffFactor == 0 {
+		commitRetryBackoffFactor = 1.5
+	}
+
 	smartCommitter := git.NewSmartCommitRunner(gitRunner, ws.WorktreePath, aiRunner,
 		git.WithAgent(commitAgent),
 		git.WithModel(commitModel),
+		git.WithTimeout(commitTimeout),
+		git.WithMaxRetries(commitMaxRetries),
+		git.WithRetryBackoffFactor(commitRetryBackoffFactor),
 		git.WithLogger(logger),
 	)
 	pusher := git.NewPushRunner(gitRunner)
