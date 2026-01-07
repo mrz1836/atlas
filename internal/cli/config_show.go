@@ -75,7 +75,7 @@ const (
 
 // ConfigValueWithSource represents a configuration value with its source.
 type ConfigValueWithSource struct {
-	Value  interface{}  `json:"value" yaml:"value"`
+	Value  any          `json:"value" yaml:"value"`
 	Source ConfigSource `json:"source" yaml:"source"`
 }
 
@@ -208,7 +208,7 @@ func buildAnnotatedConfig(cfg *config.Config) *AnnotatedConfig {
 }
 
 // configValues represents parsed config values for source determination.
-type configValues map[string]interface{}
+type configValues map[string]any
 
 // loadGlobalConfigOnly loads only the global config for source comparison.
 func loadGlobalConfigOnly() configValues {
@@ -268,7 +268,7 @@ func loadConfigFile(path string) configValues {
 }
 
 // determineSource determines where a configuration value came from.
-func determineSource(key string, value interface{}, globalCfg, projectCfg configValues, _ interface{}) ConfigValueWithSource {
+func determineSource(key string, value any, globalCfg, projectCfg configValues, _ any) ConfigValueWithSource {
 	// Check env var first (highest precedence after CLI)
 	envKey := "ATLAS_" + strings.ToUpper(strings.ReplaceAll(key, ".", "_"))
 	if envVal := os.Getenv(envKey); envVal != "" {
@@ -403,7 +403,7 @@ func printConfigValue(w io.Writer, styles *configShowStyles, key string, vs Conf
 }
 
 // formatConfigValue converts a configuration value to a displayable string.
-func formatConfigValue(value interface{}) string {
+func formatConfigValue(value any) string {
 	switch v := value.(type) {
 	case string:
 		if v == "" {
@@ -415,7 +415,7 @@ func formatConfigValue(value interface{}) string {
 			return "[]"
 		}
 		return fmt.Sprintf("[%s]", strings.Join(v, ", "))
-	case []interface{}:
+	case []any:
 		if len(v) == 0 {
 			return "[]"
 		}

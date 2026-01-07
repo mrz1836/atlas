@@ -41,7 +41,7 @@ type Output interface {
 
 	// JSON outputs an arbitrary value as JSON (used for command-specific structured output).
 	// Returns an error if encoding fails.
-	JSON(v interface{}) error
+	JSON(v any) error
 
 	// Spinner returns a spinner for long-running operations.
 	// TTY: Animated spinner using custom TerminalSpinner.

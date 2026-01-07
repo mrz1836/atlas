@@ -126,7 +126,7 @@ func (o *JSONOutput) Table(headers []string, rows [][]string) {
 
 // JSON outputs an arbitrary value as JSON.
 // Returns an error if encoding fails.
-func (o *JSONOutput) JSON(v interface{}) error {
+func (o *JSONOutput) JSON(v any) error {
 	return o.encoder.Encode(v)
 }
 

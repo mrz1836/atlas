@@ -111,7 +111,7 @@ func (o *TTYOutput) Table(headers []string, rows [][]string) {
 // JSON outputs an arbitrary value as formatted JSON.
 // For TTY output, this is used when commands need to output structured data.
 // Returns an error if encoding fails.
-func (o *TTYOutput) JSON(v interface{}) error {
+func (o *TTYOutput) JSON(v any) error {
 	encoder := json.NewEncoder(o.w)
 	encoder.SetIndent("", "  ")
 	return encoder.Encode(v)

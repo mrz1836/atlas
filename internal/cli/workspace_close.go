@@ -285,7 +285,7 @@ func outputCloseSuccess(w io.Writer, name, output string) error {
 func outputCloseWarning(w io.Writer, warning, output string) {
 	if output == OutputJSON {
 		// For JSON output, include warning in a separate line
-		if err := json.NewEncoder(w).Encode(map[string]interface{}{
+		if err := json.NewEncoder(w).Encode(map[string]any{
 			"type":    "warning",
 			"message": warning,
 		}); err != nil {

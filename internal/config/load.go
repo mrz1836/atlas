@@ -255,7 +255,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("validation.commands.custom_pre_pr", []string{})
 	v.SetDefault("validation.timeout", "5m")
 	v.SetDefault("validation.parallel_execution", true)
-	v.SetDefault("validation.template_overrides", map[string]interface{}{})
+	v.SetDefault("validation.template_overrides", map[string]any{})
 
 	// Notifications defaults
 	v.SetDefault("notifications.bell", true)
