@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -573,7 +574,7 @@ func TestSmartCommitRunner_GenerateAIMessage_Success(t *testing.T) {
 		CommitType: CommitTypeFeat,
 	}
 
-	message, err := runner.generateAIMessage(context.Background(), group)
+	message, err := runner.generateAIMessage(context.Background(), group, 30*time.Second, "")
 	require.NoError(t, err)
 	assert.Equal(t, "feat(git): add smart commit functionality", message)
 }
@@ -599,7 +600,7 @@ func TestSmartCommitRunner_GenerateAIMessage_AIError(t *testing.T) {
 		CommitType: CommitTypeFeat,
 	}
 
-	_, err = runner.generateAIMessage(context.Background(), group)
+	_, err = runner.generateAIMessage(context.Background(), group, 30*time.Second, "")
 	require.Error(t, err)
 	assert.ErrorIs(t, err, atlaserrors.ErrAIError)
 }
@@ -625,7 +626,7 @@ func TestSmartCommitRunner_GenerateAIMessage_AIReturnsError(t *testing.T) {
 		Files:   []FileChange{{Path: "a.go", Status: ChangeModified}},
 	}
 
-	_, err = runner.generateAIMessage(context.Background(), group)
+	_, err = runner.generateAIMessage(context.Background(), group, 30*time.Second, "")
 	require.Error(t, err)
 	assert.ErrorIs(t, err, atlaserrors.ErrAIError)
 }
@@ -651,7 +652,7 @@ func TestSmartCommitRunner_GenerateAIMessage_EmptyResponse(t *testing.T) {
 		Files:   []FileChange{{Path: "a.go", Status: ChangeModified}},
 	}
 
-	_, err = runner.generateAIMessage(context.Background(), group)
+	_, err = runner.generateAIMessage(context.Background(), group, 30*time.Second, "")
 	require.Error(t, err)
 	assert.ErrorIs(t, err, atlaserrors.ErrAIEmptyResponse)
 }
@@ -677,7 +678,7 @@ func TestSmartCommitRunner_GenerateAIMessage_InvalidFormat(t *testing.T) {
 		Files:   []FileChange{{Path: "a.go", Status: ChangeModified}},
 	}
 
-	_, err = runner.generateAIMessage(context.Background(), group)
+	_, err = runner.generateAIMessage(context.Background(), group, 30*time.Second, "")
 	require.Error(t, err)
 	assert.ErrorIs(t, err, atlaserrors.ErrAIInvalidFormat)
 }
@@ -704,7 +705,7 @@ func TestSmartCommitRunner_GenerateAIMessage_ReturnsFullMessageWithBody(t *testi
 		Files:   []FileChange{{Path: "runner.go", Status: ChangeAdded}},
 	}
 
-	message, err := runner.generateAIMessage(context.Background(), group)
+	message, err := runner.generateAIMessage(context.Background(), group, 30*time.Second, "")
 	require.NoError(t, err)
 	// Full message including body is now returned
 	assert.Contains(t, message, "feat(git): add runner")

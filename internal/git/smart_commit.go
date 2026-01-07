@@ -22,16 +22,19 @@ var _ SmartCommitService = (*SmartCommitRunner)(nil)
 
 // SmartCommitRunner implements SmartCommitService using the git CLI.
 type SmartCommitRunner struct {
-	runner          Runner           // Git runner for CLI operations
-	aiRunner        ai.Runner        // AI runner for commit message generation
-	garbageDetector *GarbageDetector // Garbage file detector
-	logger          zerolog.Logger   // Logger for operations
-	workDir         string           // Working directory
-	taskID          string           // Current task ID (kept for artifact metadata)
-	templateName    string           // Template name (kept for artifact metadata)
-	artifactsDir    string           // Directory for saving artifacts
-	agent           string           // AI agent for commit message generation
-	model           string           // AI model for commit message generation
+	runner             Runner           // Git runner for CLI operations
+	aiRunner           ai.Runner        // AI runner for commit message generation
+	garbageDetector    *GarbageDetector // Garbage file detector
+	logger             zerolog.Logger   // Logger for operations
+	workDir            string           // Working directory
+	taskID             string           // Current task ID (kept for artifact metadata)
+	templateName       string           // Template name (kept for artifact metadata)
+	artifactsDir       string           // Directory for saving artifacts
+	agent              string           // AI agent for commit message generation
+	model              string           // AI model for commit message generation
+	timeout            time.Duration    // Timeout for AI commit message generation
+	maxRetries         int              // Maximum number of retry attempts
+	retryBackoffFactor float64          // Exponential backoff factor for retries
 }
 
 // SmartCommitRunnerOption configures a SmartCommitRunner.
@@ -81,6 +84,30 @@ func WithAgent(agent string) SmartCommitRunnerOption {
 	}
 }
 
+// WithTimeout sets the timeout for AI commit message generation.
+// If not set, a default of 30 seconds is used.
+func WithTimeout(timeout time.Duration) SmartCommitRunnerOption {
+	return func(r *SmartCommitRunner) {
+		r.timeout = timeout
+	}
+}
+
+// WithMaxRetries sets the maximum number of retry attempts for AI generation.
+// If not set, a default of 2 retries is used.
+func WithMaxRetries(maxRetries int) SmartCommitRunnerOption {
+	return func(r *SmartCommitRunner) {
+		r.maxRetries = maxRetries
+	}
+}
+
+// WithRetryBackoffFactor sets the exponential backoff factor for retries.
+// If not set, a default of 1.5 is used.
+func WithRetryBackoffFactor(factor float64) SmartCommitRunnerOption {
+	return func(r *SmartCommitRunner) {
+		r.retryBackoffFactor = factor
+	}
+}
+
 // WithLogger sets the logger for the runner.
 func WithLogger(logger zerolog.Logger) SmartCommitRunnerOption {
 	return func(r *SmartCommitRunner) {
@@ -92,11 +119,14 @@ func WithLogger(logger zerolog.Logger) SmartCommitRunnerOption {
 // The aiRunner is optional - if nil, simple message generation will be used.
 func NewSmartCommitRunner(gitRunner Runner, workDir string, aiRunner ai.Runner, opts ...SmartCommitRunnerOption) *SmartCommitRunner {
 	runner := &SmartCommitRunner{
-		runner:          gitRunner,
-		aiRunner:        aiRunner,
-		garbageDetector: NewGarbageDetector(nil),
-		logger:          zerolog.Nop(),
-		workDir:         workDir,
+		runner:             gitRunner,
+		aiRunner:           aiRunner,
+		garbageDetector:    NewGarbageDetector(nil),
+		logger:             zerolog.Nop(),
+		workDir:            workDir,
+		timeout:            30 * time.Second, // Default timeout
+		maxRetries:         2,                // Default max retries
+		retryBackoffFactor: 1.5,              // Default backoff factor
 	}
 
 	for _, opt := range opts {
@@ -321,22 +351,97 @@ func (r *SmartCommitRunner) generateCommitMessage(ctx context.Context, group Fil
 
 	// Try AI-powered generation first
 	if r.aiRunner != nil {
-		message, err := r.generateAIMessage(ctx, group)
+		message, err := r.generateAIMessageWithRetry(ctx, group)
 		if err == nil {
 			return message
 		}
-		r.logger.Warn().Err(err).Msg("AI message generation failed, using fallback")
+		// Log warning with fallback message preview
+		fallbackMsg := r.generateSimpleMessage(group)
+		firstLine := strings.Split(fallbackMsg, "\n")[0]
+		r.logger.Warn().
+			Err(err).
+			Str("fallback_message", firstLine).
+			Msg("AI message generation failed, using fallback")
+		return fallbackMsg
 	}
 
 	// Fallback to simple message generation
 	return r.generateSimpleMessage(group)
 }
 
-// generateAIMessage uses the AI runner to generate a commit message with subject and synopsis body.
-func (r *SmartCommitRunner) generateAIMessage(ctx context.Context, group FileGroup) (string, error) {
-	// Get diff summary for better commit messages
-	diffSummary := r.getDiffSummary(ctx, group)
+// generateAIMessageWithRetry attempts AI message generation with exponential backoff retry logic.
+func (r *SmartCommitRunner) generateAIMessageWithRetry(ctx context.Context, group FileGroup) (string, error) {
+	var lastErr error
+	currentTimeout := r.timeout
 
+	// Calculate diff size for logging
+	diffSummary := r.getDiffSummary(ctx, group)
+	diffLines := len(strings.Split(diffSummary, "\n"))
+
+	// Try initial attempt + retries
+	for attempt := 0; attempt <= r.maxRetries; attempt++ {
+		// Log attempt details
+		if attempt == 0 {
+			r.logger.Info().
+				Str("agent", r.agent).
+				Str("model", r.model).
+				Str("package", group.Package).
+				Int("files", len(group.Files)).
+				Int("diff_lines", diffLines).
+				Dur("timeout", currentTimeout).
+				Msg("generating commit message with AI")
+		} else {
+			r.logger.Info().
+				Str("agent", r.agent).
+				Str("model", r.model).
+				Int("attempt", attempt+1).
+				Int("max_attempts", r.maxRetries+1).
+				Dur("timeout", currentTimeout).
+				Msg("retrying AI commit message generation")
+		}
+
+		// Track start time for latency measurement
+		startTime := time.Now()
+
+		// Attempt generation
+		message, err := r.generateAIMessage(ctx, group, currentTimeout, diffSummary)
+
+		// Calculate latency
+		latency := time.Since(startTime)
+
+		if err == nil {
+			// Success! Log and return
+			r.logger.Info().
+				Dur("latency", latency).
+				Int("attempt", attempt+1).
+				Msg("AI commit message generated successfully")
+			return message, nil
+		}
+
+		// Log failure with latency
+		r.logger.Warn().
+			Err(err).
+			Dur("latency", latency).
+			Dur("timeout", currentTimeout).
+			Int("attempt", attempt+1).
+			Msg("AI generation attempt failed")
+
+		lastErr = err
+
+		// If this was the last attempt, don't increase timeout
+		if attempt < r.maxRetries {
+			// Apply exponential backoff for next attempt
+			currentTimeout = time.Duration(float64(currentTimeout) * r.retryBackoffFactor)
+		}
+	}
+
+	// All attempts failed
+	return "", fmt.Errorf("AI generation failed after %d attempts: %w", r.maxRetries+1, lastErr)
+}
+
+// generateAIMessage uses the AI runner to generate a commit message with subject and synopsis body.
+// This is the core generation logic called by generateAIMessageWithRetry.
+func (r *SmartCommitRunner) generateAIMessage(ctx context.Context, group FileGroup, timeout time.Duration, diffSummary string) (string, error) {
 	// Build the prompt with diff context
 	prompt := r.buildAIPromptWithDiff(group, diffSummary)
 
@@ -346,17 +451,9 @@ func (r *SmartCommitRunner) generateAIMessage(ctx context.Context, group FileGro
 		Prompt:     prompt,
 		Model:      r.model, // Use configured model (empty string uses AIRunner's default)
 		MaxTurns:   1,
-		Timeout:    30 * time.Second,
+		Timeout:    timeout, // Use provided timeout
 		WorkingDir: r.workDir,
 	}
-
-	// Log AI call with agent/model info
-	r.logger.Info().
-		Str("agent", r.agent).
-		Str("model", r.model).
-		Str("package", group.Package).
-		Int("files", len(group.Files)).
-		Msg("generating commit message with AI")
 
 	// Run AI
 	result, err := r.aiRunner.Run(ctx, req)
