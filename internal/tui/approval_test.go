@@ -1694,3 +1694,298 @@ func TestRenderValidationSection_BackwardCompatibility(t *testing.T) {
 	assert.Contains(t, result, "passed")
 	assert.Contains(t, result, "Format ✓")
 }
+
+// TestExtractRetryAttempt tests extraction of AI retry attempt from metadata.
+func TestExtractRetryAttempt(t *testing.T) {
+	t.Run("extracts int retry attempt", func(t *testing.T) {
+		metadata := map[string]any{
+			"retry_attempt": 2,
+		}
+
+		result := extractRetryAttempt(metadata)
+
+		assert.Equal(t, 2, result)
+	})
+
+	t.Run("extracts float64 retry attempt (JSON deserialization)", func(t *testing.T) {
+		metadata := map[string]any{
+			"retry_attempt": float64(3),
+		}
+
+		result := extractRetryAttempt(metadata)
+
+		assert.Equal(t, 3, result)
+	})
+
+	t.Run("returns 0 for nil metadata", func(t *testing.T) {
+		result := extractRetryAttempt(nil)
+
+		assert.Equal(t, 0, result)
+	})
+
+	t.Run("returns 0 for missing retry_attempt key", func(t *testing.T) {
+		metadata := map[string]any{
+			"other_key": "value",
+		}
+
+		result := extractRetryAttempt(metadata)
+
+		assert.Equal(t, 0, result)
+	})
+
+	t.Run("returns 0 for wrong type", func(t *testing.T) {
+		metadata := map[string]any{
+			"retry_attempt": "not_a_number",
+		}
+
+		result := extractRetryAttempt(metadata)
+
+		assert.Equal(t, 0, result)
+	})
+}
+
+// TestRenderAIRetryLine tests rendering of AI retry indicator.
+func TestRenderAIRetryLine(t *testing.T) {
+	// Disable colors for consistent test output
+	t.Setenv("NO_COLOR", "1")
+
+	t.Run("renders single retry", func(t *testing.T) {
+		result := renderAIRetryLine(1)
+
+		assert.Contains(t, result, "AI")
+		assert.Contains(t, result, "1 retry")
+		assert.NotContains(t, result, "retries")
+		assert.Contains(t, result, "\n")
+	})
+
+	t.Run("renders multiple retries", func(t *testing.T) {
+		result := renderAIRetryLine(2)
+
+		assert.Contains(t, result, "AI")
+		assert.Contains(t, result, "2 retries")
+	})
+
+	t.Run("renders high retry count", func(t *testing.T) {
+		result := renderAIRetryLine(5)
+
+		assert.Contains(t, result, "5 retries")
+	})
+}
+
+// TestBuildValidationSummary_WithRetryAttempt tests that retry attempt is extracted.
+func TestBuildValidationSummary_WithRetryAttempt(t *testing.T) {
+	t.Run("extracts retry attempt from metadata", func(t *testing.T) {
+		result := domain.StepResult{
+			StepName:    "validate",
+			Status:      "success",
+			CompletedAt: time.Now(),
+			Metadata: map[string]any{
+				"retry_attempt": 2,
+				"validation_checks": []map[string]any{
+					{"name": "Format", "passed": true},
+					{"name": "Lint", "passed": true},
+				},
+			},
+		}
+
+		summary := buildValidationSummary(result)
+
+		require.NotNil(t, summary)
+		assert.Equal(t, "passed", summary.Status)
+		assert.Equal(t, 2, summary.AIRetryCount)
+	})
+
+	t.Run("returns 0 when no retry attempt", func(t *testing.T) {
+		result := domain.StepResult{
+			StepName:    "validate",
+			Status:      "success",
+			CompletedAt: time.Now(),
+			Metadata: map[string]any{
+				"validation_checks": []map[string]any{
+					{"name": "Format", "passed": true},
+				},
+			},
+		}
+
+		summary := buildValidationSummary(result)
+
+		require.NotNil(t, summary)
+		assert.Equal(t, 0, summary.AIRetryCount)
+	})
+}
+
+// TestValidationSummary_WithAIRetryCount tests the AIRetryCount field.
+func TestValidationSummary_WithAIRetryCount(t *testing.T) {
+	now := time.Now()
+	vs := ValidationSummary{
+		PassCount:    4,
+		FailCount:    0,
+		Status:       "passed",
+		LastRunAt:    &now,
+		AIRetryCount: 1,
+		Checks: []ValidationCheck{
+			{Name: "Format", Passed: true},
+			{Name: "Lint", Passed: true},
+			{Name: "Test", Passed: true},
+			{Name: "Pre-commit", Passed: true},
+		},
+	}
+
+	assert.Equal(t, 4, vs.PassCount)
+	assert.Equal(t, 0, vs.FailCount)
+	assert.Equal(t, "passed", vs.Status)
+	assert.Equal(t, 1, vs.AIRetryCount)
+}
+
+// TestRenderValidationSectionWithMode_WithAIRetry tests rendering AI retry indicator.
+func TestRenderValidationSectionWithMode_WithAIRetry(t *testing.T) {
+	// Disable colors for consistent test output
+	t.Setenv("NO_COLOR", "1")
+
+	now := time.Now()
+
+	t.Run("shows AI retry indicator when retry count > 0", func(t *testing.T) {
+		validation := &ValidationSummary{
+			PassCount:    4,
+			FailCount:    0,
+			Status:       "passed",
+			LastRunAt:    &now,
+			AIRetryCount: 1,
+			Checks: []ValidationCheck{
+				{Name: "Format", Passed: true},
+				{Name: "Lint", Passed: true},
+				{Name: "Test", Passed: true},
+				{Name: "Pre-commit", Passed: true},
+			},
+		}
+
+		result := renderValidationSectionWithMode(validation, 100, displayModeStandard)
+
+		assert.Contains(t, result, "Validation:")
+		assert.Contains(t, result, "passed")
+		assert.Contains(t, result, "4/4")
+		assert.Contains(t, result, "AI fixed")
+		assert.Contains(t, result, "1 retry")
+		assert.Contains(t, result, "Format ✓")
+	})
+
+	t.Run("shows multiple retries", func(t *testing.T) {
+		validation := &ValidationSummary{
+			PassCount:    4,
+			FailCount:    0,
+			Status:       "passed",
+			LastRunAt:    &now,
+			AIRetryCount: 3,
+			Checks: []ValidationCheck{
+				{Name: "Format", Passed: true},
+			},
+		}
+
+		result := renderValidationSectionWithMode(validation, 100, displayModeStandard)
+
+		assert.Contains(t, result, "AI fixed")
+		assert.Contains(t, result, "3 retries")
+	})
+
+	t.Run("does not show AI retry indicator when retry count is 0", func(t *testing.T) {
+		validation := &ValidationSummary{
+			PassCount:    4,
+			FailCount:    0,
+			Status:       "passed",
+			LastRunAt:    &now,
+			AIRetryCount: 0,
+			Checks: []ValidationCheck{
+				{Name: "Format", Passed: true},
+			},
+		}
+
+		result := renderValidationSectionWithMode(validation, 100, displayModeStandard)
+
+		assert.Contains(t, result, "Validation:")
+		assert.NotContains(t, result, "AI fixed")
+	})
+}
+
+// TestNewApprovalSummary_WithAIRetry tests full flow with AI retry metadata.
+func TestNewApprovalSummary_WithAIRetry(t *testing.T) {
+	task := &domain.Task{
+		ID:          "task-ai-retry",
+		WorkspaceID: "ws-test",
+		Status:      constants.TaskStatusAwaitingApproval,
+		CurrentStep: 3,
+		Steps: []domain.Step{
+			{Name: "implement", Status: "completed"},
+			{Name: "validate", Status: "completed"},
+			{Name: "git", Status: "completed"},
+			{Name: "approval", Status: "pending"},
+		},
+		StepResults: []domain.StepResult{
+			{
+				StepName: "validate",
+				Status:   "success",
+				Metadata: map[string]any{
+					"validation_checks": []map[string]any{
+						{"name": "Format", "passed": true},
+						{"name": "Lint", "passed": true},
+						{"name": "Test", "passed": true},
+						{"name": "Pre-commit", "passed": true},
+					},
+					"retry_attempt":    2,
+					"ai_files_changed": 3,
+				},
+			},
+		},
+	}
+
+	workspace := &domain.Workspace{Name: "test", Branch: "feat/x"}
+	summary := NewApprovalSummary(task, workspace)
+
+	require.NotNil(t, summary)
+	require.NotNil(t, summary.Validation)
+	assert.Equal(t, "passed", summary.Validation.Status)
+	assert.Equal(t, 4, summary.Validation.PassCount)
+	assert.Equal(t, 2, summary.Validation.AIRetryCount)
+}
+
+// TestRenderApprovalSummary_WithAIRetry tests full approval summary with AI retry.
+func TestRenderApprovalSummary_WithAIRetry(t *testing.T) {
+	// Disable colors for consistent test output
+	t.Setenv("NO_COLOR", "1")
+
+	now := time.Now()
+	summary := &ApprovalSummary{
+		TaskID:        "task-ai-retry-full",
+		WorkspaceName: "test-ws",
+		Status:        constants.TaskStatusAwaitingApproval,
+		CurrentStep:   5,
+		TotalSteps:    6,
+		BranchName:    "feat/ai-retry",
+		FileChanges: []FileChange{
+			{Path: "file.go"},
+		},
+		Validation: &ValidationSummary{
+			PassCount:    5,
+			FailCount:    0,
+			Status:       "passed",
+			LastRunAt:    &now,
+			AIRetryCount: 1,
+			Checks: []ValidationCheck{
+				{Name: "Format", Passed: true},
+				{Name: "Lint", Passed: true},
+				{Name: "Test", Passed: true},
+				{Name: "Pre-commit", Passed: true},
+				{Name: "CI", Passed: true},
+			},
+		},
+	}
+
+	result := RenderApprovalSummaryWithWidth(summary, 100, false)
+
+	assert.Contains(t, result, "Approval Summary")
+	assert.Contains(t, result, "Validation:")
+	assert.Contains(t, result, "5/5")
+	assert.Contains(t, result, "AI fixed")
+	assert.Contains(t, result, "1 retry")
+	assert.Contains(t, result, "Format ✓")
+	assert.Contains(t, result, "CI ✓")
+}

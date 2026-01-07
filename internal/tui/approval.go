@@ -119,6 +119,9 @@ type ValidationSummary struct {
 
 	// Checks holds individual validation check results for verbose display.
 	Checks []ValidationCheck
+
+	// AIRetryCount is the number of AI retry attempts used (0 if no retries).
+	AIRetryCount int
 }
 
 // NewApprovalSummary creates an ApprovalSummary from a task and workspace (AC: #1, #5).
@@ -253,7 +256,27 @@ func buildValidationSummary(result domain.StepResult) *ValidationSummary {
 		vs.PassCount, vs.FailCount = legacyPassFailCounts(result.Status)
 	}
 
+	// Extract AI retry attempt count from metadata
+	vs.AIRetryCount = extractRetryAttempt(result.Metadata)
+
 	return vs
+}
+
+// extractRetryAttempt extracts the AI retry attempt count from step metadata.
+// Returns 0 if no retry was performed.
+func extractRetryAttempt(metadata map[string]any) int {
+	if metadata == nil {
+		return 0
+	}
+	// Try int first (direct assignment)
+	if attempt, ok := metadata["retry_attempt"].(int); ok {
+		return attempt
+	}
+	// Try float64 (from JSON deserialization)
+	if attempt, ok := metadata["retry_attempt"].(float64); ok {
+		return int(attempt)
+	}
+	return 0
 }
 
 // extractChecksFromMetadata extracts validation checks from step metadata.
@@ -735,12 +758,36 @@ func renderValidationSectionWithMode(validation *ValidationSummary, _ int, mode 
 
 	result.WriteString("  " + padRight("Validation:", 12) + icon + " " + statusText + passFailText + "\n")
 
+	// Show AI retry indicator if retries were used
+	if validation.AIRetryCount > 0 {
+		result.WriteString(renderAIRetryLine(validation.AIRetryCount))
+	}
+
 	// Show individual checks in standard and expanded mode
 	if len(validation.Checks) > 0 && mode != displayModeCompact {
 		result.WriteString(renderChecksLine(validation.Checks))
 	}
 
 	return result.String()
+}
+
+// renderAIRetryLine renders the AI retry indicator with a distinguished style.
+// Format: "    🤖 AI fixed (1 retry)" or "    🤖 AI fixed (2 retries)"
+func renderAIRetryLine(retryCount int) string {
+	retryWord := "retry"
+	if retryCount > 1 {
+		retryWord = "retries"
+	}
+
+	text := "AI fixed (" + intToString(retryCount) + " " + retryWord + ")"
+
+	if HasColorSupport() {
+		// Use a distinct color (cyan/blue) to make it stand out
+		styledText := lipgloss.NewStyle().Foreground(ColorPrimary).Render(text)
+		return "    🤖 " + styledText + "\n"
+	}
+
+	return "    [AI] " + text + "\n"
 }
 
 // renderChecksLine renders the individual validation checks in compact format.
