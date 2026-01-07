@@ -8,9 +8,11 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 	"golang.org/x/term"
 	"gopkg.in/natefinch/lumberjack.v2"
 
@@ -22,20 +24,22 @@ import (
 // This is package-level to enable cleanup during shutdown.
 var logFileWriter io.WriteCloser //nolint:gochecknoglobals // Needed for cleanup
 
-// zerologConfigured tracks whether zerolog global settings have been applied.
-var zerologConfigured bool //nolint:gochecknoglobals // One-time configuration flag
+// zerologConfigOnce ensures zerolog global settings are configured exactly once.
+var zerologConfigOnce sync.Once //nolint:gochecknoglobals // One-time configuration
+
+// zerologGlobalMu protects concurrent writes to the zerolog global logger.
+// This is separate from globalLoggerMu to avoid deadlocks.
+var zerologGlobalMu sync.Mutex //nolint:gochecknoglobals // Protects zerolog global
 
 // configureZerologGlobals sets zerolog global field names to match our log entry structure.
-// This is called once before any logger is created.
+// This is called once before any logger is created and is safe for concurrent use.
 func configureZerologGlobals() {
-	if zerologConfigured {
-		return
-	}
-	// Use "ts" for timestamp to match logEntry struct in workspace_logs.go
-	zerolog.TimestampFieldName = "ts"
-	// Use "event" for message to match logEntry struct
-	zerolog.MessageFieldName = "event"
-	zerologConfigured = true
+	zerologConfigOnce.Do(func() {
+		// Use "ts" for timestamp to match logEntry struct in workspace_logs.go
+		zerolog.TimestampFieldName = "ts"
+		// Use "event" for message to match logEntry struct
+		zerolog.MessageFieldName = "event"
+	})
 }
 
 // InitLogger creates and configures a zerolog.Logger based on verbosity flags.
@@ -66,7 +70,9 @@ func InitLogger(verbose, quiet bool) zerolog.Logger {
 	if err != nil {
 		// Log file creation failed; continue with console-only output
 		// This can happen if ATLAS_HOME is not writable
-		return zerolog.New(consoleOutput).Level(level).Hook(hook).With().Timestamp().Logger()
+		logger := zerolog.New(consoleOutput).Level(level).Hook(hook).With().Timestamp().Logger()
+		setGlobalLogger(logger)
+		return logger
 	}
 
 	// Store file writer for cleanup
@@ -74,7 +80,22 @@ func InitLogger(verbose, quiet bool) zerolog.Logger {
 
 	// Multi-writer: console + file
 	multi := zerolog.MultiLevelWriter(consoleOutput, fileWriter)
-	return zerolog.New(multi).Level(level).Hook(hook).With().Timestamp().Logger()
+	logger := zerolog.New(multi).Level(level).Hook(hook).With().Timestamp().Logger()
+
+	// Configure global logger to match CLI logger settings
+	setGlobalLogger(logger)
+
+	return logger
+}
+
+// setGlobalLogger configures the global zerolog logger to match our CLI logger config.
+// This ensures that any code using log.Debug(), log.Info(), etc. from the
+// github.com/rs/zerolog/log package uses the same formatting as our CLI logger.
+// This function is safe for concurrent use.
+func setGlobalLogger(cliLogger zerolog.Logger) {
+	zerologGlobalMu.Lock()
+	defer zerologGlobalMu.Unlock()
+	log.Logger = cliLogger
 }
 
 // InitLoggerWithWriter creates and configures a zerolog.Logger with a custom writer.
@@ -85,7 +106,12 @@ func InitLoggerWithWriter(verbose, quiet bool, w io.Writer) zerolog.Logger {
 
 	level := selectLevel(verbose, quiet)
 	hook := logging.NewSensitiveDataHook()
-	return zerolog.New(w).Level(level).Hook(hook).With().Timestamp().Logger()
+	logger := zerolog.New(w).Level(level).Hook(hook).With().Timestamp().Logger()
+
+	// Configure global logger to match CLI logger settings
+	setGlobalLogger(logger)
+
+	return logger
 }
 
 // TaskLogAppender is a minimal interface for appending logs to task-specific log files.
@@ -112,7 +138,9 @@ func InitLoggerWithTaskStore(verbose, quiet bool, store TaskLogAppender) zerolog
 		// Log file creation failed; continue with console-only output + task logs
 		consoleOutput := selectOutput()
 		taskLogWriter := newTaskLogWriter(store, consoleOutput)
-		return zerolog.New(taskLogWriter).Level(level).Hook(hook).With().Timestamp().Logger()
+		logger := zerolog.New(taskLogWriter).Level(level).Hook(hook).With().Timestamp().Logger()
+		setGlobalLogger(logger)
+		return logger
 	}
 
 	// Store file writer for cleanup
@@ -125,7 +153,12 @@ func InitLoggerWithTaskStore(verbose, quiet bool, store TaskLogAppender) zerolog
 	// Wrap with task log writer to persist task-specific logs
 	taskLogWriter := newTaskLogWriter(store, multi)
 
-	return zerolog.New(taskLogWriter).Level(level).Hook(hook).With().Timestamp().Logger()
+	logger := zerolog.New(taskLogWriter).Level(level).Hook(hook).With().Timestamp().Logger()
+
+	// Configure global logger to match CLI logger settings
+	setGlobalLogger(logger)
+
+	return logger
 }
 
 // taskLogWriter wraps an io.Writer and persists log entries with workspace_name

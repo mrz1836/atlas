@@ -371,8 +371,9 @@ func TestConfigureZerologGlobals_Idempotent(t *testing.T) {
 	configureZerologGlobals()
 	configureZerologGlobals()
 
-	// Verify the flag is set
-	assert.True(t, zerologConfigured)
+	// Verify the global field names are configured correctly
+	assert.Equal(t, "ts", zerolog.TimestampFieldName)
+	assert.Equal(t, "event", zerolog.MessageFieldName)
 }
 
 func TestInitLogger_RedactsSensitiveDataInFile(t *testing.T) {
