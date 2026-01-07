@@ -261,6 +261,11 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("notifications.bell", true)
 	v.SetDefault("notifications.events", []string{"awaiting_approval", "validation_failed"})
 
+	// SmartCommit defaults
+	v.SetDefault("smart_commit.timeout", "30s")
+	v.SetDefault("smart_commit.max_retries", 2)
+	v.SetDefault("smart_commit.retry_backoff_factor", 1.5)
+
 	// Approval defaults
 	v.SetDefault("approval.merge_message", "Approved and Merged by ATLAS")
 }
