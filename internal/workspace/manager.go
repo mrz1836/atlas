@@ -17,6 +17,12 @@ import (
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 )
 
+// TaskLister defines the interface for listing tasks by workspace.
+// Used to check for running tasks before closing a workspace.
+type TaskLister interface {
+	List(ctx context.Context, workspaceName string) ([]*domain.Task, error)
+}
+
 // CloseResult contains the result of a workspace close operation.
 type CloseResult struct {
 	// WorktreeWarning is non-empty if worktree removal failed.
@@ -53,9 +59,10 @@ type Manager interface {
 	Destroy(ctx context.Context, name string) error
 
 	// Close archives a workspace, removing worktree but keeping state.
-	// Returns error if tasks are running.
+	// If taskLister is provided, checks for running/validating tasks before closing.
+	// Returns error if tasks are running or validating.
 	// Returns CloseResult with WorktreeWarning if worktree removal fails.
-	Close(ctx context.Context, name string) (*CloseResult, error)
+	Close(ctx context.Context, name string, taskLister TaskLister) (*CloseResult, error)
 
 	// UpdateStatus updates the status of a workspace.
 	UpdateStatus(ctx context.Context, name string, status constants.WorkspaceStatus) error
@@ -249,7 +256,7 @@ func removeOrphanedDirectory(logger zerolog.Logger, path string) error {
 }
 
 // Close archives a workspace, removing worktree but keeping state.
-func (m *DefaultManager) Close(ctx context.Context, name string) (*CloseResult, error) {
+func (m *DefaultManager) Close(ctx context.Context, name string, taskLister TaskLister) (*CloseResult, error) {
 	result := &CloseResult{}
 
 	// Check for cancellation
@@ -265,13 +272,9 @@ func (m *DefaultManager) Close(ctx context.Context, name string) (*CloseResult, 
 		return nil, fmt.Errorf("failed to close workspace '%s': %w", name, err)
 	}
 
-	// Check for running tasks
-	for _, task := range ws.Tasks {
-		if task.Status == constants.TaskStatusRunning ||
-			task.Status == constants.TaskStatusValidating {
-			return nil, fmt.Errorf("cannot close workspace '%s': task '%s' is still running: %w",
-				name, task.ID, atlaserrors.ErrWorkspaceHasRunningTasks)
-		}
+	// Check for running tasks using the authoritative task store (ws.Tasks is not populated at runtime)
+	if err := m.checkForRunningTasks(ctx, name, taskLister); err != nil {
+		return nil, err
 	}
 
 	// Store the worktree path before clearing it
@@ -361,6 +364,32 @@ func (m *DefaultManager) Exists(ctx context.Context, name string) (bool, error) 
 	}
 
 	return m.store.Exists(ctx, name)
+}
+
+// checkForRunningTasks verifies no tasks are in running or validating state.
+// Returns an error if any active tasks are found.
+// If taskLister is nil or returns an error, returns nil to allow fail-open behavior.
+func (m *DefaultManager) checkForRunningTasks(ctx context.Context, name string, taskLister TaskLister) error {
+	if taskLister == nil {
+		return nil
+	}
+
+	tasks, err := taskLister.List(ctx, name)
+	if err != nil {
+		// Fail-open: don't block close when task store is unavailable
+		m.logger.Warn().Err(err).Str("workspace", name).
+			Msg("could not check for running tasks, proceeding with close")
+		return nil
+	}
+
+	for _, task := range tasks {
+		if task.Status == constants.TaskStatusRunning ||
+			task.Status == constants.TaskStatusValidating {
+			return fmt.Errorf("cannot close workspace '%s': task '%s' is still %s: %w",
+				name, task.ID, task.Status, atlaserrors.ErrWorkspaceHasRunningTasks)
+		}
+	}
+	return nil
 }
 
 // verifyWorktreeRemoved checks if a worktree was actually removed from both

@@ -100,6 +100,29 @@ func (m *MockStore) Exists(_ context.Context, name string) (bool, error) {
 	return exists, nil
 }
 
+// MockTaskLister implements TaskLister for testing.
+type MockTaskLister struct {
+	tasks   map[string][]*domain.Task
+	listErr error
+}
+
+func newMockTaskLister() *MockTaskLister {
+	return &MockTaskLister{
+		tasks: make(map[string][]*domain.Task),
+	}
+}
+
+func (m *MockTaskLister) List(_ context.Context, workspaceName string) ([]*domain.Task, error) {
+	if m.listErr != nil {
+		return nil, m.listErr
+	}
+	tasks, exists := m.tasks[workspaceName]
+	if !exists {
+		return []*domain.Task{}, nil
+	}
+	return tasks, nil
+}
+
 // MockWorktreeRunner implements WorktreeRunner for testing.
 type MockWorktreeRunner struct {
 	createResult          *WorktreeInfo
@@ -645,7 +668,7 @@ func TestDefaultManager_Close_CleanWorkspace(t *testing.T) {
 	runner := newMockWorktreeRunner()
 
 	mgr := NewManager(store, runner, zerolog.Nop())
-	result, err := mgr.Close(context.Background(), "test")
+	result, err := mgr.Close(context.Background(), "test", nil)
 
 	require.NoError(t, err)
 	require.NotNil(t, result)
@@ -677,7 +700,7 @@ func TestDefaultManager_Close_StoreUpdateFailure(t *testing.T) {
 	runner := newMockWorktreeRunner()
 
 	mgr := NewManager(store, runner, zerolog.Nop())
-	result, err := mgr.Close(context.Background(), "test")
+	result, err := mgr.Close(context.Background(), "test", nil)
 
 	// Should fail with store error
 	require.Error(t, err)
@@ -695,18 +718,23 @@ func TestDefaultManager_Close_WithRunningTasksReturnsError(t *testing.T) {
 		WorktreePath: "/tmp/repo-test",
 		Branch:       "feat/test",
 		Status:       constants.WorkspaceStatusActive,
-		Tasks: []domain.TaskRef{
-			{ID: "task-1", Status: constants.TaskStatusRunning},
-		},
+		Tasks:        []domain.TaskRef{}, // Tasks array is always empty at runtime
 	}
 	runner := newMockWorktreeRunner()
 
+	// Create a TaskLister with a running task
+	taskLister := newMockTaskLister()
+	taskLister.tasks["test"] = []*domain.Task{
+		{ID: "task-1", Status: constants.TaskStatusRunning},
+	}
+
 	mgr := NewManager(store, runner, zerolog.Nop())
-	result, err := mgr.Close(context.Background(), "test")
+	result, err := mgr.Close(context.Background(), "test", taskLister)
 
 	require.Error(t, err)
 	assert.Nil(t, result)
 	assert.Contains(t, err.Error(), "task 'task-1' is still running")
+	require.ErrorIs(t, err, atlaserrors.ErrWorkspaceHasRunningTasks)
 	// Verify workspace was NOT modified
 	ws := store.workspaces["test"]
 	assert.Equal(t, constants.WorkspaceStatusActive, ws.Status)
@@ -719,18 +747,23 @@ func TestDefaultManager_Close_WithValidatingTasksReturnsError(t *testing.T) {
 		WorktreePath: "/tmp/repo-test",
 		Branch:       "feat/test",
 		Status:       constants.WorkspaceStatusActive,
-		Tasks: []domain.TaskRef{
-			{ID: "task-1", Status: constants.TaskStatusValidating},
-		},
+		Tasks:        []domain.TaskRef{}, // Tasks array is always empty at runtime
 	}
 	runner := newMockWorktreeRunner()
 
+	// Create a TaskLister with a validating task
+	taskLister := newMockTaskLister()
+	taskLister.tasks["test"] = []*domain.Task{
+		{ID: "task-1", Status: constants.TaskStatusValidating},
+	}
+
 	mgr := NewManager(store, runner, zerolog.Nop())
-	result, err := mgr.Close(context.Background(), "test")
+	result, err := mgr.Close(context.Background(), "test", taskLister)
 
 	require.Error(t, err)
 	assert.Nil(t, result)
-	assert.Contains(t, err.Error(), "task 'task-1' is still running")
+	assert.Contains(t, err.Error(), "task 'task-1' is still validating")
+	assert.ErrorIs(t, err, atlaserrors.ErrWorkspaceHasRunningTasks)
 }
 
 func TestDefaultManager_Close_WithCompletedTasksSucceeds(t *testing.T) {
@@ -740,18 +773,161 @@ func TestDefaultManager_Close_WithCompletedTasksSucceeds(t *testing.T) {
 		WorktreePath: "/tmp/repo-test",
 		Branch:       "feat/test",
 		Status:       constants.WorkspaceStatusActive,
-		Tasks: []domain.TaskRef{
-			{ID: "task-1", Status: constants.TaskStatusCompleted},
-		},
+		Tasks:        []domain.TaskRef{}, // Tasks array is always empty at runtime
 	}
 	runner := newMockWorktreeRunner()
 
+	// Create a TaskLister with completed tasks
+	taskLister := newMockTaskLister()
+	taskLister.tasks["test"] = []*domain.Task{
+		{ID: "task-1", Status: constants.TaskStatusCompleted},
+	}
+
 	mgr := NewManager(store, runner, zerolog.Nop())
-	result, err := mgr.Close(context.Background(), "test")
+	result, err := mgr.Close(context.Background(), "test", taskLister)
 
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	assert.Empty(t, result.WorktreeWarning)
+}
+
+// TestDefaultManager_Close_WithNilTaskListerSucceeds verifies that Close() works
+// when no TaskLister is provided (backward compatibility).
+func TestDefaultManager_Close_WithNilTaskListerSucceeds(t *testing.T) {
+	store := newMockStore()
+	store.workspaces["test"] = &domain.Workspace{
+		Name:         "test",
+		WorktreePath: "/tmp/repo-test",
+		Branch:       "feat/test",
+		Status:       constants.WorkspaceStatusActive,
+		Tasks:        []domain.TaskRef{},
+	}
+	runner := newMockWorktreeRunner()
+
+	mgr := NewManager(store, runner, zerolog.Nop())
+	// Pass nil for TaskLister - should succeed without checking tasks
+	result, err := mgr.Close(context.Background(), "test", nil)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Empty(t, result.WorktreeWarning)
+	// Verify status was updated
+	ws := store.workspaces["test"]
+	assert.Equal(t, constants.WorkspaceStatusClosed, ws.Status)
+}
+
+// TestDefaultManager_Close_TaskListerErrorContinuesClose verifies that Close()
+// continues if the TaskLister returns an error (fail-open behavior).
+func TestDefaultManager_Close_TaskListerErrorContinuesClose(t *testing.T) {
+	store := newMockStore()
+	store.workspaces["test"] = &domain.Workspace{
+		Name:         "test",
+		WorktreePath: "/tmp/repo-test",
+		Branch:       "feat/test",
+		Status:       constants.WorkspaceStatusActive,
+		Tasks:        []domain.TaskRef{},
+	}
+	runner := newMockWorktreeRunner()
+
+	// Create a TaskLister that returns an error
+	taskLister := newMockTaskLister()
+	taskLister.listErr = atlaserrors.ErrMockTaskStoreUnavailable
+
+	mgr := NewManager(store, runner, zerolog.Nop())
+	result, err := mgr.Close(context.Background(), "test", taskLister)
+
+	// Should succeed despite TaskLister error (fail-open)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	// Verify status was updated
+	ws := store.workspaces["test"]
+	assert.Equal(t, constants.WorkspaceStatusClosed, ws.Status)
+}
+
+// TestDefaultManager_Close_MultipleRunningTasksReportsFirst verifies that
+// when multiple tasks are running, the first one is reported in the error.
+func TestDefaultManager_Close_MultipleRunningTasksReportsFirst(t *testing.T) {
+	store := newMockStore()
+	store.workspaces["test"] = &domain.Workspace{
+		Name:         "test",
+		WorktreePath: "/tmp/repo-test",
+		Branch:       "feat/test",
+		Status:       constants.WorkspaceStatusActive,
+		Tasks:        []domain.TaskRef{},
+	}
+	runner := newMockWorktreeRunner()
+
+	// Create a TaskLister with multiple running tasks
+	taskLister := newMockTaskLister()
+	taskLister.tasks["test"] = []*domain.Task{
+		{ID: "task-1", Status: constants.TaskStatusRunning},
+		{ID: "task-2", Status: constants.TaskStatusValidating},
+	}
+
+	mgr := NewManager(store, runner, zerolog.Nop())
+	result, err := mgr.Close(context.Background(), "test", taskLister)
+
+	require.Error(t, err)
+	assert.Nil(t, result)
+	// Should report the first running task
+	assert.Contains(t, err.Error(), "task-1")
+	assert.ErrorIs(t, err, atlaserrors.ErrWorkspaceHasRunningTasks)
+}
+
+// TestDefaultManager_Close_MixedTaskStatusesBlocksClose verifies that
+// even one running task among completed tasks blocks close.
+func TestDefaultManager_Close_MixedTaskStatusesBlocksClose(t *testing.T) {
+	store := newMockStore()
+	store.workspaces["test"] = &domain.Workspace{
+		Name:         "test",
+		WorktreePath: "/tmp/repo-test",
+		Branch:       "feat/test",
+		Status:       constants.WorkspaceStatusActive,
+		Tasks:        []domain.TaskRef{},
+	}
+	runner := newMockWorktreeRunner()
+
+	// Create a TaskLister with mixed task statuses
+	taskLister := newMockTaskLister()
+	taskLister.tasks["test"] = []*domain.Task{
+		{ID: "task-1", Status: constants.TaskStatusCompleted},
+		{ID: "task-2", Status: constants.TaskStatusRunning}, // This should block
+		{ID: "task-3", Status: constants.TaskStatusAbandoned},
+	}
+
+	mgr := NewManager(store, runner, zerolog.Nop())
+	result, err := mgr.Close(context.Background(), "test", taskLister)
+
+	require.Error(t, err)
+	assert.Nil(t, result)
+	assert.Contains(t, err.Error(), "task-2")
+	assert.ErrorIs(t, err, atlaserrors.ErrWorkspaceHasRunningTasks)
+}
+
+// TestDefaultManager_Close_EmptyTaskListSucceeds verifies that
+// a workspace with no tasks (empty task list) can be closed.
+func TestDefaultManager_Close_EmptyTaskListSucceeds(t *testing.T) {
+	store := newMockStore()
+	store.workspaces["test"] = &domain.Workspace{
+		Name:         "test",
+		WorktreePath: "/tmp/repo-test",
+		Branch:       "feat/test",
+		Status:       constants.WorkspaceStatusActive,
+		Tasks:        []domain.TaskRef{},
+	}
+	runner := newMockWorktreeRunner()
+
+	// Create a TaskLister with no tasks
+	taskLister := newMockTaskLister()
+	taskLister.tasks["test"] = []*domain.Task{}
+
+	mgr := NewManager(store, runner, zerolog.Nop())
+	result, err := mgr.Close(context.Background(), "test", taskLister)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	ws := store.workspaces["test"]
+	assert.Equal(t, constants.WorkspaceStatusClosed, ws.Status)
 }
 
 func TestDefaultManager_Close_NonExistentWorkspace(t *testing.T) {
@@ -759,7 +935,7 @@ func TestDefaultManager_Close_NonExistentWorkspace(t *testing.T) {
 	runner := newMockWorktreeRunner()
 
 	mgr := NewManager(store, runner, zerolog.Nop())
-	result, err := mgr.Close(context.Background(), "nonexistent")
+	result, err := mgr.Close(context.Background(), "nonexistent", nil)
 
 	require.Error(t, err)
 	assert.Nil(t, result)
@@ -775,7 +951,7 @@ func TestDefaultManager_Close_ContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	result, err := mgr.Close(ctx, "test")
+	result, err := mgr.Close(ctx, "test", nil)
 
 	require.Error(t, err)
 	assert.Nil(t, result)
@@ -797,7 +973,7 @@ func TestDefaultManager_Close_NilWorktreeRunner(t *testing.T) {
 
 	// Pass nil worktree runner
 	mgr := NewManager(store, nil, zerolog.Nop())
-	result, err := mgr.Close(context.Background(), "test")
+	result, err := mgr.Close(context.Background(), "test", nil)
 
 	// Should succeed - state update is more important than worktree removal
 	require.NoError(t, err)
@@ -964,7 +1140,7 @@ func TestDefaultManager_Close_ForceRemoveOnDirty(t *testing.T) {
 	runner := &forceRemoveMockRunner{firstCallFails: true}
 
 	mgr := NewManager(store, runner, zerolog.Nop())
-	result, err := mgr.Close(context.Background(), "test")
+	result, err := mgr.Close(context.Background(), "test", nil)
 
 	require.NoError(t, err)
 	require.NotNil(t, result)
@@ -1007,7 +1183,7 @@ func TestDefaultManager_Close_BothRemoveAttemptsFail(t *testing.T) {
 	runner := &alwaysFailRemoveMockRunner{}
 
 	mgr := NewManager(store, runner, zerolog.Nop())
-	result, err := mgr.Close(context.Background(), "test")
+	result, err := mgr.Close(context.Background(), "test", nil)
 
 	// Close succeeds (state is updated) but with warning
 	require.NoError(t, err)
@@ -1051,7 +1227,7 @@ func TestDefaultManager_Close_NoWorktreePath(t *testing.T) {
 	runner.findByBranchResult = ""
 
 	mgr := NewManager(store, runner, zerolog.Nop())
-	result, err := mgr.Close(context.Background(), "test")
+	result, err := mgr.Close(context.Background(), "test", nil)
 
 	require.NoError(t, err)
 	require.NotNil(t, result)
@@ -1083,7 +1259,7 @@ func TestDefaultManager_Close_DiscoverWorktreeByBranch(t *testing.T) {
 	runner.findByBranchResult = "/tmp/repo-test"
 
 	mgr := NewManager(store, runner, zerolog.Nop())
-	result, err := mgr.Close(context.Background(), "test")
+	result, err := mgr.Close(context.Background(), "test", nil)
 
 	require.NoError(t, err)
 	require.NotNil(t, result)
@@ -1123,7 +1299,7 @@ func TestDefaultManager_Close_WorktreePathPreservedOnRemovalFailure(t *testing.T
 	runner.removeErr = fmt.Errorf("permission denied: %w", atlaserrors.ErrWorktreeDirty)
 
 	mgr := NewManager(store, runner, zerolog.Nop())
-	result, err := mgr.Close(context.Background(), "test")
+	result, err := mgr.Close(context.Background(), "test", nil)
 
 	require.NoError(t, err) // Close itself should succeed
 	require.NotNil(t, result)
@@ -1152,7 +1328,7 @@ func TestDefaultManager_Close_DeletesBranchOnSuccess(t *testing.T) {
 	runner.findByBranchResult = ""
 
 	mgr := NewManager(store, runner, zerolog.Nop())
-	result, err := mgr.Close(context.Background(), "test")
+	result, err := mgr.Close(context.Background(), "test", nil)
 
 	require.NoError(t, err)
 	require.NotNil(t, result)
@@ -1192,7 +1368,7 @@ func TestDefaultManager_Close_SkipsBranchDeletionWhenWorktreeRemovalFails(t *tes
 	runner.removeErr = fmt.Errorf("permission denied: %w", atlaserrors.ErrWorktreeDirty)
 
 	mgr := NewManager(store, runner, zerolog.Nop())
-	result, err := mgr.Close(context.Background(), "test")
+	result, err := mgr.Close(context.Background(), "test", nil)
 
 	require.NoError(t, err) // Close itself succeeds
 	require.NotNil(t, result)
@@ -1221,7 +1397,7 @@ func TestDefaultManager_Close_SkipsBranchDeletionWhenBranchInUse(t *testing.T) {
 	runner.findByBranchResult = "/tmp/repo-shared-2"
 
 	mgr := NewManager(store, runner, zerolog.Nop())
-	result, err := mgr.Close(context.Background(), "test")
+	result, err := mgr.Close(context.Background(), "test", nil)
 
 	require.NoError(t, err)
 	require.NotNil(t, result)
@@ -1253,7 +1429,7 @@ func TestDefaultManager_Close_ContinuesWhenBranchDeletionFails(t *testing.T) {
 	runner.deleteBranchErr = atlaserrors.ErrGitOperation // Deletion fails
 
 	mgr := NewManager(store, runner, zerolog.Nop())
-	result, err := mgr.Close(context.Background(), "test")
+	result, err := mgr.Close(context.Background(), "test", nil)
 
 	require.NoError(t, err) // Close itself succeeds
 	require.NotNil(t, result)
@@ -1282,7 +1458,7 @@ func TestDefaultManager_Close_ContinuesWhenPruneFails(t *testing.T) {
 	runner.pruneErr = atlaserrors.ErrGitOperation // Prune fails
 
 	mgr := NewManager(store, runner, zerolog.Nop())
-	result, err := mgr.Close(context.Background(), "test")
+	result, err := mgr.Close(context.Background(), "test", nil)
 
 	require.NoError(t, err)
 	require.NotNil(t, result)

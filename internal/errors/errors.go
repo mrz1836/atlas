@@ -350,6 +350,9 @@ var (
 	// ErrMockNetwork indicates a mock network error occurred (used in tests).
 	ErrMockNetwork = errors.New("network error")
 
+	// ErrMockTaskStoreUnavailable indicates a mock task store is unavailable (used in tests).
+	ErrMockTaskStoreUnavailable = errors.New("task store unavailable")
+
 	// ErrInvalidURL indicates that a URL is malformed or does not match expected format.
 	ErrInvalidURL = errors.New("invalid URL")
 

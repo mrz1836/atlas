@@ -14,6 +14,7 @@ import (
 	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/domain"
 	"github.com/mrz1836/atlas/internal/errors"
+	"github.com/mrz1836/atlas/internal/task"
 	"github.com/mrz1836/atlas/internal/workspace"
 )
 
@@ -198,24 +199,37 @@ func TestRunWorkspaceClose_WithRunningTasks(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("HOME", tmpDir)
 
-	// Create store
+	// Create workspace store
 	store, err := workspace.NewFileStore(tmpDir)
 	require.NoError(t, err)
 
-	// Create workspace with a running task
+	// Create workspace FIRST (before task store creates its directory)
 	now := time.Now()
 	ws := &domain.Workspace{
 		Name:         "running-ws",
 		WorktreePath: "/tmp/running-worktree",
 		Branch:       "feat/running",
 		Status:       constants.WorkspaceStatusActive,
-		Tasks: []domain.TaskRef{
-			{ID: "task-123", Status: constants.TaskStatusRunning},
-		},
-		CreatedAt: now,
-		UpdatedAt: now,
+		Tasks:        []domain.TaskRef{}, // Empty - tasks are in task store
+		CreatedAt:    now,
+		UpdatedAt:    now,
 	}
 	require.NoError(t, store.Create(context.Background(), ws))
+
+	// Create task store and add a running task
+	taskStore, err := task.NewFileStore(tmpDir)
+	require.NoError(t, err)
+
+	// Use valid task ID format (must match task-YYYYMMDD-HHMMSS pattern)
+	taskID := task.GenerateTaskID()
+	runningTask := &domain.Task{
+		ID:          taskID,
+		WorkspaceID: "running-ws",
+		Status:      constants.TaskStatusRunning,
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
+	}
+	require.NoError(t, taskStore.Create(context.Background(), "running-ws", runningTask))
 
 	var buf bytes.Buffer
 
@@ -235,7 +249,7 @@ func TestRunWorkspaceClose_WithRunningTasks(t *testing.T) {
 	// Verify error message format includes workspace name and reason
 	assert.Contains(t, err.Error(), "cannot close workspace")
 	assert.Contains(t, err.Error(), "running-ws")
-	assert.Contains(t, err.Error(), "running tasks")
+	assert.Contains(t, err.Error(), "running")
 }
 
 func TestRunWorkspaceClose_AlreadyClosed(t *testing.T) {
@@ -545,24 +559,37 @@ func TestRunWorkspaceClose_WithValidatingTasks(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("HOME", tmpDir)
 
-	// Create store
+	// Create workspace store
 	store, err := workspace.NewFileStore(tmpDir)
 	require.NoError(t, err)
 
-	// Create workspace with a validating task
+	// Create workspace FIRST (before task store creates its directory)
 	now := time.Now()
 	ws := &domain.Workspace{
 		Name:         "validating-ws",
 		WorktreePath: "/tmp/validating-worktree",
 		Branch:       "feat/validating",
 		Status:       constants.WorkspaceStatusActive,
-		Tasks: []domain.TaskRef{
-			{ID: "task-456", Status: constants.TaskStatusValidating},
-		},
-		CreatedAt: now,
-		UpdatedAt: now,
+		Tasks:        []domain.TaskRef{}, // Empty - tasks are in task store
+		CreatedAt:    now,
+		UpdatedAt:    now,
 	}
 	require.NoError(t, store.Create(context.Background(), ws))
+
+	// Create task store and add a validating task
+	taskStore, err := task.NewFileStore(tmpDir)
+	require.NoError(t, err)
+
+	// Use valid task ID format (must match task-YYYYMMDD-HHMMSS pattern)
+	taskID := task.GenerateTaskID()
+	validatingTask := &domain.Task{
+		ID:          taskID,
+		WorkspaceID: "validating-ws",
+		Status:      constants.TaskStatusValidating,
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
+	}
+	require.NoError(t, taskStore.Create(context.Background(), "validating-ws", validatingTask))
 
 	var buf bytes.Buffer
 

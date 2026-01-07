@@ -1090,9 +1090,17 @@ func closeWorkspace(ctx context.Context, workspaceName string) (warning string, 
 		}
 	}
 
+	// Create task store to check for running tasks before closing
+	// This prevents closing a workspace while tasks are actively running
+	var taskLister workspace.TaskLister
+	taskStore, taskErr := task.NewFileStore("")
+	if taskErr == nil {
+		taskLister = taskStore
+	}
+
 	// Create manager and close
 	mgr := workspace.NewManager(wsStore, wtRunner, GetLogger())
-	result, closeErr := mgr.Close(ctx, ws.Name)
+	result, closeErr := mgr.Close(ctx, ws.Name, taskLister)
 	if closeErr != nil {
 		return "", fmt.Errorf("failed to close workspace: %w", closeErr)
 	}

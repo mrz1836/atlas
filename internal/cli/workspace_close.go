@@ -16,6 +16,7 @@ import (
 
 	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/errors"
+	"github.com/mrz1836/atlas/internal/task"
 	"github.com/mrz1836/atlas/internal/tui"
 	"github.com/mrz1836/atlas/internal/workspace"
 )
@@ -109,7 +110,7 @@ func runWorkspaceCloseWithOutput(ctx context.Context, w io.Writer, name string, 
 	}
 
 	// Execute the close operation
-	return executeClose(ctx, store, name, output, w, logger)
+	return executeClose(ctx, store, name, storeBaseDir, output, w, logger)
 }
 
 // checkWorkspaceExistsForClose creates the store and checks if the workspace exists.
@@ -186,7 +187,7 @@ func handleCloseConfirmation(name string, force bool, output string, w io.Writer
 }
 
 // executeClose performs the actual close operation.
-func executeClose(ctx context.Context, store *workspace.FileStore, name, output string, w io.Writer, logger zerolog.Logger) error {
+func executeClose(ctx context.Context, store *workspace.FileStore, name, storeBaseDir, output string, w io.Writer, logger zerolog.Logger) error {
 	// Get repo path for worktree runner
 	repoPath, err := detectRepoPath()
 	if err != nil {
@@ -206,10 +207,20 @@ func executeClose(ctx context.Context, store *workspace.FileStore, name, output 
 		}
 	}
 
+	// Create task store to check for running tasks before closing
+	// This prevents closing a workspace while tasks are actively running
+	var taskLister workspace.TaskLister
+	taskStore, taskErr := task.NewFileStore(storeBaseDir)
+	if taskErr != nil {
+		logger.Debug().Err(taskErr).Msg("could not create task store, running task check will be skipped")
+	} else {
+		taskLister = taskStore
+	}
+
 	// Create manager and close
 	mgr := workspace.NewManager(store, wtRunner, logger)
 
-	result, closeErr := mgr.Close(ctx, name)
+	result, closeErr := mgr.Close(ctx, name, taskLister)
 	if closeErr != nil {
 		return handleCloseError(w, name, output, closeErr)
 	}
