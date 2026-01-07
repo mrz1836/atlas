@@ -19,6 +19,7 @@ import (
 	"github.com/mrz1836/atlas/internal/domain"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 	"github.com/mrz1836/atlas/internal/git"
+	"github.com/mrz1836/atlas/internal/signal"
 	"github.com/mrz1836/atlas/internal/task"
 	"github.com/mrz1836/atlas/internal/template"
 	"github.com/mrz1836/atlas/internal/template/steps"
@@ -82,14 +83,19 @@ func runResume(ctx context.Context, cmd *cobra.Command, w io.Writer, workspaceNa
 
 	out := tui.NewOutput(w, outputFormat)
 
+	// Create signal handler for graceful shutdown on Ctrl+C
+	sigHandler := signal.NewHandler(ctx)
+	defer sigHandler.Stop()
+	ctx = sigHandler.Context()
+
 	// Setup workspace manager and get workspace
-	_, ws, err := setupWorkspace(ctx, workspaceName, "", outputFormat, w, logger)
+	_, ws, err := setupWorkspace(ctx, workspaceName, "", outputFormat, w, logger) //nolint:contextcheck // ctx inherits from parent via signal.NewHandler
 	if err != nil {
 		return err
 	}
 
 	// Get task store and latest task
-	taskStore, currentTask, err := getLatestTask(ctx, workspaceName, "", outputFormat, w, logger)
+	taskStore, currentTask, err := getLatestTask(ctx, workspaceName, "", outputFormat, w, logger) //nolint:contextcheck // ctx inherits from parent via signal.NewHandler
 	if err != nil {
 		return err
 	}
@@ -101,7 +107,7 @@ func runResume(ctx context.Context, cmd *cobra.Command, w io.Writer, workspaceNa
 	}
 
 	// Check if worktree exists and recreate if needed
-	ws, err = ensureWorktreeExists(ctx, ws, out, logger)
+	ws, err = ensureWorktreeExists(ctx, ws, out, logger) //nolint:contextcheck // ctx inherits from parent via signal.NewHandler
 	if err != nil {
 		return handleResumeError(outputFormat, w, workspaceName, currentTask.ID,
 			fmt.Errorf("failed to ensure worktree exists: %w", err))
@@ -121,7 +127,7 @@ func runResume(ctx context.Context, cmd *cobra.Command, w io.Writer, workspaceNa
 	}
 
 	// Create engine with all dependencies
-	engine, err := createResumeEngine(ctx, ws, taskStore, logger)
+	engine, err := createResumeEngine(ctx, ws, taskStore, logger, out) //nolint:contextcheck // ctx inherits from parent via signal.NewHandler
 	if err != nil {
 		return handleResumeError(outputFormat, w, workspaceName, currentTask.ID, err)
 	}
@@ -136,11 +142,25 @@ func runResume(ctx context.Context, cmd *cobra.Command, w io.Writer, workspaceNa
 	currentTask.Metadata["worktree_dir"] = ws.WorktreePath
 
 	// Resume task execution
-	if err := engine.Resume(ctx, currentTask, tmpl); err != nil {
+	if err := engine.Resume(ctx, currentTask, tmpl); err != nil { //nolint:contextcheck // ctx inherits from parent via signal.NewHandler
+		// Check if we were interrupted by Ctrl+C
+		select {
+		case <-sigHandler.Interrupted():
+			return handleResumeInterruption(ctx, out, ws, currentTask, logger) //nolint:contextcheck // ctx inherits from parent via signal.NewHandler
+		default:
+		}
+
 		if currentTask.Status == constants.TaskStatusValidationFailed {
 			tui.DisplayManualFixInstructions(out, currentTask, ws)
 		}
 		return handleResumeError(outputFormat, w, workspaceName, currentTask.ID, err)
+	}
+
+	// Check if we were interrupted by Ctrl+C (even if no error)
+	select {
+	case <-sigHandler.Interrupted():
+		return handleResumeInterruption(ctx, out, ws, currentTask, logger) //nolint:contextcheck // ctx inherits from parent via signal.NewHandler
+	default:
 	}
 
 	// Handle JSON output format
@@ -148,7 +168,8 @@ func runResume(ctx context.Context, cmd *cobra.Command, w io.Writer, workspaceNa
 		return outputResumeSuccessJSON(out, ws, currentTask)
 	}
 
-	return displayResumeResult(out, ws, currentTask, nil)
+	displayResumeResult(out, ws, currentTask, nil)
+	return nil
 }
 
 // isResumableStatus returns true if the task status allows resuming.
@@ -194,7 +215,7 @@ func outputResumeErrorJSON(w io.Writer, workspaceName, taskID, errMsg string) er
 }
 
 // displayResumeResult outputs the resume result in the appropriate format.
-func displayResumeResult(out tui.Output, ws *domain.Workspace, t *domain.Task, execErr error) error {
+func displayResumeResult(out tui.Output, ws *domain.Workspace, t *domain.Task, execErr error) {
 	// TTY output
 	out.Success(fmt.Sprintf("Task resumed successfully. Status: %s", t.Status))
 	out.Info(fmt.Sprintf("  Workspace: %s", ws.Name))
@@ -204,12 +225,10 @@ func displayResumeResult(out tui.Output, ws *domain.Workspace, t *domain.Task, e
 	if execErr != nil {
 		out.Warning(fmt.Sprintf("Execution paused: %s", execErr.Error()))
 	}
-
-	return nil
 }
 
 // createResumeEngine creates the task engine with all required dependencies.
-func createResumeEngine(ctx context.Context, ws *domain.Workspace, taskStore *task.FileStore, logger zerolog.Logger) (*task.Engine, error) {
+func createResumeEngine(ctx context.Context, ws *domain.Workspace, taskStore *task.FileStore, logger zerolog.Logger, out tui.Output) (*task.Engine, error) {
 	cfg, err := config.Load(ctx)
 	if err != nil {
 		logger.Warn().Err(err).Msg("failed to load config, using default notification settings")
@@ -304,12 +323,48 @@ func createResumeEngine(ctx context.Context, ws *domain.Workspace, taskStore *ta
 	validationRetryHandler := createResumeValidationRetryHandler(aiRunner, cfg, logger)
 
 	engineCfg := task.DefaultEngineConfig()
+	engineCfg.ProgressCallback = createProgressCallback(ctx, out, ws.Name)
 	engineOpts := []task.EngineOption{task.WithNotifier(stateNotifier)}
 	if validationRetryHandler != nil {
 		engineOpts = append(engineOpts, task.WithValidationRetryHandler(validationRetryHandler))
 	}
 
 	return task.NewEngine(taskStore, execRegistry, engineCfg, logger, engineOpts...), nil
+}
+
+// handleResumeInterruption handles graceful shutdown when user presses Ctrl+C during resume.
+// It saves the task and workspace state so the user can resume later.
+func handleResumeInterruption(ctx context.Context, out tui.Output, ws *domain.Workspace, t *domain.Task, logger zerolog.Logger) error {
+	logger.Info().
+		Str("workspace_name", ws.Name).
+		Str("task_id", t.ID).
+		Msg("received interrupt signal during resume, initiating graceful shutdown")
+
+	out.Warning("\n⚠ Interrupt received - saving state...")
+
+	// Use a context without cancellation for cleanup since the original is canceled
+	cleanupCtx := context.WithoutCancel(ctx)
+
+	// Save interrupted task state (reuse the function from start.go)
+	saveInterruptedTaskState(cleanupCtx, ws, t, logger)
+
+	// Update workspace to paused
+	ws.Status = constants.WorkspaceStatusPaused
+	wsStore, err := workspace.NewFileStore("")
+	if err != nil {
+		logger.Error().Err(err).
+			Str("workspace_name", ws.Name).
+			Msg("failed to create workspace store for pause update")
+	} else if updateErr := wsStore.Update(cleanupCtx, ws); updateErr != nil {
+		logger.Error().Err(updateErr).
+			Str("workspace_name", ws.Name).
+			Msg("failed to persist workspace pause status")
+	}
+
+	// Display summary (reuse the function from start.go)
+	displayInterruptionSummary(out, ws, t)
+
+	return atlaserrors.ErrTaskInterrupted
 }
 
 // displayResumeInfo displays information about the task being resumed.
