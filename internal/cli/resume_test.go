@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -308,8 +309,7 @@ func TestDisplayResumeResult(t *testing.T) {
 		Steps:       make([]domain.Step, 4),
 	}
 
-	err := displayResumeResult(out, ws, task, nil)
-	require.NoError(t, err)
+	displayResumeResult(out, ws, task, nil)
 
 	output := buf.String()
 	assert.Contains(t, output, "task-resume-test")
@@ -333,8 +333,7 @@ func TestDisplayResumeResult_WithError(t *testing.T) {
 	}
 
 	execErr := errors.ErrValidationFailed
-	err := displayResumeResult(out, ws, task, execErr)
-	require.NoError(t, err)
+	displayResumeResult(out, ws, task, execErr)
 
 	output := buf.String()
 	assert.Contains(t, output, "Execution paused")
@@ -425,6 +424,100 @@ func TestRunResume_NoTasksFound(t *testing.T) {
 	exists, err := wsStore.Exists(context.Background(), "empty-workspace")
 	require.NoError(t, err)
 	assert.True(t, exists)
+}
+
+func TestIsResumableStatus_Interrupted(t *testing.T) {
+	// Test that interrupted status IS resumable (for Ctrl+C handling)
+	assert.True(t, isResumableStatus(constants.TaskStatusInterrupted),
+		"interrupted status should be resumable to allow resume after Ctrl+C")
+
+	// Verify consistency with task.IsErrorStatus
+	assert.True(t, task.IsErrorStatus(constants.TaskStatusInterrupted),
+		"interrupted should be an error status")
+}
+
+func TestHandleResumeInterruption(t *testing.T) {
+	// Create temp directories for stores
+	tmpDir := t.TempDir()
+
+	ws := &domain.Workspace{
+		Name:         "test-interrupt-ws",
+		Branch:       "feat/test",
+		WorktreePath: tmpDir,
+		Status:       constants.WorkspaceStatusActive,
+	}
+
+	testTask := &domain.Task{
+		ID:          "task-interrupt-test",
+		TemplateID:  "bugfix",
+		Description: "test interruption handling",
+		Status:      constants.TaskStatusRunning,
+		CurrentStep: 1,
+		Steps: []domain.Step{
+			{Name: "implement", Status: constants.StepStatusSuccess},
+			{Name: "validate", Status: constants.StepStatusRunning},
+			{Name: "commit", Status: constants.StepStatusPending},
+		},
+	}
+
+	var buf bytes.Buffer
+	out := tui.NewOutput(&buf, "text")
+	logger := zerolog.Nop()
+
+	// Call handleResumeInterruption
+	ctx := context.Background()
+	err := handleResumeInterruption(ctx, out, ws, testTask, logger)
+
+	// Should return the interrupted error
+	require.ErrorIs(t, err, errors.ErrTaskInterrupted)
+
+	// Should update task status to interrupted
+	assert.Equal(t, constants.TaskStatusInterrupted, testTask.Status)
+
+	// Should update workspace status to paused
+	assert.Equal(t, constants.WorkspaceStatusPaused, ws.Status)
+
+	// Should display interruption message
+	output := buf.String()
+	assert.Contains(t, output, "Interrupt received")
+	assert.Contains(t, output, "state saved")
+}
+
+func TestHandleResumeInterruption_DisplaysResumeInstructions(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	ws := &domain.Workspace{
+		Name:         "my-workspace",
+		Branch:       "feat/test",
+		WorktreePath: tmpDir,
+		Status:       constants.WorkspaceStatusActive,
+	}
+
+	testTask := &domain.Task{
+		ID:          "task-123",
+		Status:      constants.TaskStatusRunning,
+		CurrentStep: 2,
+		Steps: []domain.Step{
+			{Name: "implement", Status: constants.StepStatusSuccess},
+			{Name: "validate", Status: constants.StepStatusSuccess},
+			{Name: "commit", Status: constants.StepStatusRunning},
+		},
+	}
+
+	var buf bytes.Buffer
+	out := tui.NewOutput(&buf, "text")
+	logger := zerolog.Nop()
+
+	ctx := context.Background()
+	_ = handleResumeInterruption(ctx, out, ws, testTask, logger)
+
+	output := buf.String()
+	// Should show resume command
+	assert.Contains(t, output, "atlas resume my-workspace")
+	// Should show workspace name
+	assert.Contains(t, output, "my-workspace")
+	// Should show task ID
+	assert.Contains(t, output, "task-123")
 }
 
 func TestCalculateWorktreePath(t *testing.T) {
