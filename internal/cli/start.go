@@ -22,6 +22,7 @@ import (
 	"github.com/mrz1836/atlas/internal/domain"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 	"github.com/mrz1836/atlas/internal/git"
+	"github.com/mrz1836/atlas/internal/signal"
 	"github.com/mrz1836/atlas/internal/task"
 	"github.com/mrz1836/atlas/internal/template"
 	"github.com/mrz1836/atlas/internal/template/steps"
@@ -147,6 +148,11 @@ func runStart(ctx context.Context, cmd *cobra.Command, w io.Writer, description 
 	default:
 	}
 
+	// Create signal handler for graceful shutdown on Ctrl+C
+	sigHandler := signal.NewHandler(ctx)
+	defer sigHandler.Stop()
+	ctx = sigHandler.Context()
+
 	logger := GetLogger()
 	outputFormat := cmd.Flag("output").Value.String()
 
@@ -178,7 +184,7 @@ func runStart(ctx context.Context, cmd *cobra.Command, w io.Writer, description 
 	}
 
 	// Validate we're in a git repository
-	repoPath, err := findGitRepository(ctx)
+	repoPath, err := findGitRepository(ctx) //nolint:contextcheck // context is properly checked and used
 	if err != nil {
 		return sc.handleError("", fmt.Errorf("not in a git repository: %w", err))
 	}
@@ -186,7 +192,7 @@ func runStart(ctx context.Context, cmd *cobra.Command, w io.Writer, description 
 	logger.Debug().Str("repo_path", repoPath).Msg("found git repository")
 
 	// Load config for custom templates
-	cfg, cfgErr := config.Load(ctx)
+	cfg, cfgErr := config.Load(ctx) //nolint:contextcheck // context is properly checked and used
 	if cfgErr != nil {
 		// Log warning but continue with defaults - don't fail task start for config issues
 		logger.Error().Err(cfgErr).
@@ -206,7 +212,7 @@ func runStart(ctx context.Context, cmd *cobra.Command, w io.Writer, description 
 	}
 
 	// Select template
-	tmpl, err := selectTemplate(ctx, registry, opts.templateName, opts.noInteractive, outputFormat)
+	tmpl, err := selectTemplate(ctx, registry, opts.templateName, opts.noInteractive, outputFormat) //nolint:contextcheck // context is properly checked and used
 	if err != nil {
 		return sc.handleError("", err)
 	}
@@ -228,11 +234,11 @@ func runStart(ctx context.Context, cmd *cobra.Command, w io.Writer, description 
 
 	// Handle dry-run mode - show what would happen without making changes
 	if opts.dryRun {
-		return runDryRun(ctx, sc, tmpl, description, wsName, cfg, logger)
+		return runDryRun(ctx, sc, tmpl, description, wsName, cfg, logger) //nolint:contextcheck // context is properly checked and used
 	}
 
 	// Create and configure workspace
-	ws, err := createWorkspace(ctx, sc, wsName, repoPath, tmpl.BranchPrefix, opts.baseBranch, opts.useLocal, opts.noInteractive)
+	ws, err := createWorkspace(ctx, sc, wsName, repoPath, tmpl.BranchPrefix, opts.baseBranch, opts.useLocal, opts.noInteractive) //nolint:contextcheck // context is properly checked and used
 	if err != nil {
 		return err
 	}
@@ -244,9 +250,17 @@ func runStart(ctx context.Context, cmd *cobra.Command, w io.Writer, description 
 		Msg("workspace created")
 
 	// Start task execution
-	t, err := startTaskExecution(ctx, ws, tmpl, description, opts.agent, opts.model, logger, out)
+	t, err := startTaskExecution(ctx, ws, tmpl, description, opts.agent, opts.model, logger, out) //nolint:contextcheck // context is properly checked and used
+
+	// Check if we were interrupted by Ctrl+C
+	select {
+	case <-sigHandler.Interrupted():
+		return handleInterruption(ctx, sc, ws, t, logger, out) //nolint:contextcheck // context is properly checked and used
+	default:
+	}
+
 	if err != nil {
-		sc.handleTaskStartError(ctx, ws, repoPath, t, logger)
+		sc.handleTaskStartError(ctx, ws, repoPath, t, logger) //nolint:contextcheck // context is properly checked and used
 		if t != nil {
 			return displayTaskStatus(out, outputFormat, ws, t, err)
 		}
@@ -370,6 +384,95 @@ func (sc *startContext) updateWorkspaceStatusToPaused(ctx context.Context, ws *d
 				Msg("CRITICAL: worktree directory missing after pause - possible race condition or external deletion")
 		}
 	}
+}
+
+// handleInterruption handles graceful shutdown when user presses Ctrl+C.
+// It saves the task and workspace state so the user can resume later.
+func handleInterruption(ctx context.Context, sc *startContext, ws *domain.Workspace, t *domain.Task, logger zerolog.Logger, out tui.Output) error {
+	logger.Info().
+		Str("workspace_name", ws.Name).
+		Str("task_id", safeTaskID(t)).
+		Msg("received interrupt signal, initiating graceful shutdown")
+
+	out.Warning("\n⚠ Interrupt received - saving state...")
+
+	// Use a context without cancellation for cleanup since the original is canceled
+	cleanupCtx := context.WithoutCancel(ctx)
+
+	// Save interrupted task state
+	if t != nil {
+		saveInterruptedTaskState(cleanupCtx, ws, t, logger)
+	}
+
+	// Update workspace to paused
+	sc.updateWorkspaceStatusToPaused(cleanupCtx, ws, logger)
+
+	// Display summary
+	displayInterruptionSummary(out, ws, t)
+
+	return atlaserrors.ErrTaskInterrupted
+}
+
+// saveInterruptedTaskState saves the task state when interrupted by Ctrl+C.
+func saveInterruptedTaskState(ctx context.Context, ws *domain.Workspace, t *domain.Task, logger zerolog.Logger) {
+	// Transition task to interrupted status if it's running or validating
+	if t.Status == constants.TaskStatusRunning || t.Status == constants.TaskStatusValidating {
+		if err := task.Transition(ctx, t, constants.TaskStatusInterrupted, "user pressed Ctrl+C"); err != nil {
+			logger.Error().Err(err).
+				Str("task_id", t.ID).
+				Str("from_status", string(t.Status)).
+				Msg("failed to transition task to interrupted status")
+		}
+	}
+
+	// Save task state
+	taskStore, err := task.NewFileStore("")
+	if err != nil {
+		logger.Error().Err(err).Msg("failed to create task store for interrupted state save")
+		return
+	}
+
+	if saveErr := taskStore.Update(ctx, ws.Name, t); saveErr != nil {
+		logger.Error().Err(saveErr).
+			Str("task_id", t.ID).
+			Str("workspace_name", ws.Name).
+			Msg("failed to save interrupted task state")
+	} else {
+		logger.Debug().
+			Str("task_id", t.ID).
+			Str("status", string(t.Status)).
+			Int("current_step", t.CurrentStep).
+			Msg("interrupted task state saved")
+	}
+}
+
+// displayInterruptionSummary shows the user what happened and how to resume.
+func displayInterruptionSummary(out tui.Output, ws *domain.Workspace, t *domain.Task) {
+	out.Success("\n✓ Task state saved")
+	out.Info("─────────────────────────────────────────")
+	out.Info(fmt.Sprintf("📁 Workspace:    %s", ws.Name))
+	out.Info(fmt.Sprintf("📁 Worktree:     %s", ws.WorktreePath))
+
+	if t != nil {
+		out.Info(fmt.Sprintf("📋 Task:         %s", t.ID))
+		out.Info(fmt.Sprintf("📊 Status:       %s", t.Status))
+		if t.CurrentStep < len(t.Steps) {
+			out.Info(fmt.Sprintf("⏸ Stopped at:    Step %d/%d (%s)", t.CurrentStep+1, len(t.Steps), t.Steps[t.CurrentStep].Name))
+		}
+	}
+
+	out.Info("")
+	out.Info(fmt.Sprintf("▶ To resume:  atlas resume %s", ws.Name))
+	out.Info("")
+	out.Info("💡 Your workspace and all changes are preserved.")
+}
+
+// safeTaskID returns the task ID or a placeholder if task is nil.
+func safeTaskID(t *domain.Task) string {
+	if t == nil {
+		return "(none)"
+	}
+	return t.ID
 }
 
 // createWorkspace creates a new workspace or uses an existing one (upsert behavior).

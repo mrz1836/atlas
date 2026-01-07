@@ -316,8 +316,17 @@ func createResumeEngine(ctx context.Context, ws *domain.Workspace, taskStore *ta
 func displayResumeInfo(out tui.Output, workspaceName string, currentTask *domain.Task) {
 	out.Info(fmt.Sprintf("Resuming task in workspace '%s'...", workspaceName))
 	out.Info(fmt.Sprintf("  Task ID: %s", currentTask.ID))
-	out.Info(fmt.Sprintf("  Current Status: %s", currentTask.Status))
+	out.Info(fmt.Sprintf("  Status: %s → running", currentTask.Status))
 	out.Info(fmt.Sprintf("  Current Step: %d/%d", currentTask.CurrentStep+1, len(currentTask.Steps)))
+
+	// Show specific message for interrupted tasks
+	if currentTask.Status == constants.TaskStatusInterrupted {
+		stepName := "unknown"
+		if currentTask.CurrentStep < len(currentTask.Steps) {
+			stepName = currentTask.Steps[currentTask.CurrentStep].Name
+		}
+		out.Info(fmt.Sprintf("  Note: Task was interrupted by user, resuming from step %d (%s)", currentTask.CurrentStep+1, stepName))
+	}
 }
 
 // outputResumeSuccessJSON outputs a successful resume result as JSON.
