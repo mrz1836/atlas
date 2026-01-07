@@ -1017,14 +1017,14 @@ func executeAddReviewStep(ctx context.Context, stepCtx *approveStepContext) (str
 func executeMergePRStep(ctx context.Context, stepCtx *approveStepContext) (string, error) {
 	prNumber := extractPRNumber(stepCtx.t)
 
-	// Try standard merge first
-	mergeErr := stepCtx.hubRunner.MergePR(ctx, prNumber, "squash", false)
+	// Try standard merge first (deleteBranch=false to preserve branch for workspace cleanup)
+	mergeErr := stepCtx.hubRunner.MergePR(ctx, prNumber, "squash", false, false)
 	if mergeErr == nil {
 		return "PR merged (squash)", nil
 	}
 
 	// Try with admin bypass
-	mergeErr = stepCtx.hubRunner.MergePR(ctx, prNumber, "squash", true)
+	mergeErr = stepCtx.hubRunner.MergePR(ctx, prNumber, "squash", true, false)
 	if mergeErr != nil {
 		return "", fmt.Errorf("merge failed: %w", mergeErr)
 	}

@@ -193,10 +193,10 @@ func runStart(ctx context.Context, cmd *cobra.Command, w io.Writer, description 
 			Str("project_config", config.ProjectConfigPath()).
 			Msg("failed to load project config - falling back to defaults")
 		cfg = config.DefaultConfig()
-	} else {
-		logger.Debug().
-			Dur("ci.poll_interval", cfg.CI.PollInterval).
-			Msg("config loaded successfully")
+	}
+
+	if cfgErr == nil {
+		logConfigSources(cfg, logger)
 	}
 
 	// Load template registry with custom templates from config
@@ -261,6 +261,44 @@ func runStart(ctx context.Context, cmd *cobra.Command, w io.Writer, description 
 		Msg("task started")
 
 	return displayTaskStatus(out, outputFormat, ws, t, nil)
+}
+
+// logConfigSources logs which config sources were loaded and key metrics.
+func logConfigSources(cfg *config.Config, logger zerolog.Logger) {
+	// Determine which config files were loaded
+	var sources []string
+	var globalPathErr error
+	var globalPath string
+	globalPath, globalPathErr = config.GlobalConfigPath()
+	if globalPathErr == nil {
+		if _, statErr := os.Stat(globalPath); statErr == nil {
+			sources = append(sources, "global")
+		}
+	}
+	projectPath := config.ProjectConfigPath()
+	if _, statErr := os.Stat(projectPath); statErr == nil {
+		sources = append(sources, "project")
+	}
+	if len(sources) == 0 {
+		sources = []string{"defaults"}
+	}
+
+	// Count validation commands
+	validationCmds := len(cfg.Validation.Commands.Format) +
+		len(cfg.Validation.Commands.Lint) +
+		len(cfg.Validation.Commands.Test) +
+		len(cfg.Validation.Commands.PreCommit) +
+		len(cfg.Validation.Commands.CustomPrePR)
+
+	// Log with sources and key metrics
+	logger.Debug().
+		Str("sources", strings.Join(sources, ",")).
+		Str("agent", cfg.AI.Agent).
+		Str("model", cfg.AI.Model).
+		Int("custom_templates", len(cfg.Templates.CustomTemplates)).
+		Int("required_workflows", len(cfg.CI.RequiredWorkflows)).
+		Int("validation_cmds", validationCmds).
+		Msg("config loaded")
 }
 
 // handleError handles errors based on output format.
