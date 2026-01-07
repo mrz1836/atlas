@@ -277,10 +277,34 @@ REQUIREMENTS:
    How the changes were tested/validated.
 
 OUTPUT FORMAT:
-Return ONLY the title and body in this exact format:
-TITLE: <conventional commits title here>
+Return ONLY the title and body in this exact format.
+IMPORTANT:
+- Do NOT use markdown code blocks or backticks around your response
+- Start your response IMMEDIATELY with "TITLE:" (no preamble or explanation)
+- Use these exact markers: TITLE: and BODY:
+
+TITLE: <type>(<scope>): <description>
 BODY:
-<markdown body here>
+## Summary
+<summary text>
+
+## Changes
+<changes list>
+
+## Test Plan
+<test plan>
+
+EXAMPLE OUTPUT:
+TITLE: feat(api): add user authentication endpoint
+BODY:
+## Summary
+Added new authentication endpoint for user login.
+
+## Changes
+- api/auth.go - New authentication handler
+
+## Test Plan
+- Unit tests added and passing
 
 `)
 
@@ -344,19 +368,23 @@ BODY:
 }
 
 // parseResponse extracts the PR description from AI output.
-// It expects the output to contain "TITLE:" and "BODY:" markers.
+// It expects the output to contain "TITLE:" and "BODY:" markers (case-insensitive).
+// Handles variations like markdown code blocks and different casing.
 // Returns an error if the expected format is not found (caller should use template fallback).
 func (g *AIDescriptionGenerator) parseResponse(output, templateName string) (*PRDescription, error) {
 	desc := &PRDescription{}
 
-	// Extract title - require TITLE: marker
-	titlePattern := regexp.MustCompile(`(?m)^TITLE:\s*(.+)$`)
+	// Preprocess: strip markdown code blocks (AI sometimes wraps output in ```)
+	output = stripMarkdownCodeBlocks(output)
+
+	// Extract title - case insensitive, require TITLE: marker at start of line
+	titlePattern := regexp.MustCompile(`(?im)^TITLE:\s*(.+)$`)
 	if match := titlePattern.FindStringSubmatch(output); len(match) > 1 {
 		desc.Title = strings.TrimSpace(match[1])
 	}
 
-	// Extract body - require BODY: marker
-	bodyPattern := regexp.MustCompile(`(?s)BODY:\s*(.+)$`)
+	// Extract body - case insensitive, require BODY: marker
+	bodyPattern := regexp.MustCompile(`(?is)BODY:\s*(.+)$`)
 	if match := bodyPattern.FindStringSubmatch(output); len(match) > 1 {
 		desc.Body = strings.TrimSpace(match[1])
 	}
@@ -666,6 +694,17 @@ func lowercaseFirst(s string) string {
 	runes := []rune(s)
 	runes[0] = unicode.ToLower(runes[0])
 	return string(runes)
+}
+
+// stripMarkdownCodeBlocks removes markdown code block delimiters from AI output.
+// AI models sometimes wrap their output in ```...``` blocks.
+func stripMarkdownCodeBlocks(s string) string {
+	// Remove fenced code blocks (```...``` or ```lang\n...\n```)
+	codeBlockPattern := regexp.MustCompile("(?s)```(?:\\w*\\n)?(.+?)```")
+	if matches := codeBlockPattern.FindStringSubmatch(s); len(matches) > 1 {
+		return strings.TrimSpace(matches[1])
+	}
+	return s
 }
 
 // Compile-time interface checks.

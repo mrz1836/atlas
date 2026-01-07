@@ -918,3 +918,183 @@ Ok.`,
 
 	require.NoError(t, err)
 }
+
+func TestStripMarkdownCodeBlocks(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "no code blocks",
+			input:    "TITLE: feat: add feature\nBODY:\n## Summary\nContent",
+			expected: "TITLE: feat: add feature\nBODY:\n## Summary\nContent",
+		},
+		{
+			name:     "simple code block",
+			input:    "```\nTITLE: feat: add feature\nBODY:\n## Summary\nContent\n```",
+			expected: "TITLE: feat: add feature\nBODY:\n## Summary\nContent",
+		},
+		{
+			name:     "code block with language",
+			input:    "```markdown\nTITLE: feat: add feature\nBODY:\n## Summary\nContent\n```",
+			expected: "TITLE: feat: add feature\nBODY:\n## Summary\nContent",
+		},
+		{
+			name:     "code block with text before",
+			input:    "Here is the PR description:\n```\nTITLE: feat: add feature\nBODY:\n## Summary\nContent\n```",
+			expected: "TITLE: feat: add feature\nBODY:\n## Summary\nContent",
+		},
+		{
+			name:     "code block with text after",
+			input:    "```\nTITLE: feat: add feature\nBODY:\n## Summary\nContent\n```\nLet me know if you need changes.",
+			expected: "TITLE: feat: add feature\nBODY:\n## Summary\nContent",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := stripMarkdownCodeBlocks(tt.input)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestAIDescriptionGenerator_ParsesLowercaseMarkers(t *testing.T) {
+	mockRunner := &prMockAIRunner{
+		runFunc: func(_ context.Context, _ *domain.AIRequest) (*domain.AIResult, error) {
+			// AI returns lowercase markers
+			return &domain.AIResult{
+				Success: true,
+				Output: `title: fix(config): handle nil options in parser
+body:
+## Summary
+
+Fixed null pointer exception.
+
+## Changes
+
+- internal/config/parser.go
+
+## Test Plan
+
+- Tests pass`,
+			}, nil
+		},
+	}
+
+	gen := NewAIDescriptionGenerator(mockRunner)
+
+	desc, err := gen.Generate(context.Background(), PRDescOptions{
+		TaskDescription: "Fix null pointer in config",
+		TemplateName:    "bugfix",
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, "fix(config): handle nil options in parser", desc.Title)
+	assert.Contains(t, desc.Body, "## Summary")
+}
+
+func TestAIDescriptionGenerator_ParsesCodeBlockWrappedOutput(t *testing.T) {
+	mockRunner := &prMockAIRunner{
+		runFunc: func(_ context.Context, _ *domain.AIRequest) (*domain.AIResult, error) {
+			// AI wraps output in markdown code blocks
+			return &domain.AIResult{
+				Success: true,
+				Output:  "```\nTITLE: fix(config): handle nil options in parser\nBODY:\n## Summary\n\nFixed null pointer exception.\n\n## Changes\n\n- internal/config/parser.go\n\n## Test Plan\n\n- Tests pass\n```",
+			}, nil
+		},
+	}
+
+	gen := NewAIDescriptionGenerator(mockRunner)
+
+	desc, err := gen.Generate(context.Background(), PRDescOptions{
+		TaskDescription: "Fix null pointer in config",
+		TemplateName:    "bugfix",
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, "fix(config): handle nil options in parser", desc.Title)
+	assert.Contains(t, desc.Body, "## Summary")
+}
+
+func TestAIDescriptionGenerator_ParsesCodeBlockWithLanguage(t *testing.T) {
+	mockRunner := &prMockAIRunner{
+		runFunc: func(_ context.Context, _ *domain.AIRequest) (*domain.AIResult, error) {
+			// AI wraps output in markdown code blocks with language hint
+			return &domain.AIResult{
+				Success: true,
+				Output:  "```markdown\nTITLE: feat(api): add authentication endpoint\nBODY:\n## Summary\n\nAdded new auth endpoint.\n\n## Changes\n\n- api/auth.go\n\n## Test Plan\n\n- Tests pass\n```",
+			}, nil
+		},
+	}
+
+	gen := NewAIDescriptionGenerator(mockRunner)
+
+	desc, err := gen.Generate(context.Background(), PRDescOptions{
+		TaskDescription: "Add auth endpoint",
+		TemplateName:    "feature",
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, "feat(api): add authentication endpoint", desc.Title)
+	assert.Contains(t, desc.Body, "## Summary")
+}
+
+func TestAIDescriptionGenerator_ParsesMixedCaseMarkers(t *testing.T) {
+	mockRunner := &prMockAIRunner{
+		runFunc: func(_ context.Context, _ *domain.AIRequest) (*domain.AIResult, error) {
+			// AI uses Title: and Body: (mixed case)
+			return &domain.AIResult{
+				Success: true,
+				Output: `Title: fix(config): handle nil options
+Body:
+## Summary
+
+Fixed issue.
+
+## Changes
+
+- file.go
+
+## Test Plan
+
+- Pass`,
+			}, nil
+		},
+	}
+
+	gen := NewAIDescriptionGenerator(mockRunner)
+
+	desc, err := gen.Generate(context.Background(), PRDescOptions{
+		TaskDescription: "Fix null pointer",
+		TemplateName:    "bugfix",
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, "fix(config): handle nil options", desc.Title)
+	assert.Contains(t, desc.Body, "## Summary")
+}
+
+func TestAIDescriptionGenerator_HandlesCodeBlockWithPreamble(t *testing.T) {
+	mockRunner := &prMockAIRunner{
+		runFunc: func(_ context.Context, _ *domain.AIRequest) (*domain.AIResult, error) {
+			// AI adds preamble text before the code block
+			return &domain.AIResult{
+				Success: true,
+				Output:  "Here's the PR description:\n\n```\nTITLE: feat(ui): add dark mode toggle\nBODY:\n## Summary\n\nAdded dark mode.\n\n## Changes\n\n- ui/theme.go\n\n## Test Plan\n\n- Tested manually\n```\n\nLet me know if you need any changes!",
+			}, nil
+		},
+	}
+
+	gen := NewAIDescriptionGenerator(mockRunner)
+
+	desc, err := gen.Generate(context.Background(), PRDescOptions{
+		TaskDescription: "Add dark mode",
+		TemplateName:    "feature",
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, "feat(ui): add dark mode toggle", desc.Title)
+	assert.Contains(t, desc.Body, "## Summary")
+}
