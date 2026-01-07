@@ -283,6 +283,30 @@ func TestGarbageDetector_DetectGarbage_TempFiles(t *testing.T) {
 			category: GarbageTempFile,
 		},
 		{
+			name:     "go file with tmp extension",
+			files:    []string{"something.go.tmp"},
+			expected: 1,
+			category: GarbageTempFile,
+		},
+		{
+			name:     "json file with tmp extension",
+			files:    []string{"config.json.tmp"},
+			expected: 1,
+			category: GarbageTempFile,
+		},
+		{
+			name:     "go file with bak extension",
+			files:    []string{"main.go.bak"},
+			expected: 1,
+			category: GarbageTempFile,
+		},
+		{
+			name:     "css file with orig extension",
+			files:    []string{"style.css.orig"},
+			expected: 1,
+			category: GarbageTempFile,
+		},
+		{
 			name:     "go file not detected",
 			files:    []string{"temp.go"},
 			expected: 0,
@@ -471,6 +495,32 @@ func TestGarbageDetector_DetectGarbage_PathsWithSlashes(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			garbage := detector.DetectGarbage(tt.files)
 			assert.Len(t, garbage, tt.expected)
+		})
+	}
+}
+
+func TestGarbageDetector_MultiExtensionFiles(t *testing.T) {
+	// This test explicitly verifies that files with multiple extensions
+	// are correctly detected as garbage when the final extension matches.
+	detector := NewGarbageDetector(nil)
+
+	tests := []struct {
+		name     string
+		file     string
+		category GarbageCategory
+	}{
+		{"something.go.tmp", "something.go.tmp", GarbageTempFile},
+		{"config.yaml.bak", "config.yaml.bak", GarbageTempFile},
+		{"script.js.swp", "script.js.swp", GarbageTempFile},
+		{"main.rs.orig", "main.rs.orig", GarbageTempFile},
+		{"data.json~", "data.json~", GarbageTempFile},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			garbage := detector.DetectGarbage([]string{tt.file})
+			require.Len(t, garbage, 1)
+			assert.Equal(t, tt.category, garbage[0].Category)
 		})
 	}
 }

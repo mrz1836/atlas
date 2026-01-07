@@ -7,6 +7,44 @@ import (
 	"strings"
 )
 
+// =============================================================================
+// GARBAGE FILE PATTERNS
+// =============================================================================
+// The following patterns define files that should not be committed.
+// Patterns use glob syntax (* matches any characters, / indicates directories).
+//
+// DEBUG FILES:
+//   __debug_bin*         - Delve debugger binaries
+//
+// SECRET/CREDENTIAL FILES:
+//   .env                 - Environment variables
+//   .env.*               - Environment variants (.env.local, .env.production)
+//   credentials*         - Credential files (credentials.json, etc.)
+//   *.key                - Private key files
+//   *.pem                - PEM certificate/key files
+//   *.p12                - PKCS#12 keystore files
+//
+// BUILD ARTIFACTS:
+//   coverage.out         - Go test coverage output
+//   coverage.html        - Coverage HTML report
+//   vendor/              - Go vendor directory
+//   node_modules/        - Node.js dependencies
+//   dist/                - Distribution/build output
+//   build/               - Build output directory
+//   .DS_Store            - macOS Finder metadata
+//   *.exe                - Windows executables
+//   *.dll                - Windows dynamic libraries
+//   *.so                 - Linux/Unix shared objects
+//   *.dylib              - macOS dynamic libraries
+//
+// TEMPORARY FILES:
+//   *.tmp                - Temporary files (e.g., something.go.tmp)
+//   *.bak                - Backup files
+//   *.swp                - Vim swap files
+//   *~                   - Editor backup files (Emacs, etc.)
+//   *.orig               - Original files from merge conflicts
+// =============================================================================
+
 // GarbageCategory represents the category of garbage file detected.
 type GarbageCategory string
 
