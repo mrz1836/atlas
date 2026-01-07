@@ -182,3 +182,47 @@ func (h *ArtifactHelper) SaveVersionedText(ctx context.Context, task *domain.Tas
 func (h *ArtifactHelper) IsEnabled() bool {
 	return h != nil && h.saver != nil
 }
+
+// SaveAIInteraction saves a complete AI request/response interaction as an artifact.
+// This is the primary method for storing AI audit trail data.
+//
+// Returns the artifact path on success, or empty string if:
+//   - helper is nil (graceful no-op for optional artifacts)
+//   - JSON marshaling fails
+//   - artifact saving fails
+//
+// The filename is constructed as: <stepName>/metadata.json
+// Example: SaveAIInteraction(ctx, task, "ai_step", artifact)
+// produces: "ai_step/metadata.json"
+//
+// Important: This method MUST NOT fail the task - artifact save failures are logged
+// but do not propagate errors.
+func (h *ArtifactHelper) SaveAIInteraction(ctx context.Context, task *domain.Task,
+	stepName string, artifact any,
+) string {
+	if h == nil || h.saver == nil {
+		return ""
+	}
+
+	return h.SaveJSON(ctx, task, stepName, "metadata.json", artifact)
+}
+
+// SaveAIInteractionVersioned saves an AI interaction with automatic version numbering.
+// Use this for scenarios where multiple AI calls happen in the same step (e.g., retries,
+// multiple verification checks).
+//
+// Returns the actual filename used (with version suffix) on success,
+// or empty string on failure.
+//
+// Example: If "metadata.json" exists, saves as "metadata.1.json"
+// This ensures artifacts from retry attempts don't overwrite each other.
+func (h *ArtifactHelper) SaveAIInteractionVersioned(ctx context.Context, task *domain.Task,
+	stepName string, artifact any,
+) (string, error) {
+	if h == nil || h.saver == nil {
+		return "", nil
+	}
+
+	baseName := filepath.Join(stepName, "metadata.json")
+	return h.SaveVersionedJSON(ctx, task, baseName, artifact)
+}
