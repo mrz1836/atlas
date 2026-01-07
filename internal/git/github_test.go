@@ -2110,7 +2110,7 @@ func TestCLIGitHubRunner_MergePR_Success(t *testing.T) {
 	}
 
 	runner := NewCLIGitHubRunner("/test/dir", WithGHCommandExecutor(mock))
-	err := runner.MergePR(context.Background(), 42, "squash", false)
+	err := runner.MergePR(context.Background(), 42, "squash", false, false)
 	require.NoError(t, err)
 }
 
@@ -2123,7 +2123,24 @@ func TestCLIGitHubRunner_MergePR_AdminBypass(t *testing.T) {
 	}
 
 	runner := NewCLIGitHubRunner("/test/dir", WithGHCommandExecutor(mock))
-	err := runner.MergePR(context.Background(), 42, "squash", true)
+	err := runner.MergePR(context.Background(), 42, "squash", true, false)
+	require.NoError(t, err)
+}
+
+func TestCLIGitHubRunner_MergePR_DeleteBranch(t *testing.T) {
+	mock := &mockCommandExecutor{
+		executeFunc: func(_ context.Context, _, _ string, args ...string) ([]byte, error) {
+			assert.Contains(t, args, "--delete-branch")
+			// Make sure we're not using --delete-branch=false
+			for _, arg := range args {
+				assert.NotEqual(t, "--delete-branch=false", arg)
+			}
+			return []byte{}, nil
+		},
+	}
+
+	runner := NewCLIGitHubRunner("/test/dir", WithGHCommandExecutor(mock))
+	err := runner.MergePR(context.Background(), 42, "squash", false, true)
 	require.NoError(t, err)
 }
 
@@ -2149,7 +2166,7 @@ func TestCLIGitHubRunner_MergePR_MergeMethods(t *testing.T) {
 			}
 
 			runner := NewCLIGitHubRunner("/test/dir", WithGHCommandExecutor(mock))
-			err := runner.MergePR(context.Background(), 42, tt.method, false)
+			err := runner.MergePR(context.Background(), 42, tt.method, false, false)
 			require.NoError(t, err)
 		})
 	}
@@ -2159,7 +2176,7 @@ func TestCLIGitHubRunner_MergePR_InvalidPRNumber(t *testing.T) {
 	mock := &mockCommandExecutor{}
 	runner := NewCLIGitHubRunner("/test/dir", WithGHCommandExecutor(mock))
 
-	err := runner.MergePR(context.Background(), 0, "squash", false)
+	err := runner.MergePR(context.Background(), 0, "squash", false, false)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, atlaserrors.ErrEmptyValue)
 }
@@ -2173,7 +2190,7 @@ func TestCLIGitHubRunner_MergePR_NotFound(t *testing.T) {
 	}
 
 	runner := NewCLIGitHubRunner("/test/dir", WithGHCommandExecutor(mock))
-	err := runner.MergePR(context.Background(), 999, "squash", false)
+	err := runner.MergePR(context.Background(), 999, "squash", false, false)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, atlaserrors.ErrPRNotFound)
 }
@@ -2187,7 +2204,7 @@ func TestCLIGitHubRunner_MergePR_AuthFailed(t *testing.T) {
 	}
 
 	runner := NewCLIGitHubRunner("/test/dir", WithGHCommandExecutor(mock))
-	err := runner.MergePR(context.Background(), 42, "squash", false)
+	err := runner.MergePR(context.Background(), 42, "squash", false, false)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, atlaserrors.ErrGHAuthFailed)
 }
@@ -2201,7 +2218,7 @@ func TestCLIGitHubRunner_MergePR_GenericError(t *testing.T) {
 	}
 
 	runner := NewCLIGitHubRunner("/test/dir", WithGHCommandExecutor(mock))
-	err := runner.MergePR(context.Background(), 42, "squash", false)
+	err := runner.MergePR(context.Background(), 42, "squash", false, false)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, atlaserrors.ErrPRMergeFailed)
 }
@@ -2212,7 +2229,7 @@ func TestCLIGitHubRunner_MergePR_ContextCanceled(t *testing.T) {
 
 	mock := &mockCommandExecutor{}
 	runner := NewCLIGitHubRunner("/test/dir", WithGHCommandExecutor(mock))
-	err := runner.MergePR(ctx, 42, "squash", false)
+	err := runner.MergePR(ctx, 42, "squash", false, false)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, context.Canceled)
 }

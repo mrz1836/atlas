@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -54,7 +55,7 @@ type mockHubRunner struct {
 	getPRStatusFunc  func(ctx context.Context, prNumber int) (*git.PRStatus, error)
 	watchPRFunc      func(ctx context.Context, opts git.CIWatchOptions) (*git.CIWatchResult, error)
 	convertDraftFunc func(ctx context.Context, prNumber int) error
-	mergePRFunc      func(ctx context.Context, prNumber int, mergeMethod string, adminBypass bool) error
+	mergePRFunc      func(ctx context.Context, prNumber int, mergeMethod string, adminBypass, deleteBranch bool) error
 	addPRReviewFunc  func(ctx context.Context, prNumber int, body, event string) error
 	addPRCommentFunc func(ctx context.Context, prNumber int, body string) error
 }
@@ -87,9 +88,9 @@ func (m *mockHubRunner) ConvertToDraft(ctx context.Context, prNumber int) error 
 	return nil
 }
 
-func (m *mockHubRunner) MergePR(ctx context.Context, prNumber int, mergeMethod string, adminBypass bool) error {
+func (m *mockHubRunner) MergePR(ctx context.Context, prNumber int, mergeMethod string, adminBypass, deleteBranch bool) error {
 	if m.mergePRFunc != nil {
-		return m.mergePRFunc(ctx, prNumber, mergeMethod, adminBypass)
+		return m.mergePRFunc(ctx, prNumber, mergeMethod, adminBypass, deleteBranch)
 	}
 	return nil
 }
@@ -913,4 +914,561 @@ func (m *mockRunner) RebaseAbort(_ context.Context) error {
 
 func (m *mockRunner) Reset(_ context.Context) error {
 	return nil
+}
+
+// Tests for new git operations: merge_pr, add_pr_review, add_pr_comment
+
+func TestGitExecutor_ExecuteMergePR_NoHubRunner(t *testing.T) {
+	ctx := context.Background()
+	executor := NewGitExecutor("/tmp/work") // No hub runner configured
+
+	task := &domain.Task{ID: "task-123", CurrentStep: 0}
+	step := &domain.StepDefinition{
+		Name: "merge",
+		Type: domain.StepTypeGit,
+		Config: map[string]any{
+			"operation": "merge_pr",
+			"pr_number": 42,
+		},
+	}
+
+	_, err := executor.Execute(ctx, task, step)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "hub runner not configured")
+}
+
+func TestGitExecutor_ExecuteMergePR_NoPRNumber(t *testing.T) {
+	ctx := context.Background()
+	executor := NewGitExecutor("/tmp/work",
+		WithHubRunner(&mockHubRunner{}),
+	)
+
+	task := &domain.Task{ID: "task-123", CurrentStep: 0}
+	step := &domain.StepDefinition{
+		Name: "merge",
+		Type: domain.StepTypeGit,
+		Config: map[string]any{
+			"operation": "merge_pr",
+			// No pr_number
+		},
+	}
+
+	result, err := executor.Execute(ctx, task, step)
+
+	require.NoError(t, err)
+	assert.Equal(t, "failed", result.Status)
+	assert.Contains(t, result.Output, "PR number not found")
+}
+
+func TestGitExecutor_ExecuteMergePR_Success(t *testing.T) {
+	ctx := context.Background()
+	saver := NewMockArtifactSaver()
+
+	hubRunner := &mockHubRunner{
+		mergePRFunc: func(_ context.Context, prNumber int, mergeMethod string, adminBypass, deleteBranch bool) error {
+			assert.Equal(t, 42, prNumber)
+			assert.Equal(t, "squash", mergeMethod)
+			assert.False(t, adminBypass)
+			assert.False(t, deleteBranch)
+			return nil
+		},
+	}
+
+	executor := NewGitExecutor("/tmp/work",
+		WithHubRunner(hubRunner),
+		WithGitArtifactHelper(NewArtifactHelper(saver, zerolog.Nop())),
+	)
+
+	task := &domain.Task{
+		ID:          "task-123",
+		WorkspaceID: "ws-1",
+		CurrentStep: 0,
+	}
+	step := &domain.StepDefinition{
+		Name: "merge",
+		Type: domain.StepTypeGit,
+		Config: map[string]any{
+			"operation": "merge_pr",
+			"pr_number": 42,
+		},
+	}
+
+	result, err := executor.Execute(ctx, task, step)
+
+	require.NoError(t, err)
+	assert.Equal(t, "success", result.Status)
+	assert.Contains(t, result.Output, "Merged PR #42")
+	assert.Contains(t, result.Output, "squash")
+
+	// Verify artifact was saved
+	saver.AssertSaved(t, "merge/merge-result.json")
+}
+
+func TestGitExecutor_ExecuteMergePR_WithOptions(t *testing.T) {
+	ctx := context.Background()
+
+	hubRunner := &mockHubRunner{
+		mergePRFunc: func(_ context.Context, prNumber int, mergeMethod string, adminBypass, deleteBranch bool) error {
+			assert.Equal(t, 99, prNumber)
+			assert.Equal(t, "rebase", mergeMethod)
+			assert.True(t, adminBypass)
+			assert.True(t, deleteBranch)
+			return nil
+		},
+	}
+
+	executor := NewGitExecutor("/tmp/work",
+		WithHubRunner(hubRunner),
+	)
+
+	task := &domain.Task{
+		ID:          "task-123",
+		CurrentStep: 0,
+	}
+	step := &domain.StepDefinition{
+		Name: "merge",
+		Type: domain.StepTypeGit,
+		Config: map[string]any{
+			"operation":     "merge_pr",
+			"pr_number":     99,
+			"merge_method":  "rebase",
+			"admin_bypass":  true,
+			"delete_branch": true,
+		},
+	}
+
+	result, err := executor.Execute(ctx, task, step)
+
+	require.NoError(t, err)
+	assert.Equal(t, "success", result.Status)
+	assert.Contains(t, result.Output, "rebase")
+}
+
+func TestGitExecutor_ExecuteMergePR_FromTaskMetadata(t *testing.T) {
+	ctx := context.Background()
+
+	hubRunner := &mockHubRunner{
+		mergePRFunc: func(_ context.Context, prNumber int, _ string, _, _ bool) error {
+			assert.Equal(t, 123, prNumber) // From task metadata
+			return nil
+		},
+	}
+
+	executor := NewGitExecutor("/tmp/work",
+		WithHubRunner(hubRunner),
+	)
+
+	task := &domain.Task{
+		ID:          "task-123",
+		CurrentStep: 0,
+		Metadata: map[string]any{
+			"pr_number": 123, // Set by create_pr step
+		},
+	}
+	step := &domain.StepDefinition{
+		Name: "merge",
+		Type: domain.StepTypeGit,
+		Config: map[string]any{
+			"operation": "merge_pr",
+			// No pr_number in config - should use metadata
+		},
+	}
+
+	result, err := executor.Execute(ctx, task, step)
+
+	require.NoError(t, err)
+	assert.Equal(t, "success", result.Status)
+}
+
+func TestGitExecutor_ExecuteMergePR_Error(t *testing.T) {
+	ctx := context.Background()
+
+	hubRunner := &mockHubRunner{
+		mergePRFunc: func(_ context.Context, _ int, _ string, _, _ bool) error {
+			return atlaserrors.ErrPRMergeFailed
+		},
+	}
+
+	executor := NewGitExecutor("/tmp/work",
+		WithHubRunner(hubRunner),
+	)
+
+	task := &domain.Task{
+		ID:          "task-123",
+		CurrentStep: 0,
+	}
+	step := &domain.StepDefinition{
+		Name: "merge",
+		Type: domain.StepTypeGit,
+		Config: map[string]any{
+			"operation": "merge_pr",
+			"pr_number": 42,
+		},
+	}
+
+	result, err := executor.Execute(ctx, task, step)
+
+	require.NoError(t, err)
+	assert.Equal(t, "failed", result.Status)
+	assert.Contains(t, result.Output, "Failed to merge PR #42")
+}
+
+func TestGitExecutor_ExecuteAddReview_NoHubRunner(t *testing.T) {
+	ctx := context.Background()
+	executor := NewGitExecutor("/tmp/work")
+
+	task := &domain.Task{ID: "task-123", CurrentStep: 0}
+	step := &domain.StepDefinition{
+		Name: "review",
+		Type: domain.StepTypeGit,
+		Config: map[string]any{
+			"operation": "add_pr_review",
+			"pr_number": 42,
+		},
+	}
+
+	_, err := executor.Execute(ctx, task, step)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "hub runner not configured")
+}
+
+func TestGitExecutor_ExecuteAddReview_NoPRNumber(t *testing.T) {
+	ctx := context.Background()
+	executor := NewGitExecutor("/tmp/work",
+		WithHubRunner(&mockHubRunner{}),
+	)
+
+	task := &domain.Task{ID: "task-123", CurrentStep: 0}
+	step := &domain.StepDefinition{
+		Name: "review",
+		Type: domain.StepTypeGit,
+		Config: map[string]any{
+			"operation": "add_pr_review",
+		},
+	}
+
+	result, err := executor.Execute(ctx, task, step)
+
+	require.NoError(t, err)
+	assert.Equal(t, "failed", result.Status)
+	assert.Contains(t, result.Output, "PR number not found")
+}
+
+func TestGitExecutor_ExecuteAddReview_Approve(t *testing.T) {
+	ctx := context.Background()
+	saver := NewMockArtifactSaver()
+
+	hubRunner := &mockHubRunner{
+		addPRReviewFunc: func(_ context.Context, prNumber int, body, event string) error {
+			assert.Equal(t, 42, prNumber)
+			assert.Equal(t, "LGTM!", body)
+			assert.Equal(t, "APPROVE", event)
+			return nil
+		},
+	}
+
+	executor := NewGitExecutor("/tmp/work",
+		WithHubRunner(hubRunner),
+		WithGitArtifactHelper(NewArtifactHelper(saver, zerolog.Nop())),
+	)
+
+	task := &domain.Task{
+		ID:          "task-123",
+		WorkspaceID: "ws-1",
+		CurrentStep: 0,
+	}
+	step := &domain.StepDefinition{
+		Name: "review",
+		Type: domain.StepTypeGit,
+		Config: map[string]any{
+			"operation": "add_pr_review",
+			"pr_number": 42,
+			"event":     "approve", // lowercase should work
+			"body":      "LGTM!",
+		},
+	}
+
+	result, err := executor.Execute(ctx, task, step)
+
+	require.NoError(t, err)
+	assert.Equal(t, "success", result.Status)
+	assert.Contains(t, result.Output, "Added APPROVE review to PR #42")
+
+	// Verify artifact was saved
+	saver.AssertSaved(t, "review/review-result.json")
+}
+
+func TestGitExecutor_ExecuteAddReview_RequestChanges(t *testing.T) {
+	ctx := context.Background()
+
+	hubRunner := &mockHubRunner{
+		addPRReviewFunc: func(_ context.Context, _ int, _, event string) error {
+			assert.Equal(t, "REQUEST_CHANGES", event)
+			return nil
+		},
+	}
+
+	executor := NewGitExecutor("/tmp/work",
+		WithHubRunner(hubRunner),
+	)
+
+	task := &domain.Task{
+		ID:          "task-123",
+		CurrentStep: 0,
+	}
+	step := &domain.StepDefinition{
+		Name: "review",
+		Type: domain.StepTypeGit,
+		Config: map[string]any{
+			"operation": "add_pr_review",
+			"pr_number": 42,
+			"event":     "REQUEST_CHANGES",
+			"body":      "Please fix the tests",
+		},
+	}
+
+	result, err := executor.Execute(ctx, task, step)
+
+	require.NoError(t, err)
+	assert.Equal(t, "success", result.Status)
+	assert.Contains(t, result.Output, "REQUEST_CHANGES")
+}
+
+func TestGitExecutor_ExecuteAddReview_Error(t *testing.T) {
+	ctx := context.Background()
+
+	hubRunner := &mockHubRunner{
+		addPRReviewFunc: func(_ context.Context, _ int, _, _ string) error {
+			return atlaserrors.ErrPRReviewNotAllowed
+		},
+	}
+
+	executor := NewGitExecutor("/tmp/work",
+		WithHubRunner(hubRunner),
+	)
+
+	task := &domain.Task{
+		ID:          "task-123",
+		CurrentStep: 0,
+	}
+	step := &domain.StepDefinition{
+		Name: "review",
+		Type: domain.StepTypeGit,
+		Config: map[string]any{
+			"operation": "add_pr_review",
+			"pr_number": 42,
+		},
+	}
+
+	result, err := executor.Execute(ctx, task, step)
+
+	require.NoError(t, err)
+	assert.Equal(t, "failed", result.Status)
+	assert.Contains(t, result.Output, "Failed to add review")
+}
+
+func TestGitExecutor_ExecuteAddComment_NoHubRunner(t *testing.T) {
+	ctx := context.Background()
+	executor := NewGitExecutor("/tmp/work")
+
+	task := &domain.Task{ID: "task-123", CurrentStep: 0}
+	step := &domain.StepDefinition{
+		Name: "comment",
+		Type: domain.StepTypeGit,
+		Config: map[string]any{
+			"operation": "add_pr_comment",
+			"pr_number": 42,
+			"body":      "CI passed",
+		},
+	}
+
+	_, err := executor.Execute(ctx, task, step)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "hub runner not configured")
+}
+
+func TestGitExecutor_ExecuteAddComment_NoPRNumber(t *testing.T) {
+	ctx := context.Background()
+	executor := NewGitExecutor("/tmp/work",
+		WithHubRunner(&mockHubRunner{}),
+	)
+
+	task := &domain.Task{ID: "task-123", CurrentStep: 0}
+	step := &domain.StepDefinition{
+		Name: "comment",
+		Type: domain.StepTypeGit,
+		Config: map[string]any{
+			"operation": "add_pr_comment",
+			"body":      "CI passed",
+		},
+	}
+
+	result, err := executor.Execute(ctx, task, step)
+
+	require.NoError(t, err)
+	assert.Equal(t, "failed", result.Status)
+	assert.Contains(t, result.Output, "PR number not found")
+}
+
+func TestGitExecutor_ExecuteAddComment_NoBody(t *testing.T) {
+	ctx := context.Background()
+	executor := NewGitExecutor("/tmp/work",
+		WithHubRunner(&mockHubRunner{}),
+	)
+
+	task := &domain.Task{ID: "task-123", CurrentStep: 0}
+	step := &domain.StepDefinition{
+		Name: "comment",
+		Type: domain.StepTypeGit,
+		Config: map[string]any{
+			"operation": "add_pr_comment",
+			"pr_number": 42,
+			// No body
+		},
+	}
+
+	result, err := executor.Execute(ctx, task, step)
+
+	require.NoError(t, err)
+	assert.Equal(t, "failed", result.Status)
+	assert.Contains(t, result.Output, "Comment body is required")
+}
+
+func TestGitExecutor_ExecuteAddComment_Success(t *testing.T) {
+	ctx := context.Background()
+	saver := NewMockArtifactSaver()
+
+	hubRunner := &mockHubRunner{
+		addPRCommentFunc: func(_ context.Context, prNumber int, body string) error {
+			assert.Equal(t, 42, prNumber)
+			assert.Equal(t, "CI passed, ready for review", body)
+			return nil
+		},
+	}
+
+	executor := NewGitExecutor("/tmp/work",
+		WithHubRunner(hubRunner),
+		WithGitArtifactHelper(NewArtifactHelper(saver, zerolog.Nop())),
+	)
+
+	task := &domain.Task{
+		ID:          "task-123",
+		WorkspaceID: "ws-1",
+		CurrentStep: 0,
+	}
+	step := &domain.StepDefinition{
+		Name: "comment",
+		Type: domain.StepTypeGit,
+		Config: map[string]any{
+			"operation": "add_pr_comment",
+			"pr_number": 42,
+			"body":      "CI passed, ready for review",
+		},
+	}
+
+	result, err := executor.Execute(ctx, task, step)
+
+	require.NoError(t, err)
+	assert.Equal(t, "success", result.Status)
+	assert.Contains(t, result.Output, "Added comment to PR #42")
+
+	// Verify artifact was saved
+	saver.AssertSaved(t, "comment/comment-result.json")
+}
+
+func TestGitExecutor_ExecuteAddComment_Error(t *testing.T) {
+	ctx := context.Background()
+
+	hubRunner := &mockHubRunner{
+		addPRCommentFunc: func(_ context.Context, _ int, _ string) error {
+			return atlaserrors.ErrGitHubOperation
+		},
+	}
+
+	executor := NewGitExecutor("/tmp/work",
+		WithHubRunner(hubRunner),
+	)
+
+	task := &domain.Task{
+		ID:          "task-123",
+		CurrentStep: 0,
+	}
+	step := &domain.StepDefinition{
+		Name: "comment",
+		Type: domain.StepTypeGit,
+		Config: map[string]any{
+			"operation": "add_pr_comment",
+			"pr_number": 42,
+			"body":      "Test comment",
+		},
+	}
+
+	result, err := executor.Execute(ctx, task, step)
+
+	require.NoError(t, err)
+	assert.Equal(t, "failed", result.Status)
+	assert.Contains(t, result.Output, "Failed to add comment")
+}
+
+func TestGitExecutor_GetPRNumber(t *testing.T) {
+	executor := NewGitExecutor("/tmp/work")
+
+	tests := []struct {
+		name     string
+		config   map[string]any
+		metadata map[string]any
+		expected int
+	}{
+		{
+			name:     "from config int",
+			config:   map[string]any{"pr_number": 42},
+			expected: 42,
+		},
+		{
+			name:     "from config float64",
+			config:   map[string]any{"pr_number": float64(99)},
+			expected: 99,
+		},
+		{
+			name:     "from metadata int",
+			config:   map[string]any{},
+			metadata: map[string]any{"pr_number": 123},
+			expected: 123,
+		},
+		{
+			name:     "from metadata float64",
+			config:   map[string]any{},
+			metadata: map[string]any{"pr_number": float64(456)},
+			expected: 456,
+		},
+		{
+			name:     "config takes precedence",
+			config:   map[string]any{"pr_number": 10},
+			metadata: map[string]any{"pr_number": 20},
+			expected: 10,
+		},
+		{
+			name:     "not found",
+			config:   map[string]any{},
+			metadata: nil,
+			expected: 0,
+		},
+		{
+			name:     "zero value ignored",
+			config:   map[string]any{"pr_number": 0},
+			metadata: map[string]any{"pr_number": 50},
+			expected: 50,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			task := &domain.Task{Metadata: tt.metadata}
+			result := executor.getPRNumber(tt.config, task)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
 }
