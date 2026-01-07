@@ -67,9 +67,14 @@ func GetLogger() zerolog.Logger {
 //
 // This function is safe for concurrent use.
 func GetLoggerWithTaskStore(store TaskLogAppender) zerolog.Logger {
+	// Read the global flags with lock protection
 	globalLoggerMu.RLock()
-	defer globalLoggerMu.RUnlock()
-	return InitLoggerWithTaskStore(globalLogFlags.verbose, globalLogFlags.quiet, store)
+	verbose := globalLogFlags.verbose
+	quiet := globalLogFlags.quiet
+	globalLoggerMu.RUnlock()
+
+	// Call InitLoggerWithTaskStore without holding the lock to avoid deadlock
+	return InitLoggerWithTaskStore(verbose, quiet, store)
 }
 
 // newRootCmd creates and returns the root command for the atlas CLI.

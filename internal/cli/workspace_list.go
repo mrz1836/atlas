@@ -89,7 +89,7 @@ func runWorkspaceList(ctx context.Context, cmd *cobra.Command, w io.Writer) erro
 	}
 
 	// Create manager (nil worktreeRunner OK for List operation)
-	mgr := workspace.NewManager(store, nil)
+	mgr := workspace.NewManager(store, nil, logger)
 
 	// Get all workspaces
 	workspaces, err := mgr.List(ctx)

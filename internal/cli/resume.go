@@ -82,7 +82,7 @@ func runResume(ctx context.Context, cmd *cobra.Command, w io.Writer, workspaceNa
 	out := tui.NewOutput(w, outputFormat)
 
 	// Setup workspace manager and get workspace
-	_, ws, err := setupWorkspace(ctx, workspaceName, "", outputFormat, w)
+	_, ws, err := setupWorkspace(ctx, workspaceName, "", outputFormat, w, logger)
 	if err != nil {
 		return err
 	}
@@ -252,6 +252,7 @@ func createResumeEngine(ctx context.Context, ws *domain.Workspace, taskStore *ta
 	smartCommitter := git.NewSmartCommitRunner(gitRunner, ws.WorktreePath, aiRunner,
 		git.WithAgent(commitAgent),
 		git.WithModel(commitModel),
+		git.WithLogger(logger),
 	)
 	pusher := git.NewPushRunner(gitRunner)
 	hubRunner := git.NewCLIGitHubRunner(ws.WorktreePath)

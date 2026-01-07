@@ -220,7 +220,7 @@ func TestHandleWorkspaceConflict_NoConflict(t *testing.T) {
 	tmpDir := t.TempDir()
 	store, err := workspace.NewFileStore(tmpDir)
 	require.NoError(t, err)
-	mgr := workspace.NewManager(store, nil)
+	mgr := workspace.NewManager(store, nil, zerolog.Nop())
 
 	var buf bytes.Buffer
 
@@ -251,7 +251,7 @@ func TestHandleWorkspaceConflict_ExistsNonInteractive(t *testing.T) {
 	}
 	require.NoError(t, store.Create(context.Background(), ws))
 
-	mgr := workspace.NewManager(store, nil)
+	mgr := workspace.NewManager(store, nil, zerolog.Nop())
 	var buf bytes.Buffer
 
 	// Non-interactive mode should fail
@@ -282,7 +282,7 @@ func TestHandleWorkspaceConflict_ExistsJSONOutput(t *testing.T) {
 	}
 	require.NoError(t, store.Create(context.Background(), ws))
 
-	mgr := workspace.NewManager(store, nil)
+	mgr := workspace.NewManager(store, nil, zerolog.Nop())
 	var buf bytes.Buffer
 
 	// JSON output mode should output JSON error
@@ -308,7 +308,7 @@ func TestHandleWorkspaceConflict_ContextCancellation(t *testing.T) {
 	tmpDir := t.TempDir()
 	store, err := workspace.NewFileStore(tmpDir)
 	require.NoError(t, err)
-	mgr := workspace.NewManager(store, nil)
+	mgr := workspace.NewManager(store, nil, zerolog.Nop())
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately

@@ -103,13 +103,15 @@ func runStatus(ctx context.Context, cmd *cobra.Command, w io.Writer, watchMode b
 	// Respect NO_COLOR
 	tui.CheckNoColor()
 
+	logger := GetLogger()
+
 	// Create production dependencies
 	wsStore, err := workspace.NewFileStore("")
 	if err != nil {
 		return fmt.Errorf("failed to create workspace store: %w", err)
 	}
 
-	wsMgr := workspace.NewManager(wsStore, nil)
+	wsMgr := workspace.NewManager(wsStore, nil, logger)
 
 	taskStore, err := task.NewFileStore("")
 	if err != nil {

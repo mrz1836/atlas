@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -26,7 +27,7 @@ func TestRunWorkspaceList_EmptyState(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create manager
-	mgr := workspace.NewManager(store, nil)
+	mgr := workspace.NewManager(store, nil, zerolog.Nop())
 
 	// Verify empty list
 	workspaces, err := mgr.List(context.Background())
@@ -56,7 +57,7 @@ func TestRunWorkspaceList_WithWorkspaces(t *testing.T) {
 	require.NoError(t, store.Create(context.Background(), ws))
 
 	// Create manager and list
-	mgr := workspace.NewManager(store, nil)
+	mgr := workspace.NewManager(store, nil, zerolog.Nop())
 	workspaces, err := mgr.List(context.Background())
 	require.NoError(t, err)
 	require.Len(t, workspaces, 1)
@@ -101,7 +102,7 @@ func TestRunWorkspaceList_MultipleWorkspaces(t *testing.T) {
 	}
 
 	// Create manager and list
-	mgr := workspace.NewManager(store, nil)
+	mgr := workspace.NewManager(store, nil, zerolog.Nop())
 	workspaces, err := mgr.List(context.Background())
 	require.NoError(t, err)
 	require.Len(t, workspaces, 3)

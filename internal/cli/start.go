@@ -385,13 +385,13 @@ func createWorkspace(ctx context.Context, sc *startContext, wsName, repoPath, br
 	}
 
 	// Create worktree runner
-	wtRunner, err := workspace.NewGitWorktreeRunner(ctx, repoPath)
+	wtRunner, err := workspace.NewGitWorktreeRunner(ctx, repoPath, logger)
 	if err != nil {
 		return nil, sc.handleError(wsName, fmt.Errorf("failed to create worktree runner: %w", err))
 	}
 
 	// Create manager
-	wsMgr := workspace.NewManager(wsStore, wtRunner)
+	wsMgr := workspace.NewManager(wsStore, wtRunner, logger)
 
 	// Check if workspace already exists (upsert behavior)
 	existingWs, err := wsMgr.Get(ctx, wsName)
@@ -530,6 +530,7 @@ func createGitServices(ctx context.Context, worktreePath string, cfg *config.Con
 	smartCommitter := git.NewSmartCommitRunner(gitRunner, worktreePath, aiRunner,
 		git.WithAgent(commitAgent),
 		git.WithModel(commitModel),
+		git.WithLogger(logger),
 	)
 	pusher := git.NewPushRunner(gitRunner)
 	hubRunner := git.NewCLIGitHubRunner(worktreePath)
@@ -947,12 +948,12 @@ func cleanupWorkspace(ctx context.Context, wsName, repoPath string) error {
 		return fmt.Errorf("failed to create workspace store: %w", err)
 	}
 
-	wtRunner, err := workspace.NewGitWorktreeRunner(ctx, repoPath)
+	wtRunner, err := workspace.NewGitWorktreeRunner(ctx, repoPath, logger)
 	if err != nil {
 		return fmt.Errorf("failed to create worktree runner: %w", err)
 	}
 
-	mgr := workspace.NewManager(wsStore, wtRunner)
+	mgr := workspace.NewManager(wsStore, wtRunner, logger)
 	return mgr.Destroy(ctx, wsName)
 }
 

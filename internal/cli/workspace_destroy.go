@@ -193,7 +193,7 @@ func executeDestroy(ctx context.Context, store *workspace.FileStore, name, outpu
 	// Create worktree runner (may be nil if no repo path)
 	var wtRunner workspace.WorktreeRunner
 	if repoPath != "" {
-		wtRunner, err = workspace.NewGitWorktreeRunner(ctx, repoPath)
+		wtRunner, err = workspace.NewGitWorktreeRunner(ctx, repoPath, logger)
 		if err != nil {
 			// Log but continue - destroy should still clean up state
 			logger.Warn().Err(err).Msg("could not create worktree runner, worktree cleanup will be limited")
@@ -202,7 +202,7 @@ func executeDestroy(ctx context.Context, store *workspace.FileStore, name, outpu
 	}
 
 	// Create manager and destroy
-	mgr := workspace.NewManager(store, wtRunner)
+	mgr := workspace.NewManager(store, wtRunner, logger)
 
 	if destroyErr := mgr.Destroy(ctx, name); destroyErr != nil {
 		// This should never happen per NFR18, but handle just in case

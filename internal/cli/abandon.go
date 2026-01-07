@@ -83,7 +83,7 @@ func runAbandonWithOutput(ctx context.Context, w io.Writer, workspaceName string
 	tui.CheckNoColor()
 
 	// Set up workspace and task stores
-	wsMgr, ws, err := setupWorkspace(ctx, workspaceName, storeBaseDir, outputFormat, w)
+	wsMgr, ws, err := setupWorkspace(ctx, workspaceName, storeBaseDir, outputFormat, w, logger)
 	if err != nil {
 		return err
 	}
@@ -109,7 +109,7 @@ func runAbandonWithOutput(ctx context.Context, w io.Writer, workspaceName string
 }
 
 // setupWorkspace creates workspace manager and retrieves workspace.
-func setupWorkspace(ctx context.Context, workspaceName, storeBaseDir, outputFormat string, w io.Writer) (workspace.Manager, *domain.Workspace, error) {
+func setupWorkspace(ctx context.Context, workspaceName, storeBaseDir, outputFormat string, w io.Writer, logger zerolog.Logger) (workspace.Manager, *domain.Workspace, error) {
 	wsStore, err := workspace.NewFileStore(storeBaseDir)
 	if err != nil {
 		return nil, nil, handleAbandonError(outputFormat, w, workspaceName, "", fmt.Errorf("failed to create workspace store: %w", err))
@@ -120,12 +120,12 @@ func setupWorkspace(ctx context.Context, workspaceName, storeBaseDir, outputForm
 		return nil, nil, handleAbandonError(outputFormat, w, workspaceName, "", fmt.Errorf("not in a git repository: %w", err))
 	}
 
-	wtRunner, err := workspace.NewGitWorktreeRunner(ctx, repoPath)
+	wtRunner, err := workspace.NewGitWorktreeRunner(ctx, repoPath, logger)
 	if err != nil {
 		return nil, nil, handleAbandonError(outputFormat, w, workspaceName, "", fmt.Errorf("failed to create worktree runner: %w", err))
 	}
 
-	wsMgr := workspace.NewManager(wsStore, wtRunner)
+	wsMgr := workspace.NewManager(wsStore, wtRunner, logger)
 	ws, err := wsMgr.Get(ctx, workspaceName)
 	if err != nil {
 		return nil, nil, handleAbandonError(outputFormat, w, workspaceName, "", fmt.Errorf("failed to get workspace: %w", err))

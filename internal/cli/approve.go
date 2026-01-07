@@ -1083,7 +1083,7 @@ func closeWorkspace(ctx context.Context, workspaceName string) (warning string, 
 	// Create worktree runner (may be nil if no repo path)
 	var wtRunner workspace.WorktreeRunner
 	if repoPath != "" {
-		wtRunner, err = workspace.NewGitWorktreeRunner(ctx, repoPath)
+		wtRunner, err = workspace.NewGitWorktreeRunner(ctx, repoPath, GetLogger())
 		if err != nil {
 			// Continue without worktree runner - close should still update state
 			wtRunner = nil
@@ -1091,7 +1091,7 @@ func closeWorkspace(ctx context.Context, workspaceName string) (warning string, 
 	}
 
 	// Create manager and close
-	mgr := workspace.NewManager(wsStore, wtRunner)
+	mgr := workspace.NewManager(wsStore, wtRunner, GetLogger())
 	result, closeErr := mgr.Close(ctx, ws.Name)
 	if closeErr != nil {
 		return "", fmt.Errorf("failed to close workspace: %w", closeErr)
