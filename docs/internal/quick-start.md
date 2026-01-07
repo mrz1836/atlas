@@ -726,7 +726,7 @@ View workspace task execution logs.
 # View all logs
 atlas workspace logs my-workspace
 
-# Stream new logs (follow mode)
+# Stream logs (follow mode)
 atlas workspace logs my-workspace --follow
 
 # Filter by step name
@@ -746,7 +746,7 @@ atlas workspace logs my-workspace --follow --step validate --tail 100
 
 | Flag | Short | Description |
 |------|-------|-------------|
-| `--follow` | `-f` | Stream new logs as they appear |
+| `--follow` | `-f` | Stream logs as they appear |
 | `--step` | | Filter by step name |
 | `--task` | | Filter by task ID |
 | `--tail` | `-n` | Show last N lines |
@@ -870,11 +870,50 @@ steps:
 |------|---------|
 | `ai` | AI-powered code generation/modification |
 | `validation` | Format, lint, and test execution |
-| `git` | Git operations (commit, push, PR creation) |
+| `git` | Git operations (commit, push, PR, merge, review, comment) |
 | `human` | Human approval/intervention |
 | `sdd` | Speckit spec-driven development |
 | `ci` | CI pipeline monitoring |
 | `verify` | AI cross-model verification |
+
+**Git Step Operations:**
+
+The `git` step type supports the following operations via the `operation` config key:
+
+| Operation | Description | Config Options |
+|-----------|-------------|----------------|
+| `commit` | Create a smart commit | — |
+| `push` | Push to remote | — |
+| `create_pr` | Create a pull request | `base_branch`, `branch` |
+| `merge_pr` | Merge a pull request | `pr_number`, `merge_method` (squash/merge/rebase), `admin_bypass`, `delete_branch` |
+| `add_pr_review` | Add a PR review | `pr_number`, `event` (APPROVE/REQUEST_CHANGES/COMMENT), `body` |
+| `add_pr_comment` | Add a PR comment | `pr_number`, `body` |
+
+**Note:** For `merge_pr`, `add_pr_review`, and `add_pr_comment`, the `pr_number` can be omitted if a previous `create_pr` step stored it in task metadata.
+
+**Example using some git operations:**
+
+```yaml
+steps:
+  - name: git_pr
+    type: git
+    config:
+      operation: create_pr
+
+  - name: approve_pr
+    type: git
+    config:
+      operation: add_pr_review
+      event: APPROVE
+      body: "LGTM! Automated approval by ATLAS."
+
+  - name: merge_pr
+    type: git
+    config:
+      operation: merge_pr
+      merge_method: squash
+      delete_branch: true  # Optional: delete source branch after merge
+```
 
 **Template Variables:**
 

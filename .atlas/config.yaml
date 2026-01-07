@@ -48,6 +48,25 @@ git:
   # Default: "origin"
   remote: origin
 
+  # PR operation defaults (used by git steps in templates, can be overridden per-step)
+  pr:
+    # Default merge method for PRs: "squash", "merge", or "rebase"
+    # Default: "squash"
+    merge_method: squash
+
+    # Delete the source branch after merging
+    # Default: false (keep branch for reference)
+    delete_branch: false
+
+    # Use admin bypass when branch protection blocks merge
+    # WARNING: This bypasses required status checks - use with caution
+    # Default: false
+    admin_bypass: false
+
+    # Default review event type for add_pr_review: "APPROVE", "REQUEST_CHANGES", or "COMMENT"
+    # Default: "APPROVE"
+    review_event: APPROVE
+
 worktree:
   # Base directory where worktrees are created; empty = default location
   # Default: ""
