@@ -26,7 +26,7 @@ type mockValidationRetryHandler struct {
 	isEnabled       bool
 	maxAttempts     int
 	canRetryFunc    func(int) bool
-	retryWithAIFunc func(context.Context, *validation.PipelineResult, string, int, *validation.RunnerConfig) (*validation.RetryResult, error)
+	retryWithAIFunc func(context.Context, *validation.PipelineResult, string, int, *validation.RunnerConfig, domain.Agent, string) (*validation.RetryResult, error)
 }
 
 func (m *mockValidationRetryHandler) IsEnabled() bool {
@@ -47,9 +47,9 @@ func (m *mockValidationRetryHandler) CanRetry(attempt int) bool {
 	return attempt <= m.MaxAttempts()
 }
 
-func (m *mockValidationRetryHandler) RetryWithAI(ctx context.Context, pr *validation.PipelineResult, workDir string, attempt int, cfg *validation.RunnerConfig) (*validation.RetryResult, error) {
+func (m *mockValidationRetryHandler) RetryWithAI(ctx context.Context, pr *validation.PipelineResult, workDir string, attempt int, cfg *validation.RunnerConfig, agent domain.Agent, model string) (*validation.RetryResult, error) {
 	if m.retryWithAIFunc != nil {
-		return m.retryWithAIFunc(ctx, pr, workDir, attempt, cfg)
+		return m.retryWithAIFunc(ctx, pr, workDir, attempt, cfg, agent, model)
 	}
 	return nil, errNotImplemented
 }
@@ -322,7 +322,7 @@ func TestAttemptValidationRetry_SuccessFirstAttempt(t *testing.T) {
 	engine.validationRetryHandler = &mockValidationRetryHandler{
 		isEnabled:   true,
 		maxAttempts: 3,
-		retryWithAIFunc: func(_ context.Context, _ *validation.PipelineResult, _ string, _ int, _ *validation.RunnerConfig) (*validation.RetryResult, error) {
+		retryWithAIFunc: func(_ context.Context, _ *validation.PipelineResult, _ string, _ int, _ *validation.RunnerConfig, _ domain.Agent, _ string) (*validation.RetryResult, error) {
 			return successResult, nil
 		},
 	}
@@ -368,7 +368,7 @@ func TestAttemptValidationRetry_SuccessNthAttempt(t *testing.T) {
 	engine.validationRetryHandler = &mockValidationRetryHandler{
 		isEnabled:   true,
 		maxAttempts: 3,
-		retryWithAIFunc: func(_ context.Context, _ *validation.PipelineResult, _ string, attempt int, _ *validation.RunnerConfig) (*validation.RetryResult, error) {
+		retryWithAIFunc: func(_ context.Context, _ *validation.PipelineResult, _ string, attempt int, _ *validation.RunnerConfig, _ domain.Agent, _ string) (*validation.RetryResult, error) {
 			attemptCount++
 			if attemptCount < 3 {
 				// Fail first 2 attempts
@@ -432,7 +432,7 @@ func TestAttemptValidationRetry_AttemptsExhausted(t *testing.T) {
 	engine.validationRetryHandler = &mockValidationRetryHandler{
 		isEnabled:   true,
 		maxAttempts: 3,
-		retryWithAIFunc: func(_ context.Context, _ *validation.PipelineResult, _ string, attempt int, _ *validation.RunnerConfig) (*validation.RetryResult, error) {
+		retryWithAIFunc: func(_ context.Context, _ *validation.PipelineResult, _ string, attempt int, _ *validation.RunnerConfig, _ domain.Agent, _ string) (*validation.RetryResult, error) {
 			attemptCount++
 			return &validation.RetryResult{
 				Success:       false,
@@ -796,7 +796,7 @@ func TestAttemptValidationRetry_CanRetryFalse(t *testing.T) {
 			// Stop after 2 attempts
 			return attempt <= 2
 		},
-		retryWithAIFunc: func(_ context.Context, _ *validation.PipelineResult, _ string, attempt int, _ *validation.RunnerConfig) (*validation.RetryResult, error) {
+		retryWithAIFunc: func(_ context.Context, _ *validation.PipelineResult, _ string, attempt int, _ *validation.RunnerConfig, _ domain.Agent, _ string) (*validation.RetryResult, error) {
 			attemptCount++
 			return &validation.RetryResult{
 				Success:       false,
@@ -839,4 +839,242 @@ func TestBuildValidationRunnerConfig(t *testing.T) {
 
 	// Current implementation returns nil (uses defaults)
 	assert.Nil(t, cfg)
+}
+
+// TestConvertRetryResultToStepResult_IncludesValidationChecks tests that validation_checks is included in metadata
+func TestConvertRetryResultToStepResult_IncludesValidationChecks(t *testing.T) {
+	t.Parallel()
+
+	store := newMockStore()
+	engine := NewEngine(store, nil, DefaultEngineConfig(), zerolog.Nop())
+
+	task := &domain.Task{
+		ID:          "test-task-1",
+		CurrentStep: 2,
+	}
+
+	step := &domain.StepDefinition{
+		Name: "validate",
+		Type: domain.StepTypeValidation,
+	}
+
+	retryResult := &validation.RetryResult{
+		Success:       true,
+		AttemptNumber: 1,
+		PipelineResult: &validation.PipelineResult{
+			DurationMs: 1000,
+			FormatResults: []validation.Result{
+				{Success: true, Command: "format"},
+			},
+			LintResults: []validation.Result{
+				{Success: true, Command: "lint"},
+			},
+			TestResults: []validation.Result{
+				{Success: true, Command: "test"},
+			},
+			PreCommitResults: []validation.Result{
+				{Success: true, Command: "pre-commit"},
+			},
+		},
+		AIResult: &domain.AIResult{
+			FilesChanged: []string{"file.go"},
+		},
+	}
+
+	stepResult := engine.convertRetryResultToStepResult(task, step, retryResult)
+
+	require.NotNil(t, stepResult)
+	require.NotNil(t, stepResult.Metadata)
+
+	// Verify validation_checks is present
+	checksRaw, ok := stepResult.Metadata["validation_checks"]
+	require.True(t, ok, "validation_checks should be present in metadata")
+
+	checks, ok := checksRaw.([]map[string]any)
+	require.True(t, ok, "validation_checks should be []map[string]any")
+	require.Len(t, checks, 4, "should have 4 checks: Format, Lint, Test, Pre-commit")
+
+	// Verify each check
+	assert.Equal(t, "Format", checks[0]["name"])
+	assert.True(t, checks[0]["passed"].(bool))
+
+	assert.Equal(t, "Lint", checks[1]["name"])
+	assert.True(t, checks[1]["passed"].(bool))
+
+	assert.Equal(t, "Test", checks[2]["name"])
+	assert.True(t, checks[2]["passed"].(bool))
+
+	assert.Equal(t, "Pre-commit", checks[3]["name"])
+	assert.True(t, checks[3]["passed"].(bool))
+	assert.False(t, checks[3]["skipped"].(bool))
+}
+
+// TestBuildValidationChecksFromPipelineResult_AllPassed tests all checks passing
+func TestBuildValidationChecksFromPipelineResult_AllPassed(t *testing.T) {
+	t.Parallel()
+
+	result := &validation.PipelineResult{
+		FormatResults:    []validation.Result{{Success: true}},
+		LintResults:      []validation.Result{{Success: true}},
+		TestResults:      []validation.Result{{Success: true}},
+		PreCommitResults: []validation.Result{{Success: true}},
+	}
+
+	checks := buildValidationChecksFromPipelineResult(result)
+
+	require.Len(t, checks, 4)
+	assert.True(t, checks[0]["passed"].(bool), "Format should pass")
+	assert.True(t, checks[1]["passed"].(bool), "Lint should pass")
+	assert.True(t, checks[2]["passed"].(bool), "Test should pass")
+	assert.True(t, checks[3]["passed"].(bool), "Pre-commit should pass")
+}
+
+// TestBuildValidationChecksFromPipelineResult_SomeFailed tests some checks failing
+func TestBuildValidationChecksFromPipelineResult_SomeFailed(t *testing.T) {
+	t.Parallel()
+
+	result := &validation.PipelineResult{
+		FormatResults:    []validation.Result{{Success: true}},
+		LintResults:      []validation.Result{{Success: false}}, // Failed
+		TestResults:      []validation.Result{{Success: true}},
+		PreCommitResults: []validation.Result{{Success: false}}, // Failed
+	}
+
+	checks := buildValidationChecksFromPipelineResult(result)
+
+	require.Len(t, checks, 4)
+	assert.True(t, checks[0]["passed"].(bool), "Format should pass")
+	assert.False(t, checks[1]["passed"].(bool), "Lint should fail")
+	assert.True(t, checks[2]["passed"].(bool), "Test should pass")
+	assert.False(t, checks[3]["passed"].(bool), "Pre-commit should fail")
+}
+
+// TestBuildValidationChecksFromPipelineResult_EmptyResults tests empty results pass
+func TestBuildValidationChecksFromPipelineResult_EmptyResults(t *testing.T) {
+	t.Parallel()
+
+	result := &validation.PipelineResult{
+		FormatResults:    []validation.Result{},
+		LintResults:      []validation.Result{},
+		TestResults:      []validation.Result{},
+		PreCommitResults: []validation.Result{},
+	}
+
+	checks := buildValidationChecksFromPipelineResult(result)
+
+	require.Len(t, checks, 4)
+	// Empty results mean no failures, so all pass
+	assert.True(t, checks[0]["passed"].(bool))
+	assert.True(t, checks[1]["passed"].(bool))
+	assert.True(t, checks[2]["passed"].(bool))
+	assert.True(t, checks[3]["passed"].(bool))
+}
+
+// TestBuildValidationChecksFromPipelineResult_PreCommitSkipped tests pre-commit skipped
+func TestBuildValidationChecksFromPipelineResult_PreCommitSkipped(t *testing.T) {
+	t.Parallel()
+
+	result := &validation.PipelineResult{
+		FormatResults: []validation.Result{{Success: true}},
+		LintResults:   []validation.Result{{Success: true}},
+		TestResults:   []validation.Result{{Success: true}},
+		SkippedSteps:  []string{"pre-commit"},
+	}
+
+	checks := buildValidationChecksFromPipelineResult(result)
+
+	require.Len(t, checks, 4)
+	assert.True(t, checks[0]["passed"].(bool))
+	assert.True(t, checks[1]["passed"].(bool))
+	assert.True(t, checks[2]["passed"].(bool))
+
+	// Pre-commit should be marked as skipped
+	assert.Equal(t, "Pre-commit", checks[3]["name"])
+	assert.True(t, checks[3]["passed"].(bool))
+	assert.True(t, checks[3]["skipped"].(bool))
+}
+
+// TestBuildValidationChecksFromPipelineResult_NilResult tests nil result
+func TestBuildValidationChecksFromPipelineResult_NilResult(t *testing.T) {
+	t.Parallel()
+
+	checks := buildValidationChecksFromPipelineResult(nil)
+
+	assert.Nil(t, checks)
+}
+
+// TestBuildValidationChecksFromPipelineResult_MultipleResults tests multiple results per phase
+func TestBuildValidationChecksFromPipelineResult_MultipleResults(t *testing.T) {
+	t.Parallel()
+
+	result := &validation.PipelineResult{
+		FormatResults: []validation.Result{
+			{Success: true},
+			{Success: true},
+		},
+		LintResults: []validation.Result{
+			{Success: true},
+			{Success: false}, // One fails = overall fails
+		},
+		TestResults: []validation.Result{
+			{Success: true},
+		},
+		PreCommitResults: []validation.Result{
+			{Success: true},
+		},
+	}
+
+	checks := buildValidationChecksFromPipelineResult(result)
+
+	require.Len(t, checks, 4)
+	assert.True(t, checks[0]["passed"].(bool), "Format with all success should pass")
+	assert.False(t, checks[1]["passed"].(bool), "Lint with any failure should fail")
+	assert.True(t, checks[2]["passed"].(bool))
+	assert.True(t, checks[3]["passed"].(bool))
+}
+
+// TestHasFailedValidationResult_NoFailures tests no failures
+func TestHasFailedValidationResult_NoFailures(t *testing.T) {
+	t.Parallel()
+
+	results := []validation.Result{
+		{Success: true},
+		{Success: true},
+	}
+
+	assert.False(t, hasFailedValidationResult(results))
+}
+
+// TestHasFailedValidationResult_HasFailure tests has failure
+func TestHasFailedValidationResult_HasFailure(t *testing.T) {
+	t.Parallel()
+
+	results := []validation.Result{
+		{Success: true},
+		{Success: false},
+		{Success: true},
+	}
+
+	assert.True(t, hasFailedValidationResult(results))
+}
+
+// TestHasFailedValidationResult_EmptySlice tests empty slice
+func TestHasFailedValidationResult_EmptySlice(t *testing.T) {
+	t.Parallel()
+
+	results := []validation.Result{}
+
+	assert.False(t, hasFailedValidationResult(results))
+}
+
+// TestHasFailedValidationResult_AllFailed tests all failed
+func TestHasFailedValidationResult_AllFailed(t *testing.T) {
+	t.Parallel()
+
+	results := []validation.Result{
+		{Success: false},
+		{Success: false},
+	}
+
+	assert.True(t, hasFailedValidationResult(results))
 }

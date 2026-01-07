@@ -4,6 +4,7 @@ package task
 import (
 	"context"
 
+	"github.com/mrz1836/atlas/internal/domain"
 	"github.com/mrz1836/atlas/internal/validation"
 )
 
@@ -20,6 +21,8 @@ type ValidationRetryHandler interface {
 	//   - workDir: Working directory for AI execution
 	//   - attemptNum: Current attempt number (1-indexed)
 	//   - runnerConfig: Configuration for the validation runner (may be nil for defaults)
+	//   - agent: The AI agent to use (claude, gemini, codex)
+	//   - model: The specific model to use
 	//
 	// Returns:
 	//   - RetryResult: Contains the retry outcome including new validation results
@@ -30,6 +33,8 @@ type ValidationRetryHandler interface {
 		workDir string,
 		attemptNum int,
 		runnerConfig *validation.RunnerConfig,
+		agent domain.Agent,
+		model string,
 	) (*validation.RetryResult, error)
 
 	// CanRetry checks if another retry attempt is allowed.

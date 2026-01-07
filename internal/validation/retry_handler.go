@@ -86,6 +86,8 @@ type RetryResult struct {
 //   - workDir: Working directory for AI execution
 //   - attemptNum: Current attempt number (1-indexed)
 //   - runnerConfig: Configuration for the validation runner (may be nil for defaults)
+//   - agent: The AI agent to use (claude, gemini, codex)
+//   - model: The specific model to use
 //
 // Returns:
 //   - RetryResult: Contains the retry outcome including new validation results
@@ -99,6 +101,8 @@ func (h *RetryHandler) RetryWithAI(
 	workDir string,
 	attemptNum int,
 	runnerConfig *RunnerConfig,
+	agent domain.Agent,
+	model string,
 ) (*RetryResult, error) {
 	// Check if retry is enabled
 	if !h.config.Enabled {
@@ -137,6 +141,8 @@ func (h *RetryHandler) RetryWithAI(
 	}
 
 	h.logger.Info().
+		Str("agent", string(agent)).
+		Str("model", model).
 		Int("attempt", attemptNum).
 		Int("max_attempts", h.config.MaxAttempts).
 		Str("failed_step", result.FailedStepName).
@@ -155,6 +161,8 @@ func (h *RetryHandler) RetryWithAI(
 
 	// Invoke AI to fix the issues
 	aiReq := &domain.AIRequest{
+		Agent:      agent,
+		Model:      model,
 		Prompt:     prompt,
 		WorkingDir: workDir,
 	}
@@ -165,11 +173,17 @@ func (h *RetryHandler) RetryWithAI(
 
 	aiResult, err := h.aiRunner.Run(ctx, aiReq)
 	if err != nil {
-		h.logger.Error().Err(err).Msg("AI fix invocation failed")
+		h.logger.Error().
+			Err(err).
+			Str("agent", string(agent)).
+			Str("model", model).
+			Msg("AI fix invocation failed")
 		return nil, fmt.Errorf("AI fix failed: %w", err)
 	}
 
 	h.logger.Info().
+		Str("agent", string(agent)).
+		Str("model", model).
 		Bool("ai_success", aiResult.Success).
 		Int("files_changed", len(aiResult.FilesChanged)).
 		Msg("AI fix completed, re-running validation")
@@ -193,6 +207,8 @@ func (h *RetryHandler) RetryWithAI(
 
 	if runErr != nil {
 		h.logger.Warn().
+			Str("agent", string(agent)).
+			Str("model", model).
 			Int("attempt", attemptNum).
 			Str("failed_step", newResult.FailedStepName).
 			Msg("validation still fails after AI fix")
@@ -203,6 +219,8 @@ func (h *RetryHandler) RetryWithAI(
 	}
 
 	h.logger.Info().
+		Str("agent", string(agent)).
+		Str("model", model).
 		Int("attempt", attemptNum).
 		Int64("duration_ms", newResult.DurationMs).
 		Msg("validation passed after AI fix")

@@ -127,7 +127,7 @@ func TestRetryHandler_RetryWithAI_InvokesAIAndRerunsValidation(t *testing.T) {
 		},
 	}
 
-	result, err := handler.RetryWithAI(context.Background(), failedResult, "/tmp", 1, nil)
+	result, err := handler.RetryWithAI(context.Background(), failedResult, "/tmp", 1, nil, domain.AgentClaude, "sonnet")
 
 	require.NoError(t, err)
 	require.NotNil(t, result)
@@ -146,7 +146,7 @@ func TestRetryHandler_RetryWithAI_RespectsMaxAttempts(t *testing.T) {
 	handler := NewRetryHandler(nil, nil, RetryConfig{MaxAttempts: 3, Enabled: true}, zerolog.Nop())
 
 	// Attempt 4 should fail
-	_, err := handler.RetryWithAI(context.Background(), &PipelineResult{}, "/tmp", 4, nil)
+	_, err := handler.RetryWithAI(context.Background(), &PipelineResult{}, "/tmp", 4, nil, domain.AgentClaude, "sonnet")
 
 	require.Error(t, err)
 	require.ErrorIs(t, err, atlaserrors.ErrMaxRetriesExceeded)
@@ -156,7 +156,7 @@ func TestRetryHandler_RetryWithAI_RespectsMaxAttempts(t *testing.T) {
 func TestRetryHandler_RetryWithAI_DisabledRetry(t *testing.T) {
 	handler := NewRetryHandler(nil, nil, RetryConfig{MaxAttempts: 3, Enabled: false}, zerolog.Nop())
 
-	_, err := handler.RetryWithAI(context.Background(), &PipelineResult{}, "/tmp", 1, nil)
+	_, err := handler.RetryWithAI(context.Background(), &PipelineResult{}, "/tmp", 1, nil, domain.AgentClaude, "sonnet")
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, atlaserrors.ErrRetryDisabled)
@@ -171,7 +171,7 @@ func TestRetryHandler_RetryWithAI_AIFailure(t *testing.T) {
 
 	handler := NewRetryHandler(mockAI, nil, DefaultRetryConfig(), zerolog.Nop())
 
-	_, err := handler.RetryWithAI(context.Background(), &PipelineResult{}, "/tmp", 1, nil)
+	_, err := handler.RetryWithAI(context.Background(), &PipelineResult{}, "/tmp", 1, nil, domain.AgentClaude, "sonnet")
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "AI fix failed")
@@ -197,7 +197,7 @@ func TestRetryHandler_RetryWithAI_ValidationStillFails(t *testing.T) {
 		FailedStepName: "lint",
 	}
 
-	result, err := handler.RetryWithAI(context.Background(), failedResult, "/tmp", 1, nil)
+	result, err := handler.RetryWithAI(context.Background(), failedResult, "/tmp", 1, nil, domain.AgentClaude, "sonnet")
 
 	require.Error(t, err)
 	require.ErrorIs(t, err, atlaserrors.ErrValidationFailed)
@@ -212,7 +212,7 @@ func TestRetryHandler_RetryWithAI_ContextCancellation(t *testing.T) {
 
 	handler := NewRetryHandler(nil, nil, DefaultRetryConfig(), zerolog.Nop())
 
-	_, err := handler.RetryWithAI(ctx, &PipelineResult{}, "/tmp", 1, nil)
+	_, err := handler.RetryWithAI(ctx, &PipelineResult{}, "/tmp", 1, nil, domain.AgentClaude, "sonnet")
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, context.Canceled)
@@ -235,7 +235,7 @@ func TestRetryHandler_RetryWithAI_PassesWorkDir(t *testing.T) {
 
 	handler := NewRetryHandler(mockAI, executor, DefaultRetryConfig(), zerolog.Nop())
 
-	_, err := handler.RetryWithAI(context.Background(), &PipelineResult{}, workDir, 1, nil)
+	_, err := handler.RetryWithAI(context.Background(), &PipelineResult{}, workDir, 1, nil, domain.AgentClaude, "sonnet")
 
 	require.NoError(t, err)
 	assert.Equal(t, workDir, capturedWorkDir)
@@ -285,7 +285,7 @@ func TestRetryHandler_LogsAttemptNumber(t *testing.T) {
 
 	_, err := handler.RetryWithAI(context.Background(), &PipelineResult{
 		FailedStepName: "test",
-	}, "/tmp", 2, nil)
+	}, "/tmp", 2, nil, domain.AgentClaude, "sonnet")
 
 	require.NoError(t, err)
 }
@@ -310,7 +310,7 @@ func TestRetryHandler_UsesRunnerConfig(t *testing.T) {
 		LintCommands:   []string{"custom-lint"},
 	}
 
-	_, err := handler.RetryWithAI(context.Background(), &PipelineResult{}, "/tmp", 1, runnerConfig)
+	_, err := handler.RetryWithAI(context.Background(), &PipelineResult{}, "/tmp", 1, runnerConfig, domain.AgentClaude, "sonnet")
 
 	require.NoError(t, err)
 	// Verify commands were run (at least one command should have executed)
