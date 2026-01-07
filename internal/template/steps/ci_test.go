@@ -48,7 +48,7 @@ func (m *ciMockHubRunner) ConvertToDraft(_ context.Context, _ int) error {
 	return nil
 }
 
-func (m *ciMockHubRunner) MergePR(_ context.Context, _ int, _ string, _ bool) error {
+func (m *ciMockHubRunner) MergePR(_ context.Context, _ int, _ string, _, _ bool) error {
 	return nil
 }
 

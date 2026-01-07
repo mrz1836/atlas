@@ -40,7 +40,7 @@ func (m *mockHubRunner) ConvertToDraft(_ context.Context, prNumber int) error {
 	return m.convertToDraftErr
 }
 
-func (m *mockHubRunner) MergePR(_ context.Context, _ int, _ string, _ bool) error {
+func (m *mockHubRunner) MergePR(_ context.Context, _ int, _ string, _, _ bool) error {
 	return nil
 }
 
