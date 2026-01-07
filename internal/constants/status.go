@@ -8,13 +8,14 @@ type TaskStatus string
 // These follow the state machine defined in the architecture:
 //
 //	Pending → Running
-//	Running → Validating, GHFailed, CIFailed, CITimeout
-//	Validating → AwaitingApproval, ValidationFailed
+//	Running → Validating, GHFailed, CIFailed, CITimeout, Interrupted, Abandoned
+//	Validating → AwaitingApproval, ValidationFailed, Interrupted
 //	ValidationFailed → Running, Abandoned
 //	AwaitingApproval → Completed, Running, Rejected
 //	GHFailed → Running, Abandoned
 //	CIFailed → Running, Abandoned
 //	CITimeout → Running, Abandoned
+//	Interrupted → Running, Abandoned
 const (
 	// TaskStatusPending indicates a task is queued but not yet started.
 	TaskStatusPending TaskStatus = "pending"
@@ -53,6 +54,11 @@ const (
 	// TaskStatusCITimeout indicates CI pipeline exceeded the configured timeout.
 	// The task can be retried (→ Running) or abandoned (→ Abandoned).
 	TaskStatusCITimeout TaskStatus = "ci_timeout"
+
+	// TaskStatusInterrupted indicates the task was interrupted by the user (Ctrl+C).
+	// The task can be resumed (→ Running) or abandoned (→ Abandoned).
+	// The workspace and all work are preserved for later resumption.
+	TaskStatusInterrupted TaskStatus = "interrupted"
 )
 
 // String returns the string representation of the TaskStatus.

@@ -24,13 +24,14 @@ import (
 // The state machine follows this flow:
 //
 //	Pending → Running
-//	Running → Validating, GHFailed, CIFailed, CITimeout, Abandoned
-//	Validating → AwaitingApproval, ValidationFailed
+//	Running → Validating, GHFailed, CIFailed, CITimeout, Interrupted, Abandoned
+//	Validating → AwaitingApproval, ValidationFailed, Interrupted
 //	ValidationFailed → Running, Abandoned
 //	AwaitingApproval → Completed, Running, Rejected
 //	GHFailed → Running, Abandoned
 //	CIFailed → Running, Abandoned
 //	CITimeout → Running, Abandoned
+//	Interrupted → Running, Abandoned
 //
 //nolint:gochecknoglobals // Exported for testing and read-only lookup table
 var ValidTransitions = map[constants.TaskStatus][]constants.TaskStatus{
@@ -40,14 +41,20 @@ var ValidTransitions = map[constants.TaskStatus][]constants.TaskStatus{
 		constants.TaskStatusGHFailed,
 		constants.TaskStatusCIFailed,
 		constants.TaskStatusCITimeout,
-		constants.TaskStatusAbandoned, // Allow force-abandon
+		constants.TaskStatusInterrupted, // User pressed Ctrl+C
+		constants.TaskStatusAbandoned,   // Allow force-abandon
 	},
-	constants.TaskStatusValidating:       {constants.TaskStatusAwaitingApproval, constants.TaskStatusValidationFailed},
+	constants.TaskStatusValidating: {
+		constants.TaskStatusAwaitingApproval,
+		constants.TaskStatusValidationFailed,
+		constants.TaskStatusInterrupted, // User pressed Ctrl+C
+	},
 	constants.TaskStatusValidationFailed: {constants.TaskStatusRunning, constants.TaskStatusAbandoned},
 	constants.TaskStatusAwaitingApproval: {constants.TaskStatusCompleted, constants.TaskStatusRunning, constants.TaskStatusRejected},
 	constants.TaskStatusGHFailed:         {constants.TaskStatusRunning, constants.TaskStatusAbandoned},
 	constants.TaskStatusCIFailed:         {constants.TaskStatusRunning, constants.TaskStatusAbandoned},
 	constants.TaskStatusCITimeout:        {constants.TaskStatusRunning, constants.TaskStatusAbandoned},
+	constants.TaskStatusInterrupted:      {constants.TaskStatusRunning, constants.TaskStatusAbandoned},
 }
 
 // terminalStatuses defines states where no further transitions are allowed.
@@ -73,6 +80,7 @@ var errorStatuses = map[constants.TaskStatus]bool{
 	constants.TaskStatusGHFailed:         true,
 	constants.TaskStatusCIFailed:         true,
 	constants.TaskStatusCITimeout:        true,
+	constants.TaskStatusInterrupted:      true,
 }
 
 // IsValidTransition checks if a transition from one status to another is allowed.
@@ -102,7 +110,7 @@ func IsTerminalStatus(status constants.TaskStatus) bool {
 }
 
 // IsErrorStatus returns true for states that indicate an error condition.
-// Error states: ValidationFailed, GHFailed, CIFailed, CITimeout
+// Error states: ValidationFailed, GHFailed, CIFailed, CITimeout, Interrupted
 func IsErrorStatus(status constants.TaskStatus) bool {
 	return errorStatuses[status]
 }

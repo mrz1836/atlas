@@ -686,6 +686,16 @@ func (e *Engine) runSteps(ctx context.Context, task *domain.Task, template *doma
 
 	for task.CurrentStep < totalSteps {
 		if err := ctx.Err(); err != nil {
+			// Context canceled (likely Ctrl+C) - save state before returning
+			e.logger.Info().
+				Str("task_id", task.ID).
+				Int("current_step", task.CurrentStep).
+				Msg("context canceled, saving state before exit")
+
+			// Try to save current state as checkpoint (use context without cancellation since original is canceled)
+			if saveErr := e.store.Update(context.WithoutCancel(ctx), task.WorkspaceID, task); saveErr != nil {
+				e.logger.Error().Err(saveErr).Msg("failed to save state on cancellation")
+			}
 			return err
 		}
 

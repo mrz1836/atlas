@@ -55,6 +55,16 @@ func TestIsValidTransition_AllValidTransitions(t *testing.T) {
 		// From CITimeout
 		{"ci_timeout to running", constants.TaskStatusCITimeout, constants.TaskStatusRunning},
 		{"ci_timeout to abandoned", constants.TaskStatusCITimeout, constants.TaskStatusAbandoned},
+
+		// From Running to Interrupted (user pressed Ctrl+C)
+		{"running to interrupted", constants.TaskStatusRunning, constants.TaskStatusInterrupted},
+
+		// From Validating to Interrupted (user pressed Ctrl+C)
+		{"validating to interrupted", constants.TaskStatusValidating, constants.TaskStatusInterrupted},
+
+		// From Interrupted
+		{"interrupted to running", constants.TaskStatusInterrupted, constants.TaskStatusRunning},
+		{"interrupted to abandoned", constants.TaskStatusInterrupted, constants.TaskStatusAbandoned},
 	}
 
 	for _, tt := range tests {
@@ -147,6 +157,7 @@ func TestIsTerminalStatus(t *testing.T) {
 		constants.TaskStatusGHFailed,
 		constants.TaskStatusCIFailed,
 		constants.TaskStatusCITimeout,
+		constants.TaskStatusInterrupted,
 	}
 
 	for _, status := range terminalStatuses {
@@ -172,6 +183,7 @@ func TestIsErrorStatus(t *testing.T) {
 		constants.TaskStatusGHFailed,
 		constants.TaskStatusCIFailed,
 		constants.TaskStatusCITimeout,
+		constants.TaskStatusInterrupted,
 	}
 
 	nonErrorStatuses := []constants.TaskStatus{
@@ -207,6 +219,7 @@ func TestCanRetry(t *testing.T) {
 		constants.TaskStatusGHFailed,
 		constants.TaskStatusCIFailed,
 		constants.TaskStatusCITimeout,
+		constants.TaskStatusInterrupted,
 	}
 
 	nonRetryableStatuses := []constants.TaskStatus{
@@ -239,6 +252,7 @@ func TestCanAbandon(t *testing.T) {
 		constants.TaskStatusGHFailed,
 		constants.TaskStatusCIFailed,
 		constants.TaskStatusCITimeout,
+		constants.TaskStatusInterrupted,
 	}
 
 	nonAbandonableStatuses := []constants.TaskStatus{
@@ -273,6 +287,7 @@ func TestCanForceAbandon(t *testing.T) {
 		constants.TaskStatusGHFailed,
 		constants.TaskStatusCIFailed,
 		constants.TaskStatusCITimeout,
+		constants.TaskStatusInterrupted,
 	}
 
 	nonForceAbandonableStatuses := []constants.TaskStatus{
@@ -326,6 +341,7 @@ func TestGetValidTargetStatuses(t *testing.T) {
 				constants.TaskStatusGHFailed,
 				constants.TaskStatusCIFailed,
 				constants.TaskStatusCITimeout,
+				constants.TaskStatusInterrupted,
 				constants.TaskStatusAbandoned,
 			},
 		},
@@ -335,6 +351,7 @@ func TestGetValidTargetStatuses(t *testing.T) {
 			expected: []constants.TaskStatus{
 				constants.TaskStatusAwaitingApproval,
 				constants.TaskStatusValidationFailed,
+				constants.TaskStatusInterrupted,
 			},
 		},
 		{
@@ -364,6 +381,14 @@ func TestGetValidTargetStatuses(t *testing.T) {
 		{
 			name: "ci_timeout targets",
 			from: constants.TaskStatusCITimeout,
+			expected: []constants.TaskStatus{
+				constants.TaskStatusRunning,
+				constants.TaskStatusAbandoned,
+			},
+		},
+		{
+			name: "interrupted targets",
+			from: constants.TaskStatusInterrupted,
 			expected: []constants.TaskStatus{
 				constants.TaskStatusRunning,
 				constants.TaskStatusAbandoned,
@@ -452,6 +477,11 @@ func TestTransition_ValidTransitions(t *testing.T) {
 		{"ci_failed to abandoned", constants.TaskStatusCIFailed, constants.TaskStatusAbandoned, "user abandoned"},
 		{"ci_timeout to running", constants.TaskStatusCITimeout, constants.TaskStatusRunning, "retrying CI"},
 		{"ci_timeout to abandoned", constants.TaskStatusCITimeout, constants.TaskStatusAbandoned, "user abandoned"},
+		// Interrupted status transitions
+		{"running to interrupted", constants.TaskStatusRunning, constants.TaskStatusInterrupted, "user pressed Ctrl+C"},
+		{"validating to interrupted", constants.TaskStatusValidating, constants.TaskStatusInterrupted, "user pressed Ctrl+C"},
+		{"interrupted to running", constants.TaskStatusInterrupted, constants.TaskStatusRunning, "resuming task"},
+		{"interrupted to abandoned", constants.TaskStatusInterrupted, constants.TaskStatusAbandoned, "user abandoned"},
 	}
 
 	for _, tt := range tests {
@@ -718,6 +748,7 @@ func TestValidTransitions_Completeness(t *testing.T) {
 		constants.TaskStatusGHFailed,
 		constants.TaskStatusCIFailed,
 		constants.TaskStatusCITimeout,
+		constants.TaskStatusInterrupted,
 	}
 
 	for _, status := range expectedNonTerminalStatuses {

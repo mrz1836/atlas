@@ -226,6 +226,10 @@ var (
 	// ErrOperationCanceled indicates the user canceled an operation.
 	ErrOperationCanceled = errors.New("operation canceled by user")
 
+	// ErrTaskInterrupted indicates the task was interrupted by the user (Ctrl+C).
+	// The task state is saved and can be resumed with `atlas resume`.
+	ErrTaskInterrupted = errors.New("task interrupted by user")
+
 	// ErrResumeNotImplemented indicates the resume feature is not yet implemented.
 	ErrResumeNotImplemented = errors.New("resume not yet implemented")
 
