@@ -11,11 +11,16 @@ import (
 	"github.com/mrz1836/atlas/internal/git"
 )
 
-// ArtifactSaver abstracts artifact persistence for validation results.
-// This interface matches task.Store.SaveVersionedArtifact and
-// validation.ArtifactSaver, allowing the validation step executor to
+// ArtifactSaver abstracts artifact persistence for step executors.
+// This interface matches task.Store methods, allowing step executors to
 // save artifacts without direct dependency on the task package.
 type ArtifactSaver interface {
+	// SaveArtifact saves an artifact file for the task.
+	// The filename can include subdirectories (e.g., "ci_wait/ci-result.json").
+	SaveArtifact(ctx context.Context, workspaceName, taskID, filename string, data []byte) error
+
+	// SaveVersionedArtifact saves an artifact with version suffix (e.g., validation.1.json).
+	// Returns the actual filename used.
 	SaveVersionedArtifact(ctx context.Context, workspaceName, taskID, baseName string, data []byte) (string, error)
 }
 
@@ -45,10 +50,7 @@ type ExecutorDeps struct {
 	// WorkDir is the working directory for validation and git commands.
 	WorkDir string
 
-	// ArtifactsDir is where SDD artifacts are saved.
-	ArtifactsDir string
-
-	// ArtifactSaver is used to save validation result artifacts.
+	// ArtifactSaver is used to save step artifacts (validation, CI, git, SDD).
 	// If nil, artifact saving is skipped.
 	ArtifactSaver ArtifactSaver
 
@@ -125,7 +127,9 @@ func NewDefaultRegistry(deps ExecutorDeps) *ExecutorRegistry {
 	// Register git executor with dependencies for commit, push, and PR creation
 	gitExecutorOpts := []GitExecutorOption{
 		WithGitLogger(deps.Logger),
-		WithArtifactsDir(deps.ArtifactsDir),
+	}
+	if deps.ArtifactSaver != nil {
+		gitExecutorOpts = append(gitExecutorOpts, WithGitArtifactSaver(deps.ArtifactSaver))
 	}
 	if deps.BaseBranch != "" {
 		gitExecutorOpts = append(gitExecutorOpts, WithBaseBranch(deps.BaseBranch))
@@ -152,12 +156,15 @@ func NewDefaultRegistry(deps ExecutorDeps) *ExecutorRegistry {
 
 	// Register SDD executor (requires AIRunner)
 	if deps.AIRunner != nil {
-		r.Register(NewSDDExecutorWithWorkingDir(deps.AIRunner, deps.ArtifactsDir, deps.WorkDir))
+		r.Register(NewSDDExecutorWithArtifactSaver(deps.AIRunner, deps.ArtifactSaver, deps.WorkDir))
 	}
 
 	// Register CI executor with HubRunner and CIFailureHandler dependencies
 	ciExecutorOpts := []CIExecutorOption{
 		WithCILogger(deps.Logger),
+	}
+	if deps.ArtifactSaver != nil {
+		ciExecutorOpts = append(ciExecutorOpts, WithCIArtifactSaver(deps.ArtifactSaver))
 	}
 	if deps.HubRunner != nil {
 		ciExecutorOpts = append(ciExecutorOpts, WithCIHubRunner(deps.HubRunner))

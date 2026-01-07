@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -49,7 +48,7 @@ type GitExecutor struct {
 	prDescGen      git.PRDescriptionGenerator
 	gitRunner      git.Runner
 	workDir        string
-	artifactsDir   string
+	artifactSaver  ArtifactSaver
 	baseBranch     string
 	logger         zerolog.Logger
 }
@@ -111,10 +110,10 @@ func WithGitLogger(logger zerolog.Logger) GitExecutorOption {
 	}
 }
 
-// WithArtifactsDir sets the directory for saving artifacts.
-func WithArtifactsDir(dir string) GitExecutorOption {
+// WithGitArtifactSaver sets the artifact saver for git results.
+func WithGitArtifactSaver(saver ArtifactSaver) GitExecutorOption {
 	return func(e *GitExecutor) {
-		e.artifactsDir = dir
+		e.artifactSaver = saver
 	}
 }
 
@@ -273,14 +272,8 @@ func (e *GitExecutor) executeCommit(ctx context.Context, step *domain.StepDefini
 	}
 
 	// Also save detailed commit result as JSON
-	artifactDir := e.getArtifactDir(step.Name, task)
-	if artifactDir != "" {
-		jsonPath, jsonErr := e.saveCommitResultJSON(artifactDir, result)
-		if jsonErr == nil {
-			artifactPaths = append(artifactPaths, jsonPath)
-		} else {
-			e.logger.Warn().Err(jsonErr).Msg("failed to save commit result JSON")
-		}
+	if jsonPath := e.saveCommitResultJSON(ctx, task, step.Name, result); jsonPath != "" {
+		artifactPaths = append(artifactPaths, jsonPath)
 	}
 
 	// Collect all changed files from all commits
@@ -343,16 +336,7 @@ func (e *GitExecutor) executePush(ctx context.Context, step *domain.StepDefiniti
 	}
 
 	// Save push result artifact
-	artifactDir := e.getArtifactDir(step.Name, task)
-	artifactPath := ""
-	if artifactDir != "" {
-		path, saveErr := e.savePushResultJSON(artifactDir, result)
-		if saveErr != nil {
-			e.logger.Warn().Err(saveErr).Msg("failed to save push result artifact")
-		} else {
-			artifactPath = path
-		}
-	}
+	artifactPath := e.savePushResultJSON(ctx, task, step.Name, result)
 
 	output := fmt.Sprintf("Pushed to %s/%s", pushOpts.Remote, branch)
 	if result.Upstream != "" {
@@ -389,8 +373,7 @@ func (e *GitExecutor) executeCreatePR(ctx context.Context, step *domain.StepDefi
 	}
 
 	// Save PR description and create PR
-	artifactDir := e.getArtifactDir(step.Name, task)
-	artifactPaths := e.savePRDescriptionArtifact(artifactDir, description)
+	artifactPaths := e.savePRDescriptionArtifact(ctx, task, step.Name, description)
 
 	prResult, err := e.createPR(ctx, description, baseBranch, headBranch)
 	if err != nil {
@@ -398,7 +381,7 @@ func (e *GitExecutor) executeCreatePR(ctx context.Context, step *domain.StepDefi
 	}
 
 	// Save PR result artifact
-	artifactPaths = append(artifactPaths, e.savePRResultArtifact(artifactDir, prResult)...)
+	artifactPaths = append(artifactPaths, e.savePRResultArtifact(ctx, task, step.Name, prResult)...)
 
 	e.storePRMetadata(task, prResult)
 
@@ -476,18 +459,12 @@ func (e *GitExecutor) generatePRDescription(ctx context.Context, task *domain.Ta
 	return description, nil
 }
 
-// savePRDescriptionArtifact saves the PR description to disk and returns artifact paths.
-func (e *GitExecutor) savePRDescriptionArtifact(artifactDir string, description *git.PRDescription) []string {
-	if artifactDir == "" {
-		return nil
+// savePRDescriptionArtifact saves the PR description and returns artifact paths.
+func (e *GitExecutor) savePRDescriptionArtifact(ctx context.Context, task *domain.Task, stepName string, description *git.PRDescription) []string {
+	if descPath := e.savePRDescriptionMD(ctx, task, stepName, description); descPath != "" {
+		return []string{descPath}
 	}
-
-	descPath, err := e.savePRDescriptionMD(artifactDir, description)
-	if err != nil {
-		e.logger.Warn().Err(err).Msg("failed to save PR description")
-		return nil
-	}
-	return []string{descPath}
+	return nil
 }
 
 // createPR creates the pull request via the hub runner.
@@ -514,18 +491,12 @@ func (e *GitExecutor) handlePRCreationError(prResult *git.PRResult, err error) (
 	return nil, fmt.Errorf("failed to create PR: %w", err)
 }
 
-// savePRResultArtifact saves the PR result to disk and returns artifact paths.
-func (e *GitExecutor) savePRResultArtifact(artifactDir string, prResult *git.PRResult) []string {
-	if artifactDir == "" {
-		return nil
+// savePRResultArtifact saves the PR result and returns artifact paths.
+func (e *GitExecutor) savePRResultArtifact(ctx context.Context, task *domain.Task, stepName string, prResult *git.PRResult) []string {
+	if resultPath := e.savePRResultJSON(ctx, task, stepName, prResult); resultPath != "" {
+		return []string{resultPath}
 	}
-
-	resultPath, err := e.savePRResultJSON(artifactDir, prResult)
-	if err != nil {
-		e.logger.Warn().Err(err).Msg("failed to save PR result")
-		return nil
-	}
-	return []string{resultPath}
+	return nil
 }
 
 // storePRMetadata stores PR information in task metadata for downstream steps.
@@ -556,80 +527,88 @@ func formatGarbageWarning(files []git.GarbageFile) string {
 	return msg
 }
 
-// getArtifactDir returns the artifact directory for a step, creating it if needed.
-func (e *GitExecutor) getArtifactDir(stepName string, task *domain.Task) string {
-	// Use the executor's artifacts dir if set
-	if e.artifactsDir != "" {
-		dir := filepath.Join(e.artifactsDir, stepName)
-		if err := os.MkdirAll(dir, 0o750); err != nil {
-			e.logger.Warn().Err(err).Str("dir", dir).Msg("failed to create artifact directory")
-			return ""
-		}
-		return dir
+// saveCommitResultJSON saves commit result as a JSON artifact using the artifact saver.
+// Returns the artifact filename if saved successfully, empty string otherwise.
+func (e *GitExecutor) saveCommitResultJSON(ctx context.Context, task *domain.Task, stepName string, result *git.CommitResult) string {
+	if e.artifactSaver == nil {
+		return ""
 	}
 
-	// Fall back to task metadata if available
-	if task.Metadata != nil {
-		if artifactDir, ok := task.Metadata["artifact_dir"].(string); ok && artifactDir != "" {
-			dir := filepath.Join(artifactDir, stepName)
-			if err := os.MkdirAll(dir, 0o750); err != nil {
-				e.logger.Warn().Err(err).Str("dir", dir).Msg("failed to create artifact directory")
-				return ""
-			}
-			return dir
-		}
-	}
-
-	return ""
-}
-
-// saveCommitResultJSON saves commit result as a JSON file.
-func (e *GitExecutor) saveCommitResultJSON(dir string, result *git.CommitResult) (string, error) {
-	path := filepath.Join(dir, "commit-result.json")
 	data, err := json.MarshalIndent(result, "", "  ") //nolint:musttag // external type from git package
 	if err != nil {
-		return "", fmt.Errorf("failed to marshal commit result: %w", err)
+		e.logger.Warn().Err(err).Msg("failed to marshal commit result")
+		return ""
 	}
-	if err := os.WriteFile(path, data, 0o600); err != nil {
-		return "", fmt.Errorf("failed to write commit result: %w", err)
+
+	filename := filepath.Join(stepName, "commit-result.json")
+	if err := e.artifactSaver.SaveArtifact(ctx, task.WorkspaceID, task.ID, filename, data); err != nil {
+		e.logger.Warn().Err(err).Msg("failed to save commit result artifact")
+		return ""
 	}
-	return path, nil
+
+	return filename
 }
 
-// savePushResultJSON saves push result as a JSON file.
-func (e *GitExecutor) savePushResultJSON(dir string, result *git.PushResult) (string, error) {
-	path := filepath.Join(dir, "push-result.json")
+// savePushResultJSON saves push result as a JSON artifact using the artifact saver.
+// Returns the artifact filename if saved successfully, empty string otherwise.
+func (e *GitExecutor) savePushResultJSON(ctx context.Context, task *domain.Task, stepName string, result *git.PushResult) string {
+	if e.artifactSaver == nil {
+		return ""
+	}
+
 	data, err := json.MarshalIndent(result, "", "  ") //nolint:musttag // external type from git package
 	if err != nil {
-		return "", fmt.Errorf("failed to marshal push result: %w", err)
+		e.logger.Warn().Err(err).Msg("failed to marshal push result")
+		return ""
 	}
-	if err := os.WriteFile(path, data, 0o600); err != nil {
-		return "", fmt.Errorf("failed to write push result: %w", err)
+
+	filename := filepath.Join(stepName, "push-result.json")
+	if err := e.artifactSaver.SaveArtifact(ctx, task.WorkspaceID, task.ID, filename, data); err != nil {
+		e.logger.Warn().Err(err).Msg("failed to save push result artifact")
+		return ""
 	}
-	return path, nil
+
+	return filename
 }
 
-// savePRDescriptionMD saves PR description as a markdown file.
-func (e *GitExecutor) savePRDescriptionMD(dir string, desc *git.PRDescription) (string, error) {
-	path := filepath.Join(dir, "pr-description.md")
+// savePRDescriptionMD saves PR description as a markdown artifact using the artifact saver.
+// Returns the artifact filename if saved successfully, empty string otherwise.
+func (e *GitExecutor) savePRDescriptionMD(ctx context.Context, task *domain.Task, stepName string, desc *git.PRDescription) string {
+	if e.artifactSaver == nil {
+		return ""
+	}
+
 	content := fmt.Sprintf("# %s\n\n%s", desc.Title, desc.Body)
-	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
-		return "", fmt.Errorf("failed to write PR description: %w", err)
+
+	filename := filepath.Join(stepName, "pr-description.md")
+	if err := e.artifactSaver.SaveArtifact(ctx, task.WorkspaceID, task.ID, filename, []byte(content)); err != nil {
+		e.logger.Warn().Err(err).Msg("failed to save PR description artifact")
+		return ""
 	}
-	return path, nil
+
+	return filename
 }
 
-// savePRResultJSON saves PR result as a JSON file.
-func (e *GitExecutor) savePRResultJSON(dir string, result *git.PRResult) (string, error) {
-	path := filepath.Join(dir, "pr-result.json")
+// savePRResultJSON saves PR result as a JSON artifact using the artifact saver.
+// Returns the artifact filename if saved successfully, empty string otherwise.
+func (e *GitExecutor) savePRResultJSON(ctx context.Context, task *domain.Task, stepName string, result *git.PRResult) string {
+	if e.artifactSaver == nil {
+		return ""
+	}
+
 	data, err := json.MarshalIndent(result, "", "  ") //nolint:musttag // external type from git package
 	if err != nil {
-		return "", fmt.Errorf("failed to marshal PR result: %w", err)
+		e.logger.Warn().Err(err).Msg("failed to marshal PR result")
+		return ""
 	}
-	if err := os.WriteFile(path, data, 0o600); err != nil {
-		return "", fmt.Errorf("failed to write PR result: %w", err)
+
+	filename := filepath.Join(stepName, "pr-result.json")
+	if err := e.artifactSaver.SaveArtifact(ctx, task.WorkspaceID, task.ID, filename, data); err != nil {
+		e.logger.Warn().Err(err).Msg("failed to save PR result artifact")
+		return ""
 	}
-	return path, nil
+
+	return filename
 }
 
 // getBranchFromConfig extracts the branch name from step config or task.

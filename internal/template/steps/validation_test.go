@@ -309,7 +309,7 @@ func TestValidationExecutor_Execute_WithArtifactSaver(t *testing.T) {
 	// Create mock artifact saver
 	var savedData []byte
 	var savedBaseName string
-	mockSaver := &mockArtifactSaver{
+	mockSaver := &validationMockArtifactSaver{
 		saveFn: func(_ context.Context, _, _, baseName string, data []byte) (string, error) {
 			savedData = data
 			savedBaseName = baseName
@@ -348,7 +348,7 @@ func TestValidationExecutor_Execute_WithNotifier(t *testing.T) {
 	// Create mock notifier
 	mockNotifier := &mockStepsNotifier{}
 	// Need artifact saver for the handler to be created
-	mockSaver := &mockArtifactSaver{}
+	mockSaver := &validationMockArtifactSaver{}
 
 	// Create temp directory for test
 	tmpDir := t.TempDir()
@@ -368,12 +368,16 @@ func TestValidationExecutor_Execute_WithNotifier(t *testing.T) {
 	assert.True(t, mockNotifier.bellCalled, "bell should be called on failure")
 }
 
-// mockArtifactSaver for testing.
-type mockArtifactSaver struct {
+// validationMockArtifactSaver for testing validation step artifact saving.
+type validationMockArtifactSaver struct {
 	saveFn func(ctx context.Context, workspaceName, taskID, baseName string, data []byte) (string, error)
 }
 
-func (m *mockArtifactSaver) SaveVersionedArtifact(ctx context.Context, workspaceName, taskID, baseName string, data []byte) (string, error) {
+func (m *validationMockArtifactSaver) SaveArtifact(_ context.Context, _, _, _ string, _ []byte) error {
+	return nil
+}
+
+func (m *validationMockArtifactSaver) SaveVersionedArtifact(ctx context.Context, workspaceName, taskID, baseName string, data []byte) (string, error) {
 	if m.saveFn != nil {
 		return m.saveFn(ctx, workspaceName, taskID, baseName, data)
 	}

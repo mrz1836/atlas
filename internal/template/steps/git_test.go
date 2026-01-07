@@ -3,7 +3,7 @@ package steps
 import (
 	"context"
 	"encoding/json"
-	"os"
+	"fmt"
 	"path/filepath"
 	"testing"
 
@@ -130,23 +130,49 @@ func TestNewGitExecutor(t *testing.T) {
 	assert.Equal(t, "/tmp/work", executor.workDir)
 }
 
+// testArtifactSaver is a mock for tracking artifact saves in tests.
+type testArtifactSaver struct {
+	savedArtifacts  map[string][]byte
+	versionCounters map[string]int
+}
+
+func newTestArtifactSaver() *testArtifactSaver {
+	return &testArtifactSaver{
+		savedArtifacts:  make(map[string][]byte),
+		versionCounters: make(map[string]int),
+	}
+}
+
+func (s *testArtifactSaver) SaveArtifact(_ context.Context, _, _, filename string, data []byte) error {
+	s.savedArtifacts[filename] = data
+	return nil
+}
+
+func (s *testArtifactSaver) SaveVersionedArtifact(_ context.Context, _, _, baseName string, data []byte) (string, error) {
+	s.versionCounters[baseName]++
+	filename := fmt.Sprintf("%s.%d", baseName, s.versionCounters[baseName])
+	s.savedArtifacts[filename] = data
+	return filename, nil
+}
+
 func TestNewGitExecutor_WithOptions(t *testing.T) {
 	committer := &mockSmartCommitter{}
 	pusher := &mockPusher{}
 	hubRunner := &mockHubRunner{}
 	prDescGen := &mockPRDescriptionGenerator{}
+	saver := newTestArtifactSaver()
 
 	executor := NewGitExecutor("/tmp/work",
 		WithSmartCommitter(committer),
 		WithPusher(pusher),
 		WithHubRunner(hubRunner),
 		WithPRDescriptionGenerator(prDescGen),
-		WithArtifactsDir("/tmp/artifacts"),
+		WithGitArtifactSaver(saver),
 	)
 
 	require.NotNil(t, executor)
 	assert.Equal(t, "/tmp/work", executor.workDir)
-	assert.Equal(t, "/tmp/artifacts", executor.artifactsDir)
+	assert.NotNil(t, executor.artifactSaver)
 	assert.NotNil(t, executor.smartCommitter)
 	assert.NotNil(t, executor.pusher)
 	assert.NotNil(t, executor.hubRunner)
@@ -322,7 +348,7 @@ func TestGitExecutor_ExecuteCommit_Success(t *testing.T) {
 
 func TestGitExecutor_ExecuteCommit_WithArtifacts(t *testing.T) {
 	ctx := context.Background()
-	artifactDir := t.TempDir()
+	saver := newTestArtifactSaver()
 
 	committer := &mockSmartCommitter{
 		analyzeFunc: func(_ context.Context) (*git.CommitAnalysis, error) {
@@ -345,10 +371,10 @@ func TestGitExecutor_ExecuteCommit_WithArtifacts(t *testing.T) {
 
 	executor := NewGitExecutor("/tmp/work",
 		WithSmartCommitter(committer),
-		WithArtifactsDir(artifactDir),
+		WithGitArtifactSaver(saver),
 	)
 
-	task := &domain.Task{ID: "task-123", TemplateID: "bugfix", CurrentStep: 0}
+	task := &domain.Task{ID: "task-123", WorkspaceID: "test-ws", TemplateID: "bugfix", CurrentStep: 0}
 	step := &domain.StepDefinition{
 		Name: "commit_step",
 		Type: domain.StepTypeGit,
@@ -362,14 +388,12 @@ func TestGitExecutor_ExecuteCommit_WithArtifacts(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "success", result.Status)
 
-	// Verify artifact was saved
-	jsonPath := filepath.Join(artifactDir, "commit_step", "commit-result.json")
-	_, err = os.Stat(jsonPath)
-	require.NoError(t, err)
+	// Verify artifact was saved via the saver
+	expectedFilename := filepath.Join("commit_step", "commit-result.json")
+	data, ok := saver.savedArtifacts[expectedFilename]
+	require.True(t, ok, "artifact should have been saved")
 
-	// Verify JSON content (G304 is acceptable in test code with controlled path)
-	data, err := os.ReadFile(jsonPath) //nolint:gosec // path is constructed from t.TempDir()
-	require.NoError(t, err)
+	// Verify JSON content
 	var savedResult git.CommitResult
 	err = json.Unmarshal(data, &savedResult) //nolint:musttag // external type from git package
 	require.NoError(t, err)

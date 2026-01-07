@@ -2,8 +2,6 @@ package steps
 
 import (
 	"context"
-	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -16,21 +14,32 @@ import (
 
 func TestNewSDDExecutor(t *testing.T) {
 	runner := &mockAIRunner{}
-	executor := NewSDDExecutor(runner, "/tmp/artifacts")
+	executor := NewSDDExecutor(runner, "/tmp/artifacts") // artifactsDir is deprecated/ignored
 
 	require.NotNil(t, executor)
 	assert.Equal(t, runner, executor.runner)
-	assert.Equal(t, "/tmp/artifacts", executor.artifactsDir)
+	assert.Nil(t, executor.artifactSaver) // deprecated constructor doesn't set artifactSaver
 	assert.Empty(t, executor.workingDir)
 }
 
 func TestNewSDDExecutorWithWorkingDir(t *testing.T) {
 	runner := &mockAIRunner{}
-	executor := NewSDDExecutorWithWorkingDir(runner, "/tmp/artifacts", "/tmp/worktree")
+	executor := NewSDDExecutorWithWorkingDir(runner, "/tmp/artifacts", "/tmp/worktree") // artifactsDir is deprecated/ignored
 
 	require.NotNil(t, executor)
 	assert.Equal(t, runner, executor.runner)
-	assert.Equal(t, "/tmp/artifacts", executor.artifactsDir)
+	assert.Nil(t, executor.artifactSaver) // deprecated constructor doesn't set artifactSaver
+	assert.Equal(t, "/tmp/worktree", executor.workingDir)
+}
+
+func TestNewSDDExecutorWithArtifactSaver(t *testing.T) {
+	runner := &mockAIRunner{}
+	saver := newTestArtifactSaver()
+	executor := NewSDDExecutorWithArtifactSaver(runner, saver, "/tmp/worktree")
+
+	require.NotNil(t, executor)
+	assert.Equal(t, runner, executor.runner)
+	assert.Equal(t, saver, executor.artifactSaver)
 	assert.Equal(t, "/tmp/worktree", executor.workingDir)
 }
 
@@ -54,17 +63,18 @@ func TestSDDExecutor_Execute_Success(t *testing.T) {
 	defer ResetSpeckitCheck()
 
 	ctx := context.Background()
-	tmpDir := t.TempDir()
+	saver := newTestArtifactSaver()
 
 	runner := &mockAIRunner{
 		result: &domain.AIResult{
 			Output: "# Specification\nThis is the specification...",
 		},
 	}
-	executor := NewSDDExecutor(runner, tmpDir)
+	executor := NewSDDExecutorWithArtifactSaver(runner, saver, "")
 
 	task := &domain.Task{
 		ID:          "task-123",
+		WorkspaceID: "test-workspace",
 		Description: "Build a user auth system",
 		CurrentStep: 0,
 		Config:      domain.TaskConfig{Model: "sonnet"},
@@ -82,11 +92,12 @@ func TestSDDExecutor_Execute_Success(t *testing.T) {
 	assert.Contains(t, result.Output, "Specification")
 	assert.NotEmpty(t, result.ArtifactPath)
 
-	// Verify artifact was saved with semantic name
-	content, err := os.ReadFile(result.ArtifactPath)
-	require.NoError(t, err)
-	assert.Contains(t, string(content), "Specification")
-	assert.True(t, filepath.Base(result.ArtifactPath) == "spec.md" || filepath.Base(result.ArtifactPath) == "spec.1.md")
+	// Verify artifact was saved to the artifact saver with semantic name
+	assert.Len(t, saver.savedArtifacts, 1)
+	// The versioned artifact will be sdd/spec.md.1
+	savedKey := "sdd/spec.md.1"
+	assert.Contains(t, saver.savedArtifacts, savedKey)
+	assert.Contains(t, string(saver.savedArtifacts[savedKey]), "Specification")
 }
 
 func TestSDDExecutor_Execute_SlashCommandFormat(t *testing.T) {
@@ -351,87 +362,75 @@ func TestSDDExecutor_Execute_DefaultCommand(t *testing.T) {
 }
 
 func TestSDDExecutor_saveArtifact_SemanticNaming(t *testing.T) {
-	tmpDir := t.TempDir()
-	executor := NewSDDExecutor(&mockAIRunner{}, tmpDir)
+	ctx := context.Background()
+	saver := newTestArtifactSaver()
+	executor := NewSDDExecutorWithArtifactSaver(&mockAIRunner{}, saver, "")
 
 	tests := []struct {
 		command      SDDCommand
-		expectedName string
+		expectedBase string
 	}{
-		{SDDCmdSpecify, "spec.md"},
-		{SDDCmdPlan, "plan.md"},
-		{SDDCmdTasks, "tasks.md"},
-		{SDDCmdChecklist, "checklist.md"},
+		{SDDCmdSpecify, "sdd/spec.md"},
+		{SDDCmdPlan, "sdd/plan.md"},
+		{SDDCmdTasks, "sdd/tasks.md"},
+		{SDDCmdChecklist, "sdd/checklist.md"},
 	}
 
 	for _, tt := range tests {
 		t.Run(string(tt.command), func(t *testing.T) {
-			// Use unique task ID for each test
-			taskID := "task-" + string(tt.command)
-			path, err := executor.saveArtifact(taskID, tt.command, "Test content")
+			task := &domain.Task{ID: "task-" + string(tt.command), WorkspaceID: "test-ws"}
+			path, err := executor.saveArtifact(ctx, task, tt.command, "Test content")
 
 			require.NoError(t, err)
 			assert.NotEmpty(t, path)
-			assert.Equal(t, tt.expectedName, filepath.Base(path))
-
-			content, err := os.ReadFile(filepath.Clean(path))
-			require.NoError(t, err)
-			assert.Equal(t, "Test content", string(content))
+			// The versioned artifact saver appends ".1" to the base name
+			assert.Contains(t, path, tt.expectedBase)
 		})
 	}
 }
 
 func TestSDDExecutor_saveArtifact_Versioning(t *testing.T) {
-	tmpDir := t.TempDir()
-	executor := NewSDDExecutor(&mockAIRunner{}, tmpDir)
-	taskID := "task-version"
+	ctx := context.Background()
+	saver := newTestArtifactSaver()
+	executor := NewSDDExecutorWithArtifactSaver(&mockAIRunner{}, saver, "")
+	task := &domain.Task{ID: "task-version", WorkspaceID: "test-ws"}
 
-	// Save first version
-	path1, err := executor.saveArtifact(taskID, SDDCmdSpecify, "Version 1")
+	// Save multiple versions - versioning is now handled by the artifact saver
+	path1, err := executor.saveArtifact(ctx, task, SDDCmdSpecify, "Version 1")
 	require.NoError(t, err)
-	assert.Equal(t, "spec.md", filepath.Base(path1))
+	assert.NotEmpty(t, path1)
 
-	// Save second version - should be spec.1.md
-	path2, err := executor.saveArtifact(taskID, SDDCmdSpecify, "Version 2")
+	path2, err := executor.saveArtifact(ctx, task, SDDCmdSpecify, "Version 2")
 	require.NoError(t, err)
-	assert.Equal(t, "spec.1.md", filepath.Base(path2))
+	assert.NotEmpty(t, path2)
 
-	// Save third version - should be spec.2.md
-	path3, err := executor.saveArtifact(taskID, SDDCmdSpecify, "Version 3")
-	require.NoError(t, err)
-	assert.Equal(t, "spec.2.md", filepath.Base(path3))
-
-	// Verify contents
-	content1, err := os.ReadFile(filepath.Clean(path1))
-	require.NoError(t, err)
-	content2, err := os.ReadFile(filepath.Clean(path2))
-	require.NoError(t, err)
-	content3, err := os.ReadFile(filepath.Clean(path3))
-	require.NoError(t, err)
-	assert.Equal(t, "Version 1", string(content1))
-	assert.Equal(t, "Version 2", string(content2))
-	assert.Equal(t, "Version 3", string(content3))
+	// Verify artifacts were saved to the saver
+	assert.Len(t, saver.savedArtifacts, 2)
 }
 
-func TestSDDExecutor_saveArtifact_EmptyDir(t *testing.T) {
-	executor := NewSDDExecutor(&mockAIRunner{}, "")
+func TestSDDExecutor_saveArtifact_NoArtifactSaver(t *testing.T) {
+	ctx := context.Background()
+	executor := NewSDDExecutor(&mockAIRunner{}, "") // No artifact saver
 
-	path, err := executor.saveArtifact("task-123", SDDCmdSpecify, "content")
+	task := &domain.Task{ID: "task-123", WorkspaceID: "test-ws"}
+	path, err := executor.saveArtifact(ctx, task, SDDCmdSpecify, "content")
 
 	require.NoError(t, err)
-	assert.Empty(t, path)
+	assert.Empty(t, path) // Should return empty when no saver configured
 }
 
 func TestSDDExecutor_saveArtifact_UnknownCommand(t *testing.T) {
-	tmpDir := t.TempDir()
-	executor := NewSDDExecutor(&mockAIRunner{}, tmpDir)
+	ctx := context.Background()
+	saver := newTestArtifactSaver()
+	executor := NewSDDExecutorWithArtifactSaver(&mockAIRunner{}, saver, "")
+	task := &domain.Task{ID: "task-123", WorkspaceID: "test-ws"}
 
-	// Unknown command should use timestamp-based naming
-	path, err := executor.saveArtifact("task-123", SDDCommand("unknown"), "content")
+	// Unknown command should use timestamp-based naming with SaveArtifact (non-versioned)
+	path, err := executor.saveArtifact(ctx, task, SDDCommand("unknown"), "content")
 
 	require.NoError(t, err)
-	assert.Contains(t, filepath.Base(path), "sdd-unknown-")
-	assert.Contains(t, filepath.Base(path), ".md")
+	assert.Contains(t, path, "sdd/sdd-unknown-")
+	assert.Contains(t, path, ".md")
 }
 
 func TestSDDExecutor_buildPrompt_AllCommands(t *testing.T) {
@@ -514,19 +513,20 @@ func TestResetSpeckitCheck(t *testing.T) {
 	ResetSpeckitCheck()
 }
 
-func TestSDDExecutor_Execute_FilePermissions(t *testing.T) {
+func TestSDDExecutor_Execute_ArtifactSaverCalled(t *testing.T) {
+	// Test that artifact saver is called with correct data
 	SetSpeckitChecked(true)
 	defer ResetSpeckitCheck()
 
 	ctx := context.Background()
-	tmpDir := t.TempDir()
+	saver := newTestArtifactSaver()
 
 	runner := &mockAIRunner{
 		result: &domain.AIResult{Output: "sensitive spec content"},
 	}
-	executor := NewSDDExecutor(runner, tmpDir)
+	executor := NewSDDExecutorWithArtifactSaver(runner, saver, "")
 
-	task := &domain.Task{ID: "task-123", Description: "Test"}
+	task := &domain.Task{ID: "task-123", WorkspaceID: "test-ws", Description: "Test"}
 	step := &domain.StepDefinition{Name: "sdd", Type: domain.StepTypeSDD}
 
 	result, err := executor.Execute(ctx, task, step)
@@ -534,11 +534,11 @@ func TestSDDExecutor_Execute_FilePermissions(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, result.ArtifactPath)
 
-	// Verify file permissions are 0600
-	info, err := os.Stat(result.ArtifactPath)
-	require.NoError(t, err)
-	// Check file mode (mask off type bits, keep permission bits)
-	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+	// Verify artifact was saved to the artifact saver
+	assert.Len(t, saver.savedArtifacts, 1)
+	savedKey := "sdd/spec.md.1"
+	assert.Contains(t, saver.savedArtifacts, savedKey)
+	assert.Equal(t, "sensitive spec content", string(saver.savedArtifacts[savedKey]))
 }
 
 func TestGetArtifactFilename_ImplementReturnsEmpty(t *testing.T) {
@@ -571,21 +571,9 @@ func TestGetArtifactFilename_AllCommands(t *testing.T) {
 	}
 }
 
-func TestSDDExecutor_saveArtifact_InvalidDirectory(t *testing.T) {
-	// Use a path that cannot be created (file as parent directory)
-	tmpDir := t.TempDir()
-	blockingFile := filepath.Join(tmpDir, "blocker")
-	err := os.WriteFile(blockingFile, []byte("block"), 0o600)
-	require.NoError(t, err)
-
-	// Try to use the file as a parent directory
-	executor := NewSDDExecutor(&mockAIRunner{}, blockingFile)
-
-	_, err = executor.saveArtifact("task-123", SDDCmdSpecify, "content")
-
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to create artifacts directory")
-}
+// TestSDDExecutor_saveArtifact_InvalidDirectory was removed because
+// directory creation errors are now handled by the artifact saver interface,
+// not the SDD executor directly.
 
 func TestSDDExecutor_Execute_StepTimeout(t *testing.T) {
 	SetSpeckitChecked(true)

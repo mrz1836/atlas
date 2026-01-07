@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -32,6 +31,7 @@ type CIExecutor struct {
 	ciFailureHandler CIFailureHandlerInterface
 	ciConfig         *config.CIConfig
 	logger           zerolog.Logger
+	artifactSaver    ArtifactSaver
 }
 
 // CIExecutorOption configures CIExecutor.
@@ -73,6 +73,13 @@ func WithCILogger(logger zerolog.Logger) CIExecutorOption {
 func WithCIConfig(cfg *config.CIConfig) CIExecutorOption {
 	return func(e *CIExecutor) {
 		e.ciConfig = cfg
+	}
+}
+
+// WithCIArtifactSaver sets the artifact saver for CI results.
+func WithCIArtifactSaver(saver ArtifactSaver) CIExecutorOption {
+	return func(e *CIExecutor) {
+		e.artifactSaver = saver
 	}
 }
 
@@ -253,7 +260,7 @@ func (e *CIExecutor) Execute(ctx context.Context, task *domain.Task, step *domai
 	}
 
 	// Save CI result artifact
-	artifactPath := e.saveCIArtifact(result, task, step.Name)
+	artifactPath := e.saveCIArtifact(ctx, result, task, step.Name)
 
 	// Handle result based on status
 	switch result.Status {
@@ -453,18 +460,12 @@ func (e *CIExecutor) formatCIFailureMessage(result *git.CIWatchResult) string {
 	return sb.String()
 }
 
-// saveCIArtifact saves the CI result to ci-result.json.
-func (e *CIExecutor) saveCIArtifact(result *git.CIWatchResult, t *domain.Task, stepName string) string {
-	// Determine artifact directory
-	artifactDir := filepath.Join(constants.ArtifactsDir, t.ID, stepName)
-	if t.Metadata != nil {
-		if dir, ok := t.Metadata["artifact_dir"].(string); ok && dir != "" {
-			artifactDir = filepath.Join(dir, stepName)
-		}
-	}
-
-	if err := os.MkdirAll(artifactDir, 0o750); err != nil {
-		e.logger.Warn().Err(err).Msg("failed to create artifact directory")
+// saveCIArtifact saves the CI result to ci-result.json using the artifact saver.
+// Returns the artifact filename if saved successfully, empty string otherwise.
+func (e *CIExecutor) saveCIArtifact(ctx context.Context, result *git.CIWatchResult, t *domain.Task, stepName string) string {
+	// Skip if no artifact saver configured
+	if e.artifactSaver == nil {
+		e.logger.Debug().Msg("skipping CI artifact save - no artifact saver configured")
 		return ""
 	}
 
@@ -505,25 +506,26 @@ func (e *CIExecutor) saveCIArtifact(result *git.CIWatchResult, t *domain.Task, s
 	artifact.AllChecks = allChecks
 	artifact.FailedChecks = failedChecks
 
-	artifactPath := filepath.Join(artifactDir, "ci-result.json")
 	data, err := json.MarshalIndent(artifact, "", "  ")
 	if err != nil {
 		e.logger.Warn().Err(err).Msg("failed to marshal CI artifact")
 		return ""
 	}
 
-	if err := os.WriteFile(artifactPath, data, 0o600); err != nil {
-		e.logger.Warn().Err(err).Msg("failed to write CI artifact")
+	// Save using artifact saver with step-based subdirectory
+	filename := filepath.Join(stepName, "ci-result.json")
+	if err := e.artifactSaver.SaveArtifact(ctx, t.WorkspaceID, t.ID, filename, data); err != nil {
+		e.logger.Warn().Err(err).Msg("failed to save CI artifact")
 		return ""
 	}
 
 	e.logger.Info().
-		Str("path", artifactPath).
+		Str("filename", filename).
 		Str("status", artifact.Status).
 		Int("failed_checks", len(failedChecks)).
 		Msg("saved CI result artifact")
 
-	return artifactPath
+	return filename
 }
 
 // extractDuration extracts a duration from step config with fallback.

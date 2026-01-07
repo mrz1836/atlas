@@ -508,9 +508,7 @@ func TestCIExecutor_Execute_WatchError(t *testing.T) {
 }
 
 func TestCIExecutor_Execute_ArtifactSaving(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "ci-artifact-test")
-	require.NoError(t, err)
-	defer func() { _ = os.RemoveAll(tmpDir) }()
+	saver := newTestArtifactSaver()
 
 	mockRunner := &ciMockHubRunner{
 		watchResult: &git.CIWatchResult{
@@ -523,11 +521,12 @@ func TestCIExecutor_Execute_ArtifactSaving(t *testing.T) {
 		},
 	}
 
-	executor := NewCIExecutor(WithCIHubRunner(mockRunner))
+	executor := NewCIExecutor(WithCIHubRunner(mockRunner), WithCIArtifactSaver(saver))
 
 	task := &domain.Task{
-		ID:       "task-artifact-save",
-		Metadata: map[string]any{"pr_number": 42, "artifact_dir": tmpDir},
+		ID:          "task-artifact-save",
+		WorkspaceID: "test-ws",
+		Metadata:    map[string]any{"pr_number": 42},
 	}
 	step := &domain.StepDefinition{Name: "ci-wait", Type: domain.StepTypeCI}
 
@@ -537,16 +536,15 @@ func TestCIExecutor_Execute_ArtifactSaving(t *testing.T) {
 	assert.Equal(t, "success", result.Status)
 	assert.NotEmpty(t, result.ArtifactPath)
 
-	// Verify artifact was saved
-	artifactPath := filepath.Join(tmpDir, "ci-wait", "ci-result.json")
-	_, statErr := os.Stat(artifactPath)
-	assert.NoError(t, statErr)
+	// Verify artifact was saved via the saver
+	expectedFilename := filepath.Join("ci-wait", "ci-result.json")
+	data, ok := saver.savedArtifacts[expectedFilename]
+	require.True(t, ok, "artifact should have been saved")
+	assert.Contains(t, string(data), "success")
 }
 
 func TestCIExecutor_Execute_FailureArtifactWithFailedChecks(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "ci-failure-artifact-test")
-	require.NoError(t, err)
-	defer func() { _ = os.RemoveAll(tmpDir) }()
+	saver := newTestArtifactSaver()
 
 	mockRunner := &ciMockHubRunner{
 		watchResult: &git.CIWatchResult{
@@ -561,11 +559,12 @@ func TestCIExecutor_Execute_FailureArtifactWithFailedChecks(t *testing.T) {
 		},
 	}
 
-	executor := NewCIExecutor(WithCIHubRunner(mockRunner))
+	executor := NewCIExecutor(WithCIHubRunner(mockRunner), WithCIArtifactSaver(saver))
 
 	task := &domain.Task{
-		ID:       "task-failure-artifact",
-		Metadata: map[string]any{"pr_number": 42, "artifact_dir": tmpDir},
+		ID:          "task-failure-artifact",
+		WorkspaceID: "test-ws",
+		Metadata:    map[string]any{"pr_number": 42},
 	}
 	step := &domain.StepDefinition{Name: "ci-wait", Type: domain.StepTypeCI}
 
@@ -576,8 +575,9 @@ func TestCIExecutor_Execute_FailureArtifactWithFailedChecks(t *testing.T) {
 	assert.NotEmpty(t, result.ArtifactPath)
 
 	// Verify artifact was saved with failure info
-	data, readErr := os.ReadFile(result.ArtifactPath)
-	require.NoError(t, readErr)
+	expectedFilename := filepath.Join("ci-wait", "ci-result.json")
+	data, ok := saver.savedArtifacts[expectedFilename]
+	require.True(t, ok, "artifact should have been saved")
 	assert.Contains(t, string(data), "failure")
 	assert.Contains(t, string(data), "failed_checks")
 }
@@ -836,10 +836,7 @@ func TestCIExecutor_Execute_FetchError(t *testing.T) {
 
 func TestCIExecutor_Execute_FetchError_WithArtifact(t *testing.T) {
 	// Test that fetch error saves artifact with error details
-	tmpDir, err := os.MkdirTemp("", "ci-fetch-error-test")
-	require.NoError(t, err)
-	defer func() { _ = os.RemoveAll(tmpDir) }()
-
+	saver := newTestArtifactSaver()
 	mockRunner := &ciMockHubRunner{
 		watchResult: &git.CIWatchResult{
 			Status:      git.CIStatusFetchError,
@@ -848,12 +845,16 @@ func TestCIExecutor_Execute_FetchError_WithArtifact(t *testing.T) {
 		},
 	}
 
-	executor := NewCIExecutor(WithCIHubRunner(mockRunner))
+	executor := NewCIExecutor(
+		WithCIHubRunner(mockRunner),
+		WithCIArtifactSaver(saver),
+	)
 
 	task := &domain.Task{
 		ID:          "task-fetch-error-artifact",
+		WorkspaceID: "test-workspace",
 		CurrentStep: 0,
-		Metadata:    map[string]any{"pr_number": 42, "artifact_dir": tmpDir},
+		Metadata:    map[string]any{"pr_number": 42},
 	}
 	step := &domain.StepDefinition{
 		Name: "ci-wait",
@@ -866,7 +867,8 @@ func TestCIExecutor_Execute_FetchError_WithArtifact(t *testing.T) {
 	assert.Equal(t, "awaiting_approval", result.Status)
 	assert.NotEmpty(t, result.ArtifactPath)
 
-	// Verify artifact was saved
-	_, statErr := os.Stat(result.ArtifactPath)
-	assert.NoError(t, statErr)
+	// Verify artifact was saved to the artifact saver
+	assert.Len(t, saver.savedArtifacts, 1)
+	artifactKey := "ci-wait/ci-result.json"
+	assert.Contains(t, saver.savedArtifacts, artifactKey)
 }

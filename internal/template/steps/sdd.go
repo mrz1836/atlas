@@ -4,7 +4,6 @@ package steps
 import (
 	"context"
 	"fmt"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"sync"
@@ -43,25 +42,34 @@ var speckitChecker = struct {
 // SDDExecutor handles Speckit SDD steps.
 // It invokes Speckit via the AI runner to generate specification artifacts.
 type SDDExecutor struct {
-	runner       ai.Runner
-	artifactsDir string
-	workingDir   string
+	runner        ai.Runner
+	artifactSaver ArtifactSaver
+	workingDir    string
 }
 
 // NewSDDExecutor creates a new SDD executor.
-func NewSDDExecutor(runner ai.Runner, artifactsDir string) *SDDExecutor {
+// Deprecated: Use NewSDDExecutorWithArtifactSaver instead.
+func NewSDDExecutor(runner ai.Runner, _ string) *SDDExecutor {
 	return &SDDExecutor{
-		runner:       runner,
-		artifactsDir: artifactsDir,
+		runner: runner,
 	}
 }
 
 // NewSDDExecutorWithWorkingDir creates a new SDD executor with a custom working directory.
-func NewSDDExecutorWithWorkingDir(runner ai.Runner, artifactsDir, workingDir string) *SDDExecutor {
+// Deprecated: Use NewSDDExecutorWithArtifactSaver instead.
+func NewSDDExecutorWithWorkingDir(runner ai.Runner, _, workingDir string) *SDDExecutor {
 	return &SDDExecutor{
-		runner:       runner,
-		artifactsDir: artifactsDir,
-		workingDir:   workingDir,
+		runner:     runner,
+		workingDir: workingDir,
+	}
+}
+
+// NewSDDExecutorWithArtifactSaver creates a new SDD executor with artifact saving support.
+func NewSDDExecutorWithArtifactSaver(runner ai.Runner, saver ArtifactSaver, workingDir string) *SDDExecutor {
+	return &SDDExecutor{
+		runner:        runner,
+		artifactSaver: saver,
+		workingDir:    workingDir,
 	}
 }
 
@@ -121,7 +129,7 @@ func (e *SDDExecutor) Execute(ctx context.Context, task *domain.Task, step *doma
 
 	log.Debug().
 		Str("sdd_command", string(sddCmd)).
-		Str("artifacts_dir", e.artifactsDir).
+		Bool("has_artifact_saver", e.artifactSaver != nil).
 		Str("working_dir", e.workingDir).
 		Msg("executing sdd command")
 
@@ -201,7 +209,7 @@ func (e *SDDExecutor) Execute(ctx context.Context, task *domain.Task, step *doma
 	// Save artifact to file (implement command doesn't produce a single artifact)
 	var artifactPath string
 	if sddCmd != SDDCmdImplement {
-		artifactPath, err = e.saveArtifact(task.ID, sddCmd, result.Output)
+		artifactPath, err = e.saveArtifact(ctx, task, sddCmd, result.Output)
 		if err != nil {
 			log.Warn().
 				Err(err).
@@ -283,17 +291,12 @@ func getArtifactFilename(cmd SDDCommand) (string, bool) {
 	}
 }
 
-// saveArtifact saves the SDD output to a file in the artifacts directory.
+// saveArtifact saves the SDD output using the artifact saver.
 // Uses semantic naming (spec.md, plan.md, etc.) with versioning for retries.
-func (e *SDDExecutor) saveArtifact(taskID string, cmd SDDCommand, content string) (string, error) {
-	if e.artifactsDir == "" {
+// Returns the artifact filename if saved successfully, empty string otherwise.
+func (e *SDDExecutor) saveArtifact(ctx context.Context, task *domain.Task, cmd SDDCommand, content string) (string, error) {
+	if e.artifactSaver == nil {
 		return "", nil
-	}
-
-	// Ensure artifacts directory exists
-	taskDir := filepath.Join(e.artifactsDir, taskID)
-	if err := os.MkdirAll(taskDir, 0o750); err != nil {
-		return "", fmt.Errorf("failed to create artifacts directory: %w", err)
 	}
 
 	// Get semantic filename for this command
@@ -301,45 +304,22 @@ func (e *SDDExecutor) saveArtifact(taskID string, cmd SDDCommand, content string
 	if !hasMapping {
 		// Fallback to timestamp-based naming for unknown commands
 		baseFilename = fmt.Sprintf("sdd-%s-%d.md", cmd, time.Now().Unix())
-		artifactPath := filepath.Join(taskDir, baseFilename)
-		if err := os.WriteFile(artifactPath, []byte(content), 0o600); err != nil {
-			return "", fmt.Errorf("failed to write artifact: %w", err)
+		filename := filepath.Join("sdd", baseFilename)
+		if err := e.artifactSaver.SaveArtifact(ctx, task.WorkspaceID, task.ID, filename, []byte(content)); err != nil {
+			return "", fmt.Errorf("failed to save artifact: %w", err)
 		}
-		return artifactPath, nil
+		return filename, nil
 	}
 
-	// Use semantic filename with versioning
-	artifactPath := filepath.Join(taskDir, baseFilename)
-
-	// Check if file exists and determine version
-	if _, err := os.Stat(artifactPath); err == nil {
-		// File exists - find next version number
-		version := 1
-		for {
-			ext := filepath.Ext(baseFilename)
-			nameWithoutExt := baseFilename[:len(baseFilename)-len(ext)]
-			versionedFilename := fmt.Sprintf("%s.%d%s", nameWithoutExt, version, ext)
-			versionedPath := filepath.Join(taskDir, versionedFilename)
-
-			if _, err := os.Stat(versionedPath); os.IsNotExist(err) {
-				artifactPath = versionedPath
-				break
-			}
-			version++
-
-			// Safety limit to prevent infinite loops
-			if version > 100 {
-				return "", fmt.Errorf("%w: exceeded 100 versions for %s", atlaserrors.ErrTooManyVersions, baseFilename)
-			}
-		}
+	// Use semantic filename with versioning via artifact saver
+	// The saver's SaveVersionedArtifact handles version numbering automatically
+	baseName := filepath.Join("sdd", baseFilename)
+	filename, err := e.artifactSaver.SaveVersionedArtifact(ctx, task.WorkspaceID, task.ID, baseName, []byte(content))
+	if err != nil {
+		return "", fmt.Errorf("failed to save versioned artifact: %w", err)
 	}
 
-	// Write content with secure permissions
-	if err := os.WriteFile(artifactPath, []byte(content), 0o600); err != nil {
-		return "", fmt.Errorf("failed to write artifact: %w", err)
-	}
-
-	return artifactPath, nil
+	return filename, nil
 }
 
 // checkSpeckitInstalled verifies that the Speckit CLI (specify) is installed.

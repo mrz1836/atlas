@@ -1,6 +1,7 @@
 package steps
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -9,12 +10,23 @@ import (
 	"github.com/mrz1836/atlas/internal/domain"
 )
 
+// mockArtifactSaver is a test mock for ArtifactSaver.
+type mockArtifactSaver struct{}
+
+func (m *mockArtifactSaver) SaveArtifact(_ context.Context, _, _, _ string, _ []byte) error {
+	return nil
+}
+
+func (m *mockArtifactSaver) SaveVersionedArtifact(_ context.Context, _, _, _ string, _ []byte) (string, error) {
+	return "test-artifact.1.json", nil
+}
+
 func TestNewDefaultRegistry(t *testing.T) {
 	runner := &mockAIRunner{}
 	deps := ExecutorDeps{
-		AIRunner:     runner,
-		WorkDir:      "/tmp/work",
-		ArtifactsDir: "/tmp/artifacts",
+		AIRunner:      runner,
+		WorkDir:       "/tmp/work",
+		ArtifactSaver: &mockArtifactSaver{},
 	}
 
 	registry := NewDefaultRegistry(deps)
@@ -62,9 +74,9 @@ func TestNewDefaultRegistry_NilAIRunner(t *testing.T) {
 func TestNewDefaultRegistry_ExecutorTypes(t *testing.T) {
 	runner := &mockAIRunner{}
 	deps := ExecutorDeps{
-		AIRunner:     runner,
-		WorkDir:      "/tmp/work",
-		ArtifactsDir: "/tmp/artifacts",
+		AIRunner:      runner,
+		WorkDir:       "/tmp/work",
+		ArtifactSaver: &mockArtifactSaver{},
 	}
 
 	registry := NewDefaultRegistry(deps)
@@ -134,13 +146,14 @@ func TestNewMinimalRegistry_ExecutorTypes(t *testing.T) {
 
 func TestExecutorDeps(t *testing.T) {
 	runner := &mockAIRunner{}
+	saver := &mockArtifactSaver{}
 	deps := ExecutorDeps{
-		AIRunner:     runner,
-		WorkDir:      "/path/to/work",
-		ArtifactsDir: "/path/to/artifacts",
+		AIRunner:      runner,
+		WorkDir:       "/path/to/work",
+		ArtifactSaver: saver,
 	}
 
 	assert.Equal(t, runner, deps.AIRunner)
 	assert.Equal(t, "/path/to/work", deps.WorkDir)
-	assert.Equal(t, "/path/to/artifacts", deps.ArtifactsDir)
+	assert.Equal(t, saver, deps.ArtifactSaver)
 }
