@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -207,7 +208,7 @@ func TestNewManager(t *testing.T) {
 	store := newMockStore()
 	runner := newMockWorktreeRunner()
 
-	mgr := NewManager(store, runner)
+	mgr := NewManager(store, runner, zerolog.Nop())
 
 	require.NotNil(t, mgr)
 	assert.NotNil(t, mgr.store)
@@ -226,7 +227,7 @@ func TestDefaultManager_Create_Success(t *testing.T) {
 		Branch: "feat/test",
 	}
 
-	mgr := NewManager(store, runner)
+	mgr := NewManager(store, runner, zerolog.Nop())
 	ws, err := mgr.Create(context.Background(), "test", "/tmp/repo", "feat", "", false)
 
 	require.NoError(t, err)
@@ -247,7 +248,7 @@ func TestDefaultManager_Create_ValidatesNameUniqueness(t *testing.T) {
 	// Pre-create a workspace
 	store.workspaces["existing"] = &domain.Workspace{Name: "existing"}
 
-	mgr := NewManager(store, runner)
+	mgr := NewManager(store, runner, zerolog.Nop())
 	ws, err := mgr.Create(context.Background(), "existing", "/tmp/repo", "feat", "", false)
 
 	require.Error(t, err)
@@ -259,7 +260,7 @@ func TestDefaultManager_Create_ValidatesEmptyName(t *testing.T) {
 	store := newMockStore()
 	runner := newMockWorktreeRunner()
 
-	mgr := NewManager(store, runner)
+	mgr := NewManager(store, runner, zerolog.Nop())
 	ws, err := mgr.Create(context.Background(), "", "/tmp/repo", "feat", "", false)
 
 	require.Error(t, err)
@@ -273,7 +274,7 @@ func TestDefaultManager_Create_RollsBackWorktreeOnStoreFailure(t *testing.T) {
 	runner := newMockWorktreeRunner()
 	runner.createResult = &WorktreeInfo{Path: "/tmp/test", Branch: "feat/test"}
 
-	mgr := NewManager(store, runner)
+	mgr := NewManager(store, runner, zerolog.Nop())
 	ws, err := mgr.Create(context.Background(), "test", "/tmp/repo", "feat", "", false)
 
 	require.Error(t, err)
@@ -289,7 +290,7 @@ func TestDefaultManager_Create_FailsOnWorktreeError(t *testing.T) {
 	runner := newMockWorktreeRunner()
 	runner.createErr = atlaserrors.ErrWorktreeExists // Use sentinel error
 
-	mgr := NewManager(store, runner)
+	mgr := NewManager(store, runner, zerolog.Nop())
 	ws, err := mgr.Create(context.Background(), "test", "/tmp/repo", "feat", "", false)
 
 	require.Error(t, err)
@@ -303,7 +304,7 @@ func TestDefaultManager_Create_ContextCancellation(t *testing.T) {
 	store := newMockStore()
 	runner := newMockWorktreeRunner()
 
-	mgr := NewManager(store, runner)
+	mgr := NewManager(store, runner, zerolog.Nop())
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately
@@ -328,7 +329,7 @@ func TestDefaultManager_Get_ExistingWorkspace(t *testing.T) {
 	store.workspaces["existing"] = expectedWs
 	runner := newMockWorktreeRunner()
 
-	mgr := NewManager(store, runner)
+	mgr := NewManager(store, runner, zerolog.Nop())
 	ws, err := mgr.Get(context.Background(), "existing")
 
 	require.NoError(t, err)
@@ -340,7 +341,7 @@ func TestDefaultManager_Get_NonExistentWorkspace(t *testing.T) {
 	store := newMockStore()
 	runner := newMockWorktreeRunner()
 
-	mgr := NewManager(store, runner)
+	mgr := NewManager(store, runner, zerolog.Nop())
 	ws, err := mgr.Get(context.Background(), "nonexistent")
 
 	require.Error(t, err)
@@ -352,7 +353,7 @@ func TestDefaultManager_Get_ContextCancellation(t *testing.T) {
 	store := newMockStore()
 	runner := newMockWorktreeRunner()
 
-	mgr := NewManager(store, runner)
+	mgr := NewManager(store, runner, zerolog.Nop())
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -375,7 +376,7 @@ func TestDefaultManager_List_MultipleWorkspaces(t *testing.T) {
 	store.workspaces["ws3"] = &domain.Workspace{Name: "ws3", Status: constants.WorkspaceStatusClosed}
 	runner := newMockWorktreeRunner()
 
-	mgr := NewManager(store, runner)
+	mgr := NewManager(store, runner, zerolog.Nop())
 	workspaces, err := mgr.List(context.Background())
 
 	require.NoError(t, err)
@@ -386,7 +387,7 @@ func TestDefaultManager_List_EmptyStore(t *testing.T) {
 	store := newMockStore()
 	runner := newMockWorktreeRunner()
 
-	mgr := NewManager(store, runner)
+	mgr := NewManager(store, runner, zerolog.Nop())
 	workspaces, err := mgr.List(context.Background())
 
 	require.NoError(t, err)
@@ -398,7 +399,7 @@ func TestDefaultManager_List_ContextCancellation(t *testing.T) {
 	store := newMockStore()
 	runner := newMockWorktreeRunner()
 
-	mgr := NewManager(store, runner)
+	mgr := NewManager(store, runner, zerolog.Nop())
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -423,7 +424,7 @@ func TestDefaultManager_Destroy_CleanWorkspace(t *testing.T) {
 	}
 	runner := newMockWorktreeRunner()
 
-	mgr := NewManager(store, runner)
+	mgr := NewManager(store, runner, zerolog.Nop())
 	err := mgr.Destroy(context.Background(), "test")
 
 	require.NoError(t, err)
@@ -444,7 +445,7 @@ func TestDefaultManager_Destroy_SucceedsEvenIfCorrupted(t *testing.T) {
 	store.getErr = atlaserrors.ErrWorkspaceCorrupted
 	runner := newMockWorktreeRunner()
 
-	mgr := NewManager(store, runner)
+	mgr := NewManager(store, runner, zerolog.Nop())
 	err := mgr.Destroy(context.Background(), "corrupted")
 
 	// MUST succeed even with corrupted state
@@ -456,7 +457,7 @@ func TestDefaultManager_Destroy_SucceedsIfNotFound(t *testing.T) {
 	store := newMockStore()
 	runner := newMockWorktreeRunner()
 
-	mgr := NewManager(store, runner)
+	mgr := NewManager(store, runner, zerolog.Nop())
 	err := mgr.Destroy(context.Background(), "nonexistent")
 
 	// MUST succeed even if workspace doesn't exist
@@ -473,7 +474,7 @@ func TestDefaultManager_Destroy_CleansBranchesEvenOnPartialFailure(t *testing.T)
 	runner := newMockWorktreeRunner()
 	runner.removeErr = atlaserrors.ErrNotAWorktree // Use sentinel error
 
-	mgr := NewManager(store, runner)
+	mgr := NewManager(store, runner, zerolog.Nop())
 	err := mgr.Destroy(context.Background(), "test")
 
 	// MUST still succeed
@@ -488,7 +489,7 @@ func TestDefaultManager_Destroy_ContextCancellation(t *testing.T) {
 	store := newMockStore()
 	runner := newMockWorktreeRunner()
 
-	mgr := NewManager(store, runner)
+	mgr := NewManager(store, runner, zerolog.Nop())
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -510,7 +511,7 @@ func TestDefaultManager_Destroy_NilWorktreeRunner(t *testing.T) {
 	}
 
 	// Pass nil worktree runner - simulates when repo detection fails
-	mgr := NewManager(store, nil)
+	mgr := NewManager(store, nil, zerolog.Nop())
 	err := mgr.Destroy(context.Background(), "test")
 
 	// MUST succeed per NFR18 - even without a worktree runner
@@ -535,7 +536,7 @@ func TestDefaultManager_Destroy_PrunesBeforeBranchDelete(t *testing.T) {
 	runner := newMockWorktreeRunner()
 	runner.removeErr = atlaserrors.ErrNotAWorktree // Simulate worktree remove failure
 
-	mgr := NewManager(store, runner)
+	mgr := NewManager(store, runner, zerolog.Nop())
 	err := mgr.Destroy(context.Background(), "test")
 
 	require.NoError(t, err)
@@ -573,7 +574,7 @@ func TestDefaultManager_Destroy_VerifiesWorktreeRemoval(t *testing.T) {
 	runner := newMockWorktreeRunner()
 	runner.removeErr = atlaserrors.ErrWorktreeDirty // Simulate removal failure
 
-	mgr := NewManager(store, runner)
+	mgr := NewManager(store, runner, zerolog.Nop())
 	err := mgr.Destroy(context.Background(), "test")
 
 	require.NoError(t, err)
@@ -593,7 +594,7 @@ func TestDefaultManager_Destroy_VerifiesWorktreeRemoval(t *testing.T) {
 
 func TestRemoveOrphanedDirectory(t *testing.T) {
 	t.Run("returns nil if path does not exist", func(t *testing.T) {
-		err := removeOrphanedDirectory("/nonexistent/path/xyz123")
+		err := removeOrphanedDirectory(zerolog.Nop(), "/nonexistent/path/xyz123")
 		require.NoError(t, err)
 	})
 
@@ -608,7 +609,7 @@ func TestRemoveOrphanedDirectory(t *testing.T) {
 		err = os.WriteFile(testFile, []byte("test"), 0o600)
 		require.NoError(t, err)
 
-		err = removeOrphanedDirectory(orphanedPath)
+		err = removeOrphanedDirectory(zerolog.Nop(), orphanedPath)
 		require.NoError(t, err)
 
 		// Directory should be gone
@@ -622,7 +623,7 @@ func TestRemoveOrphanedDirectory(t *testing.T) {
 		err := os.WriteFile(filePath, []byte("test"), 0o600)
 		require.NoError(t, err)
 
-		err = removeOrphanedDirectory(filePath)
+		err = removeOrphanedDirectory(zerolog.Nop(), filePath)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "not a directory")
 	})
@@ -643,7 +644,7 @@ func TestDefaultManager_Close_CleanWorkspace(t *testing.T) {
 	}
 	runner := newMockWorktreeRunner()
 
-	mgr := NewManager(store, runner)
+	mgr := NewManager(store, runner, zerolog.Nop())
 	result, err := mgr.Close(context.Background(), "test")
 
 	require.NoError(t, err)
@@ -675,7 +676,7 @@ func TestDefaultManager_Close_StoreUpdateFailure(t *testing.T) {
 	store.updateErr = atlaserrors.ErrLockTimeout // Store update fails
 	runner := newMockWorktreeRunner()
 
-	mgr := NewManager(store, runner)
+	mgr := NewManager(store, runner, zerolog.Nop())
 	result, err := mgr.Close(context.Background(), "test")
 
 	// Should fail with store error
@@ -700,7 +701,7 @@ func TestDefaultManager_Close_WithRunningTasksReturnsError(t *testing.T) {
 	}
 	runner := newMockWorktreeRunner()
 
-	mgr := NewManager(store, runner)
+	mgr := NewManager(store, runner, zerolog.Nop())
 	result, err := mgr.Close(context.Background(), "test")
 
 	require.Error(t, err)
@@ -724,7 +725,7 @@ func TestDefaultManager_Close_WithValidatingTasksReturnsError(t *testing.T) {
 	}
 	runner := newMockWorktreeRunner()
 
-	mgr := NewManager(store, runner)
+	mgr := NewManager(store, runner, zerolog.Nop())
 	result, err := mgr.Close(context.Background(), "test")
 
 	require.Error(t, err)
@@ -745,7 +746,7 @@ func TestDefaultManager_Close_WithCompletedTasksSucceeds(t *testing.T) {
 	}
 	runner := newMockWorktreeRunner()
 
-	mgr := NewManager(store, runner)
+	mgr := NewManager(store, runner, zerolog.Nop())
 	result, err := mgr.Close(context.Background(), "test")
 
 	require.NoError(t, err)
@@ -757,7 +758,7 @@ func TestDefaultManager_Close_NonExistentWorkspace(t *testing.T) {
 	store := newMockStore()
 	runner := newMockWorktreeRunner()
 
-	mgr := NewManager(store, runner)
+	mgr := NewManager(store, runner, zerolog.Nop())
 	result, err := mgr.Close(context.Background(), "nonexistent")
 
 	require.Error(t, err)
@@ -769,7 +770,7 @@ func TestDefaultManager_Close_ContextCancellation(t *testing.T) {
 	store := newMockStore()
 	runner := newMockWorktreeRunner()
 
-	mgr := NewManager(store, runner)
+	mgr := NewManager(store, runner, zerolog.Nop())
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -795,7 +796,7 @@ func TestDefaultManager_Close_NilWorktreeRunner(t *testing.T) {
 	}
 
 	// Pass nil worktree runner
-	mgr := NewManager(store, nil)
+	mgr := NewManager(store, nil, zerolog.Nop())
 	result, err := mgr.Close(context.Background(), "test")
 
 	// Should succeed - state update is more important than worktree removal
@@ -824,7 +825,7 @@ func TestDefaultManager_UpdateStatus_Success(t *testing.T) {
 	}
 	runner := newMockWorktreeRunner()
 
-	mgr := NewManager(store, runner)
+	mgr := NewManager(store, runner, zerolog.Nop())
 	err := mgr.UpdateStatus(context.Background(), "test", constants.WorkspaceStatusPaused)
 
 	require.NoError(t, err)
@@ -836,7 +837,7 @@ func TestDefaultManager_UpdateStatus_NonExistentWorkspace(t *testing.T) {
 	store := newMockStore()
 	runner := newMockWorktreeRunner()
 
-	mgr := NewManager(store, runner)
+	mgr := NewManager(store, runner, zerolog.Nop())
 	err := mgr.UpdateStatus(context.Background(), "nonexistent", constants.WorkspaceStatusPaused)
 
 	require.Error(t, err)
@@ -847,7 +848,7 @@ func TestDefaultManager_UpdateStatus_ContextCancellation(t *testing.T) {
 	store := newMockStore()
 	runner := newMockWorktreeRunner()
 
-	mgr := NewManager(store, runner)
+	mgr := NewManager(store, runner, zerolog.Nop())
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -867,7 +868,7 @@ func TestDefaultManager_UpdateStatus_StoreUpdateFailure(t *testing.T) {
 	store.updateErr = atlaserrors.ErrLockTimeout // Store update fails
 	runner := newMockWorktreeRunner()
 
-	mgr := NewManager(store, runner)
+	mgr := NewManager(store, runner, zerolog.Nop())
 	err := mgr.UpdateStatus(context.Background(), "test", constants.WorkspaceStatusPaused)
 
 	require.Error(t, err)
@@ -887,7 +888,7 @@ func TestDefaultManager_Exists_ExistingWorkspace(t *testing.T) {
 	store.workspaces["test"] = &domain.Workspace{Name: "test"}
 	runner := newMockWorktreeRunner()
 
-	mgr := NewManager(store, runner)
+	mgr := NewManager(store, runner, zerolog.Nop())
 	exists, err := mgr.Exists(context.Background(), "test")
 
 	require.NoError(t, err)
@@ -898,7 +899,7 @@ func TestDefaultManager_Exists_NonExistentWorkspace(t *testing.T) {
 	store := newMockStore()
 	runner := newMockWorktreeRunner()
 
-	mgr := NewManager(store, runner)
+	mgr := NewManager(store, runner, zerolog.Nop())
 	exists, err := mgr.Exists(context.Background(), "nonexistent")
 
 	require.NoError(t, err)
@@ -909,7 +910,7 @@ func TestDefaultManager_Exists_ContextCancellation(t *testing.T) {
 	store := newMockStore()
 	runner := newMockWorktreeRunner()
 
-	mgr := NewManager(store, runner)
+	mgr := NewManager(store, runner, zerolog.Nop())
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -926,7 +927,7 @@ func TestDefaultManager_Exists_StoreError(t *testing.T) {
 	store.existsErr = atlaserrors.ErrLockTimeout
 	runner := newMockWorktreeRunner()
 
-	mgr := NewManager(store, runner)
+	mgr := NewManager(store, runner, zerolog.Nop())
 	exists, err := mgr.Exists(context.Background(), "test")
 
 	require.Error(t, err)
@@ -943,7 +944,7 @@ func TestDefaultManager_Create_CheckExistenceError(t *testing.T) {
 	store.getErr = atlaserrors.ErrLockTimeout // Use sentinel error
 	runner := newMockWorktreeRunner()
 
-	mgr := NewManager(store, runner)
+	mgr := NewManager(store, runner, zerolog.Nop())
 	ws, err := mgr.Create(context.Background(), "test", "/tmp/repo", "feat", "", false)
 
 	require.Error(t, err)
@@ -962,7 +963,7 @@ func TestDefaultManager_Close_ForceRemoveOnDirty(t *testing.T) {
 	}
 	runner := &forceRemoveMockRunner{firstCallFails: true}
 
-	mgr := NewManager(store, runner)
+	mgr := NewManager(store, runner, zerolog.Nop())
 	result, err := mgr.Close(context.Background(), "test")
 
 	require.NoError(t, err)
@@ -1005,7 +1006,7 @@ func TestDefaultManager_Close_BothRemoveAttemptsFail(t *testing.T) {
 	}
 	runner := &alwaysFailRemoveMockRunner{}
 
-	mgr := NewManager(store, runner)
+	mgr := NewManager(store, runner, zerolog.Nop())
 	result, err := mgr.Close(context.Background(), "test")
 
 	// Close succeeds (state is updated) but with warning
@@ -1049,7 +1050,7 @@ func TestDefaultManager_Close_NoWorktreePath(t *testing.T) {
 	// FindByBranch returns empty (no worktree found)
 	runner.findByBranchResult = ""
 
-	mgr := NewManager(store, runner)
+	mgr := NewManager(store, runner, zerolog.Nop())
 	result, err := mgr.Close(context.Background(), "test")
 
 	require.NoError(t, err)
@@ -1081,7 +1082,7 @@ func TestDefaultManager_Close_DiscoverWorktreeByBranch(t *testing.T) {
 	// FindByBranch returns the orphaned worktree path
 	runner.findByBranchResult = "/tmp/repo-test"
 
-	mgr := NewManager(store, runner)
+	mgr := NewManager(store, runner, zerolog.Nop())
 	result, err := mgr.Close(context.Background(), "test")
 
 	require.NoError(t, err)
@@ -1121,7 +1122,7 @@ func TestDefaultManager_Close_WorktreePathPreservedOnRemovalFailure(t *testing.T
 	// Both remove attempts will fail
 	runner.removeErr = fmt.Errorf("permission denied: %w", atlaserrors.ErrWorktreeDirty)
 
-	mgr := NewManager(store, runner)
+	mgr := NewManager(store, runner, zerolog.Nop())
 	result, err := mgr.Close(context.Background(), "test")
 
 	require.NoError(t, err) // Close itself should succeed
@@ -1150,7 +1151,7 @@ func TestDefaultManager_Close_DeletesBranchOnSuccess(t *testing.T) {
 	// FindByBranch returns empty (no other worktrees using this branch)
 	runner.findByBranchResult = ""
 
-	mgr := NewManager(store, runner)
+	mgr := NewManager(store, runner, zerolog.Nop())
 	result, err := mgr.Close(context.Background(), "test")
 
 	require.NoError(t, err)
@@ -1190,7 +1191,7 @@ func TestDefaultManager_Close_SkipsBranchDeletionWhenWorktreeRemovalFails(t *tes
 	// Both normal and force removal will fail
 	runner.removeErr = fmt.Errorf("permission denied: %w", atlaserrors.ErrWorktreeDirty)
 
-	mgr := NewManager(store, runner)
+	mgr := NewManager(store, runner, zerolog.Nop())
 	result, err := mgr.Close(context.Background(), "test")
 
 	require.NoError(t, err) // Close itself succeeds
@@ -1219,7 +1220,7 @@ func TestDefaultManager_Close_SkipsBranchDeletionWhenBranchInUse(t *testing.T) {
 	// FindByBranch returns another worktree path (branch is in use)
 	runner.findByBranchResult = "/tmp/repo-shared-2"
 
-	mgr := NewManager(store, runner)
+	mgr := NewManager(store, runner, zerolog.Nop())
 	result, err := mgr.Close(context.Background(), "test")
 
 	require.NoError(t, err)
@@ -1251,7 +1252,7 @@ func TestDefaultManager_Close_ContinuesWhenBranchDeletionFails(t *testing.T) {
 	runner.findByBranchResult = ""                       // Not in use
 	runner.deleteBranchErr = atlaserrors.ErrGitOperation // Deletion fails
 
-	mgr := NewManager(store, runner)
+	mgr := NewManager(store, runner, zerolog.Nop())
 	result, err := mgr.Close(context.Background(), "test")
 
 	require.NoError(t, err) // Close itself succeeds
@@ -1280,7 +1281,7 @@ func TestDefaultManager_Close_ContinuesWhenPruneFails(t *testing.T) {
 	runner.findByBranchResult = ""
 	runner.pruneErr = atlaserrors.ErrGitOperation // Prune fails
 
-	mgr := NewManager(store, runner)
+	mgr := NewManager(store, runner, zerolog.Nop())
 	result, err := mgr.Close(context.Background(), "test")
 
 	require.NoError(t, err)
@@ -1297,7 +1298,7 @@ func TestDefaultManager_SupportsConcurrentWorkspaces(t *testing.T) {
 	store := newMockStore()
 	runner := newMockWorktreeRunner()
 
-	mgr := NewManager(store, runner)
+	mgr := NewManager(store, runner, zerolog.Nop())
 
 	// Create 5 workspaces sequentially (basic functionality test)
 	for i := 0; i < 5; i++ {
@@ -1321,7 +1322,7 @@ func TestDefaultManager_Create_ValidatesEmptyRepoPath(t *testing.T) {
 	store := newMockStore()
 	runner := newMockWorktreeRunner()
 
-	mgr := NewManager(store, runner)
+	mgr := NewManager(store, runner, zerolog.Nop())
 	ws, err := mgr.Create(context.Background(), "test", "", "feat", "", false)
 
 	require.Error(t, err)
@@ -1334,7 +1335,7 @@ func TestDefaultManager_Create_ValidatesEmptyBranchType(t *testing.T) {
 	store := newMockStore()
 	runner := newMockWorktreeRunner()
 
-	mgr := NewManager(store, runner)
+	mgr := NewManager(store, runner, zerolog.Nop())
 	ws, err := mgr.Create(context.Background(), "test", "/tmp/repo", "", "", false)
 
 	require.Error(t, err)
@@ -1347,7 +1348,7 @@ func TestDefaultManager_Create_ValidatesNilWorktreeRunner(t *testing.T) {
 	store := newMockStore()
 
 	// Pass nil worktree runner
-	mgr := NewManager(store, nil)
+	mgr := NewManager(store, nil, zerolog.Nop())
 	ws, err := mgr.Create(context.Background(), "test", "/tmp/repo", "task", "", false)
 
 	require.Error(t, err)
@@ -1368,7 +1369,7 @@ func TestDefaultManager_Create_WithLocalBaseBranch(t *testing.T) {
 		Branch: "feat/test",
 	}
 
-	mgr := NewManager(store, runner)
+	mgr := NewManager(store, runner, zerolog.Nop())
 	// Use useLocal=true to explicitly prefer local branch
 	ws, err := mgr.Create(context.Background(), "test", "/tmp/repo", "feat", "develop", true)
 
@@ -1389,7 +1390,7 @@ func TestDefaultManager_Create_WithRemoteBaseBranch(t *testing.T) {
 		Branch: "feat/test",
 	}
 
-	mgr := NewManager(store, runner)
+	mgr := NewManager(store, runner, zerolog.Nop())
 	ws, err := mgr.Create(context.Background(), "test", "/tmp/repo", "feat", "develop", false)
 
 	require.NoError(t, err)
@@ -1404,7 +1405,7 @@ func TestDefaultManager_Create_WithNonExistentBaseBranch(t *testing.T) {
 	runner.branchExists = false       // Not local
 	runner.remoteBranchExists = false // Not remote either
 
-	mgr := NewManager(store, runner)
+	mgr := NewManager(store, runner, zerolog.Nop())
 	ws, err := mgr.Create(context.Background(), "test", "/tmp/repo", "feat", "nonexistent", false)
 
 	require.Error(t, err)
@@ -1425,7 +1426,7 @@ func TestDefaultManager_Create_WithBaseBranch_FetchError(t *testing.T) {
 		Branch: "feat/test",
 	}
 
-	mgr := NewManager(store, runner)
+	mgr := NewManager(store, runner, zerolog.Nop())
 	// Even if fetch fails, if remote branch exists (from stale refs), we should succeed
 	ws, err := mgr.Create(context.Background(), "test", "/tmp/repo", "feat", "develop", false)
 
@@ -1439,7 +1440,7 @@ func TestDefaultManager_Create_WithBaseBranch_RemoteCheckError(t *testing.T) {
 	runner.branchExists = false
 	runner.remoteBranchExistsErr = atlaserrors.ErrGitOperation
 
-	mgr := NewManager(store, runner)
+	mgr := NewManager(store, runner, zerolog.Nop())
 	ws, err := mgr.Create(context.Background(), "test", "/tmp/repo", "feat", "develop", false)
 
 	require.Error(t, err)
@@ -1452,7 +1453,7 @@ func TestDefaultManager_Create_WithBaseBranch_LocalCheckError(t *testing.T) {
 	runner := newMockWorktreeRunner()
 	runner.branchExistsErr = atlaserrors.ErrGitOperation
 
-	mgr := NewManager(store, runner)
+	mgr := NewManager(store, runner, zerolog.Nop())
 	ws, err := mgr.Create(context.Background(), "test", "/tmp/repo", "feat", "develop", false)
 
 	require.Error(t, err)
@@ -1467,7 +1468,7 @@ func TestDefaultManager_Create_PrefersRemoteBranch_Default(t *testing.T) {
 	runner.branchExists = true       // Local exists
 	runner.remoteBranchExists = true // Remote exists
 
-	mgr := NewManager(store, runner)
+	mgr := NewManager(store, runner, zerolog.Nop())
 	ws, err := mgr.Create(context.Background(), "test", "/tmp/repo", "feat", "main", false)
 
 	require.NoError(t, err)
@@ -1485,7 +1486,7 @@ func TestDefaultManager_Create_UseLocalFlag_PrefersLocal(t *testing.T) {
 	runner.branchExists = true       // Local exists
 	runner.remoteBranchExists = true // Remote exists
 
-	mgr := NewManager(store, runner)
+	mgr := NewManager(store, runner, zerolog.Nop())
 	ws, err := mgr.Create(context.Background(), "test", "/tmp/repo", "feat", "main", true)
 
 	require.NoError(t, err)
@@ -1501,7 +1502,7 @@ func TestDefaultManager_Create_FallbackToLocal(t *testing.T) {
 	runner.branchExists = true        // Local exists
 	runner.remoteBranchExists = false // Remote missing
 
-	mgr := NewManager(store, runner)
+	mgr := NewManager(store, runner, zerolog.Nop())
 	ws, err := mgr.Create(context.Background(), "test", "/tmp/repo", "feat", "local-only", false)
 
 	require.NoError(t, err)
@@ -1518,7 +1519,7 @@ func TestDefaultManager_Create_UseLocalError_OnlyRemote(t *testing.T) {
 	runner.branchExists = false      // Not local
 	runner.remoteBranchExists = true // Only remote
 
-	mgr := NewManager(store, runner)
+	mgr := NewManager(store, runner, zerolog.Nop())
 	ws, err := mgr.Create(context.Background(), "test", "/tmp/repo", "feat", "remote-only", true)
 
 	require.Error(t, err)
@@ -1536,7 +1537,7 @@ func TestDefaultManager_Create_BranchNotFound_Anywhere(t *testing.T) {
 	runner.remoteBranchExists = false // Not remote
 
 	// Test with useLocal=false (default)
-	mgr := NewManager(store, runner)
+	mgr := NewManager(store, runner, zerolog.Nop())
 	ws, err := mgr.Create(context.Background(), "test", "/tmp/repo", "feat", "nonexistent", false)
 
 	require.Error(t, err)

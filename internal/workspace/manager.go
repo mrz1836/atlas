@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/rs/zerolog/log"
+	"github.com/rs/zerolog"
 
 	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/domain"
@@ -68,13 +68,15 @@ type Manager interface {
 type DefaultManager struct {
 	store          Store
 	worktreeRunner WorktreeRunner
+	logger         zerolog.Logger
 }
 
 // NewManager creates a new DefaultManager.
-func NewManager(store Store, worktreeRunner WorktreeRunner) *DefaultManager {
+func NewManager(store Store, worktreeRunner WorktreeRunner, logger zerolog.Logger) *DefaultManager {
 	return &DefaultManager{
 		store:          store,
 		worktreeRunner: worktreeRunner,
+		logger:         logger,
 	}
 }
 
@@ -219,7 +221,7 @@ func (m *DefaultManager) Destroy(ctx context.Context, name string) error {
 	// NFR18: ALWAYS succeed - warnings are collected but not returned as errors
 	// Log warnings for debugging and observability
 	for _, warn := range warnings {
-		log.Warn().Err(warn).Str("workspace", name).Msg("destroy warning")
+		m.logger.Warn().Err(warn).Str("workspace", name).Msg("destroy warning")
 	}
 
 	return nil
@@ -227,7 +229,7 @@ func (m *DefaultManager) Destroy(ctx context.Context, name string) error {
 
 // removeOrphanedDirectory removes a directory that is no longer a registered git worktree.
 // This is used as a fallback when git worktree remove fails.
-func removeOrphanedDirectory(path string) error {
+func removeOrphanedDirectory(logger zerolog.Logger, path string) error {
 	// Check if path exists
 	info, err := os.Stat(path)
 	if os.IsNotExist(err) {
@@ -242,7 +244,7 @@ func removeOrphanedDirectory(path string) error {
 		return fmt.Errorf("%w: %s", atlaserrors.ErrNotADirectory, path)
 	}
 
-	log.Info().Str("path", path).Msg("removing orphaned worktree directory")
+	logger.Info().Str("path", path).Msg("removing orphaned worktree directory")
 	return os.RemoveAll(path)
 }
 
@@ -281,7 +283,7 @@ func (m *DefaultManager) Close(ctx context.Context, name string) (*CloseResult, 
 	if worktreePath == "" && m.worktreeRunner != nil && ws.Branch != "" {
 		worktreePath = m.worktreeRunner.FindByBranch(ctx, ws.Branch)
 		if worktreePath != "" {
-			log.Info().
+			m.logger.Info().
 				Str("branch", ws.Branch).
 				Str("discovered_path", worktreePath).
 				Msg("discovered orphaned worktree by branch")
@@ -313,7 +315,7 @@ func (m *DefaultManager) Close(ctx context.Context, name string) (*CloseResult, 
 		return nil, fmt.Errorf("failed to update workspace status: %w", err)
 	}
 
-	logEvent := log.Info().Str("workspace", name)
+	logEvent := m.logger.Info().Str("workspace", name)
 	if result.WorktreeWarning != "" {
 		logEvent = logEvent.Str("warning", result.WorktreeWarning)
 	}
@@ -394,16 +396,16 @@ func (m *DefaultManager) verifyWorktreeRemoved(ctx context.Context, path string)
 func (m *DefaultManager) verifyAndLogRemoval(ctx context.Context, path string) bool {
 	dirExists, inGit, verifyErr := m.verifyWorktreeRemoved(ctx, path)
 	if verifyErr != nil {
-		log.Warn().Err(verifyErr).Msg("could not verify worktree removal")
+		m.logger.Warn().Err(verifyErr).Msg("could not verify worktree removal")
 		return false
 	}
 
 	if !dirExists && !inGit {
-		log.Debug().Str("path", path).Msg("worktree removed successfully")
+		m.logger.Debug().Str("path", path).Msg("worktree removed successfully")
 		return true
 	}
 
-	log.Warn().
+	m.logger.Warn().
 		Bool("dir_exists", dirExists).
 		Bool("in_git", inGit).
 		Str("path", path).
@@ -439,7 +441,7 @@ func (m *DefaultManager) tryDeleteBranch(ctx context.Context, branch string) str
 	// Step 1: Prune BEFORE attempting branch deletion (critical for safety)
 	// This cleans up stale worktree metadata to prevent "branch is checked out" errors
 	if err := m.worktreeRunner.Prune(ctx); err != nil {
-		log.Warn().Err(err).Msg("prune failed before branch deletion")
+		m.logger.Warn().Err(err).Msg("prune failed before branch deletion")
 	}
 
 	// Step 2: Safety check - ensure no other worktrees use this branch
@@ -454,7 +456,7 @@ func (m *DefaultManager) tryDeleteBranch(ctx context.Context, branch string) str
 		return fmt.Sprintf("failed to delete branch '%s': %v", branch, err)
 	}
 
-	log.Info().Str("branch", branch).Msg("branch deleted after workspace close")
+	m.logger.Info().Str("branch", branch).Msg("branch deleted after workspace close")
 	return ""
 }
 
@@ -490,7 +492,7 @@ func (m *DefaultManager) removeWorktree(ctx context.Context, ws *domain.Workspac
 		// state was persisted but worktree removal failed
 		worktreePath = m.worktreeRunner.FindByBranch(ctx, ws.Branch)
 		if worktreePath != "" {
-			log.Info().
+			m.logger.Info().
 				Str("branch", ws.Branch).
 				Str("discovered_path", worktreePath).
 				Msg("discovered orphaned worktree by branch for destroy")
@@ -515,16 +517,16 @@ func (m *DefaultManager) removeWorktree(ctx context.Context, ws *domain.Workspac
 	}
 
 	// Attempt 2: Fallback to manual directory removal + immediate prune
-	log.Info().Str("path", worktreePath).Msg("attempting fallback: manual directory removal")
-	if removeErr := removeOrphanedDirectory(worktreePath); removeErr != nil {
+	m.logger.Info().Str("path", worktreePath).Msg("attempting fallback: manual directory removal")
+	if removeErr := removeOrphanedDirectory(m.logger, worktreePath); removeErr != nil {
 		*warnings = append(*warnings, fmt.Errorf("warning: failed to remove directory '%s': %w", worktreePath, removeErr))
 		return // Can't proceed with cleanup
 	}
 
 	// After removing directory, immediately try to prune to clean up git metadata
-	log.Debug().Msg("directory removed, attempting immediate prune")
+	m.logger.Debug().Msg("directory removed, attempting immediate prune")
 	if pruneErr := m.worktreeRunner.Prune(ctx); pruneErr != nil {
-		log.Warn().Err(pruneErr).Msg("prune after directory removal failed")
+		m.logger.Warn().Err(pruneErr).Msg("prune after directory removal failed")
 	}
 
 	// Final verification
@@ -537,7 +539,7 @@ func (m *DefaultManager) removeWorktree(ctx context.Context, ws *domain.Workspac
 			"warning: worktree cleanup incomplete for '%s' (dir_exists=%v, in_git_metadata=%v)",
 			worktreePath, dirExists, inGit))
 	} else {
-		log.Info().Str("path", worktreePath).Msg("worktree removed via fallback + prune")
+		m.logger.Info().Str("path", worktreePath).Msg("worktree removed via fallback + prune")
 	}
 }
 
@@ -599,7 +601,7 @@ func (m *DefaultManager) ensureBaseBranch(ctx context.Context, branch string, us
 		return "", fmt.Errorf("failed to check local branch: %w", err)
 	}
 
-	log.Debug().
+	m.logger.Debug().
 		Str("branch", branch).
 		Bool("local_exists", localExists).
 		Bool("use_local", useLocal).
@@ -608,7 +610,7 @@ func (m *DefaultManager) ensureBaseBranch(ctx context.Context, branch string, us
 	// If useLocal is true, use the current logic (local first)
 	if useLocal {
 		if localExists {
-			log.Info().
+			m.logger.Info().
 				Str("branch", branch).
 				Str("source", "local").
 				Bool("use_local_flag", true).
@@ -634,7 +636,7 @@ func (m *DefaultManager) ensureBaseBranch(ctx context.Context, branch string, us
 		return "", fmt.Errorf("failed to check remote branch: %w", err)
 	}
 
-	log.Debug().
+	m.logger.Debug().
 		Str("branch", branch).
 		Bool("remote_exists", remoteExists).
 		Bool("local_exists", localExists).
@@ -642,7 +644,7 @@ func (m *DefaultManager) ensureBaseBranch(ctx context.Context, branch string, us
 		Msg("checked remote branch availability")
 
 	if remoteExists {
-		log.Info().
+		m.logger.Info().
 			Str("branch", branch).
 			Str("source", "remote").
 			Str("remote", "origin").
@@ -655,7 +657,7 @@ func (m *DefaultManager) ensureBaseBranch(ctx context.Context, branch string, us
 	// Fallback to local if remote doesn't exist but local does
 	// This allows working with local-only branches
 	if localExists {
-		log.Info().
+		m.logger.Info().
 			Str("branch", branch).
 			Str("source", "local").
 			Bool("remote_exists", false).

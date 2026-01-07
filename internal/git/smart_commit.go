@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/rs/zerolog/log"
+	"github.com/rs/zerolog"
 
 	"github.com/mrz1836/atlas/internal/ai"
 	"github.com/mrz1836/atlas/internal/domain"
@@ -25,6 +25,7 @@ type SmartCommitRunner struct {
 	runner          Runner           // Git runner for CLI operations
 	aiRunner        ai.Runner        // AI runner for commit message generation
 	garbageDetector *GarbageDetector // Garbage file detector
+	logger          zerolog.Logger   // Logger for operations
 	workDir         string           // Working directory
 	taskID          string           // Current task ID (kept for artifact metadata)
 	templateName    string           // Template name (kept for artifact metadata)
@@ -80,6 +81,13 @@ func WithAgent(agent string) SmartCommitRunnerOption {
 	}
 }
 
+// WithLogger sets the logger for the runner.
+func WithLogger(logger zerolog.Logger) SmartCommitRunnerOption {
+	return func(r *SmartCommitRunner) {
+		r.logger = logger
+	}
+}
+
 // NewSmartCommitRunner creates a new SmartCommitRunner.
 // The aiRunner is optional - if nil, simple message generation will be used.
 func NewSmartCommitRunner(gitRunner Runner, workDir string, aiRunner ai.Runner, opts ...SmartCommitRunnerOption) *SmartCommitRunner {
@@ -87,6 +95,7 @@ func NewSmartCommitRunner(gitRunner Runner, workDir string, aiRunner ai.Runner, 
 		runner:          gitRunner,
 		aiRunner:        aiRunner,
 		garbageDetector: NewGarbageDetector(nil),
+		logger:          zerolog.Nop(),
 		workDir:         workDir,
 	}
 
@@ -106,7 +115,7 @@ func (r *SmartCommitRunner) Analyze(ctx context.Context) (*CommitAnalysis, error
 	default:
 	}
 
-	log.Debug().Str("work_dir", r.workDir).Msg("analyzing worktree for smart commit")
+	r.logger.Debug().Str("work_dir", r.workDir).Msg("analyzing worktree for smart commit")
 
 	// Get current status
 	status, err := r.runner.Status(ctx)
@@ -158,7 +167,7 @@ func (r *SmartCommitRunner) Analyze(ctx context.Context) (*CommitAnalysis, error
 	// Group files by package
 	fileGroups := GroupFilesByPackage(cleanFiles)
 
-	log.Debug().
+	r.logger.Debug().
 		Int("total_files", len(allFiles)).
 		Int("garbage_files", len(garbageFiles)).
 		Int("file_groups", len(fileGroups)).
@@ -240,12 +249,12 @@ func (r *SmartCommitRunner) Commit(ctx context.Context, opts CommitOptions) (*Co
 	if r.artifactsDir != "" {
 		artifactPath, err = r.saveArtifact(commits)
 		if err != nil {
-			log.Warn().Err(err).Msg("failed to save commit artifact")
+			r.logger.Warn().Err(err).Msg("failed to save commit artifact")
 			// Don't fail the operation, just log the warning
 		}
 	}
 
-	log.Info().
+	r.logger.Info().
 		Int("commits", len(commits)).
 		Int("total_files", totalFiles).
 		Str("artifact_path", artifactPath).
@@ -286,7 +295,7 @@ func (r *SmartCommitRunner) commitGroup(ctx context.Context, group FileGroup, tr
 		hash = "unknown"
 	}
 
-	log.Debug().
+	r.logger.Debug().
 		Str("hash", hash).
 		Str("package", group.Package).
 		Int("files", len(paths)).
@@ -316,7 +325,7 @@ func (r *SmartCommitRunner) generateCommitMessage(ctx context.Context, group Fil
 		if err == nil {
 			return message
 		}
-		log.Warn().Err(err).Msg("AI message generation failed, using fallback")
+		r.logger.Warn().Err(err).Msg("AI message generation failed, using fallback")
 	}
 
 	// Fallback to simple message generation
@@ -342,7 +351,7 @@ func (r *SmartCommitRunner) generateAIMessage(ctx context.Context, group FileGro
 	}
 
 	// Log AI call with agent/model info
-	log.Info().
+	r.logger.Info().
 		Str("agent", r.agent).
 		Str("model", r.model).
 		Str("package", group.Package).
@@ -399,7 +408,7 @@ func (r *SmartCommitRunner) getDiffSummary(ctx context.Context, group FileGroup)
 func (r *SmartCommitRunner) fetchDiff(ctx context.Context) string {
 	diff, err := r.runner.Diff(ctx, false)
 	if err != nil {
-		log.Debug().Err(err).Msg("failed to get diff for AI prompt")
+		r.logger.Debug().Err(err).Msg("failed to get diff for AI prompt")
 		return ""
 	}
 
@@ -409,7 +418,7 @@ func (r *SmartCommitRunner) fetchDiff(ctx context.Context) string {
 
 	diff, err = r.runner.Diff(ctx, true)
 	if err != nil {
-		log.Debug().Err(err).Msg("failed to get staged diff for AI prompt")
+		r.logger.Debug().Err(err).Msg("failed to get staged diff for AI prompt")
 		return ""
 	}
 	return diff

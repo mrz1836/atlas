@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/rs/zerolog/log"
+	"github.com/rs/zerolog"
 
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 	"github.com/mrz1836/atlas/internal/git"
@@ -70,17 +70,18 @@ type WorktreeInfo struct {
 
 // GitWorktreeRunner implements WorktreeRunner using git CLI.
 type GitWorktreeRunner struct {
-	repoPath string // Path to the main repository
+	repoPath string         // Path to the main repository
+	logger   zerolog.Logger // Logger for operations
 }
 
 // NewGitWorktreeRunner creates a new GitWorktreeRunner.
-func NewGitWorktreeRunner(ctx context.Context, repoPath string) (*GitWorktreeRunner, error) {
+func NewGitWorktreeRunner(ctx context.Context, repoPath string, logger zerolog.Logger) (*GitWorktreeRunner, error) {
 	// Detect repo root to ensure we're in a git repo
 	root, err := detectRepoRoot(ctx, repoPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to detect git repository: %w", err)
 	}
-	return &GitWorktreeRunner{repoPath: root}, nil
+	return &GitWorktreeRunner{repoPath: root, logger: logger}, nil
 }
 
 // maxWorkspaceNameLength is the maximum allowed length for workspace names.
@@ -115,7 +116,7 @@ func (r *GitWorktreeRunner) Create(ctx context.Context, opts WorktreeCreateOptio
 	// Clean up orphaned directory if it exists but isn't a registered worktree
 	if err := r.cleanupOrphanedPath(ctx, wtPath); err != nil {
 		// Log but continue - worst case ensureUniquePath will add a suffix
-		log.Debug().Err(err).Str("path", wtPath).Msg("failed to cleanup orphaned path")
+		r.logger.Debug().Err(err).Str("path", wtPath).Msg("failed to cleanup orphaned path")
 	}
 
 	wtPath, err := ensureUniquePath(wtPath)
@@ -140,7 +141,7 @@ func (r *GitWorktreeRunner) Create(ctx context.Context, opts WorktreeCreateOptio
 	if err != nil {
 		// CRITICAL: Clean up on failure (atomic creation)
 		_ = os.RemoveAll(wtPath)
-		log.Error().
+		r.logger.Error().
 			Err(err).
 			Str("branch_name", branchName).
 			Str("workspace_name", opts.WorkspaceName).
@@ -151,7 +152,7 @@ func (r *GitWorktreeRunner) Create(ctx context.Context, opts WorktreeCreateOptio
 	}
 
 	// Log successful branch creation
-	log.Info().
+	r.logger.Info().
 		Str("branch_name", branchName).
 		Str("base_branch", opts.BaseBranch).
 		Str("base_branch_type", determineBranchType(opts.BaseBranch)).
@@ -353,7 +354,7 @@ func (r *GitWorktreeRunner) FindByBranch(ctx context.Context, branch string) str
 
 	worktrees, err := r.List(ctx)
 	if err != nil {
-		log.Debug().Err(err).Msg("failed to list worktrees for branch lookup")
+		r.logger.Debug().Err(err).Msg("failed to list worktrees for branch lookup")
 		return ""
 	}
 
@@ -433,7 +434,7 @@ func (r *GitWorktreeRunner) cleanupOrphanedPath(ctx context.Context, path string
 	}
 
 	// Path exists but isn't a worktree - it's orphaned
-	log.Info().Str("path", path).Msg("removing orphaned worktree directory")
+	r.logger.Info().Str("path", path).Msg("removing orphaned worktree directory")
 	return os.RemoveAll(path)
 }
 
