@@ -1176,9 +1176,12 @@ func TestApproveResponse_WorkspaceClosedOmitted(t *testing.T) {
 func TestRunAutoApprove_WithCloseFlag(t *testing.T) {
 	t.Parallel()
 
+	// Use unique workspace name to avoid conflicts with real workspaces
+	wsName := "test-autoapprove-close-nonexistent-ws"
+
 	task := &domain.Task{
 		ID:          "task-1",
-		WorkspaceID: "test-ws",
+		WorkspaceID: wsName,
 		Description: "Test auto-approve with close",
 		Status:      constants.TaskStatusAwaitingApproval,
 		CreatedAt:   time.Now(),
@@ -1186,13 +1189,13 @@ func TestRunAutoApprove_WithCloseFlag(t *testing.T) {
 	}
 
 	ws := &domain.Workspace{
-		Name:   "test-ws",
+		Name:   wsName,
 		Branch: "feat/test",
 	}
 
 	mockStore := &mockTaskStoreForApprove{
 		tasks: map[string][]*domain.Task{
-			"test-ws": {task},
+			wsName: {task},
 		},
 	}
 
@@ -1201,8 +1204,7 @@ func TestRunAutoApprove_WithCloseFlag(t *testing.T) {
 	notifier := tui.NewNotifier(false, false)
 
 	ctx := context.Background()
-	// closeWS=true, but workspace won't actually close because we don't have a real store
-	// This tests that the flag is passed through correctly
+	// closeWS=true - workspace will attempt to close but should handle non-existent workspace gracefully
 	err := runAutoApprove(ctx, out, mockStore, ws, task, notifier, true)
 	require.NoError(t, err)
 
@@ -1751,19 +1753,22 @@ func TestExecuteApprovalAction_ApproveAndClose(t *testing.T) {
 	var buf bytes.Buffer
 	out := tui.NewOutput(&buf, "text")
 
+	// Use unique workspace name to avoid conflicts with real workspaces
+	wsName := "test-approve-close-nonexistent-ws"
+
 	task := &domain.Task{
 		ID:          "task-1",
-		WorkspaceID: "test-ws",
+		WorkspaceID: wsName,
 		Status:      constants.TaskStatusAwaitingApproval,
 		CreatedAt:   time.Now(),
 		UpdatedAt:   time.Now(),
 	}
 
 	mockStore := &mockTaskStoreForApprove{
-		tasks: map[string][]*domain.Task{"test-ws": {task}},
+		tasks: map[string][]*domain.Task{wsName: {task}},
 	}
 
-	ws := &domain.Workspace{Name: "test-ws"}
+	ws := &domain.Workspace{Name: wsName}
 	notifier := tui.NewNotifier(false, false)
 
 	done, err := executeApprovalAction(ctx, out, mockStore, ws, task, notifier, actionApproveAndClose)
