@@ -473,6 +473,18 @@ func (m *DefaultManager) tryDeleteBranch(ctx context.Context, branch string) str
 		m.logger.Warn().Err(err).Msg("prune failed before branch deletion")
 	}
 
+	// Step 1.5: Check if branch exists before attempting deletion
+	// This handles cases where branch was already deleted or workspace data is stale
+	exists, err := m.worktreeRunner.BranchExists(ctx, branch)
+	if err != nil {
+		m.logger.Warn().Err(err).Str("branch", branch).Msg("failed to check branch existence")
+		// Continue with deletion attempt despite error
+	} else if !exists {
+		// Branch doesn't exist - skip deletion, don't warn
+		m.logger.Debug().Str("branch", branch).Msg("branch already deleted or never existed")
+		return ""
+	}
+
 	// Step 2: Safety check - ensure no other worktrees use this branch
 	otherWorktreePath := m.worktreeRunner.FindByBranch(ctx, branch)
 	if otherWorktreePath != "" {
