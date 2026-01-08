@@ -893,7 +893,6 @@ func TestCreateWorkspace_NewWorkspace(t *testing.T) {
 		"test",
 		"master",
 		false, // useLocal
-		false, // noInteractive
 	)
 
 	// May fail if git operations fail, but should not panic
@@ -929,7 +928,6 @@ func TestCreateWorkspace_ReuseExisting(t *testing.T) {
 		"test",
 		"master",
 		false, // useLocal
-		false, // noInteractive
 	)
 	if err != nil {
 		t.Skip("Cannot create workspace in current environment")
@@ -945,7 +943,6 @@ func TestCreateWorkspace_ReuseExisting(t *testing.T) {
 		"test",
 		"master",
 		false, // useLocal
-		false, // noInteractive
 	)
 
 	require.NoError(t, err)
