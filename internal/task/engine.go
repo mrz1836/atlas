@@ -376,14 +376,12 @@ func (e *Engine) HandleStepResult(ctx context.Context, task *domain.Task, result
 //   - task is not in an abandonable state (unless force=true for running tasks)
 //   - state persistence fails
 func (e *Engine) Abandon(ctx context.Context, task *domain.Task, reason string, force bool) error {
-	// Check for cancellation
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
 	default:
 	}
 
-	// Validate task is not nil
 	if task == nil {
 		return fmt.Errorf("%w: task is nil", atlaserrors.ErrInvalidTransition)
 	}
@@ -395,7 +393,31 @@ func (e *Engine) Abandon(ctx context.Context, task *domain.Task, reason string, 
 		Bool("force", force).
 		Logger()
 
-	// Validate task can be abandoned
+	if err := e.validateCanAbandon(task, force, log); err != nil {
+		return err
+	}
+
+	// Terminate running processes if force-abandoning a running task
+	if force && task.Status == constants.TaskStatusRunning {
+		e.terminateTrackedProcesses(task, log)
+	}
+
+	if err := Transition(ctx, task, constants.TaskStatusAbandoned, reason); err != nil {
+		log.Error().Err(err).Msg("failed to transition task to abandoned")
+		return err
+	}
+
+	if err := e.store.Update(ctx, task.WorkspaceID, task); err != nil {
+		log.Error().Err(err).Msg("failed to save abandoned task")
+		return fmt.Errorf("failed to save task: %w", err)
+	}
+
+	log.Info().Str("reason", reason).Msg("task abandoned successfully")
+	return nil
+}
+
+// validateCanAbandon checks if a task can be abandoned.
+func (e *Engine) validateCanAbandon(task *domain.Task, force bool, log zerolog.Logger) error {
 	canAbandon := CanAbandon(task.Status)
 	if force {
 		canAbandon = CanForceAbandon(task.Status)
@@ -410,52 +432,34 @@ func (e *Engine) Abandon(ctx context.Context, task *domain.Task, reason string, 
 		return fmt.Errorf("%w: task status %s cannot be abandoned",
 			atlaserrors.ErrInvalidTransition, task.Status)
 	}
+	return nil
+}
 
-	// If force-abandoning a running task, kill any tracked processes
-	if force && task.Status == constants.TaskStatusRunning {
-		log.Warn().
-			Ints("tracked_pids", task.RunningProcesses).
-			Msg("force-abandoning running task, attempting to terminate processes")
+// terminateTrackedProcesses kills tracked processes for force-abandonment.
+func (e *Engine) terminateTrackedProcesses(task *domain.Task, log zerolog.Logger) {
+	log.Warn().
+		Ints("tracked_pids", task.RunningProcesses).
+		Msg("force-abandoning running task, attempting to terminate processes")
 
-		if len(task.RunningProcesses) > 0 {
-			pm := NewProcessManager(log)
-			terminated, errs := pm.TerminateProcesses(task.RunningProcesses, 2*time.Second)
-
-			log.Info().
-				Int("total_processes", len(task.RunningProcesses)).
-				Int("terminated", terminated).
-				Int("errors", len(errs)).
-				Msg("process termination attempted")
-
-			// Log individual errors but don't fail the abandonment
-			for _, err := range errs {
-				log.Warn().Err(err).Msg("failed to terminate process")
-			}
-
-			// Clear the running processes list
-			task.RunningProcesses = nil
-		} else {
-			log.Warn().Msg("no processes tracked - task may still be running in background")
-		}
+	if len(task.RunningProcesses) == 0 {
+		log.Warn().Msg("no processes tracked - task may still be running in background")
+		return
 	}
 
-	// Transition to abandoned
-	if err := Transition(ctx, task, constants.TaskStatusAbandoned, reason); err != nil {
-		log.Error().Err(err).Msg("failed to transition task to abandoned")
-		return err
-	}
-
-	// Save task state (artifacts and logs are preserved by default - we just save, never delete)
-	if err := e.store.Update(ctx, task.WorkspaceID, task); err != nil {
-		log.Error().Err(err).Msg("failed to save abandoned task")
-		return fmt.Errorf("failed to save task: %w", err)
-	}
+	pm := NewProcessManager(log)
+	terminated, errs := pm.TerminateProcesses(task.RunningProcesses, 2*time.Second)
 
 	log.Info().
-		Str("reason", reason).
-		Msg("task abandoned successfully")
+		Int("total_processes", len(task.RunningProcesses)).
+		Int("terminated", terminated).
+		Int("errors", len(errs)).
+		Msg("process termination attempted")
 
-	return nil
+	for _, err := range errs {
+		log.Warn().Err(err).Msg("failed to terminate process")
+	}
+
+	task.RunningProcesses = nil
 }
 
 // handleSuccessResult processes a successful step result.
@@ -532,65 +536,46 @@ func (e *Engine) executeStepInternal(ctx context.Context, task *domain.Task, ste
 	default:
 	}
 
-	// Get executor from registry
 	executor, err := e.registry.Get(step.Type)
 	if err != nil {
 		return nil, fmt.Errorf("no executor for step type %s: %w", step.Type, err)
 	}
 
-	logEvent := e.logger.Info().
-		Str("task_id", task.ID).
-		Str("step_name", step.Name).
-		Str("step_type", string(step.Type))
-	if step.Type == domain.StepTypeAI || step.Type == domain.StepTypeVerify {
-		agent, model := resolveStepAgentModel(task, step)
-		logEvent = logEvent.
-			Str("agent", string(agent)).
-			Str("model", model)
-	}
-	logEvent.Msg("executing step")
+	e.buildStepLogEvent(task, step, zerolog.InfoLevel, 0).Msg("executing step")
 
-	// Record start time
 	startTime := time.Now()
-
-	// Execute step via executor
 	result, err := executor.Execute(ctx, task, step)
-
-	// Calculate duration
 	duration := time.Since(startTime)
 
 	if err != nil {
-		errLogEvent := e.logger.Error().
-			Err(err).
-			Str("task_id", task.ID).
-			Str("step_name", step.Name).
-			Int64("duration_ms", duration.Milliseconds())
-		if step.Type == domain.StepTypeAI || step.Type == domain.StepTypeVerify {
-			agent, model := resolveStepAgentModel(task, step)
-			errLogEvent = errLogEvent.
-				Str("agent", string(agent)).
-				Str("model", model)
-		}
-		errLogEvent.Msg("step execution failed")
-		// Return result WITH error - result may contain useful output (e.g., validation errors)
+		e.buildStepLogEvent(task, step, zerolog.ErrorLevel, duration.Milliseconds()).
+			Err(err).Msg("step execution failed")
 		return result, err
 	}
 
-	// Log completion
-	completeLogEvent := e.logger.Info().
-		Str("task_id", task.ID).
-		Str("step_name", step.Name).
-		Str("status", result.Status).
-		Int64("duration_ms", duration.Milliseconds())
-	if step.Type == domain.StepTypeAI || step.Type == domain.StepTypeVerify {
-		agent, model := resolveStepAgentModel(task, step)
-		completeLogEvent = completeLogEvent.
-			Str("agent", string(agent)).
-			Str("model", model)
-	}
-	completeLogEvent.Msg("step completed")
+	e.buildStepLogEvent(task, step, zerolog.InfoLevel, duration.Milliseconds()).
+		Str("status", result.Status).Msg("step completed")
 
 	return result, nil
+}
+
+// buildStepLogEvent creates a log event with common step fields.
+func (e *Engine) buildStepLogEvent(task *domain.Task, step *domain.StepDefinition, level zerolog.Level, durationMs int64) *zerolog.Event {
+	event := e.logger.WithLevel(level). //nolint:zerologlint // event returned for caller to dispatch
+						Str("task_id", task.ID).
+						Str("step_name", step.Name).
+						Str("step_type", string(step.Type))
+
+	if durationMs > 0 {
+		event = event.Int64("duration_ms", durationMs)
+	}
+
+	if step.Type == domain.StepTypeAI || step.Type == domain.StepTypeVerify {
+		agent, model := resolveStepAgentModel(task, step)
+		event = event.Str("agent", string(agent)).Str("model", model)
+	}
+
+	return event
 }
 
 // resolveStepAgentModel returns the resolved agent and model for a step,
@@ -852,41 +837,42 @@ func (e *Engine) tryValidationRetry(
 // - git push and PR steps when "skip_git_steps" flag is set (no changes to commit)
 // - AI and validation steps when "no_issues_detected" flag is set (detect_only found no issues)
 func (e *Engine) shouldSkipStep(task *domain.Task, step *domain.StepDefinition) bool {
-	// Skip optional steps (Required == false)
 	if !step.Required {
 		return true
 	}
-
-	// Early return if no metadata
 	if task.Metadata == nil {
 		return false
 	}
+	return e.shouldSkipForNoIssues(task, step) || e.shouldSkipGitSteps(task, step)
+}
 
-	// Check if fix-related steps should be skipped (no issues detected in detect_only validation)
+// shouldSkipForNoIssues checks if step should be skipped when no issues were detected.
+func (e *Engine) shouldSkipForNoIssues(task *domain.Task, step *domain.StepDefinition) bool {
 	noIssues, ok := task.Metadata["no_issues_detected"].(bool)
-	if ok && noIssues {
-		switch step.Type {
-		case domain.StepTypeAI:
-			// Skip AI steps (the fix step)
-			return true
-		case domain.StepTypeValidation:
-			// Skip validation steps that aren't detect_only (the validate step)
-			detectOnly, _ := step.Config["detect_only"].(bool)
-			return !detectOnly
-		case domain.StepTypeGit, domain.StepTypeHuman, domain.StepTypeSDD, domain.StepTypeCI, domain.StepTypeVerify:
-			// Other step types are NOT skipped
-			// Human steps in particular are important - review always runs
-		}
+	if !ok || !noIssues {
+		return false
 	}
 
-	// Check if git steps should be skipped (no changes to commit)
-	if skipGit, ok := task.Metadata["skip_git_steps"].(bool); ok && skipGit {
-		if step.Type == domain.StepTypeGit {
-			return e.isSkippableGitOperation(step)
-		}
+	switch step.Type {
+	case domain.StepTypeAI:
+		return true
+	case domain.StepTypeValidation:
+		detectOnly, _ := step.Config["detect_only"].(bool)
+		return !detectOnly
+	case domain.StepTypeGit, domain.StepTypeHuman, domain.StepTypeSDD, domain.StepTypeCI, domain.StepTypeVerify:
+		return false
+	default:
+		return false
 	}
+}
 
-	return false
+// shouldSkipGitSteps checks if git push/PR steps should be skipped (no changes to commit).
+func (e *Engine) shouldSkipGitSteps(task *domain.Task, step *domain.StepDefinition) bool {
+	skipGit, ok := task.Metadata["skip_git_steps"].(bool)
+	if !ok || !skipGit || step.Type != domain.StepTypeGit {
+		return false
+	}
+	return e.isSkippableGitOperation(step)
 }
 
 // isSkippableGitOperation returns true if the step is a push or create_pr operation.
