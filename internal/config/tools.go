@@ -17,6 +17,8 @@ import (
 )
 
 // ToolStatus represents the installation status of an external tool.
+//
+//nolint:recvcheck // UnmarshalJSON requires pointer receiver per json.Unmarshaler interface
 type ToolStatus int
 
 const (
@@ -31,8 +33,9 @@ const (
 )
 
 // String returns a human-readable representation of the tool status.
-func (s *ToolStatus) String() string {
-	switch *s {
+// Uses value receiver since ToolStatus is an immutable int type.
+func (s ToolStatus) String() string {
+	switch s {
 	case ToolStatusInstalled:
 		return "installed"
 	case ToolStatusMissing:
@@ -45,11 +48,13 @@ func (s *ToolStatus) String() string {
 }
 
 // MarshalJSON implements json.Marshaler for human-readable JSON output.
-func (s *ToolStatus) MarshalJSON() ([]byte, error) {
+// Uses value receiver for consistency with String() and because marshaling doesn't mutate.
+func (s ToolStatus) MarshalJSON() ([]byte, error) {
 	return []byte(`"` + s.String() + `"`), nil
 }
 
 // UnmarshalJSON implements json.Unmarshaler for parsing JSON status strings.
+// Uses pointer receiver as required by json.Unmarshaler interface to modify the value.
 func (s *ToolStatus) UnmarshalJSON(data []byte) error {
 	str := string(data)
 	// Remove quotes
