@@ -487,7 +487,7 @@ func TestTransition_ValidTransitions(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			task := &domain.Task{
-				ID:        "task-20251228-100000",
+				ID:        "task-00000000-0000-4000-8000-000000000000",
 				Status:    tt.from,
 				CreatedAt: time.Now().UTC(),
 				UpdatedAt: time.Now().UTC(),
@@ -525,7 +525,7 @@ func TestTransition_InvalidTransitions(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			task := &domain.Task{
-				ID:     "task-20251228-100000",
+				ID:     "task-00000000-0000-4000-8000-000000000000",
 				Status: tt.from,
 			}
 
@@ -564,7 +564,7 @@ func TestTransition_SetsCompletedAt(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			task := &domain.Task{
-				ID:     "task-20251228-100000",
+				ID:     "task-00000000-0000-4000-8000-000000000000",
 				Status: tt.from,
 			}
 
@@ -596,7 +596,7 @@ func TestTransition_DoesNotSetCompletedAtForNonTerminal(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			task := &domain.Task{
-				ID:     "task-20251228-100000",
+				ID:     "task-00000000-0000-4000-8000-000000000000",
 				Status: tt.from,
 			}
 
@@ -611,7 +611,7 @@ func TestTransition_DoesNotSetCompletedAtForNonTerminal(t *testing.T) {
 // TestTransition_ContextCancellation tests that the function respects context cancellation.
 func TestTransition_ContextCancellation(t *testing.T) {
 	task := &domain.Task{
-		ID:     "task-20251228-100000",
+		ID:     "task-00000000-0000-4000-8000-000000000000",
 		Status: constants.TaskStatusPending,
 	}
 
@@ -629,7 +629,7 @@ func TestTransition_ContextCancellation(t *testing.T) {
 // TestTransition_ContextDeadlineExceeded tests deadline exceeded behavior.
 func TestTransition_ContextDeadlineExceeded(t *testing.T) {
 	task := &domain.Task{
-		ID:     "task-20251228-100000",
+		ID:     "task-00000000-0000-4000-8000-000000000000",
 		Status: constants.TaskStatusPending,
 	}
 
@@ -654,7 +654,7 @@ func TestTransition_NilTask(t *testing.T) {
 // TestTransition_EmptyReason tests that empty reason is allowed.
 func TestTransition_EmptyReason(t *testing.T) {
 	task := &domain.Task{
-		ID:     "task-20251228-100000",
+		ID:     "task-00000000-0000-4000-8000-000000000000",
 		Status: constants.TaskStatusPending,
 	}
 
@@ -669,7 +669,7 @@ func TestTransition_EmptyReason(t *testing.T) {
 // are appended to the history.
 func TestTransition_MultipleSequentialTransitions(t *testing.T) {
 	task := &domain.Task{
-		ID:     "task-20251228-100000",
+		ID:     "task-00000000-0000-4000-8000-000000000000",
 		Status: constants.TaskStatusPending,
 	}
 
@@ -718,7 +718,7 @@ func TestTransition_MultipleSequentialTransitions(t *testing.T) {
 // TestTransition_TransitionHistoryTimestamps verifies timestamps are recorded correctly.
 func TestTransition_TransitionHistoryTimestamps(t *testing.T) {
 	task := &domain.Task{
-		ID:     "task-20251228-100000",
+		ID:     "task-00000000-0000-4000-8000-000000000000",
 		Status: constants.TaskStatusPending,
 	}
 

@@ -240,8 +240,8 @@ func TestEngine_Start_TaskIDFormat(t *testing.T) {
 	task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test description")
 
 	require.NoError(t, err)
-	// Pattern: task-YYYYMMDD-HHMMSS
-	assert.Regexp(t, `^task-\d{8}-\d{6}$`, task.ID)
+	// Pattern: task-{uuid} (task-[8hex]-[4hex]-[4hex]-[4hex]-[12hex])
+	assert.Regexp(t, `^task-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`, task.ID)
 }
 
 // TestEngine_Start_IteratesSteps tests that steps execute in order.
@@ -319,7 +319,7 @@ func TestEngine_Resume_FromErrorState(t *testing.T) {
 	})
 
 	task := &domain.Task{
-		ID:          "task-20251227-100000",
+		ID:          "task-550e8400-e29b-41d4-a716-446655440000",
 		WorkspaceID: "test-workspace",
 		Status:      constants.TaskStatusValidationFailed,
 		CurrentStep: 2,

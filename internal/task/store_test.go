@@ -80,7 +80,7 @@ func TestFileStore_Create(t *testing.T) {
 	t.Run("creates task successfully", func(t *testing.T) {
 		store, tmpDir := setupTestStore(t)
 
-		task := createTestTask("task-20251228-100000")
+		task := createTestTask("task-00000000-0000-4000-8000-000000000000")
 
 		err := store.Create(context.Background(), "test-ws", task)
 		require.NoError(t, err)
@@ -105,7 +105,7 @@ func TestFileStore_Create(t *testing.T) {
 	t.Run("errors on duplicate task", func(t *testing.T) {
 		store, _ := setupTestStore(t)
 
-		task := createTestTask("task-20251228-100001")
+		task := createTestTask("task-00000000-0000-4000-8000-000000000001")
 
 		err := store.Create(context.Background(), "test-ws", task)
 		require.NoError(t, err)
@@ -118,7 +118,7 @@ func TestFileStore_Create(t *testing.T) {
 
 	t.Run("errors on empty workspace name", func(t *testing.T) {
 		store, _ := setupTestStore(t)
-		task := createTestTask("task-20251228-100002")
+		task := createTestTask("task-00000000-0000-4000-8000-000000000002")
 
 		err := store.Create(context.Background(), "", task)
 		require.Error(t, err)
@@ -144,7 +144,7 @@ func TestFileStore_Create(t *testing.T) {
 
 	t.Run("respects context cancellation", func(t *testing.T) {
 		store, _ := setupTestStore(t)
-		task := createTestTask("task-20251228-100003")
+		task := createTestTask("task-00000000-0000-4000-8000-000000000003")
 
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel() // Cancel immediately
@@ -159,7 +159,7 @@ func TestFileStore_Get(t *testing.T) {
 	t.Run("retrieves existing task", func(t *testing.T) {
 		store, _ := setupTestStore(t)
 
-		task := createTestTask("task-20251228-100010")
+		task := createTestTask("task-00000000-0000-4000-8000-000000000010")
 		err := store.Create(context.Background(), "test-ws", task)
 		require.NoError(t, err)
 
@@ -181,7 +181,7 @@ func TestFileStore_Get(t *testing.T) {
 	t.Run("errors on empty workspace name", func(t *testing.T) {
 		store, _ := setupTestStore(t)
 
-		_, err := store.Get(context.Background(), "", "task-20251228-100011")
+		_, err := store.Get(context.Background(), "", "task-00000000-0000-4000-8000-000000000011")
 		require.Error(t, err)
 		assert.ErrorIs(t, err, atlaserrors.ErrEmptyValue)
 	})
@@ -200,7 +200,7 @@ func TestFileStore_Get(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
 
-		_, err := store.Get(ctx, "test-ws", "task-20251228-100012")
+		_, err := store.Get(ctx, "test-ws", "task-00000000-0000-4000-8000-000000000012")
 		require.Error(t, err)
 		assert.Equal(t, context.Canceled, err)
 	})
@@ -210,7 +210,7 @@ func TestFileStore_Update(t *testing.T) {
 	t.Run("updates existing task", func(t *testing.T) {
 		store, _ := setupTestStore(t)
 
-		task := createTestTask("task-20251228-100020")
+		task := createTestTask("task-00000000-0000-4000-8000-000000000020")
 		err := store.Create(context.Background(), "test-ws", task)
 		require.NoError(t, err)
 
@@ -242,7 +242,7 @@ func TestFileStore_Update(t *testing.T) {
 
 	t.Run("errors on empty workspace name", func(t *testing.T) {
 		store, _ := setupTestStore(t)
-		task := createTestTask("task-20251228-100021")
+		task := createTestTask("task-00000000-0000-4000-8000-000000000021")
 
 		err := store.Update(context.Background(), "", task)
 		require.Error(t, err)
@@ -263,13 +263,13 @@ func TestFileStore_List(t *testing.T) {
 		store, _ := setupTestStore(t)
 
 		// Create tasks with different creation times
-		task1 := createTestTask("task-20251228-100030")
+		task1 := createTestTask("task-00000000-0000-4000-8000-000000000030")
 		task1.CreatedAt = time.Now().UTC().Add(-2 * time.Hour)
 
-		task2 := createTestTask("task-20251228-100031")
+		task2 := createTestTask("task-00000000-0000-4000-8000-000000000031")
 		task2.CreatedAt = time.Now().UTC().Add(-1 * time.Hour)
 
-		task3 := createTestTask("task-20251228-100032")
+		task3 := createTestTask("task-00000000-0000-4000-8000-000000000032")
 		task3.CreatedAt = time.Now().UTC()
 
 		require.NoError(t, store.Create(context.Background(), "test-ws", task1))
@@ -307,7 +307,7 @@ func TestFileStore_Delete(t *testing.T) {
 	t.Run("deletes existing task", func(t *testing.T) {
 		store, tmpDir := setupTestStore(t)
 
-		task := createTestTask("task-20251228-100040")
+		task := createTestTask("task-00000000-0000-4000-8000-000000000040")
 		err := store.Create(context.Background(), "test-ws", task)
 		require.NoError(t, err)
 
@@ -331,7 +331,7 @@ func TestFileStore_Delete(t *testing.T) {
 	t.Run("errors on empty workspace name", func(t *testing.T) {
 		store, _ := setupTestStore(t)
 
-		err := store.Delete(context.Background(), "", "task-20251228-100041")
+		err := store.Delete(context.Background(), "", "task-00000000-0000-4000-8000-000000000041")
 		require.Error(t, err)
 		assert.ErrorIs(t, err, atlaserrors.ErrEmptyValue)
 	})
@@ -349,7 +349,7 @@ func TestFileStore_AppendLog(t *testing.T) {
 	t.Run("appends log entries", func(t *testing.T) {
 		store, tmpDir := setupTestStore(t)
 
-		task := createTestTask("task-20251228-100050")
+		task := createTestTask("task-00000000-0000-4000-8000-000000000050")
 		err := store.Create(context.Background(), "test-ws", task)
 		require.NoError(t, err)
 
@@ -376,7 +376,7 @@ func TestFileStore_AppendLog(t *testing.T) {
 	t.Run("adds newline if missing", func(t *testing.T) {
 		store, tmpDir := setupTestStore(t)
 
-		task := createTestTask("task-20251228-100051")
+		task := createTestTask("task-00000000-0000-4000-8000-000000000051")
 		err := store.Create(context.Background(), "test-ws", task)
 		require.NoError(t, err)
 
@@ -404,7 +404,7 @@ func TestFileStore_ReadLog(t *testing.T) {
 	t.Run("reads log entries", func(t *testing.T) {
 		store, _ := setupTestStore(t)
 
-		task := createTestTask("task-20251228-100052")
+		task := createTestTask("task-00000000-0000-4000-8000-000000000052")
 		err := store.Create(context.Background(), "test-ws", task)
 		require.NoError(t, err)
 
@@ -429,7 +429,7 @@ func TestFileStore_ReadLog(t *testing.T) {
 	t.Run("errors on non-existent log file", func(t *testing.T) {
 		store, _ := setupTestStore(t)
 
-		task := createTestTask("task-20251228-100053")
+		task := createTestTask("task-00000000-0000-4000-8000-000000000053")
 		err := store.Create(context.Background(), "test-ws", task)
 		require.NoError(t, err)
 
@@ -460,7 +460,7 @@ func TestFileStore_Artifacts(t *testing.T) {
 	t.Run("saves and retrieves artifact", func(t *testing.T) {
 		store, _ := setupTestStore(t)
 
-		task := createTestTask("task-20251228-100060")
+		task := createTestTask("task-00000000-0000-4000-8000-000000000060")
 		err := store.Create(context.Background(), "test-ws", task)
 		require.NoError(t, err)
 
@@ -476,7 +476,7 @@ func TestFileStore_Artifacts(t *testing.T) {
 	t.Run("lists artifacts", func(t *testing.T) {
 		store, _ := setupTestStore(t)
 
-		task := createTestTask("task-20251228-100061")
+		task := createTestTask("task-00000000-0000-4000-8000-000000000061")
 		err := store.Create(context.Background(), "test-ws", task)
 		require.NoError(t, err)
 
@@ -497,7 +497,7 @@ func TestFileStore_Artifacts(t *testing.T) {
 	t.Run("returns empty list for no artifacts", func(t *testing.T) {
 		store, _ := setupTestStore(t)
 
-		task := createTestTask("task-20251228-100062")
+		task := createTestTask("task-00000000-0000-4000-8000-000000000062")
 		err := store.Create(context.Background(), "test-ws", task)
 		require.NoError(t, err)
 
@@ -509,7 +509,7 @@ func TestFileStore_Artifacts(t *testing.T) {
 	t.Run("prevents path traversal in filename", func(t *testing.T) {
 		store, _ := setupTestStore(t)
 
-		task := createTestTask("task-20251228-100063")
+		task := createTestTask("task-00000000-0000-4000-8000-000000000063")
 		err := store.Create(context.Background(), "test-ws", task)
 		require.NoError(t, err)
 
@@ -539,7 +539,7 @@ func TestFileStore_Artifacts(t *testing.T) {
 	t.Run("allows subdirectories in filename", func(t *testing.T) {
 		store, dir := setupTestStore(t)
 
-		task := createTestTask("task-20251228-100063-sub")
+		task := createTestTask("task-00000000-0000-4000-8000-000000000063-sub")
 		err := store.Create(context.Background(), "test-ws", task)
 		require.NoError(t, err)
 
@@ -578,7 +578,7 @@ func TestFileStore_Artifacts(t *testing.T) {
 	t.Run("errors on non-existent artifact", func(t *testing.T) {
 		store, _ := setupTestStore(t)
 
-		task := createTestTask("task-20251228-100064")
+		task := createTestTask("task-00000000-0000-4000-8000-000000000064")
 		err := store.Create(context.Background(), "test-ws", task)
 		require.NoError(t, err)
 
@@ -592,7 +592,7 @@ func TestFileStore_SaveVersionedArtifact(t *testing.T) {
 	t.Run("creates versioned artifacts", func(t *testing.T) {
 		store, _ := setupTestStore(t)
 
-		task := createTestTask("task-20251228-100070")
+		task := createTestTask("task-00000000-0000-4000-8000-000000000070")
 		err := store.Create(context.Background(), "test-ws", task)
 		require.NoError(t, err)
 
@@ -618,7 +618,7 @@ func TestFileStore_SaveVersionedArtifact(t *testing.T) {
 	t.Run("handles different extensions", func(t *testing.T) {
 		store, _ := setupTestStore(t)
 
-		task := createTestTask("task-20251228-100071")
+		task := createTestTask("task-00000000-0000-4000-8000-000000000071")
 		err := store.Create(context.Background(), "test-ws", task)
 		require.NoError(t, err)
 
@@ -634,7 +634,7 @@ func TestFileStore_SaveVersionedArtifact(t *testing.T) {
 	t.Run("prevents path traversal", func(t *testing.T) {
 		store, _ := setupTestStore(t)
 
-		task := createTestTask("task-20251228-100072")
+		task := createTestTask("task-00000000-0000-4000-8000-000000000072")
 		err := store.Create(context.Background(), "test-ws", task)
 		require.NoError(t, err)
 
@@ -662,7 +662,7 @@ func TestFileStore_SaveVersionedArtifact(t *testing.T) {
 	t.Run("allows subdirectories in baseName", func(t *testing.T) {
 		store, dir := setupTestStore(t)
 
-		task := createTestTask("task-20251228-100072-sub")
+		task := createTestTask("task-00000000-0000-4000-8000-000000000072-sub")
 		err := store.Create(context.Background(), "test-ws", task)
 		require.NoError(t, err)
 
@@ -701,7 +701,7 @@ func TestFileStore_AtomicWrite(t *testing.T) {
 	t.Run("atomic write prevents partial data on failure", func(t *testing.T) {
 		store, tmpDir := setupTestStore(t)
 
-		task := createTestTask("task-20251228-100080")
+		task := createTestTask("task-00000000-0000-4000-8000-000000000080")
 		err := store.Create(context.Background(), "test-ws", task)
 		require.NoError(t, err)
 
@@ -735,7 +735,7 @@ func TestFileStore_ConcurrentAccess(t *testing.T) {
 	t.Run("handles concurrent updates with locking", func(t *testing.T) {
 		store, _ := setupTestStore(t)
 
-		task := createTestTask("task-20251228-100090")
+		task := createTestTask("task-00000000-0000-4000-8000-000000000090")
 		err := store.Create(context.Background(), "test-ws", task)
 		require.NoError(t, err)
 
@@ -784,7 +784,7 @@ func TestFileStore_CorruptedJSON(t *testing.T) {
 	t.Run("returns error for corrupted task.json", func(t *testing.T) {
 		store, tmpDir := setupTestStore(t)
 
-		task := createTestTask("task-20251228-100100")
+		task := createTestTask("task-00000000-0000-4000-8000-000000000100")
 		err := store.Create(context.Background(), "test-ws", task)
 		require.NoError(t, err)
 
@@ -800,62 +800,55 @@ func TestFileStore_CorruptedJSON(t *testing.T) {
 	})
 }
 
-func TestGenerateTaskID(t *testing.T) {
-	t.Run("generates valid format", func(t *testing.T) {
-		id := GenerateTaskID()
-		assert.True(t, validTaskIDRegex.MatchString(id), "ID should match pattern: %s", id)
-		assert.GreaterOrEqual(t, len(id), 20, "ID should be at least 20 chars: %s", id)
-
-		// Verify format structure: task-YYYYMMDD-HHMMSS
-		assert.GreaterOrEqual(t, len(id), 20, "ID should be at least 20 chars")
-		assert.Equal(t, "task-", id[:5], "ID should start with 'task-'")
-
-		// Verify date portion is 8 digits
-		datePart := id[5:13]
-		for _, c := range datePart {
-			assert.True(t, c >= '0' && c <= '9', "Date part should be all digits: %s", datePart)
-		}
-
-		// Verify time portion is 6 digits
-		timePart := id[14:20]
-		for _, c := range timePart {
-			assert.True(t, c >= '0' && c <= '9', "Time part should be all digits: %s", timePart)
-		}
-	})
-
-	t.Run("IDs within same second are identical", func(t *testing.T) {
-		// In a tight loop, IDs within the same second will be identical.
-		// This is expected behavior - use GenerateTaskIDUnique for uniqueness.
-		ids := make(map[string]bool)
-		for i := 0; i < 100; i++ {
-			id := GenerateTaskID()
-			assert.True(t, validTaskIDRegex.MatchString(id), "Each ID should match pattern")
-			ids[id] = true
-		}
-		// Since this runs within a second, we expect 1-2 unique IDs max
-		assert.LessOrEqual(t, len(ids), 2, "IDs within same second should be identical or span at most 2 seconds")
-	})
+// isValidUUIDChar checks if a character is valid in a UUID (lowercase hex, digit, or dash).
+func isValidUUIDChar(c rune) bool {
+	return (c >= 'a' && c <= 'f') || (c >= '0' && c <= '9') || c == '-'
 }
 
-func TestGenerateTaskIDUnique(t *testing.T) {
-	t.Run("returns base ID if not exists", func(t *testing.T) {
-		existing := make(map[string]bool)
-		id := GenerateTaskIDUnique(existing)
-		assert.True(t, validTaskIDRegex.MatchString(id))
+func TestGenerateTaskID(t *testing.T) {
+	t.Run("generates valid UUID format", func(t *testing.T) {
+		id := GenerateTaskID()
+		assert.True(t, validTaskIDRegex.MatchString(id), "ID should match UUID pattern: %s", id)
+
+		// Verify format structure: task-{uuid}
+		// Expected: task-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx (41 chars total)
+		assert.Len(t, id, 41, "ID should be exactly 41 chars: %s", id)
+		assert.Equal(t, "task-", id[:5], "ID should start with 'task-'")
+
+		// Verify UUID portion has correct structure (8-4-4-4-12 hex digits)
+		uuidPart := id[5:]
+		assert.Len(t, uuidPart, 36, "UUID should be 36 chars")
+		assert.Equal(t, byte('-'), uuidPart[8], "UUID should have dash at position 8")
+		assert.Equal(t, byte('-'), uuidPart[13], "UUID should have dash at position 13")
+		assert.Equal(t, byte('-'), uuidPart[18], "UUID should have dash at position 18")
+		assert.Equal(t, byte('-'), uuidPart[23], "UUID should have dash at position 23")
 	})
 
-	t.Run("adds milliseconds if base exists", func(t *testing.T) {
-		existing := make(map[string]bool)
+	t.Run("generates unique IDs", func(t *testing.T) {
+		// UUID v4 should generate unique IDs even in rapid succession
+		ids := make(map[string]bool)
+		for i := 0; i < 1000; i++ {
+			id := GenerateTaskID()
+			assert.True(t, validTaskIDRegex.MatchString(id), "Each ID should match pattern")
+			assert.False(t, ids[id], "ID should be unique: %s", id)
+			ids[id] = true
+		}
+		// All 1000 IDs should be unique
+		assert.Len(t, ids, 1000, "All generated IDs should be unique")
+	})
 
-		// Generate first ID
-		id1 := GenerateTaskID()
-		existing[id1] = true
-
-		// Generate unique ID when first exists
-		id2 := GenerateTaskIDUnique(existing)
-		assert.True(t, validTaskIDRegex.MatchString(id2))
-		assert.NotEqual(t, id1, id2)
-		assert.Contains(t, id2, "-") // Should have millisecond suffix
+	t.Run("generates lowercase UUIDs", func(t *testing.T) {
+		// UUIDs should be lowercase
+		for i := 0; i < 10; i++ {
+			id := GenerateTaskID()
+			assert.Equal(t, id, id[:5]+id[5:], "UUID should be lowercase")
+			// Check no uppercase letters
+			for _, c := range id[5:] {
+				if !isValidUUIDChar(c) {
+					t.Errorf("UUID contains invalid character: %c in %s", c, id)
+				}
+			}
+		}
 	})
 }
 
@@ -863,7 +856,7 @@ func TestFileStore_SchemaVersion(t *testing.T) {
 	t.Run("sets schema version on create", func(t *testing.T) {
 		store, _ := setupTestStore(t)
 
-		task := createTestTask("task-20251228-100110")
+		task := createTestTask("task-00000000-0000-4000-8000-000000000110")
 		task.SchemaVersion = "" // Empty before create
 
 		err := store.Create(context.Background(), "test-ws", task)
@@ -940,7 +933,7 @@ func TestFileStore_GetArtifact_NotFound(t *testing.T) {
 func TestFileStore_ListArtifacts_NoArtifacts(t *testing.T) {
 	store, _ := setupTestStore(t)
 
-	task := createTestTask("task-20251228-110000")
+	task := createTestTask("task-00000000-0000-4000-8000-000000110000")
 	err := store.Create(context.Background(), "test-ws", task)
 	require.NoError(t, err)
 
@@ -953,7 +946,7 @@ func TestFileStore_ListArtifacts_NoArtifacts(t *testing.T) {
 func TestFileStore_SaveArtifact_AndList(t *testing.T) {
 	store, _ := setupTestStore(t)
 
-	task := createTestTask("task-20251228-110001")
+	task := createTestTask("task-00000000-0000-4000-8000-000000110001")
 	err := store.Create(context.Background(), "test-ws", task)
 	require.NoError(t, err)
 
@@ -977,7 +970,7 @@ func TestFileStore_SaveArtifact_AndList(t *testing.T) {
 func TestFileStore_SaveVersionedArtifact_MultipleVersions(t *testing.T) {
 	store, _ := setupTestStore(t)
 
-	task := createTestTask("task-20251228-110002")
+	task := createTestTask("task-00000000-0000-4000-8000-000000110002")
 	err := store.Create(context.Background(), "test-ws", task)
 	require.NoError(t, err)
 
@@ -996,7 +989,7 @@ func TestFileStore_SaveVersionedArtifact_MultipleVersions(t *testing.T) {
 func TestFileStore_AppendLog_MultipleEntries(t *testing.T) {
 	store, tmpDir := setupTestStore(t)
 
-	task := createTestTask("task-20251228-110003")
+	task := createTestTask("task-00000000-0000-4000-8000-000000110003")
 	err := store.Create(context.Background(), "test-ws", task)
 	require.NoError(t, err)
 
@@ -1039,7 +1032,7 @@ func TestFileStore_List_SkipsNonDirectories(t *testing.T) {
 	store, tmpDir := setupTestStore(t)
 
 	// Create a valid task
-	task := createTestTask("task-20251229-120000")
+	task := createTestTask("task-00000000-0000-4000-8000-000000120000")
 	err := store.Create(context.Background(), "test-ws", task)
 	require.NoError(t, err)
 
@@ -1060,7 +1053,7 @@ func TestFileStore_List_SkipsInvalidTaskIDs(t *testing.T) {
 	store, tmpDir := setupTestStore(t)
 
 	// Create a valid task
-	task := createTestTask("task-20251229-120001")
+	task := createTestTask("task-00000000-0000-4000-8000-000000120001")
 	err := store.Create(context.Background(), "test-ws", task)
 	require.NoError(t, err)
 
@@ -1081,12 +1074,12 @@ func TestFileStore_List_SkipsCorruptedTasks(t *testing.T) {
 	store, tmpDir := setupTestStore(t)
 
 	// Create a valid task
-	task := createTestTask("task-20251229-120002")
+	task := createTestTask("task-00000000-0000-4000-8000-000000120002")
 	err := store.Create(context.Background(), "test-ws", task)
 	require.NoError(t, err)
 
 	// Create a task directory with corrupted JSON
-	corruptTaskDir := filepath.Join(tmpDir, constants.WorkspacesDir, "test-ws", constants.TasksDir, "task-20251229-120003")
+	corruptTaskDir := filepath.Join(tmpDir, constants.WorkspacesDir, "test-ws", constants.TasksDir, "task-00000000-0000-4000-8000-000000120003")
 	err = os.MkdirAll(corruptTaskDir, 0o750)
 	require.NoError(t, err)
 	err = os.WriteFile(filepath.Join(corruptTaskDir, constants.TaskFileName), []byte("invalid json{"), 0o600)
@@ -1160,7 +1153,7 @@ func TestFileStore_SaveArtifact_EmptyTaskID(t *testing.T) {
 func TestFileStore_SaveArtifact_EmptyFilename(t *testing.T) {
 	store, _ := setupTestStore(t)
 
-	task := createTestTask("task-20251229-120010")
+	task := createTestTask("task-00000000-0000-4000-8000-000000120010")
 	err := store.Create(context.Background(), "test-ws", task)
 	require.NoError(t, err)
 
@@ -1236,7 +1229,7 @@ func TestFileStore_SaveVersionedArtifact_EmptyTaskID(t *testing.T) {
 func TestFileStore_SaveVersionedArtifact_EmptyFilename(t *testing.T) {
 	store, _ := setupTestStore(t)
 
-	task := createTestTask("task-20251229-120011")
+	task := createTestTask("task-00000000-0000-4000-8000-000000120011")
 	err := store.Create(context.Background(), "test-ws", task)
 	require.NoError(t, err)
 

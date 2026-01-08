@@ -37,7 +37,7 @@ func TestIntegration_TaskLifecycle(t *testing.T) {
 
 	t.Run("1_create_task", func(t *testing.T) {
 		task = &domain.Task{
-			ID:          "task-20251229-120000",
+			ID:          "task-11111111-1111-4111-8111-111111111111",
 			WorkspaceID: "test-ws",
 			TemplateID:  "bugfix",
 			Description: "Integration test task",
@@ -144,7 +144,7 @@ func TestIntegration_TaskWithVersionedArtifacts(t *testing.T) {
 
 	// Create task
 	task := &domain.Task{
-		ID:          "task-20251229-120001",
+		ID:          "task-11111111-1111-4111-8111-111111111111",
 		WorkspaceID: "test-ws",
 		TemplateID:  "feature",
 		Description: "Versioned artifact test",
@@ -193,7 +193,7 @@ func TestIntegration_TaskStateTransitions(t *testing.T) {
 
 	// Test valid transitions: pending -> running -> completed
 	task := &domain.Task{
-		ID:          "task-20251229-120002",
+		ID:          "task-11111111-1111-4111-8111-111111111111",
 		WorkspaceID: "test-ws",
 		Status:      domain.TaskStatusPending,
 		CreatedAt:   time.Now(),
@@ -236,7 +236,7 @@ func TestIntegration_TaskFailureAndRetry(t *testing.T) {
 
 	// Create task
 	task := &domain.Task{
-		ID:          "task-20251229-120003",
+		ID:          "task-11111111-1111-4111-8111-111111111111",
 		WorkspaceID: "test-ws",
 		Status:      domain.TaskStatusRunning,
 		CurrentStep: 1,
