@@ -76,12 +76,9 @@ func (r *CodexRunner) execute(ctx context.Context, req *domain.AIRequest) (*doma
 
 // handleExecutionError processes errors from command execution.
 func (r *CodexRunner) handleExecutionError(ctx context.Context, err error, stdout, stderr []byte) (*domain.AIResult, error) {
-	return r.base.HandleExecutionError(ctx, err,
+	return r.base.HandleProviderExecutionError(ctx, codexCLIInfo, err, stderr,
 		func() (*domain.AIResult, bool) {
 			return r.tryParseErrorResponse(err, stdout, stderr)
-		},
-		func(e error) error {
-			return WrapCLIExecutionError(codexCLIInfo, e, stderr)
 		},
 	)
 }

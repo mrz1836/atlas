@@ -69,6 +69,21 @@ func (b *BaseRunner) HandleExecutionError(ctx context.Context, err error, tryPar
 	return nil, wrapErr(err)
 }
 
+// HandleProviderExecutionError is a convenience method for provider-specific error handling.
+// It simplifies the common pattern of wrapping CLI errors with provider info.
+// This reduces boilerplate in individual runner implementations.
+func (b *BaseRunner) HandleProviderExecutionError(
+	ctx context.Context,
+	info CLIInfo,
+	err error,
+	stderr []byte,
+	tryParse func() (*domain.AIResult, bool),
+) (*domain.AIResult, error) {
+	return b.HandleExecutionError(ctx, err, tryParse, func(e error) error {
+		return WrapCLIExecutionError(info, e, stderr)
+	})
+}
+
 // runWithRetry executes the AI request with exponential backoff retry logic.
 // Only transient errors are retried; non-retryable errors return immediately.
 func (b *BaseRunner) runWithRetry(ctx context.Context, req *domain.AIRequest, execute ExecuteFunc) (*domain.AIResult, error) {

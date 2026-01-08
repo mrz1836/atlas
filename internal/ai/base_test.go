@@ -22,6 +22,7 @@ var (
 	errTestSome             = errors.New("some error")
 	errTestOriginal         = errors.New("original error")
 	errTestWrapped          = errors.New("wrapped error")
+	errTestErrorType        = errors.New("test error type")
 )
 
 func TestBaseRunner_ResolveTimeout(t *testing.T) {
@@ -199,5 +200,75 @@ func TestBaseRunner_HandleExecutionError(t *testing.T) {
 		)
 
 		assert.Equal(t, wrappedErr, err)
+	})
+}
+
+func TestBaseRunner_HandleProviderExecutionError(t *testing.T) {
+	t.Parallel()
+
+	testInfo := CLIInfo{
+		Name:        "test-cli",
+		ErrType:     errTestErrorType,
+		InstallHint: "Install with: brew install test-cli",
+	}
+
+	t.Run("returns context error when canceled", func(t *testing.T) {
+		t.Parallel()
+		b := &BaseRunner{}
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		_, err := b.HandleProviderExecutionError(ctx, testInfo, errTestSome, nil, nil)
+
+		assert.Equal(t, context.Canceled, err)
+	})
+
+	t.Run("uses tryParse when successful", func(t *testing.T) {
+		t.Parallel()
+		b := &BaseRunner{}
+		expected := &domain.AIResult{Output: "parsed"}
+
+		result, err := b.HandleProviderExecutionError(
+			context.Background(),
+			testInfo,
+			errTestSome,
+			[]byte("stderr"),
+			func() (*domain.AIResult, bool) { return expected, true },
+		)
+
+		require.NoError(t, err)
+		assert.Equal(t, expected, result)
+	})
+
+	t.Run("wraps error with CLI info when tryParse fails", func(t *testing.T) {
+		t.Parallel()
+		b := &BaseRunner{}
+
+		_, err := b.HandleProviderExecutionError(
+			context.Background(),
+			testInfo,
+			errTestOriginal,
+			[]byte("test stderr"),
+			func() (*domain.AIResult, bool) { return nil, false },
+		)
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "test stderr")
+	})
+
+	t.Run("handles nil tryParse", func(t *testing.T) {
+		t.Parallel()
+		b := &BaseRunner{}
+
+		_, err := b.HandleProviderExecutionError(
+			context.Background(),
+			testInfo,
+			errTestOriginal,
+			[]byte("stderr output"),
+			nil,
+		)
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "stderr output")
 	})
 }

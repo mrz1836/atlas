@@ -112,12 +112,9 @@ func (r *ClaudeCodeRunner) execute(ctx context.Context, req *domain.AIRequest) (
 
 // handleExecutionError processes errors from command execution.
 func (r *ClaudeCodeRunner) handleExecutionError(ctx context.Context, err error, stdout, stderr []byte) (*domain.AIResult, error) {
-	return r.base.HandleExecutionError(ctx, err,
+	return r.base.HandleProviderExecutionError(ctx, claudeCLIInfo, err, stderr,
 		func() (*domain.AIResult, bool) {
 			return r.tryParseErrorResponse(err, stdout, stderr)
-		},
-		func(e error) error {
-			return WrapCLIExecutionError(claudeCLIInfo, e, stderr)
 		},
 	)
 }
