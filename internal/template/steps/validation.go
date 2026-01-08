@@ -41,21 +41,29 @@ type ValidationExecutor struct {
 	testCommands      []string
 }
 
-// NewValidationExecutor creates a new validation executor.
+// NewValidationExecutor creates a new validation executor with default settings.
+// For more customization, use NewValidationExecutorWithOptions.
 func NewValidationExecutor(workDir string) *ValidationExecutor {
-	return &ValidationExecutor{
+	return NewValidationExecutorWithOptions(workDir)
+}
+
+// NewValidationExecutorWithOptions creates a validation executor with functional options.
+// This is the preferred constructor for creating customized executors.
+func NewValidationExecutorWithOptions(workDir string, opts ...ValidationExecutorOption) *ValidationExecutor {
+	e := &ValidationExecutor{
 		workDir: workDir,
 		runner:  &validation.DefaultCommandRunner{},
 	}
+	for _, opt := range opts {
+		opt(e)
+	}
+	return e
 }
 
 // NewValidationExecutorWithRunner creates a validation executor with a custom command runner.
-// This is primarily used for testing.
+// Deprecated: Use NewValidationExecutorWithOptions with WithValidationRunner instead.
 func NewValidationExecutorWithRunner(workDir string, runner validation.CommandRunner) *ValidationExecutor {
-	return &ValidationExecutor{
-		workDir: workDir,
-		runner:  runner,
-	}
+	return NewValidationExecutorWithOptions(workDir, WithValidationRunner(runner))
 }
 
 // ValidationCommands holds the validation command configuration from project config.
@@ -66,46 +74,87 @@ type ValidationCommands struct {
 	PreCommit []string
 }
 
+// ValidationExecutorOption configures a ValidationExecutor.
+type ValidationExecutorOption func(*ValidationExecutor)
+
+// WithValidationRunner sets a custom command runner.
+func WithValidationRunner(runner validation.CommandRunner) ValidationExecutorOption {
+	return func(e *ValidationExecutor) {
+		e.runner = runner
+	}
+}
+
+// WithValidationToolChecker sets a custom tool checker.
+func WithValidationToolChecker(tc validation.ToolChecker) ValidationExecutorOption {
+	return func(e *ValidationExecutor) {
+		e.toolChecker = tc
+	}
+}
+
+// WithValidationArtifactSaver sets the artifact saver for saving validation results.
+func WithValidationArtifactSaver(saver ArtifactSaver) ValidationExecutorOption {
+	return func(e *ValidationExecutor) {
+		e.artifactSaver = saver
+	}
+}
+
+// WithValidationNotifier sets the notifier for user notifications.
+func WithValidationNotifier(notifier Notifier) ValidationExecutorOption {
+	return func(e *ValidationExecutor) {
+		e.notifier = notifier
+	}
+}
+
+// WithValidationRetryHandler sets the retry handler for AI-assisted retries.
+func WithValidationRetryHandler(handler RetryHandler) ValidationExecutorOption {
+	return func(e *ValidationExecutor) {
+		e.retryHandler = handler
+	}
+}
+
+// WithValidationCommands sets the validation commands from project config.
+func WithValidationCommands(cmds ValidationCommands) ValidationExecutorOption {
+	return func(e *ValidationExecutor) {
+		e.formatCommands = cmds.Format
+		e.lintCommands = cmds.Lint
+		e.testCommands = cmds.Test
+		e.preCommitCommands = cmds.PreCommit
+	}
+}
+
 // NewValidationExecutorWithDeps creates a validation executor with full dependencies.
 // The artifactSaver, notifier, and retryHandler may be nil if those features are not needed.
-// Deprecated: Use NewValidationExecutorFull to include validation commands from config.
+// Deprecated: Use NewValidationExecutorWithOptions with functional options instead.
 func NewValidationExecutorWithDeps(workDir string, artifactSaver ArtifactSaver, notifier Notifier, retryHandler RetryHandler) *ValidationExecutor {
-	return &ValidationExecutor{
-		workDir:       workDir,
-		runner:        &validation.DefaultCommandRunner{},
-		artifactSaver: artifactSaver,
-		notifier:      notifier,
-		retryHandler:  retryHandler,
-	}
+	return NewValidationExecutorWithOptions(workDir,
+		WithValidationArtifactSaver(artifactSaver),
+		WithValidationNotifier(notifier),
+		WithValidationRetryHandler(retryHandler),
+	)
 }
 
 // NewValidationExecutorFull creates a validation executor with all dependencies including
 // validation commands from project config. The commands override the defaults.
+// Deprecated: Use NewValidationExecutorWithOptions with functional options instead.
 func NewValidationExecutorFull(workDir string, artifactSaver ArtifactSaver, notifier Notifier, retryHandler RetryHandler, commands ValidationCommands) *ValidationExecutor {
-	return &ValidationExecutor{
-		workDir:           workDir,
-		runner:            &validation.DefaultCommandRunner{},
-		artifactSaver:     artifactSaver,
-		notifier:          notifier,
-		retryHandler:      retryHandler,
-		formatCommands:    commands.Format,
-		lintCommands:      commands.Lint,
-		testCommands:      commands.Test,
-		preCommitCommands: commands.PreCommit,
-	}
+	return NewValidationExecutorWithOptions(workDir,
+		WithValidationArtifactSaver(artifactSaver),
+		WithValidationNotifier(notifier),
+		WithValidationRetryHandler(retryHandler),
+		WithValidationCommands(commands),
+	)
 }
 
 // NewValidationExecutorWithAll creates a validation executor with all dependencies including custom runner.
-// This is primarily used for testing.
+// Deprecated: Use NewValidationExecutorWithOptions with functional options instead.
 func NewValidationExecutorWithAll(workDir string, runner validation.CommandRunner, toolChecker validation.ToolChecker, artifactSaver ArtifactSaver, notifier Notifier, retryHandler RetryHandler) *ValidationExecutor {
-	return &ValidationExecutor{
-		workDir:       workDir,
-		runner:        runner,
-		toolChecker:   toolChecker,
-		artifactSaver: artifactSaver,
-		notifier:      notifier,
-		retryHandler:  retryHandler,
-	}
+	return NewValidationExecutorWithOptions(workDir,
+		WithValidationRunner(runner),
+		WithValidationToolChecker(toolChecker),
+		WithValidationArtifactSaver(artifactSaver),
+		WithValidationNotifier(notifier),
+		WithValidationRetryHandler(retryHandler),
+	)
 }
 
 // Execute runs validation commands using the parallel pipeline runner.

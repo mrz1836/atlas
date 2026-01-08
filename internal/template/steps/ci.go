@@ -299,26 +299,11 @@ func (e *CIExecutor) extractPRNumber(t *domain.Task) (int, error) {
 		return 0, fmt.Errorf("CI wait step requires pr_number in task metadata: %w", atlaserrors.ErrEmptyValue)
 	}
 
-	// Handle different numeric types
-	switch v := prNumber.(type) {
-	case int:
-		if v <= 0 {
-			return 0, fmt.Errorf("invalid PR number %d: %w", v, atlaserrors.ErrEmptyValue)
-		}
-		return v, nil
-	case int64:
-		if v <= 0 {
-			return 0, fmt.Errorf("invalid PR number %d: %w", v, atlaserrors.ErrEmptyValue)
-		}
-		return int(v), nil
-	case float64:
-		if v <= 0 {
-			return 0, fmt.Errorf("invalid PR number %v: %w", v, atlaserrors.ErrEmptyValue)
-		}
-		return int(v), nil
-	default:
-		return 0, fmt.Errorf("pr_number must be a number, got %T: %w", prNumber, atlaserrors.ErrEmptyValue)
+	num, valid := getIntFromAny(prNumber)
+	if !valid {
+		return 0, fmt.Errorf("pr_number must be a positive number, got %T: %w", prNumber, atlaserrors.ErrEmptyValue)
 	}
+	return num, nil
 }
 
 // handleSuccess returns a completed StepResult for successful CI.

@@ -198,3 +198,22 @@ func NewMinimalRegistry(workDir string) *ExecutorRegistry {
 
 	return r
 }
+
+// getIntFromAny extracts an int from various numeric types stored in interface{}.
+// This handles JSON unmarshaling which may produce int, int64, or float64.
+// Returns 0, false if the value is nil, not a number, or <= 0.
+func getIntFromAny(val any) (int, bool) {
+	if val == nil {
+		return 0, false
+	}
+	switch v := val.(type) {
+	case int:
+		return v, v > 0
+	case int64:
+		return int(v), v > 0
+	case float64:
+		return int(v), v > 0
+	default:
+		return 0, false
+	}
+}

@@ -725,20 +725,14 @@ func (e *GitExecutor) executeAddComment(ctx context.Context, step *domain.StepDe
 // getPRNumber extracts PR number from config or task metadata.
 func (e *GitExecutor) getPRNumber(config map[string]any, task *domain.Task) int {
 	// 1. Try step config
-	if num, ok := config["pr_number"].(int); ok && num > 0 {
+	if num, ok := getIntFromAny(config["pr_number"]); ok {
 		return num
-	}
-	if numFloat, ok := config["pr_number"].(float64); ok && numFloat > 0 {
-		return int(numFloat)
 	}
 
 	// 2. Try task metadata (set by CreatePR step)
 	if task.Metadata != nil {
-		if num, ok := task.Metadata["pr_number"].(int); ok && num > 0 {
+		if num, ok := getIntFromAny(task.Metadata["pr_number"]); ok {
 			return num
-		}
-		if numFloat, ok := task.Metadata["pr_number"].(float64); ok && numFloat > 0 {
-			return int(numFloat)
 		}
 	}
 
@@ -764,88 +758,49 @@ func formatGarbageWarning(files []git.GarbageFile) string {
 	return msg
 }
 
-// saveCommitResultJSON saves commit result as a JSON artifact using the artifact saver.
-// Returns the artifact filename if saved successfully, empty string otherwise.
+// saveArtifact saves data as an artifact and returns the filename.
+// Returns empty string if artifactSaver is nil or on error.
+func (e *GitExecutor) saveArtifact(ctx context.Context, task *domain.Task, stepName, filename string, data []byte) string {
+	if e.artifactSaver == nil {
+		return ""
+	}
+	fullPath := filepath.Join(stepName, filename)
+	if err := e.artifactSaver.SaveArtifact(ctx, task.WorkspaceID, task.ID, fullPath, data); err != nil {
+		e.logger.Warn().Err(err).Str("filename", filename).Msg("failed to save artifact")
+		return ""
+	}
+	return fullPath
+}
+
+// saveJSONArtifact marshals data to JSON and saves it as an artifact.
+func (e *GitExecutor) saveJSONArtifact(ctx context.Context, task *domain.Task, stepName, filename string, data any) string {
+	jsonData, err := json.MarshalIndent(data, "", "  ")
+	if err != nil {
+		e.logger.Warn().Err(err).Str("filename", filename).Msg("failed to marshal artifact data")
+		return ""
+	}
+	return e.saveArtifact(ctx, task, stepName, filename, jsonData)
+}
+
+// saveCommitResultJSON saves commit result as a JSON artifact.
 func (e *GitExecutor) saveCommitResultJSON(ctx context.Context, task *domain.Task, stepName string, result *git.CommitResult) string {
-	if e.artifactSaver == nil {
-		return ""
-	}
-
-	data, err := json.MarshalIndent(result, "", "  ") //nolint:musttag // external type from git package
-	if err != nil {
-		e.logger.Warn().Err(err).Msg("failed to marshal commit result")
-		return ""
-	}
-
-	filename := filepath.Join(stepName, "commit-result.json")
-	if err := e.artifactSaver.SaveArtifact(ctx, task.WorkspaceID, task.ID, filename, data); err != nil {
-		e.logger.Warn().Err(err).Msg("failed to save commit result artifact")
-		return ""
-	}
-
-	return filename
+	return e.saveJSONArtifact(ctx, task, stepName, "commit-result.json", result)
 }
 
-// savePushResultJSON saves push result as a JSON artifact using the artifact saver.
-// Returns the artifact filename if saved successfully, empty string otherwise.
+// savePushResultJSON saves push result as a JSON artifact.
 func (e *GitExecutor) savePushResultJSON(ctx context.Context, task *domain.Task, stepName string, result *git.PushResult) string {
-	if e.artifactSaver == nil {
-		return ""
-	}
-
-	data, err := json.MarshalIndent(result, "", "  ") //nolint:musttag // external type from git package
-	if err != nil {
-		e.logger.Warn().Err(err).Msg("failed to marshal push result")
-		return ""
-	}
-
-	filename := filepath.Join(stepName, "push-result.json")
-	if err := e.artifactSaver.SaveArtifact(ctx, task.WorkspaceID, task.ID, filename, data); err != nil {
-		e.logger.Warn().Err(err).Msg("failed to save push result artifact")
-		return ""
-	}
-
-	return filename
+	return e.saveJSONArtifact(ctx, task, stepName, "push-result.json", result)
 }
 
-// savePRDescriptionMD saves PR description as a markdown artifact using the artifact saver.
-// Returns the artifact filename if saved successfully, empty string otherwise.
+// savePRDescriptionMD saves PR description as a markdown artifact.
 func (e *GitExecutor) savePRDescriptionMD(ctx context.Context, task *domain.Task, stepName string, desc *git.PRDescription) string {
-	if e.artifactSaver == nil {
-		return ""
-	}
-
 	content := fmt.Sprintf("# %s\n\n%s", desc.Title, desc.Body)
-
-	filename := filepath.Join(stepName, "pr-description.md")
-	if err := e.artifactSaver.SaveArtifact(ctx, task.WorkspaceID, task.ID, filename, []byte(content)); err != nil {
-		e.logger.Warn().Err(err).Msg("failed to save PR description artifact")
-		return ""
-	}
-
-	return filename
+	return e.saveArtifact(ctx, task, stepName, "pr-description.md", []byte(content))
 }
 
-// savePRResultJSON saves PR result as a JSON artifact using the artifact saver.
-// Returns the artifact filename if saved successfully, empty string otherwise.
+// savePRResultJSON saves PR result as a JSON artifact.
 func (e *GitExecutor) savePRResultJSON(ctx context.Context, task *domain.Task, stepName string, result *git.PRResult) string {
-	if e.artifactSaver == nil {
-		return ""
-	}
-
-	data, err := json.MarshalIndent(result, "", "  ") //nolint:musttag // external type from git package
-	if err != nil {
-		e.logger.Warn().Err(err).Msg("failed to marshal PR result")
-		return ""
-	}
-
-	filename := filepath.Join(stepName, "pr-result.json")
-	if err := e.artifactSaver.SaveArtifact(ctx, task.WorkspaceID, task.ID, filename, data); err != nil {
-		e.logger.Warn().Err(err).Msg("failed to save PR result artifact")
-		return ""
-	}
-
-	return filename
+	return e.saveJSONArtifact(ctx, task, stepName, "pr-result.json", result)
 }
 
 // getBranchFromConfig extracts the branch name from step config or task.
