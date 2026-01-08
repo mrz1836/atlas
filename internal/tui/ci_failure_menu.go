@@ -77,16 +77,11 @@ func RenderCIFailureMenu(opts CIFailureMenuOptions) string {
 	var sb strings.Builder
 
 	// Header
-	headerStyle := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color("#FF5F5F")).
-		MarginBottom(1)
-
 	statusText := "CI Failed"
 	if opts.Status == "timeout" {
 		statusText = "CI Timed Out"
 	}
-	sb.WriteString(headerStyle.Render(fmt.Sprintf("⚠️  %s", statusText)))
+	sb.WriteString(RenderStyledHeader("⚠️", statusText, ColorError))
 	sb.WriteString("\n\n")
 
 	// PR info

@@ -72,12 +72,7 @@ func RenderVerificationMenu(opts VerificationMenuOptions) string {
 	var sb strings.Builder
 
 	// Header
-	headerStyle := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color("#FFAF00")).
-		MarginBottom(1)
-
-	sb.WriteString(headerStyle.Render("🔍 Verification Issues Found"))
+	sb.WriteString(RenderStyledHeader("🔍", "Verification Issues Found", ColorWarning))
 	sb.WriteString("\n\n")
 
 	// Task info
@@ -93,15 +88,15 @@ func RenderVerificationMenu(opts VerificationMenuOptions) string {
 	sb.WriteString(styles.Warning.Render("Issues Found:"))
 	sb.WriteString("\n")
 	if opts.ErrorCount > 0 {
-		errorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#FF5F5F"))
+		errorStyle := lipgloss.NewStyle().Foreground(ColorError)
 		sb.WriteString(fmt.Sprintf("  • %s\n", errorStyle.Render(fmt.Sprintf("%d error(s)", opts.ErrorCount))))
 	}
 	if opts.WarningCount > 0 {
-		warningStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#FFAF00"))
+		warningStyle := lipgloss.NewStyle().Foreground(ColorWarning)
 		sb.WriteString(fmt.Sprintf("  • %s\n", warningStyle.Render(fmt.Sprintf("%d warning(s)", opts.WarningCount))))
 	}
 	if opts.InfoCount > 0 {
-		infoStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#5FAFFF"))
+		infoStyle := lipgloss.NewStyle().Foreground(ColorPrimary)
 		sb.WriteString(fmt.Sprintf("  • %s\n", infoStyle.Render(fmt.Sprintf("%d info", opts.InfoCount))))
 	}
 	sb.WriteString("\n")

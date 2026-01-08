@@ -542,6 +542,22 @@ func padRight(s string, width int) string {
 	return s + strings.Repeat(" ", width-runeCount)
 }
 
+// HeaderStyle creates a styled header with the given color.
+// Used for consistent menu headers across TUI components.
+func HeaderStyle(color lipgloss.TerminalColor) lipgloss.Style {
+	return lipgloss.NewStyle().
+		Bold(true).
+		Foreground(color).
+		MarginBottom(1)
+}
+
+// RenderStyledHeader renders a styled header with icon and text.
+// This provides consistent header styling across menu components.
+func RenderStyledHeader(icon, text string, color lipgloss.TerminalColor) string {
+	style := HeaderStyle(color)
+	return style.Render(icon + " " + text)
+}
+
 // NarrowTerminalWidth is the threshold for narrow terminal mode.
 // Terminals narrower than this value may need adjusted formatting.
 const NarrowTerminalWidth = 80

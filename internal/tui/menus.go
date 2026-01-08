@@ -66,17 +66,48 @@ type MenuConfig struct {
 	ShowKeyHints bool
 }
 
+// MenuConfigOption is a functional option for configuring MenuConfig.
+type MenuConfigOption func(*MenuConfig)
+
+// WithMenuWidth sets the menu width.
+func WithMenuWidth(width int) MenuConfigOption {
+	return func(c *MenuConfig) {
+		c.Width = width
+	}
+}
+
+// WithMenuAccessible enables or disables accessible mode.
+func WithMenuAccessible(enabled bool) MenuConfigOption {
+	return func(c *MenuConfig) {
+		c.Accessible = enabled
+	}
+}
+
+// WithMenuKeyHints enables or disables key hints display.
+func WithMenuKeyHints(show bool) MenuConfigOption {
+	return func(c *MenuConfig) {
+		c.ShowKeyHints = show
+	}
+}
+
 // NewMenuConfig creates a MenuConfig with sensible defaults from styles.go.
 // It automatically detects accessible mode from the ACCESSIBLE environment variable.
-func NewMenuConfig() *MenuConfig {
+// Use functional options to customize: NewMenuConfig(WithMenuWidth(80), WithMenuKeyHints(false))
+func NewMenuConfig(opts ...MenuConfigOption) *MenuConfig {
 	// Check for accessible mode from environment (AC: #6)
 	_, accessible := os.LookupEnv("ACCESSIBLE")
 
-	return &MenuConfig{
+	c := &MenuConfig{
 		Width:        DefaultBoxWidth, // From styles.go
 		Accessible:   accessible,
 		ShowKeyHints: true,
 	}
+
+	for _, opt := range opts {
+		opt(c)
+	}
+
+	return c
 }
 
 // WithWidth returns a new MenuConfig with the specified width.
