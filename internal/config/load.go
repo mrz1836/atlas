@@ -25,6 +25,16 @@ func newViperInstance() *viper.Viper {
 	return v
 }
 
+// isConfigNotFoundError returns true if the error is a viper config file not found error.
+// This helps consolidate the common pattern of checking for missing config files.
+func isConfigNotFoundError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var configNotFoundErr viper.ConfigFileNotFoundError
+	return stderrors.As(err, &configNotFoundErr)
+}
+
 // unmarshalAndValidate unmarshals viper config into Config struct and validates it.
 func unmarshalAndValidate(v *viper.Viper) (*Config, error) {
 	var cfg Config
@@ -99,11 +109,8 @@ func loadGlobalConfig(v *viper.Viper) error {
 	}
 
 	v.SetConfigFile(globalConfigPath)
-	if err := v.ReadInConfig(); err != nil {
-		var configNotFoundErr viper.ConfigFileNotFoundError
-		if !stderrors.As(err, &configNotFoundErr) {
-			return errors.Wrap(err, "failed to read global config file")
-		}
+	if err := v.ReadInConfig(); err != nil && !isConfigNotFoundError(err) {
+		return errors.Wrap(err, "failed to read global config file")
 	}
 	return nil
 }
@@ -135,11 +142,8 @@ func loadProjectConfig(v *viper.Viper) error {
 	}
 
 	v.SetConfigFile(projectConfigPath)
-	if err := v.MergeInConfig(); err != nil {
-		var configNotFoundErr viper.ConfigFileNotFoundError
-		if !stderrors.As(err, &configNotFoundErr) {
-			return errors.Wrap(err, "failed to read project config file")
-		}
+	if err := v.MergeInConfig(); err != nil && !isConfigNotFoundError(err) {
+		return errors.Wrap(err, "failed to read project config file")
 	}
 	return nil
 }
@@ -188,22 +192,16 @@ func LoadFromPaths(_ context.Context, projectConfigPath, globalConfigPath string
 	// Load global config first (lower precedence)
 	if globalConfigPath != "" {
 		v.SetConfigFile(globalConfigPath)
-		if err := v.ReadInConfig(); err != nil {
-			var configNotFoundErr viper.ConfigFileNotFoundError
-			if !stderrors.As(err, &configNotFoundErr) && !os.IsNotExist(err) {
-				return nil, errors.Wrapf(err, "failed to read global config: %s", globalConfigPath)
-			}
+		if err := v.ReadInConfig(); err != nil && !isConfigNotFoundError(err) && !os.IsNotExist(err) {
+			return nil, errors.Wrapf(err, "failed to read global config: %s", globalConfigPath)
 		}
 	}
 
 	// Load project config (higher precedence, merges over global)
 	if projectConfigPath != "" {
 		v.SetConfigFile(projectConfigPath)
-		if err := v.MergeInConfig(); err != nil {
-			var configNotFoundErr viper.ConfigFileNotFoundError
-			if !stderrors.As(err, &configNotFoundErr) && !os.IsNotExist(err) {
-				return nil, errors.Wrapf(err, "failed to read project config: %s", projectConfigPath)
-			}
+		if err := v.MergeInConfig(); err != nil && !isConfigNotFoundError(err) && !os.IsNotExist(err) {
+			return nil, errors.Wrapf(err, "failed to read project config: %s", projectConfigPath)
 		}
 	}
 
