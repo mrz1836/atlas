@@ -21,6 +21,7 @@ import (
 
 	"github.com/rs/zerolog"
 
+	"github.com/mrz1836/atlas/internal/ctxutil"
 	"github.com/mrz1836/atlas/internal/domain"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 	"github.com/mrz1836/atlas/internal/git"
@@ -195,10 +196,8 @@ func (h *CIFailureHandler) HasHandler() bool {
 // is automatically saved to ci-result.json before processing the action.
 func (h *CIFailureHandler) HandleCIFailure(ctx context.Context, opts CIFailureOptions) (*CIFailureResult, error) {
 	// Check for cancellation at entry
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	default:
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return nil, err
 	}
 
 	h.logger.Info().
@@ -245,11 +244,8 @@ func (h *CIFailureHandler) HandleCIFailure(ctx context.Context, opts CIFailureOp
 
 // SaveCIResultArtifact saves the CI result to ci-result.json.
 func (h *CIFailureHandler) SaveCIResultArtifact(ctx context.Context, result *git.CIWatchResult, artifactDir string) (string, error) {
-	// Check for cancellation at entry
-	select {
-	case <-ctx.Done():
-		return "", ctx.Err()
-	default:
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return "", err
 	}
 
 	if result == nil {

@@ -17,6 +17,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/mrz1836/atlas/internal/constants"
+	"github.com/mrz1836/atlas/internal/ctxutil"
 	"github.com/mrz1836/atlas/internal/domain"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 	"github.com/mrz1836/atlas/internal/flock"
@@ -95,11 +96,8 @@ func NewFileStore(atlasHome string) (*FileStore, error) {
 
 // Create creates a new task in the workspace.
 func (s *FileStore) Create(ctx context.Context, workspaceName string, task *domain.Task) error {
-	// Check for cancellation at entry
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return err
 	}
 
 	// Validate inputs
@@ -156,11 +154,8 @@ func (s *FileStore) Create(ctx context.Context, workspaceName string, task *doma
 
 // Get retrieves a task by ID from the workspace.
 func (s *FileStore) Get(ctx context.Context, workspaceName, taskID string) (*domain.Task, error) {
-	// Check for cancellation at entry
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	default:
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return nil, err
 	}
 
 	// Validate inputs
@@ -206,11 +201,8 @@ func (s *FileStore) Get(ctx context.Context, workspaceName, taskID string) (*dom
 
 // Update saves the current task state (atomic write).
 func (s *FileStore) Update(ctx context.Context, workspaceName string, task *domain.Task) error {
-	// Check for cancellation at entry
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return err
 	}
 
 	// Validate inputs
@@ -258,11 +250,8 @@ func (s *FileStore) Update(ctx context.Context, workspaceName string, task *doma
 
 // List returns all tasks for a workspace, sorted by creation time (newest first).
 func (s *FileStore) List(ctx context.Context, workspaceName string) ([]*domain.Task, error) {
-	// Check for cancellation at entry
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	default:
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return nil, err
 	}
 
 	// Validate inputs
@@ -296,11 +285,8 @@ func (s *FileStore) List(ctx context.Context, workspaceName string) ([]*domain.T
 			continue
 		}
 
-		// Check for cancellation during iteration
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		default:
+		if err := ctxutil.Canceled(ctx); err != nil {
+			return nil, err
 		}
 
 		// Try to read task
@@ -323,11 +309,8 @@ func (s *FileStore) List(ctx context.Context, workspaceName string) ([]*domain.T
 
 // Delete removes a task and all its artifacts.
 func (s *FileStore) Delete(ctx context.Context, workspaceName, taskID string) error {
-	// Check for cancellation at entry
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return err
 	}
 
 	// Validate inputs
@@ -363,11 +346,8 @@ func (s *FileStore) Delete(ctx context.Context, workspaceName, taskID string) er
 
 // AppendLog appends a log entry to the task's log file (JSON-lines format).
 func (s *FileStore) AppendLog(ctx context.Context, workspaceName, taskID string, entry []byte) error {
-	// Check for cancellation at entry
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return err
 	}
 
 	// Validate inputs
@@ -421,11 +401,8 @@ func (s *FileStore) AppendLog(ctx context.Context, workspaceName, taskID string,
 
 // ReadLog reads the task's log file.
 func (s *FileStore) ReadLog(ctx context.Context, workspaceName, taskID string) ([]byte, error) {
-	// Check for cancellation at entry
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	default:
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return nil, err
 	}
 
 	// Validate inputs
@@ -451,11 +428,8 @@ func (s *FileStore) ReadLog(ctx context.Context, workspaceName, taskID string) (
 
 // SaveArtifact saves an artifact file for the task.
 func (s *FileStore) SaveArtifact(ctx context.Context, workspaceName, taskID, filename string, data []byte) error {
-	// Check for cancellation at entry
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return err
 	}
 
 	// Validate inputs
@@ -507,11 +481,8 @@ func (s *FileStore) SaveArtifact(ctx context.Context, workspaceName, taskID, fil
 // For example, if "validation.json" exists, saves as "validation.1.json",
 // then "validation.2.json", etc.
 func (s *FileStore) SaveVersionedArtifact(ctx context.Context, workspaceName, taskID, baseName string, data []byte) (string, error) {
-	// Check for cancellation at entry
-	select {
-	case <-ctx.Done():
-		return "", ctx.Err()
-	default:
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return "", err
 	}
 
 	// Validate inputs
@@ -549,11 +520,8 @@ func (s *FileStore) SaveVersionedArtifact(ctx context.Context, workspaceName, ta
 
 // GetArtifact retrieves an artifact file.
 func (s *FileStore) GetArtifact(ctx context.Context, workspaceName, taskID, filename string) ([]byte, error) {
-	// Check for cancellation at entry
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	default:
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return nil, err
 	}
 
 	// Validate inputs
@@ -589,11 +557,8 @@ func (s *FileStore) GetArtifact(ctx context.Context, workspaceName, taskID, file
 
 // ListArtifacts lists all artifact files for a task.
 func (s *FileStore) ListArtifacts(ctx context.Context, workspaceName, taskID string) ([]string, error) {
-	// Check for cancellation at entry
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	default:
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return nil, err
 	}
 
 	// Validate inputs
@@ -749,12 +714,9 @@ func (s *FileStore) acquireLock(ctx context.Context, workspaceName, taskID strin
 	// Try to acquire lock with timeout
 	deadline := time.Now().Add(LockTimeout)
 	for {
-		// Check for context cancellation
-		select {
-		case <-ctx.Done():
+		if err := ctxutil.Canceled(ctx); err != nil {
 			_ = f.Close()
-			return nil, ctx.Err()
-		default:
+			return nil, err
 		}
 
 		// Attempt to acquire exclusive non-blocking lock

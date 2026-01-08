@@ -13,6 +13,7 @@ import (
 	"fmt"
 
 	"github.com/mrz1836/atlas/internal/constants"
+	"github.com/mrz1836/atlas/internal/ctxutil"
 	"github.com/mrz1836/atlas/internal/domain"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 	"github.com/mrz1836/atlas/internal/git"
@@ -71,10 +72,8 @@ func (e *Engine) DispatchFailureByType(ctx context.Context, task *domain.Task, r
 // handleCIFailure handles CI check failures.
 // It transitions the task to CIFailed state and stores failure context.
 func (e *Engine) handleCIFailure(ctx context.Context, task *domain.Task, result *domain.StepResult, ciResult *git.CIWatchResult) error {
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return err
 	}
 
 	e.logger.Info().
@@ -108,10 +107,8 @@ func (e *Engine) handleCIFailure(ctx context.Context, task *domain.Task, result 
 // handleGHFailure handles GitHub operation failures (push, PR creation).
 // It transitions the task to GHFailed state.
 func (e *Engine) handleGHFailure(ctx context.Context, task *domain.Task, result *domain.StepResult) error {
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return err
 	}
 
 	e.logger.Info().
@@ -153,10 +150,8 @@ func (e *Engine) handleGHFailure(ctx context.Context, task *domain.Task, result 
 // handleCITimeout handles CI monitoring timeout.
 // It transitions the task to CITimeout state.
 func (e *Engine) handleCITimeout(ctx context.Context, task *domain.Task, result *domain.StepResult, ciResult *git.CIWatchResult) error {
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return err
 	}
 
 	logger := e.logger.Info().
@@ -194,10 +189,8 @@ func (e *Engine) handleCITimeout(ctx context.Context, task *domain.Task, result 
 // Unlike CI failures, this doesn't mean CI failed - we just couldn't verify the status.
 // Transitions to AwaitingApproval to allow user to decide how to proceed.
 func (e *Engine) handleCIFetchErrorFailure(ctx context.Context, task *domain.Task, result *domain.StepResult) error {
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return err
 	}
 
 	e.logger.Info().
@@ -241,10 +234,8 @@ func (e *Engine) handleCIFetchErrorFailure(ctx context.Context, task *domain.Tas
 
 // ProcessCIFailureAction processes user's CI failure action choice.
 func (e *Engine) ProcessCIFailureAction(ctx context.Context, task *domain.Task, action CIFailureAction) error {
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return err
 	}
 
 	if e.ciFailureHandler == nil {
@@ -330,10 +321,8 @@ func (e *Engine) processCIFailureResult(ctx context.Context, task *domain.Task, 
 
 // ProcessGHFailureAction processes user's GitHub failure action choice.
 func (e *Engine) ProcessGHFailureAction(ctx context.Context, task *domain.Task, action GHFailureAction) error {
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return err
 	}
 
 	e.logger.Info().
@@ -369,10 +358,8 @@ func (e *Engine) ProcessGHFailureAction(ctx context.Context, task *domain.Task, 
 
 // ProcessCITimeoutAction processes user's CI timeout action choice.
 func (e *Engine) ProcessCITimeoutAction(ctx context.Context, task *domain.Task, action CITimeoutAction) error {
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return err
 	}
 
 	e.logger.Info().

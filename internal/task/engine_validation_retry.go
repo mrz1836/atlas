@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"time"
 
+	"github.com/mrz1836/atlas/internal/ctxutil"
 	"github.com/mrz1836/atlas/internal/domain"
 	"github.com/mrz1836/atlas/internal/validation"
 )
@@ -116,10 +117,8 @@ func (e *Engine) attemptValidationRetry(
 	var lastErr error
 
 	for attempt := currentAttempt; attempt <= maxAttempts; attempt++ {
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		default:
+		if err := ctxutil.Canceled(ctx); err != nil {
+			return nil, err
 		}
 
 		if !e.validationRetryHandler.CanRetry(attempt) {

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/mrz1836/atlas/internal/constants"
+	"github.com/mrz1836/atlas/internal/ctxutil"
 	"github.com/mrz1836/atlas/internal/domain"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 )
@@ -176,11 +177,8 @@ func GetValidTargetStatuses(from constants.TaskStatus) []constants.TaskStatus {
 //   - task is nil
 //   - The transition is invalid (returns wrapped ErrInvalidTransition)
 func Transition(ctx context.Context, task *domain.Task, to constants.TaskStatus, reason string) error {
-	// Check for cancellation
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return err
 	}
 
 	// Validate task is not nil

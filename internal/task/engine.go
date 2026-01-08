@@ -20,6 +20,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/mrz1836/atlas/internal/constants"
+	"github.com/mrz1836/atlas/internal/ctxutil"
 	"github.com/mrz1836/atlas/internal/domain"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 	"github.com/mrz1836/atlas/internal/template/steps"
@@ -152,10 +153,8 @@ func NewEngine(store Store, registry *steps.ExecutorRegistry, cfg EngineConfig, 
 // Even if execution fails partway through, the task is returned so the
 // caller can inspect its state.
 func (e *Engine) Start(ctx context.Context, workspaceName, branch, worktreePath string, template *domain.Template, description string) (*domain.Task, error) {
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	default:
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return nil, err
 	}
 
 	// Generate unique task ID
@@ -234,10 +233,8 @@ func (e *Engine) Start(ctx context.Context, workspaceName, branch, worktreePath 
 //
 // Returns an error if the task is in a terminal state (Completed, Rejected, Abandoned).
 func (e *Engine) Resume(ctx context.Context, task *domain.Task, template *domain.Template) error {
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return err
 	}
 
 	e.logger.Info().
@@ -277,10 +274,8 @@ func (e *Engine) Resume(ctx context.Context, task *domain.Task, template *domain
 // This method updates task.Steps[CurrentStep] status and is NOT safe for
 // concurrent execution with the same task.
 func (e *Engine) ExecuteStep(ctx context.Context, task *domain.Task, step *domain.StepDefinition) (*domain.StepResult, error) {
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	default:
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return nil, err
 	}
 
 	// Record start time
@@ -311,10 +306,8 @@ func (e *Engine) ExecuteStep(ctx context.Context, task *domain.Task, step *domai
 // For awaiting_approval: transitions task to Validating then AwaitingApproval.
 // For failed: transitions to the appropriate error state via valid path.
 func (e *Engine) HandleStepResult(ctx context.Context, task *domain.Task, result *domain.StepResult, step *domain.StepDefinition) error {
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return err
 	}
 
 	// Handle nil result - create minimal result for tracking
@@ -376,10 +369,8 @@ func (e *Engine) HandleStepResult(ctx context.Context, task *domain.Task, result
 //   - task is not in an abandonable state (unless force=true for running tasks)
 //   - state persistence fails
 func (e *Engine) Abandon(ctx context.Context, task *domain.Task, reason string, force bool) error {
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return err
 	}
 
 	if task == nil {
@@ -530,10 +521,8 @@ func (e *Engine) handleFailedResult(ctx context.Context, task *domain.Task, step
 // executeStepInternal executes a step without modifying task state.
 // This is safe for concurrent execution in parallel step groups.
 func (e *Engine) executeStepInternal(ctx context.Context, task *domain.Task, step *domain.StepDefinition) (*domain.StepResult, error) {
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	default:
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return nil, err
 	}
 
 	executor, err := e.registry.Get(step.Type)
