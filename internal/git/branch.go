@@ -185,17 +185,31 @@ type BranchCreator struct {
 // Ensure BranchCreator implements BranchCreatorService.
 var _ BranchCreatorService = (*BranchCreator)(nil)
 
-// NewBranchCreator creates a new BranchCreator with the given git runner.
-func NewBranchCreator(runner Runner) *BranchCreator {
-	return &BranchCreator{runner: runner}
+// BranchCreatorOption configures a BranchCreator.
+type BranchCreatorOption func(*BranchCreator)
+
+// WithCustomPrefixes sets custom branch prefixes from config.
+// These take priority over DefaultBranchPrefixes when resolving branch types.
+func WithCustomPrefixes(prefixes map[string]string) BranchCreatorOption {
+	return func(bc *BranchCreator) {
+		bc.customPrefixes = prefixes
+	}
+}
+
+// NewBranchCreator creates a new BranchCreator with the given git runner
+// and optional configuration options.
+func NewBranchCreator(runner Runner, opts ...BranchCreatorOption) *BranchCreator {
+	bc := &BranchCreator{runner: runner}
+	for _, opt := range opts {
+		opt(bc)
+	}
+	return bc
 }
 
 // NewBranchCreatorWithConfig creates a new BranchCreator with custom prefixes from config.
+// Deprecated: Use NewBranchCreator(runner, WithCustomPrefixes(prefixes)) instead.
 func NewBranchCreatorWithConfig(runner Runner, customPrefixes map[string]string) *BranchCreator {
-	return &BranchCreator{
-		runner:         runner,
-		customPrefixes: customPrefixes,
-	}
+	return NewBranchCreator(runner, WithCustomPrefixes(customPrefixes))
 }
 
 // GenerateUniqueBranchName generates a unique branch name.

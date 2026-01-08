@@ -671,6 +671,45 @@ func TestNewBranchCreatorWithConfig(t *testing.T) {
 	assert.Equal(t, customPrefixes, creator.customPrefixes)
 }
 
+func TestNewBranchCreator_FunctionalOptions(t *testing.T) {
+	tempDir := t.TempDir()
+	repoDir := filepath.Join(tempDir, "repo-test-options")
+	err := os.MkdirAll(repoDir, 0o750)
+	require.NoError(t, err)
+
+	_, err = RunCommand(context.Background(), repoDir, "init")
+	require.NoError(t, err)
+
+	runner, err := NewRunner(context.Background(), repoDir)
+	require.NoError(t, err)
+
+	t.Run("no options", func(t *testing.T) {
+		creator := NewBranchCreator(runner)
+		require.NotNil(t, creator)
+		assert.Nil(t, creator.customPrefixes)
+	})
+
+	t.Run("with custom prefixes option", func(t *testing.T) {
+		prefixes := map[string]string{
+			"bugfix": "hotfix",
+			"docs":   "documentation",
+		}
+		creator := NewBranchCreator(runner, WithCustomPrefixes(prefixes))
+		require.NotNil(t, creator)
+		assert.Equal(t, prefixes, creator.customPrefixes)
+	})
+
+	t.Run("multiple options", func(t *testing.T) {
+		// Test that multiple options can be applied
+		prefixes1 := map[string]string{"bugfix": "fix1"}
+		prefixes2 := map[string]string{"bugfix": "fix2"}
+		// Second option should override first
+		creator := NewBranchCreator(runner, WithCustomPrefixes(prefixes1), WithCustomPrefixes(prefixes2))
+		require.NotNil(t, creator)
+		assert.Equal(t, prefixes2, creator.customPrefixes)
+	})
+}
+
 func TestCLIRunner_BranchExists(t *testing.T) {
 	tempDir := t.TempDir()
 

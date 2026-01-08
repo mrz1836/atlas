@@ -57,11 +57,10 @@ const (
 
 // CommitOptions controls how commits are created.
 type CommitOptions struct {
-	SingleCommit     bool              // If true, create one commit for all changes
-	SkipGarbageCheck bool              // If true, skip garbage detection
-	IncludeGarbage   bool              // If true, include garbage files anyway
-	Trailers         map[string]string // Deprecated: trailers are no longer used, commit messages now include a synopsis body
-	DryRun           bool              // If true, don't actually create commits
+	SingleCommit     bool // If true, create one commit for all changes
+	SkipGarbageCheck bool // If true, skip garbage detection
+	IncludeGarbage   bool // If true, include garbage files anyway
+	DryRun           bool // If true, don't actually create commits
 }
 
 // CommitResult contains the result of creating commits.
@@ -73,13 +72,12 @@ type CommitResult struct {
 
 // CommitInfo contains information about a single commit.
 type CommitInfo struct {
-	Hash         string            // Git commit hash (short form)
-	Message      string            // Full commit message (subject + synopsis body)
-	FileCount    int               // Number of files in this commit
-	Package      string            // Package/directory this commit covers
-	CommitType   CommitType        // Type of commit (feat, fix, etc.)
-	Trailers     map[string]string // Deprecated: always empty, kept for backward compatibility
-	FilesChanged []string          // List of file paths that were committed
+	Hash         string     // Git commit hash (short form)
+	Message      string     // Full commit message (subject + synopsis body)
+	FileCount    int        // Number of files in this commit
+	Package      string     // Package/directory this commit covers
+	CommitType   CommitType // Type of commit (feat, fix, etc.)
+	FilesChanged []string   // List of file paths that were committed
 }
 
 // CommitArtifact represents the saved artifact for commit messages.

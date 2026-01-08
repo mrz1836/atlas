@@ -220,7 +220,33 @@ func (r *SmartCommitRunner) Commit(ctx context.Context, opts CommitOptions) (*Co
 	default:
 	}
 
-	// Analyze first
+	// Analyze and handle garbage files
+	analysis, err := r.analyzeAndHandleGarbage(ctx, opts)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(analysis.FileGroups) == 0 {
+		return nil, fmt.Errorf("no files to commit: %w", atlaserrors.ErrGitOperation)
+	}
+
+	// Dry run just returns what would be committed
+	if opts.DryRun {
+		return r.buildDryRunResult(analysis, opts)
+	}
+
+	// Determine groups and perform commits
+	groups := r.determineCommitGroups(analysis, opts)
+	commits, err := r.performCommits(ctx, groups)
+	if err != nil {
+		return nil, err
+	}
+
+	return r.buildCommitResult(commits)
+}
+
+// analyzeAndHandleGarbage runs analysis and processes garbage files based on options.
+func (r *SmartCommitRunner) analyzeAndHandleGarbage(ctx context.Context, opts CommitOptions) (*CommitAnalysis, error) {
 	analysis, err := r.Analyze(ctx)
 	if err != nil {
 		return nil, err
@@ -236,47 +262,49 @@ func (r *SmartCommitRunner) Commit(ctx context.Context, opts CommitOptions) (*Co
 		analysis = r.addGarbageToGroups(analysis)
 	}
 
-	if len(analysis.FileGroups) == 0 {
-		return nil, fmt.Errorf("no files to commit: %w", atlaserrors.ErrGitOperation)
+	return analysis, nil
+}
+
+// determineCommitGroups decides whether to use multiple groups or combine into one.
+func (r *SmartCommitRunner) determineCommitGroups(analysis *CommitAnalysis, opts CommitOptions) []FileGroup {
+	if !opts.SingleCommit {
+		return analysis.FileGroups
 	}
 
-	// Dry run just returns what would be committed
-	if opts.DryRun {
-		return r.buildDryRunResult(analysis, opts)
+	// Collect all files into single group
+	var allFiles []FileChange
+	for _, g := range analysis.FileGroups {
+		allFiles = append(allFiles, g.Files...)
 	}
+	return GroupFilesForSingleCommit(allFiles)
+}
 
-	// Determine groups to commit
-	var groups []FileGroup
-	if opts.SingleCommit {
-		// Collect all files into single group
-		var allFiles []FileChange
-		for _, g := range analysis.FileGroups {
-			allFiles = append(allFiles, g.Files...)
-		}
-		groups = GroupFilesForSingleCommit(allFiles)
-	} else {
-		groups = analysis.FileGroups
-	}
-
-	// Build trailers
-	trailers := r.buildTrailers(opts.Trailers)
-
-	// Create commits
+// performCommits creates commits for each group and returns commit info.
+func (r *SmartCommitRunner) performCommits(ctx context.Context, groups []FileGroup) ([]CommitInfo, error) {
 	commits := make([]CommitInfo, 0, len(groups))
-	totalFiles := 0
 
 	for _, group := range groups {
-		commit, commitErr := r.commitGroup(ctx, group, trailers)
-		if commitErr != nil {
-			return nil, fmt.Errorf("failed to commit group '%s': %w", group.Package, commitErr)
+		commit, err := r.commitGroup(ctx, group)
+		if err != nil {
+			return nil, fmt.Errorf("failed to commit group '%s': %w", group.Package, err)
 		}
 		commits = append(commits, *commit)
-		totalFiles += commit.FileCount
+	}
+
+	return commits, nil
+}
+
+// buildCommitResult saves artifacts and constructs the final result.
+func (r *SmartCommitRunner) buildCommitResult(commits []CommitInfo) (*CommitResult, error) {
+	totalFiles := 0
+	for _, c := range commits {
+		totalFiles += c.FileCount
 	}
 
 	// Save artifact
 	artifactPath := ""
 	if r.artifactsDir != "" {
+		var err error
 		artifactPath, err = r.saveArtifact(commits)
 		if err != nil {
 			r.logger.Warn().Err(err).Msg("failed to save commit artifact")
@@ -298,7 +326,7 @@ func (r *SmartCommitRunner) Commit(ctx context.Context, opts CommitOptions) (*Co
 }
 
 // commitGroup stages files and creates a commit for a single group.
-func (r *SmartCommitRunner) commitGroup(ctx context.Context, group FileGroup, trailers map[string]string) (*CommitInfo, error) {
+func (r *SmartCommitRunner) commitGroup(ctx context.Context, group FileGroup) (*CommitInfo, error) {
 	// Reset staging to ensure clean state for this group
 	// This prevents files from other groups (or pre-staged files) from being included
 	if err := r.runner.Reset(ctx); err != nil {
@@ -315,7 +343,7 @@ func (r *SmartCommitRunner) commitGroup(ctx context.Context, group FileGroup, tr
 	message := r.generateCommitMessage(ctx, group)
 
 	// Create the commit
-	if commitErr := r.runner.Commit(ctx, message, trailers); commitErr != nil {
+	if commitErr := r.runner.Commit(ctx, message); commitErr != nil {
 		return nil, commitErr
 	}
 
@@ -337,7 +365,6 @@ func (r *SmartCommitRunner) commitGroup(ctx context.Context, group FileGroup, tr
 		FileCount:    len(paths),
 		Package:      group.Package,
 		CommitType:   group.CommitType,
-		Trailers:     trailers,
 		FilesChanged: paths,
 	}, nil
 }
@@ -772,13 +799,6 @@ func isValidConventionalCommit(message string) bool {
 	return false
 }
 
-// buildTrailers returns an empty map.
-// Trailers are deprecated - commit messages now include a synopsis body instead.
-// This function is kept for backward compatibility with callers.
-func (r *SmartCommitRunner) buildTrailers(_ map[string]string) map[string]string {
-	return make(map[string]string)
-}
-
 // getHeadShortHash returns the short hash of HEAD.
 func (r *SmartCommitRunner) getHeadShortHash(ctx context.Context) (string, error) {
 	output, err := RunCommand(ctx, r.workDir, "rev-parse", "--short", "HEAD")
@@ -867,8 +887,6 @@ func (r *SmartCommitRunner) buildDryRunResult(analysis *CommitAnalysis, opts Com
 		groups = analysis.FileGroups
 	}
 
-	trailers := r.buildTrailers(opts.Trailers)
-
 	commits := make([]CommitInfo, 0, len(groups))
 	totalFiles := 0
 
@@ -880,7 +898,6 @@ func (r *SmartCommitRunner) buildDryRunResult(analysis *CommitAnalysis, opts Com
 			FileCount:    len(group.Files),
 			Package:      group.Package,
 			CommitType:   group.CommitType,
-			Trailers:     trailers,
 			FilesChanged: GetFilePaths(group.Files),
 		})
 		totalFiles += len(group.Files)

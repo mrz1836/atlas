@@ -14,8 +14,7 @@ type Runner interface {
 	Add(ctx context.Context, paths []string) error
 
 	// Commit creates a commit with the given message.
-	// The trailers parameter is deprecated and ignored - messages now include a synopsis body instead.
-	Commit(ctx context.Context, message string, trailers map[string]string) error
+	Commit(ctx context.Context, message string) error
 
 	// Push pushes commits to the remote repository.
 	// If setUpstream is true, sets the upstream tracking reference.

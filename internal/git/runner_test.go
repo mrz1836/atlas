@@ -289,43 +289,13 @@ func TestCLIRunner_Commit(t *testing.T) {
 		err = runner.Add(context.Background(), nil)
 		require.NoError(t, err)
 
-		err = runner.Commit(context.Background(), "test commit", nil)
+		err = runner.Commit(context.Background(), "test commit")
 		require.NoError(t, err)
 
 		// Verify commit was made
 		status, err := runner.Status(context.Background())
 		require.NoError(t, err)
 		assert.True(t, status.IsClean())
-	})
-
-	t.Run("commit with trailers (deprecated - ignored)", func(t *testing.T) {
-		repoPath := setupTestRepo(t)
-		createFile(t, repoPath, "file.txt", "content")
-
-		runner, err := NewRunner(context.Background(), repoPath)
-		require.NoError(t, err)
-
-		err = runner.Add(context.Background(), nil)
-		require.NoError(t, err)
-
-		// Trailers are deprecated and ignored - they should NOT appear in commit message
-		trailers := map[string]string{
-			"ATLAS-Task":     "task-abc-xyz",
-			"ATLAS-Template": "bugfix",
-		}
-		err = runner.Commit(context.Background(), "fix: resolve issue", trailers)
-		require.NoError(t, err)
-
-		// Verify commit succeeded but trailers are NOT present (deprecated behavior)
-		cmd := exec.CommandContext(context.Background(), "git", "log", "-1", "--format=%B")
-		cmd.Dir = repoPath
-		output, cmdErr := cmd.Output()
-		require.NoError(t, cmdErr)
-		commitMsg := string(output)
-		assert.Contains(t, commitMsg, "fix: resolve issue")
-		// Trailers should NOT be present since they are deprecated
-		assert.NotContains(t, commitMsg, "ATLAS-Task:")
-		assert.NotContains(t, commitMsg, "ATLAS-Template:")
 	})
 
 	t.Run("empty commit message error", func(t *testing.T) {
@@ -338,7 +308,7 @@ func TestCLIRunner_Commit(t *testing.T) {
 		err = runner.Add(context.Background(), nil)
 		require.NoError(t, err)
 
-		err = runner.Commit(context.Background(), "", nil)
+		err = runner.Commit(context.Background(), "")
 		require.Error(t, err)
 		assert.ErrorIs(t, err, atlaserrors.ErrEmptyValue)
 	})
@@ -351,7 +321,7 @@ func TestCLIRunner_Commit(t *testing.T) {
 		runner, err := NewRunner(context.Background(), repoPath)
 		require.NoError(t, err)
 
-		err = runner.Commit(context.Background(), "empty commit", nil)
+		err = runner.Commit(context.Background(), "empty commit")
 		require.Error(t, err)
 		assert.ErrorIs(t, err, atlaserrors.ErrGitOperation)
 	})
@@ -364,7 +334,7 @@ func TestCLIRunner_Commit(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
 
-		err = runner.Commit(ctx, "test", nil)
+		err = runner.Commit(ctx, "test")
 		assert.ErrorIs(t, err, context.Canceled)
 	})
 }

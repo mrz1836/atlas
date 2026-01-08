@@ -74,8 +74,7 @@ func (r *CLIRunner) Add(ctx context.Context, paths []string) error {
 }
 
 // Commit creates a commit with the given message.
-// The trailers parameter is deprecated and ignored - commit messages now include a synopsis body instead.
-func (r *CLIRunner) Commit(ctx context.Context, message string, _ map[string]string) error {
+func (r *CLIRunner) Commit(ctx context.Context, message string) error {
 	if err := ctxutil.Canceled(ctx); err != nil {
 		return err
 	}

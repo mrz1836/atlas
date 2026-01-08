@@ -218,7 +218,6 @@ func TestCommitOptions_Defaults(t *testing.T) {
 	assert.False(t, opts.SkipGarbageCheck)
 	assert.False(t, opts.IncludeGarbage)
 	assert.False(t, opts.DryRun)
-	assert.Nil(t, opts.Trailers)
 }
 
 func TestCommitResult_Fields(t *testing.T) {
@@ -242,15 +241,12 @@ func TestCommitResult_Fields(t *testing.T) {
 }
 
 func TestCommitInfo_Fields(t *testing.T) {
-	// Trailers is deprecated and typically empty in new code.
-	// Messages now include a synopsis body instead.
 	info := CommitInfo{
 		Hash:         "def5678",
 		Message:      "fix(config): handle nil pointer\n\nFixed null pointer exception in config parser.",
 		FileCount:    1,
 		Package:      "internal/config",
 		CommitType:   CommitTypeFix,
-		Trailers:     map[string]string{}, // Deprecated: always empty
 		FilesChanged: []string{"internal/config/parser.go"},
 	}
 
@@ -260,7 +256,6 @@ func TestCommitInfo_Fields(t *testing.T) {
 	assert.Equal(t, 1, info.FileCount)
 	assert.Equal(t, "internal/config", info.Package)
 	assert.Equal(t, CommitTypeFix, info.CommitType)
-	assert.Empty(t, info.Trailers) // Trailers are deprecated
 	assert.Len(t, info.FilesChanged, 1)
 }
 

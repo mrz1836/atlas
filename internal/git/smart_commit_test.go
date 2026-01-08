@@ -184,8 +184,6 @@ func TestSmartCommitRunner_Commit_DryRun(t *testing.T) {
 	assert.Equal(t, "(dry-run)", result.Commits[0].Hash)
 	assert.Contains(t, result.Commits[0].Message, "feat(git)")
 	assert.Equal(t, 1, result.TotalFiles)
-	// Trailers are deprecated - now always empty
-	assert.Empty(t, result.Commits[0].Trailers)
 }
 
 func TestSmartCommitRunner_Commit_SingleCommit(t *testing.T) {
@@ -442,22 +440,6 @@ func TestIsValidConventionalCommit(t *testing.T) {
 	}
 }
 
-func TestBuildTrailers(t *testing.T) {
-	// buildTrailers is deprecated and now always returns an empty map.
-	// Commit messages now include an AI-generated synopsis body instead.
-	runner := &SmartCommitRunner{
-		taskID:       "task-abc",
-		templateName: "bugfix",
-	}
-
-	trailers := runner.buildTrailers(map[string]string{
-		"Custom-Trailer": "value",
-	})
-
-	// Trailers are deprecated - buildTrailers now returns empty map
-	assert.Empty(t, trailers)
-}
-
 func TestWithModel(t *testing.T) {
 	gitRunner := &MockRunner{}
 	runner := NewSmartCommitRunner(gitRunner, "/tmp", nil,
@@ -488,7 +470,6 @@ func TestFormatArtifactMarkdown(t *testing.T) {
 				FileCount:    2,
 				Package:      "internal/git",
 				CommitType:   CommitTypeFeat,
-				Trailers:     map[string]string{}, // Deprecated: always empty
 				FilesChanged: []string{"internal/git/smart_commit.go", "internal/git/smart_commit_test.go"},
 			},
 		},

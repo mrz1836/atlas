@@ -43,7 +43,7 @@ type MockRunner struct {
 	PushFunc          func(ctx context.Context, remote, branch string, setUpstream bool) error
 	StatusFunc        func(ctx context.Context) (*Status, error)
 	AddFunc           func(ctx context.Context, paths []string) error
-	CommitFunc        func(ctx context.Context, message string, trailers map[string]string) error
+	CommitFunc        func(ctx context.Context, message string) error
 	CurrentBranchFunc func(ctx context.Context) (string, error)
 	CreateBranchFunc  func(ctx context.Context, name, baseBranch string) error
 	DiffFunc          func(ctx context.Context, cached bool) (string, error)
@@ -75,9 +75,9 @@ func (m *MockRunner) Add(ctx context.Context, paths []string) error {
 	return nil
 }
 
-func (m *MockRunner) Commit(ctx context.Context, message string, trailers map[string]string) error {
+func (m *MockRunner) Commit(ctx context.Context, message string) error {
 	if m.CommitFunc != nil {
-		return m.CommitFunc(ctx, message, trailers)
+		return m.CommitFunc(ctx, message)
 	}
 	return nil
 }
