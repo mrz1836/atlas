@@ -281,3 +281,69 @@ func TestSpinner_UpdateRateReasonable(t *testing.T) {
 	assert.GreaterOrEqual(t, frameCount, 3, "should have minimum updates")
 	assert.LessOrEqual(t, frameCount, 10, "should not overwhelm with updates")
 }
+
+func TestSpinner_RaceCondition_StartStopConcurrent(t *testing.T) {
+	// This test verifies that concurrent Start/Stop calls don't cause races
+	// Run with -race flag to detect race conditions
+	t.Parallel()
+
+	for i := 0; i < 10; i++ {
+		buf := &safeSpinnerBuffer{}
+		spinner := tui.NewSpinner(buf)
+
+		ctx, cancel := context.WithCancel(context.Background())
+
+		// Start spinner
+		spinner.Start(ctx, "Test message")
+
+		// Concurrently call Stop and cancel context
+		done := make(chan struct{})
+		go func() {
+			time.Sleep(10 * time.Millisecond)
+			spinner.Stop()
+			close(done)
+		}()
+
+		// Also cancel context to trigger the other exit path
+		go func() {
+			time.Sleep(5 * time.Millisecond)
+			cancel()
+		}()
+
+		// Wait for stop to complete
+		<-done
+
+		// Try starting again (should work after proper cleanup)
+		spinner.Start(ctx, "New message")
+		time.Sleep(50 * time.Millisecond)
+		spinner.Stop()
+	}
+}
+
+func TestSpinner_RaceCondition_MultipleStops(t *testing.T) {
+	// Test that multiple Stop calls don't panic
+	t.Parallel()
+
+	buf := &safeSpinnerBuffer{}
+	spinner := tui.NewSpinner(buf)
+
+	ctx := context.Background()
+	spinner.Start(ctx, "Test message")
+
+	time.Sleep(50 * time.Millisecond)
+
+	// Multiple concurrent stops should be safe
+	var wg sync.WaitGroup
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			spinner.Stop()
+		}()
+	}
+
+	wg.Wait()
+
+	// Should not panic and buffer should have content
+	assert.NotEmpty(t, buf.String())
+}

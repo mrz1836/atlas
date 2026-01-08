@@ -33,6 +33,9 @@ type TerminalSpinner struct {
 	done    chan struct{}
 	mu      sync.Mutex
 	running bool
+
+	// stopOnce ensures Stop() cleanup happens exactly once per Start() cycle
+	stopOnce sync.Once
 }
 
 // NewTerminalSpinner creates a new spinner that writes to w.
@@ -64,8 +67,13 @@ func (s *TerminalSpinner) Start(ctx context.Context, message string) {
 
 	s.running = true
 	s.done = make(chan struct{})
+	// Reset stopOnce for this new Start() cycle
+	s.stopOnce = sync.Once{}
 
-	go s.animate(ctx)
+	// Capture the done channel before starting the goroutine
+	// to avoid race with potential Stop() calls
+	done := s.done
+	go s.animate(ctx, done)
 }
 
 // UpdateMessage changes the spinner message without stopping the animation.
@@ -82,9 +90,16 @@ func (s *TerminalSpinner) Stop() {
 		s.mu.Unlock()
 		return
 	}
+
+	// Use stopOnce to ensure we only close the done channel once
+	// This prevents races between Stop() and context cancellation
+	done := s.done
 	s.running = false
-	close(s.done)
 	s.mu.Unlock()
+
+	s.stopOnce.Do(func() {
+		close(done)
+	})
 
 	// Clear the spinner line
 	_, _ = fmt.Fprint(s.w, "\r\033[K")
@@ -109,25 +124,28 @@ func (s *TerminalSpinner) StopWithWarning(message string) {
 }
 
 // animate runs the spinner animation loop.
-func (s *TerminalSpinner) animate(ctx context.Context) {
+// The done channel is passed as a parameter to avoid race conditions with s.done field.
+func (s *TerminalSpinner) animate(ctx context.Context, done <-chan struct{}) {
 	ticker := time.NewTicker(SpinnerInterval)
 	defer ticker.Stop()
 
 	frame := 0
 	for {
 		select {
-		case <-s.done:
+		case <-done:
 			// Stopped explicitly via Stop() - don't write, Stop() handles cleanup
 			return
 		case <-ctx.Done():
 			// Context canceled - mark as not running and clear line
 			s.mu.Lock()
-			if s.running {
+			wasRunning := s.running
+			if wasRunning {
 				s.running = false
-				s.mu.Unlock()
+			}
+			s.mu.Unlock()
+
+			if wasRunning {
 				_, _ = fmt.Fprint(s.w, "\r\033[K")
-			} else {
-				s.mu.Unlock()
 			}
 			return
 		case <-ticker.C:

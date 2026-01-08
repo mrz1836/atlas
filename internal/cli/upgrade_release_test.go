@@ -787,3 +787,40 @@ func TestGitHubRelease_JSONUnmarshal(t *testing.T) {
 	assert.Equal(t, "https://example.com/download", release.Assets[0].BrowserDownloadURL)
 	assert.Equal(t, int64(12345), release.Assets[0].Size)
 }
+
+// errorReader is a reader that always returns an error.
+type errorReader struct {
+	err error
+}
+
+func (r *errorReader) Read(_ []byte) (n int, err error) {
+	return 0, r.err
+}
+
+func TestDefaultReleaseClient_HTTPErrorWithReadFailure(t *testing.T) {
+	t.Parallel()
+
+	mockExec := &mockCommandExecutor{
+		lookPathErrors: map[string]error{
+			"gh": exec.ErrNotFound,
+		},
+	}
+
+	// Create a response with a body that fails to read
+	mockHTTP := &mockHTTPClient{
+		responses: map[string]*http.Response{
+			"https://api.github.com/repos/owner/repo/releases/latest": {
+				StatusCode: http.StatusInternalServerError,
+				Body:       io.NopCloser(&errorReader{err: io.ErrUnexpectedEOF}),
+			},
+		},
+	}
+
+	client := NewDefaultReleaseClientWithHTTP(mockExec, mockHTTP)
+	_, err := client.GetLatestRelease(context.Background(), "owner", "repo")
+
+	require.Error(t, err)
+	require.ErrorIs(t, err, atlasErrors.ErrUpgradeDownloadFailed)
+	// The error message should indicate the read failure
+	assert.Contains(t, err.Error(), "failed to read response body")
+}

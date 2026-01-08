@@ -260,7 +260,10 @@ func (c *DefaultReleaseClient) getLatestReleaseViaHTTP(ctx context.Context, owne
 	defer resp.Body.Close() //nolint:errcheck // HTTP response body close
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			return nil, fmt.Errorf("%w: status %d (failed to read response body: %w)", atlasErrors.ErrUpgradeDownloadFailed, resp.StatusCode, readErr)
+		}
 		return nil, fmt.Errorf("%w: status %d: %s", atlasErrors.ErrUpgradeDownloadFailed, resp.StatusCode, string(body))
 	}
 

@@ -1,3 +1,15 @@
+// Package validation provides command execution for validation tasks.
+//
+// SECURITY NOTE: The commands executed by this package come from project
+// configuration files (.atlas/config.yaml) or user's global config (~/.atlas/config.yaml).
+// These are treated as trusted input because:
+//   - Project configs are committed to the repository (anyone who can modify them
+//     already has repository write access and could add arbitrary scripts)
+//   - Global configs are in the user's home directory (same trust level as .bashrc)
+//
+// This is the same trust model as Makefiles, npm scripts, or CI/CD configurations.
+// The sh -c invocation is intentional to support shell features (pipes, redirects, etc.)
+// commonly used in validation commands like "go test ./... | tee results.txt".
 package validation
 
 import (

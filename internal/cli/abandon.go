@@ -300,6 +300,11 @@ func outputAbandonSuccessJSON(w io.Writer, workspaceName, taskID, branch, worktr
 }
 
 // outputAbandonErrorJSON outputs an error result as JSON.
+// Returns the encoding error if JSON output fails, which callers typically
+// ignore with `_ =` since ErrJSONErrorOutput is already being returned.
+// This is intentional: if we can't write JSON, there's no useful fallback,
+// and the caller's return of ErrJSONErrorOutput signals to cobra to suppress
+// its own error printing regardless of whether our JSON succeeded.
 func outputAbandonErrorJSON(w io.Writer, workspaceName, taskID, errMsg string) error {
 	result := abandonResult{
 		Status:    "error",
