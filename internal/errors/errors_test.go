@@ -329,3 +329,132 @@ func TestIsExitCode2Error_WrappedExitCode2(t *testing.T) {
 func TestIsExitCode2Error_Nil(t *testing.T) {
 	assert.False(t, atlaserrors.IsExitCode2Error(nil))
 }
+
+// TestUserMessage_NewErrorMappings tests the newly added error message mappings.
+func TestUserMessage_NewErrorMappings(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		contains string
+	}{
+		// AI Errors
+		{"ErrGeminiInvocation", atlaserrors.ErrGeminiInvocation, "Gemini"},
+		{"ErrCodexInvocation", atlaserrors.ErrCodexInvocation, "Codex"},
+		{"ErrAgentNotFound", atlaserrors.ErrAgentNotFound, "agent is not available"},
+		{"ErrAgentNotInstalled", atlaserrors.ErrAgentNotInstalled, "CLI is not installed"},
+		{"ErrAIError", atlaserrors.ErrAIError, "AI returned an error"},
+		{"ErrAIEmptyResponse", atlaserrors.ErrAIEmptyResponse, "empty response"},
+		{"ErrMaxRetriesExceeded", atlaserrors.ErrMaxRetriesExceeded, "Maximum retry"},
+
+		// Git Errors
+		{"ErrNotInGitRepo", atlaserrors.ErrNotInGitRepo, "git repository"},
+		{"ErrBranchExists", atlaserrors.ErrBranchExists, "already exists"},
+		{"ErrBranchNotFound", atlaserrors.ErrBranchNotFound, "does not exist"},
+		{"ErrWorktreeExists", atlaserrors.ErrWorktreeExists, "worktree already exists"},
+		{"ErrWorktreeDirty", atlaserrors.ErrWorktreeDirty, "uncommitted changes"},
+		{"ErrPushAuthFailed", atlaserrors.ErrPushAuthFailed, "authentication"},
+		{"ErrPushNetworkFailed", atlaserrors.ErrPushNetworkFailed, "network"},
+
+		// GitHub Errors
+		{"ErrGHAuthFailed", atlaserrors.ErrGHAuthFailed, "authentication failed"},
+		{"ErrGHRateLimited", atlaserrors.ErrGHRateLimited, "rate limit"},
+		{"ErrPRCreationFailed", atlaserrors.ErrPRCreationFailed, "create pull request"},
+		{"ErrPRNotFound", atlaserrors.ErrPRNotFound, "not found"},
+
+		// Workspace/Task Errors
+		{"ErrWorkspaceExists", atlaserrors.ErrWorkspaceExists, "already exists"},
+		{"ErrWorkspaceNotFound", atlaserrors.ErrWorkspaceNotFound, "not found"},
+		{"ErrTaskNotFound", atlaserrors.ErrTaskNotFound, "not found"},
+		{"ErrInvalidTransition", atlaserrors.ErrInvalidTransition, "Cannot transition"},
+		{"ErrTaskInterrupted", atlaserrors.ErrTaskInterrupted, "interrupted"},
+
+		// Configuration Errors
+		{"ErrConfigNotFound", atlaserrors.ErrConfigNotFound, "not found"},
+		{"ErrConfigInvalidAI", atlaserrors.ErrConfigInvalidAI, "Invalid AI"},
+		{"ErrInvalidModel", atlaserrors.ErrInvalidModel, "Invalid AI model"},
+		{"ErrEmptyValue", atlaserrors.ErrEmptyValue, "required value"},
+
+		// Template Errors
+		{"ErrTemplateNotFound", atlaserrors.ErrTemplateNotFound, "does not exist"},
+		{"ErrTemplateRequired", atlaserrors.ErrTemplateRequired, "must be specified"},
+		{"ErrVariableRequired", atlaserrors.ErrVariableRequired, "variable was not provided"},
+
+		// Upgrade Errors
+		{"ErrUpgradeNoRelease", atlaserrors.ErrUpgradeNoRelease, "No release found"},
+		{"ErrUpgradeDownloadFailed", atlaserrors.ErrUpgradeDownloadFailed, "download"},
+		{"ErrUpgradeChecksumMismatch", atlaserrors.ErrUpgradeChecksumMismatch, "checksum"},
+
+		// Misc Errors
+		{"ErrUnsupportedOS", atlaserrors.ErrUnsupportedOS, "not supported"},
+		{"ErrConflictingFlags", atlaserrors.ErrConflictingFlags, "cannot be used together"},
+		{"ErrCommandTimeout", atlaserrors.ErrCommandTimeout, "timed out"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			msg := atlaserrors.UserMessage(tc.err)
+			assert.Contains(t, msg, tc.contains,
+				"UserMessage for %s should contain %q, got %q", tc.name, tc.contains, msg)
+		})
+	}
+}
+
+// TestActionable_NewErrorMappings tests actionable messages for new error mappings.
+func TestActionable_NewErrorMappings(t *testing.T) {
+	tests := []struct {
+		name           string
+		err            error
+		containsAction string
+	}{
+		// AI Errors with specific actions
+		{"ErrAgentNotInstalled", atlaserrors.ErrAgentNotInstalled, "Install"},
+		{"ErrMaxRetriesExceeded", atlaserrors.ErrMaxRetriesExceeded, "fix issues manually"},
+
+		// Git Errors with specific actions
+		{"ErrNotInGitRepo", atlaserrors.ErrNotInGitRepo, "git init"},
+		{"ErrBranchExists", atlaserrors.ErrBranchExists, "different branch name"},
+		{"ErrWorktreeDirty", atlaserrors.ErrWorktreeDirty, "Commit or stash"},
+		{"ErrRebaseConflict", atlaserrors.ErrRebaseConflict, "Resolve conflicts"},
+
+		// GitHub Errors with specific actions
+		{"ErrGHAuthFailed", atlaserrors.ErrGHAuthFailed, "gh auth login"},
+		{"ErrGHRateLimited", atlaserrors.ErrGHRateLimited, "Wait"},
+
+		// Workspace/Task Errors with specific actions
+		{"ErrWorkspaceNotFound", atlaserrors.ErrWorkspaceNotFound, "atlas workspace list"},
+		{"ErrTaskNotFound", atlaserrors.ErrTaskNotFound, "atlas status"},
+		{"ErrTaskInterrupted", atlaserrors.ErrTaskInterrupted, "atlas resume"},
+		{"ErrLockTimeout", atlaserrors.ErrLockTimeout, "Wait and try again"},
+
+		// Configuration Errors with specific actions
+		{"ErrConfigNotFound", atlaserrors.ErrConfigNotFound, "atlas.yaml"},
+		{"ErrInvalidDuration", atlaserrors.ErrInvalidDuration, "30s"},
+
+		// Template Errors with specific actions
+		{"ErrTemplateNotFound", atlaserrors.ErrTemplateNotFound, "atlas template list"},
+		{"ErrTemplateRequired", atlaserrors.ErrTemplateRequired, "--template"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, action := atlaserrors.Actionable(tc.err)
+			assert.Contains(t, action, tc.containsAction,
+				"Action for %s should contain %q, got %q", tc.name, tc.containsAction, action)
+		})
+	}
+}
+
+// TestActionable_CanceledErrorsHaveNoAction verifies canceled errors have empty actions.
+func TestActionable_CanceledErrorsHaveNoAction(t *testing.T) {
+	canceledErrors := []error{
+		atlaserrors.ErrOperationCanceled,
+		atlaserrors.ErrMenuCanceled,
+	}
+
+	for _, err := range canceledErrors {
+		t.Run(err.Error(), func(t *testing.T) {
+			_, action := atlaserrors.Actionable(err)
+			assert.Empty(t, action, "Canceled errors should have no suggested action")
+		})
+	}
+}
