@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/mrz1836/atlas/internal/ctxutil"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 )
 
@@ -36,11 +37,8 @@ func NewRunner(ctx context.Context, workDir string) (*CLIRunner, error) {
 
 // Status returns the current working tree status.
 func (r *CLIRunner) Status(ctx context.Context) (*Status, error) {
-	// Check for cancellation at entry
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	default:
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return nil, err
 	}
 
 	// Get porcelain status for parsing
@@ -54,11 +52,8 @@ func (r *CLIRunner) Status(ctx context.Context) (*Status, error) {
 
 // Add stages files for commit.
 func (r *CLIRunner) Add(ctx context.Context, paths []string) error {
-	// Check for cancellation at entry
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return err
 	}
 
 	args := []string{"add"}
@@ -81,11 +76,8 @@ func (r *CLIRunner) Add(ctx context.Context, paths []string) error {
 // Commit creates a commit with the given message.
 // The trailers parameter is deprecated and ignored - commit messages now include a synopsis body instead.
 func (r *CLIRunner) Commit(ctx context.Context, message string, _ map[string]string) error {
-	// Check for cancellation at entry
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return err
 	}
 
 	if message == "" {
@@ -103,11 +95,8 @@ func (r *CLIRunner) Commit(ctx context.Context, message string, _ map[string]str
 
 // Push pushes commits to the remote repository.
 func (r *CLIRunner) Push(ctx context.Context, remote, branch string, setUpstream bool) error {
-	// Check for cancellation at entry
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return err
 	}
 
 	args := []string{"push"}
@@ -126,11 +115,8 @@ func (r *CLIRunner) Push(ctx context.Context, remote, branch string, setUpstream
 
 // CurrentBranch returns the name of the currently checked out branch.
 func (r *CLIRunner) CurrentBranch(ctx context.Context) (string, error) {
-	// Check for cancellation at entry
-	select {
-	case <-ctx.Done():
-		return "", ctx.Err()
-	default:
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return "", err
 	}
 
 	output, err := r.runGitCommand(ctx, "rev-parse", "--abbrev-ref", "HEAD")
@@ -149,11 +135,8 @@ func (r *CLIRunner) CurrentBranch(ctx context.Context) (string, error) {
 // CreateBranch creates a new branch from the specified base and checks it out.
 // If baseBranch is empty, creates from current HEAD.
 func (r *CLIRunner) CreateBranch(ctx context.Context, name, baseBranch string) error {
-	// Check for cancellation at entry
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return err
 	}
 
 	if name == "" {
@@ -184,35 +167,28 @@ func (r *CLIRunner) CreateBranch(ctx context.Context, name, baseBranch string) e
 	return nil
 }
 
+// DiffStaged returns the diff of staged (cached) changes.
+// This is equivalent to `git diff --cached`.
+func (r *CLIRunner) DiffStaged(ctx context.Context) (string, error) {
+	return r.diff(ctx, true)
+}
+
+// DiffUnstaged returns the diff of unstaged changes in the working tree.
+// This is equivalent to `git diff` (without --cached).
+func (r *CLIRunner) DiffUnstaged(ctx context.Context) (string, error) {
+	return r.diff(ctx, false)
+}
+
 // Diff returns the diff output.
+// Deprecated: Use DiffStaged() or DiffUnstaged() for clearer intent.
 func (r *CLIRunner) Diff(ctx context.Context, cached bool) (string, error) {
-	// Check for cancellation at entry
-	select {
-	case <-ctx.Done():
-		return "", ctx.Err()
-	default:
-	}
-
-	args := []string{"diff"}
-	if cached {
-		args = append(args, "--cached")
-	}
-
-	output, err := r.runGitCommand(ctx, args...)
-	if err != nil {
-		return "", fmt.Errorf("failed to get diff: %w", err)
-	}
-
-	return output, nil
+	return r.diff(ctx, cached)
 }
 
 // BranchExists checks if a branch exists in the repository.
 func (r *CLIRunner) BranchExists(ctx context.Context, name string) (bool, error) {
-	// Check for cancellation at entry
-	select {
-	case <-ctx.Done():
-		return false, ctx.Err()
-	default:
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return false, err
 	}
 
 	_, err := r.runGitCommand(ctx, "show-ref", "--verify", "refs/heads/"+name)
@@ -229,11 +205,8 @@ func (r *CLIRunner) BranchExists(ctx context.Context, name string) (bool, error)
 
 // Fetch downloads objects and refs from a remote repository.
 func (r *CLIRunner) Fetch(ctx context.Context, remote string) error {
-	// Check for cancellation at entry
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return err
 	}
 
 	if remote == "" {
@@ -250,11 +223,8 @@ func (r *CLIRunner) Fetch(ctx context.Context, remote string) error {
 
 // Rebase replays commits on top of another branch.
 func (r *CLIRunner) Rebase(ctx context.Context, onto string) error {
-	// Check for cancellation at entry
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return err
 	}
 
 	if onto == "" {
@@ -278,11 +248,8 @@ func (r *CLIRunner) Rebase(ctx context.Context, onto string) error {
 
 // RebaseAbort cancels an in-progress rebase operation.
 func (r *CLIRunner) RebaseAbort(ctx context.Context) error {
-	// Check for cancellation at entry
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return err
 	}
 
 	_, err := r.runGitCommand(ctx, "rebase", "--abort")
@@ -300,11 +267,8 @@ func (r *CLIRunner) RebaseAbort(ctx context.Context) error {
 
 // Reset unstages all staged changes (git reset HEAD).
 func (r *CLIRunner) Reset(ctx context.Context) error {
-	// Check for cancellation at entry
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return err
 	}
 
 	_, err := r.runGitCommand(ctx, "reset", "HEAD")
@@ -318,6 +282,25 @@ func (r *CLIRunner) Reset(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// diff is the internal implementation for diff operations.
+func (r *CLIRunner) diff(ctx context.Context, cached bool) (string, error) {
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return "", err
+	}
+
+	args := []string{"diff"}
+	if cached {
+		args = append(args, "--cached")
+	}
+
+	output, err := r.runGitCommand(ctx, args...)
+	if err != nil {
+		return "", fmt.Errorf("failed to get diff: %w", err)
+	}
+
+	return output, nil
 }
 
 // runGitCommand executes a git command and returns its output.

@@ -9,6 +9,7 @@ import (
 
 	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/constants"
+	"github.com/mrz1836/atlas/internal/ctxutil"
 )
 
 // ProgressInfo provides additional context for progress callbacks.
@@ -111,10 +112,8 @@ func (r *Runner) Run(ctx context.Context, workDir string) (*PipelineResult, erro
 	log.Info().Str("work_dir", workDir).Msg("starting validation pipeline")
 
 	// Check context cancellation before starting
-	select {
-	case <-ctx.Done():
-		return r.finalize(result, startTime), ctx.Err()
-	default:
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return r.finalize(result, startTime), err
 	}
 
 	// Phase 1: Pre-commit (first - makes auto-fixes like import ordering)

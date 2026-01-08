@@ -32,7 +32,14 @@ type Runner interface {
 
 	// Diff returns the diff output.
 	// If cached is true, shows staged changes; otherwise shows unstaged changes.
+	// Deprecated: Use DiffStaged() or DiffUnstaged() for clearer intent.
 	Diff(ctx context.Context, cached bool) (string, error)
+
+	// DiffStaged returns the diff of staged (cached) changes.
+	DiffStaged(ctx context.Context) (string, error)
+
+	// DiffUnstaged returns the diff of unstaged changes in the working tree.
+	DiffUnstaged(ctx context.Context) (string, error)
 
 	// BranchExists checks if a branch exists in the repository.
 	BranchExists(ctx context.Context, name string) (bool, error)
