@@ -276,6 +276,10 @@ REQUIREMENTS:
    ## Test Plan
    How the changes were tested/validated.
 
+ACCURACY:
+3. Base your description on the actual commit messages and diff content provided below
+4. Be accurate and specific about what actually changed - do not assume from filenames alone
+
 OUTPUT FORMAT:
 Return ONLY the title and body in this exact format.
 IMPORTANT:

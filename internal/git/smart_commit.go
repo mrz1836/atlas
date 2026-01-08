@@ -521,12 +521,18 @@ func (r *SmartCommitRunner) fetchDiff(ctx context.Context) string {
 	return diff
 }
 
-// parseDiffStats extracts line statistics from a git diff output.
+// maxDiffLinesForContent is the threshold for including actual diff content.
+// If total changed lines are below this, we include the actual changes.
+const maxDiffLinesForContent = 50
+
+// parseDiffStats extracts line statistics and actual content from a git diff output.
+// For small diffs (under maxDiffLinesForContent lines), includes actual changed lines.
 func parseDiffStats(diff string, pathSet map[string]bool) string {
 	var summary strings.Builder
 	var currentFile string
 	var additions, deletions int
 
+	// First pass: collect stats
 	for _, line := range strings.Split(diff, "\n") {
 		currentFile, additions, deletions = processDiffLine(
 			line, currentFile, additions, deletions, pathSet, &summary,
@@ -535,7 +541,60 @@ func parseDiffStats(diff string, pathSet map[string]bool) string {
 
 	// Flush last file
 	writeDiffStats(&summary, currentFile, additions, deletions, pathSet)
+
+	// Second pass: if diff is small, include actual content
+	diffContent := extractDiffContent(diff, pathSet)
+	if diffContent != "" {
+		summary.WriteString("\nActual changes:\n")
+		summary.WriteString(diffContent)
+	}
+
 	return summary.String()
+}
+
+// extractDiffContent extracts the actual changed lines from a diff.
+// Returns empty string if diff is too large or no relevant changes.
+func extractDiffContent(diff string, pathSet map[string]bool) string {
+	var content strings.Builder
+	var currentFile string
+	var inRelevantFile bool
+	var lineCount int
+
+	lines := strings.Split(diff, "\n")
+
+	for _, line := range lines {
+		// Track which file we're in
+		if strings.HasPrefix(line, "diff --git") {
+			if parts := strings.Split(line, " "); len(parts) >= 4 {
+				currentFile = strings.TrimPrefix(parts[2], "a/")
+				inRelevantFile = pathSet[currentFile]
+			}
+			continue
+		}
+
+		// Skip header lines
+		if strings.HasPrefix(line, "index ") ||
+			strings.HasPrefix(line, "--- ") ||
+			strings.HasPrefix(line, "+++ ") ||
+			strings.HasPrefix(line, "@@ ") {
+			continue
+		}
+
+		// Collect actual changes for relevant files
+		if inRelevantFile {
+			if strings.HasPrefix(line, "+") || strings.HasPrefix(line, "-") {
+				lineCount++
+				if lineCount > maxDiffLinesForContent {
+					// Diff too large, return empty to skip content
+					return ""
+				}
+				content.WriteString(line)
+				content.WriteString("\n")
+			}
+		}
+	}
+
+	return content.String()
 }
 
 // processDiffLine processes a single line from the diff output.
@@ -599,7 +658,8 @@ Requirements:
 6. Include a blank line followed by a 1-2 sentence synopsis (under 150 chars)
 7. Synopsis should explain WHAT changed and WHY
 8. Do NOT include any AI attribution or mention of Claude/Anthropic
-9. Be specific about the actual changes
+9. Base your message on the actual diff content shown above, not assumptions from filenames
+10. Be accurate and specific about what actually changed
 
 Return format (no extra formatting or explanations):
 <type>(<scope>): <description>
