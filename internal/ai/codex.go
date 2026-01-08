@@ -8,8 +8,6 @@ import (
 	"strings"
 
 	"github.com/mrz1836/atlas/internal/config"
-	"github.com/mrz1836/atlas/internal/constants"
-	"github.com/mrz1836/atlas/internal/ctxutil"
 	"github.com/mrz1836/atlas/internal/domain"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 )
@@ -28,8 +26,7 @@ var codexCLIInfo = CLIInfo{
 // It builds command-line arguments and executes the codex CLI,
 // parsing the JSON response into an AIResult.
 type CodexRunner struct {
-	config   *config.AIConfig
-	executor CommandExecutor
+	base BaseRunner // Embedded BaseRunner for timeout/retry handling
 }
 
 // NewCodexRunner creates a new CodexRunner with the given configuration.
@@ -39,65 +36,19 @@ func NewCodexRunner(cfg *config.AIConfig, executor CommandExecutor) *CodexRunner
 		executor = &DefaultExecutor{}
 	}
 	return &CodexRunner{
-		config:   cfg,
-		executor: executor,
+		base: BaseRunner{
+			Config:   cfg,
+			Executor: executor,
+			ErrType:  atlaserrors.ErrCodexInvocation,
+		},
 	}
 }
 
 // Run executes an AI request using the Codex CLI.
-// This method builds the command, executes it, and parses the JSON response.
+// This method delegates to BaseRunner for timeout and retry handling,
+// providing the execute function for Codex-specific command execution.
 func (r *CodexRunner) Run(ctx context.Context, req *domain.AIRequest) (*domain.AIResult, error) {
-	// Check cancellation at entry
-	if err := ctxutil.Canceled(ctx); err != nil {
-		return nil, err
-	}
-
-	// Determine timeout: request > config > default
-	timeout := req.Timeout
-	if timeout == 0 && r.config != nil {
-		timeout = r.config.Timeout
-	}
-	if timeout == 0 {
-		timeout = constants.DefaultAITimeout
-	}
-
-	// Create child context with timeout
-	runCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
-	// Execute with retry logic
-	return r.runWithRetry(runCtx, req)
-}
-
-// runWithRetry executes the AI request with exponential backoff retry logic.
-// Only transient errors are retried; non-retryable errors return immediately.
-func (r *CodexRunner) runWithRetry(ctx context.Context, req *domain.AIRequest) (*domain.AIResult, error) {
-	var lastErr error
-	backoff := constants.InitialBackoff
-
-	for attempt := 1; attempt <= constants.MaxRetryAttempts; attempt++ {
-		result, err := r.execute(ctx, req)
-		if err == nil {
-			return result, nil
-		}
-
-		// Don't retry non-retryable errors
-		if !isRetryable(err) {
-			return nil, err
-		}
-
-		lastErr = err
-		if attempt < constants.MaxRetryAttempts {
-			select {
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			case <-timeSleep(backoff):
-				backoff *= 2 // Exponential backoff
-			}
-		}
-	}
-
-	return nil, fmt.Errorf("%w: max retries exceeded: %s", atlaserrors.ErrCodexInvocation, lastErr.Error())
+	return r.base.RunWithTimeout(ctx, req, r.execute)
 }
 
 // execute performs a single AI request execution.
@@ -109,7 +60,7 @@ func (r *CodexRunner) execute(ctx context.Context, req *domain.AIRequest) (*doma
 	cmd.Stdin = strings.NewReader(req.Prompt)
 
 	// Execute the command
-	stdout, stderr, err := r.executor.Execute(ctx, cmd)
+	stdout, stderr, err := r.base.Executor.Execute(ctx, cmd)
 	if err != nil {
 		return r.handleExecutionError(ctx, err, stdout, stderr)
 	}
@@ -166,8 +117,8 @@ func (r *CodexRunner) buildCommand(ctx context.Context, req *domain.AIRequest) *
 
 	// Determine model: request > config
 	model := req.Model
-	if model == "" && r.config != nil {
-		model = r.config.Model
+	if model == "" && r.base.Config != nil {
+		model = r.base.Config.Model
 	}
 
 	// Resolve model alias to full model name

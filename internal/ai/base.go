@@ -92,7 +92,7 @@ func (b *BaseRunner) runWithRetry(ctx context.Context, req *domain.AIRequest, ex
 			case <-ctx.Done():
 				return nil, ctx.Err()
 			case <-timeSleep(backoff):
-				backoff *= 2 // Exponential backoff
+				backoff *= constants.BackoffMultiplier
 			}
 		}
 	}

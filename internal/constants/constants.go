@@ -63,6 +63,10 @@ const (
 	// InitialBackoff is the initial backoff duration before the first retry.
 	// Subsequent retries may use exponential backoff based on this value.
 	InitialBackoff = 1 * time.Second
+
+	// BackoffMultiplier is the factor by which backoff increases between retry attempts.
+	// Used for exponential backoff: backoff *= BackoffMultiplier after each attempt.
+	BackoffMultiplier = 2
 )
 
 // Schema version constants for data migration support.

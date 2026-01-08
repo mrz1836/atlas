@@ -10,8 +10,6 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/mrz1836/atlas/internal/config"
-	"github.com/mrz1836/atlas/internal/constants"
-	"github.com/mrz1836/atlas/internal/ctxutil"
 	"github.com/mrz1836/atlas/internal/domain"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 )
@@ -30,90 +28,51 @@ var geminiCLIInfo = CLIInfo{
 // It builds command-line arguments and executes the gemini CLI,
 // parsing the JSON response into an AIResult.
 type GeminiRunner struct {
-	config   *config.AIConfig
-	executor CommandExecutor
-	logger   zerolog.Logger
+	base   BaseRunner     // Embedded BaseRunner for timeout/retry handling
+	logger zerolog.Logger // Logger for debug output
+}
+
+// GeminiRunnerOption is a functional option for configuring GeminiRunner.
+type GeminiRunnerOption func(*GeminiRunner)
+
+// WithGeminiLogger sets the logger for the GeminiRunner.
+func WithGeminiLogger(logger zerolog.Logger) GeminiRunnerOption {
+	return func(r *GeminiRunner) {
+		r.logger = logger
+	}
 }
 
 // NewGeminiRunner creates a new GeminiRunner with the given configuration.
 // If executor is nil, a DefaultExecutor is used for production subprocess execution.
-func NewGeminiRunner(cfg *config.AIConfig, executor CommandExecutor) *GeminiRunner {
+func NewGeminiRunner(cfg *config.AIConfig, executor CommandExecutor, opts ...GeminiRunnerOption) *GeminiRunner {
 	if executor == nil {
 		executor = &DefaultExecutor{}
 	}
-	return &GeminiRunner{
-		config:   cfg,
-		executor: executor,
-		logger:   zerolog.Nop(), // Default to no-op logger
+	r := &GeminiRunner{
+		base: BaseRunner{
+			Config:   cfg,
+			Executor: executor,
+			ErrType:  atlaserrors.ErrGeminiInvocation,
+		},
+		logger: zerolog.Nop(), // Default to no-op logger
 	}
+	for _, opt := range opts {
+		opt(r)
+	}
+	return r
 }
 
 // NewGeminiRunnerWithLogger creates a new GeminiRunner with logging support.
+// Deprecated: Use NewGeminiRunner with WithGeminiLogger option instead.
 func NewGeminiRunnerWithLogger(cfg *config.AIConfig, executor CommandExecutor, logger zerolog.Logger) *GeminiRunner {
-	if executor == nil {
-		executor = &DefaultExecutor{}
-	}
-	return &GeminiRunner{
-		config:   cfg,
-		executor: executor,
-		logger:   logger,
-	}
+	return NewGeminiRunner(cfg, executor, WithGeminiLogger(logger))
 }
 
 // Run executes an AI request using the Gemini CLI.
-// This method builds the command, executes it, and parses the JSON response.
+// This method delegates to BaseRunner for timeout and retry handling,
+// providing the execute function for Gemini-specific command execution.
 func (r *GeminiRunner) Run(ctx context.Context, req *domain.AIRequest) (*domain.AIResult, error) {
-	// Check cancellation at entry
-	if err := ctxutil.Canceled(ctx); err != nil {
-		return nil, err
-	}
-
-	// Determine timeout: request > config > default
-	timeout := req.Timeout
-	if timeout == 0 && r.config != nil {
-		timeout = r.config.Timeout
-	}
-	if timeout == 0 {
-		timeout = constants.DefaultAITimeout
-	}
-
-	// Create child context with timeout
-	runCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
-	// Execute with retry logic
-	return r.runWithRetry(runCtx, req)
-}
-
-// runWithRetry executes the AI request with exponential backoff retry logic.
-// Only transient errors are retried; non-retryable errors return immediately.
-func (r *GeminiRunner) runWithRetry(ctx context.Context, req *domain.AIRequest) (*domain.AIResult, error) {
-	var lastErr error
-	backoff := constants.InitialBackoff
-
-	for attempt := 1; attempt <= constants.MaxRetryAttempts; attempt++ {
-		result, err := r.execute(ctx, req)
-		if err == nil {
-			return result, nil
-		}
-
-		// Don't retry non-retryable errors
-		if !isRetryable(err) {
-			return nil, err
-		}
-
-		lastErr = err
-		if attempt < constants.MaxRetryAttempts {
-			select {
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			case <-timeSleep(backoff):
-				backoff *= 2 // Exponential backoff
-			}
-		}
-	}
-
-	return nil, fmt.Errorf("%w: max retries exceeded: %s", atlaserrors.ErrGeminiInvocation, lastErr.Error())
+	return r.base.RunWithTimeout(ctx, req, r.execute)
 }
 
 // execute performs a single AI request execution.
@@ -130,7 +89,7 @@ func (r *GeminiRunner) execute(ctx context.Context, req *domain.AIRequest) (*dom
 		Msg("executing gemini CLI")
 
 	// Execute the command
-	stdout, stderr, err := r.executor.Execute(ctx, cmd)
+	stdout, stderr, err := r.base.Executor.Execute(ctx, cmd)
 	if err != nil {
 		return r.handleExecutionError(ctx, err, stdout, stderr)
 	}
@@ -205,8 +164,8 @@ func (r *GeminiRunner) buildCommand(ctx context.Context, req *domain.AIRequest) 
 
 	// Determine model: request > config
 	model := req.Model
-	if model == "" && r.config != nil {
-		model = r.config.Model
+	if model == "" && r.base.Config != nil {
+		model = r.base.Config.Model
 	}
 
 	// Resolve model alias to full model name

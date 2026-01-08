@@ -56,8 +56,8 @@ func TestNewClaudeCodeRunner(t *testing.T) {
 		runner := NewClaudeCodeRunner(cfg, mockExec)
 
 		require.NotNil(t, runner)
-		assert.Equal(t, cfg, runner.config)
-		assert.Equal(t, mockExec, runner.executor)
+		assert.Equal(t, cfg, runner.base.Config)
+		assert.Equal(t, mockExec, runner.base.Executor)
 	})
 
 	t.Run("creates runner with default executor when nil provided", func(t *testing.T) {
@@ -69,8 +69,8 @@ func TestNewClaudeCodeRunner(t *testing.T) {
 		runner := NewClaudeCodeRunner(cfg, nil)
 
 		require.NotNil(t, runner)
-		assert.Equal(t, cfg, runner.config)
-		assert.IsType(t, &DefaultExecutor{}, runner.executor)
+		assert.Equal(t, cfg, runner.base.Config)
+		assert.IsType(t, &DefaultExecutor{}, runner.base.Executor)
 	})
 }
 
