@@ -116,3 +116,27 @@ const (
 func (s ValidationProgressStatus) String() string {
 	return string(s)
 }
+
+// StepResultStatus represents the result status of a step execution.
+// These values are used in domain.StepResult.Status field.
+type StepResultStatus string
+
+// Step result status constants define the possible outcomes of step execution.
+const (
+	// StepResultSuccess indicates the step completed successfully.
+	StepResultSuccess StepResultStatus = "success"
+
+	// StepResultFailed indicates the step failed.
+	StepResultFailed StepResultStatus = "failed"
+
+	// StepResultAwaitingApproval indicates the step is waiting for user approval.
+	StepResultAwaitingApproval StepResultStatus = "awaiting_approval"
+
+	// StepResultSkipped indicates the step was skipped.
+	StepResultSkipped StepResultStatus = "skipped"
+)
+
+// String returns the string representation of the StepResultStatus.
+func (s StepResultStatus) String() string {
+	return string(s)
+}
