@@ -195,7 +195,7 @@ func runApprove(ctx context.Context, cmd *cobra.Command, w io.Writer, opts appro
 	// Create stores and find awaiting tasks
 	selectedWS, selectedTask, err := findAndSelectTask(ctx, outputFormat, w, out, opts, isNonInteractive)
 	if err != nil {
-		return err
+		return fmt.Errorf("find awaiting task: %w", err)
 	}
 	if selectedWS == nil {
 		// No tasks awaiting approval (message already shown)
@@ -452,12 +452,12 @@ func runApprovalActionLoop(ctx context.Context, out tui.Output, taskStore task.S
 				out.Info("Approval canceled.")
 				return nil
 			}
-			return err
+			return fmt.Errorf("select approval action: %w", err)
 		}
 
 		done, err := executeApprovalAction(ctx, out, taskStore, ws, t, notifier, action)
 		if err != nil {
-			return err
+			return fmt.Errorf("execute approval action: %w", err)
 		}
 		if done {
 			return nil
@@ -771,7 +771,7 @@ func executeApproveMergeClose(
 	// Create tracker and execute steps
 	tracker := newApproveStepTracker(steps, out, outputFormat)
 	if err := tracker.executeSteps(ctx, stepCtx); err != nil {
-		return err
+		return fmt.Errorf("execute approval steps: %w", err)
 	}
 
 	// Ring bell on success

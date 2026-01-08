@@ -91,13 +91,13 @@ func runResume(ctx context.Context, cmd *cobra.Command, w io.Writer, workspaceNa
 	// Setup workspace manager and get workspace
 	_, ws, err := setupWorkspace(ctx, workspaceName, "", outputFormat, w, logger) //nolint:contextcheck // ctx inherits from parent via signal.NewHandler
 	if err != nil {
-		return err
+		return fmt.Errorf("setup workspace: %w", err)
 	}
 
 	// Get task store and latest task
 	taskStore, currentTask, err := getLatestTask(ctx, workspaceName, "", outputFormat, w, logger) //nolint:contextcheck // ctx inherits from parent via signal.NewHandler
 	if err != nil {
-		return err
+		return fmt.Errorf("get latest task: %w", err)
 	}
 
 	// Validate task is in resumable state
