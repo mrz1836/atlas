@@ -109,24 +109,13 @@ func (r *ClaudeCodeRunner) runWithRetry(ctx context.Context, req *domain.AIReque
 			select {
 			case <-ctx.Done():
 				return nil, ctx.Err()
-			case <-r.sleepChan(backoff):
+			case <-timeSleep(backoff):
 				backoff *= 2 // Exponential backoff
 			}
 		}
 	}
 
 	return nil, fmt.Errorf("%w: max retries exceeded: %s", atlaserrors.ErrClaudeInvocation, lastErr.Error())
-}
-
-// sleepChan returns a channel that receives after the duration.
-// This is a method to allow overriding in tests.
-func (r *ClaudeCodeRunner) sleepChan(d interface{ Nanoseconds() int64 }) <-chan struct{} {
-	ch := make(chan struct{})
-	go func() {
-		<-timeSleep(d)
-		close(ch)
-	}()
-	return ch
 }
 
 // execute performs a single AI request execution.
