@@ -14,6 +14,22 @@ import (
 // RedactedValue is the replacement string for sensitive data.
 const RedactedValue = "[REDACTED]"
 
+// Minimum length thresholds for detecting sensitive values.
+// These are tuned to minimize false positives while catching real secrets.
+const (
+	// minAPIKeyLength is the minimum length for API key-like strings (OpenAI, GitHub tokens).
+	minAPIKeyLength = 20
+
+	// minGenericAPIKeyLength is the minimum for generic API key detection.
+	minGenericAPIKeyLength = 16
+
+	// minSecretLength is the minimum for secret/password values.
+	minSecretLength = 8
+
+	// minBase64TokenLength is the minimum for Base64-encoded tokens.
+	minBase64TokenLength = 32
+)
+
 // sensitivePatterns contains compiled regular expressions for detecting sensitive values.
 // These patterns match common API key, token, and credential formats.
 var sensitivePatterns = []*regexp.Regexp{ //nolint:gochecknoglobals // Package-level patterns for reuse
@@ -21,28 +37,42 @@ var sensitivePatterns = []*regexp.Regexp{ //nolint:gochecknoglobals // Package-l
 	regexp.MustCompile(`sk-ant-api[a-zA-Z0-9_-]+`),
 
 	// OpenAI API keys (sk-...)
-	regexp.MustCompile(`sk-[a-zA-Z0-9]{20,}`),
+	regexp.MustCompile(`sk-[a-zA-Z0-9]{` + itoa(minAPIKeyLength) + `,}`),
 
 	// GitHub tokens (ghp_, gho_, ghu_, ghs_, ghr_)
-	regexp.MustCompile(`gh[pousr]_[a-zA-Z0-9]{20,}`),
+	regexp.MustCompile(`gh[pousr]_[a-zA-Z0-9]{` + itoa(minAPIKeyLength) + `,}`),
 
 	// Generic API keys (any string with api_key, apikey, api-key followed by value)
-	regexp.MustCompile(`(?i)(api[_-]?key|apikey)\s*[:=]\s*["']?([a-zA-Z0-9_-]{16,})["']?`),
+	regexp.MustCompile(`(?i)(api[_-]?key|apikey)\s*[:=]\s*["']?([a-zA-Z0-9_-]{` + itoa(minGenericAPIKeyLength) + `,})["']?`),
 
 	// Bearer tokens
-	regexp.MustCompile(`(?i)bearer\s+[a-zA-Z0-9_-]{20,}`),
+	regexp.MustCompile(`(?i)bearer\s+[a-zA-Z0-9_-]{` + itoa(minAPIKeyLength) + `,}`),
 
 	// Authorization headers with tokens
-	regexp.MustCompile(`(?i)authorization\s*[:=]\s*["']?[a-zA-Z0-9_-]{20,}["']?`),
+	regexp.MustCompile(`(?i)authorization\s*[:=]\s*["']?[a-zA-Z0-9_-]{` + itoa(minAPIKeyLength) + `,}["']?`),
 
 	// Generic secret patterns (secret, password, credential, token with values)
-	regexp.MustCompile(`(?i)(secret|password|credential|passwd|pwd)\s*[:=]\s*["']?[^\s"']{8,}["']?`),
+	regexp.MustCompile(`(?i)(secret|password|credential|passwd|pwd)\s*[:=]\s*["']?[^\s"']{` + itoa(minSecretLength) + `,}["']?`),
 
 	// SSH private keys (starts with -----)
 	regexp.MustCompile(`(?i)-----BEGIN[A-Z\s]+PRIVATE KEY-----`),
 
 	// Base64-encoded secrets that look like tokens (long alphanumeric strings)
-	regexp.MustCompile(`(?i)(token|auth)\s*[:=]\s*["']?[a-zA-Z0-9+/=]{32,}["']?`),
+	regexp.MustCompile(`(?i)(token|auth)\s*[:=]\s*["']?[a-zA-Z0-9+/=]{` + itoa(minBase64TokenLength) + `,}["']?`),
+}
+
+// itoa is a simple int-to-string converter for use in regex pattern construction.
+// strconv.Itoa cannot be used in var initialization, so we use this helper.
+func itoa(n int) string {
+	if n == 0 {
+		return "0"
+	}
+	var digits []byte
+	for n > 0 {
+		digits = append([]byte{byte('0' + n%10)}, digits...)
+		n /= 10
+	}
+	return string(digits)
 }
 
 // sensitiveFieldNames contains field names that should always have their values redacted.
@@ -128,10 +158,22 @@ func FilterSensitiveValue(value string) string {
 
 // IsSensitiveFieldName checks if a field name indicates sensitive data.
 // Returns true if the field name matches any known sensitive field name patterns.
+// Uses word boundary matching to avoid false positives like "auth_type" matching "auth".
 func IsSensitiveFieldName(fieldName string) bool {
 	lowerName := strings.ToLower(fieldName)
 	for _, sensitive := range sensitiveFieldNames {
-		if lowerName == sensitive || strings.Contains(lowerName, sensitive) {
+		if lowerName == sensitive {
+			return true
+		}
+		// Check for word boundaries using common separators (_, -)
+		if strings.HasPrefix(lowerName, sensitive+"_") ||
+			strings.HasPrefix(lowerName, sensitive+"-") ||
+			strings.HasSuffix(lowerName, "_"+sensitive) ||
+			strings.HasSuffix(lowerName, "-"+sensitive) ||
+			strings.Contains(lowerName, "_"+sensitive+"_") ||
+			strings.Contains(lowerName, "-"+sensitive+"-") ||
+			strings.Contains(lowerName, "_"+sensitive+"-") ||
+			strings.Contains(lowerName, "-"+sensitive+"_") {
 			return true
 		}
 	}
