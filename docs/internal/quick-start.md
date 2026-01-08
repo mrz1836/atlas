@@ -26,6 +26,7 @@
    - [atlas upgrade](#atlas-upgrade)
    - [atlas config](#atlas-config)
    - [atlas workspace](#atlas-workspace)
+   - [atlas completion](#atlas-completion)
 6. [Templates](#templates)
 7. [Task States](#task-states)
 8. [Workflows](#workflows)
@@ -786,6 +787,62 @@ atlas workspace logs my-workspace --follow --step validate --tail 100
 - Color-coded by log level (info/warn/error/debug)
 - JSON-lines format
 - Filterable by step and task
+
+---
+
+### atlas completion
+
+Generate and install shell completion scripts for atlas commands.
+
+```bash
+# Generate completion script for your shell
+atlas completion bash
+atlas completion zsh
+atlas completion fish
+atlas completion powershell
+
+# Auto-install completions (detects shell automatically)
+atlas completion install
+
+# Install for a specific shell
+atlas completion install --shell zsh
+atlas completion install --shell bash
+atlas completion install --shell fish
+```
+
+**Subcommands:**
+
+| Subcommand | Description |
+|------------|-------------|
+| `bash` | Generate bash completion script |
+| `zsh` | Generate zsh completion script |
+| `fish` | Generate fish completion script |
+| `powershell` | Generate powershell completion script |
+| `install` | Auto-install completions to appropriate location |
+
+**Install Flags:**
+
+| Flag | Description |
+|------|-------------|
+| `--shell` | Shell to install completions for (zsh, bash, fish) |
+
+**Installation Locations:**
+- **zsh**: `~/.zsh/completions/_atlas` (updates `.zshrc` with fpath)
+- **bash**: `~/.bash_completion.d/atlas` (updates `.bashrc` with sourcing)
+- **fish**: `~/.config/fish/completions/atlas.fish` (auto-loaded)
+
+**Manual Installation:**
+
+```bash
+# Zsh - add to ~/.zshrc
+source <(atlas completion zsh)
+
+# Bash - add to ~/.bashrc
+source <(atlas completion bash)
+
+# Fish
+atlas completion fish | source
+```
 
 ---
 
