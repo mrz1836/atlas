@@ -14,6 +14,29 @@ import (
 	"github.com/mrz1836/atlas/internal/errors"
 )
 
+// newViperInstance creates a new Viper instance with standard ATLAS configuration.
+// This includes environment variable prefix (ATLAS_), key replacer, and defaults.
+func newViperInstance() *viper.Viper {
+	v := viper.New()
+	setDefaults(v)
+	v.SetEnvPrefix("ATLAS")
+	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+	v.AutomaticEnv()
+	return v
+}
+
+// unmarshalAndValidate unmarshals viper config into Config struct and validates it.
+func unmarshalAndValidate(v *viper.Viper) (*Config, error) {
+	var cfg Config
+	if err := v.Unmarshal(&cfg, viperDecoderOption()); err != nil {
+		return nil, errors.Wrap(err, "failed to unmarshal config")
+	}
+	if err := Validate(&cfg); err != nil {
+		return nil, errors.Wrap(err, "invalid configuration")
+	}
+	return &cfg, nil
+}
+
 // Load reads configuration from all available sources with proper precedence.
 // Configuration is loaded in the following order (highest precedence first):
 //  1. Environment variables (ATLAS_* prefix)
@@ -30,15 +53,7 @@ import (
 // but is not currently used for cancellation since config file reads are
 // typically fast local I/O operations.
 func Load(ctx context.Context) (*Config, error) {
-	v := viper.New()
-
-	// Set defaults first (lowest precedence)
-	setDefaults(v)
-
-	// Configure environment variables (highest precedence after CLI flags)
-	v.SetEnvPrefix("ATLAS")
-	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
-	v.AutomaticEnv()
+	v := newViperInstance()
 
 	// Load global config first (lower precedence)
 	// Global config provides user-wide defaults that can be overridden per-project
@@ -168,15 +183,7 @@ func LoadWithOverrides(ctx context.Context, overrides *Config) (*Config, error) 
 // globalConfigPath is the path to global config (lower priority).
 // Either path can be empty to skip that level.
 func LoadFromPaths(_ context.Context, projectConfigPath, globalConfigPath string) (*Config, error) {
-	v := viper.New()
-
-	// Set defaults first
-	setDefaults(v)
-
-	// Configure environment variables
-	v.SetEnvPrefix("ATLAS")
-	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
-	v.AutomaticEnv()
+	v := newViperInstance()
 
 	// Load global config first (lower precedence)
 	if globalConfigPath != "" {
@@ -200,18 +207,7 @@ func LoadFromPaths(_ context.Context, projectConfigPath, globalConfigPath string
 		}
 	}
 
-	// Unmarshal into Config struct
-	var cfg Config
-	if err := v.Unmarshal(&cfg, viperDecoderOption()); err != nil {
-		return nil, errors.Wrap(err, "failed to unmarshal config")
-	}
-
-	// Validate the configuration
-	if err := Validate(&cfg); err != nil {
-		return nil, errors.Wrap(err, "invalid configuration")
-	}
-
-	return &cfg, nil
+	return unmarshalAndValidate(v)
 }
 
 // setDefaults configures all default values on the Viper instance.
@@ -400,15 +396,7 @@ func applyValidationOverrides(cfg, overrides *Config) {
 // This enables worktree-specific overrides while inheriting base settings.
 // The worktree config is only loaded if worktreePath differs from mainRepoPath.
 func LoadWithWorktree(_ context.Context, mainRepoPath, worktreePath string) (*Config, error) {
-	v := viper.New()
-
-	// Set defaults first (lowest precedence)
-	setDefaults(v)
-
-	// Configure environment variables (highest precedence after CLI flags)
-	v.SetEnvPrefix("ATLAS")
-	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
-	v.AutomaticEnv()
+	v := newViperInstance()
 
 	// Load global config first (lowest file precedence)
 	if err := loadGlobalConfig(v); err != nil {
@@ -432,18 +420,7 @@ func LoadWithWorktree(_ context.Context, mainRepoPath, worktreePath string) (*Co
 		return nil, err
 	}
 
-	// Unmarshal into Config struct
-	var cfg Config
-	if err := v.Unmarshal(&cfg, viperDecoderOption()); err != nil {
-		return nil, errors.Wrap(err, "failed to unmarshal config")
-	}
-
-	// Validate the configuration
-	if err := Validate(&cfg); err != nil {
-		return nil, errors.Wrap(err, "invalid configuration")
-	}
-
-	return &cfg, nil
+	return unmarshalAndValidate(v)
 }
 
 // viperDecoderOption returns the decoder options for Viper unmarshal.
