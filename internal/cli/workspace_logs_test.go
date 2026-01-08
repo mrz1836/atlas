@@ -55,7 +55,7 @@ func TestRunWorkspaceLogs_HappyPath(t *testing.T) {
 
 	startTime := time.Now()
 	tasks := []domain.TaskRef{
-		{ID: "task-20251227-100000", Status: constants.TaskStatusCompleted, StartedAt: &startTime},
+		{ID: "task-550e8400-e29b-41d4-a716-446655440000", Status: constants.TaskStatusCompleted, StartedAt: &startTime},
 	}
 
 	logContent := `{"ts":"2025-12-27T10:00:00Z","level":"info","event":"test log","step_name":"implement"}
@@ -107,7 +107,7 @@ func TestRunWorkspaceLogs_ClosedWorkspace(t *testing.T) {
 
 	startTime := time.Now()
 	tasks := []domain.TaskRef{
-		{ID: "task-20251227-100000", Status: constants.TaskStatusCompleted, StartedAt: &startTime},
+		{ID: "task-550e8400-e29b-41d4-a716-446655440000", Status: constants.TaskStatusCompleted, StartedAt: &startTime},
 	}
 
 	logContent := `{"ts":"2025-12-27T10:00:00Z","level":"info","event":"closed workspace log","step_name":"implement"}
@@ -126,7 +126,7 @@ func TestRunWorkspaceLogs_ClosedWorkspace(t *testing.T) {
 	require.NoError(t, store.Create(context.Background(), ws))
 
 	// Create task directory and log file
-	taskDir := filepath.Join(tmpDir, constants.WorkspacesDir, "closed-ws", constants.TasksDir, "task-20251227-100000")
+	taskDir := filepath.Join(tmpDir, constants.WorkspacesDir, "closed-ws", constants.TasksDir, "task-550e8400-e29b-41d4-a716-446655440000")
 	require.NoError(t, os.MkdirAll(taskDir, 0o750))
 	logPath := filepath.Join(taskDir, constants.TaskLogFileName)
 	require.NoError(t, os.WriteFile(logPath, []byte(logContent), 0o600))
@@ -234,7 +234,7 @@ func TestRunWorkspaceLogs_StepFilter(t *testing.T) {
 
 	startTime := time.Now()
 	tasks := []domain.TaskRef{
-		{ID: "task-20251227-100000", Status: constants.TaskStatusCompleted, StartedAt: &startTime},
+		{ID: "task-550e8400-e29b-41d4-a716-446655440000", Status: constants.TaskStatusCompleted, StartedAt: &startTime},
 	}
 
 	logContent := `{"ts":"2025-12-27T10:00:00Z","level":"info","event":"implement started","step_name":"implement"}
@@ -265,7 +265,7 @@ func TestRunWorkspaceLogs_StepFilterCaseInsensitive(t *testing.T) {
 
 	startTime := time.Now()
 	tasks := []domain.TaskRef{
-		{ID: "task-20251227-100000", Status: constants.TaskStatusCompleted, StartedAt: &startTime},
+		{ID: "task-550e8400-e29b-41d4-a716-446655440000", Status: constants.TaskStatusCompleted, StartedAt: &startTime},
 	}
 
 	logContent := `{"ts":"2025-12-27T10:00:00Z","level":"info","event":"Implement started","step_name":"Implement"}
@@ -293,7 +293,7 @@ func TestRunWorkspaceLogs_StepNotFound(t *testing.T) {
 
 	startTime := time.Now()
 	tasks := []domain.TaskRef{
-		{ID: "task-20251227-100000", Status: constants.TaskStatusCompleted, StartedAt: &startTime},
+		{ID: "task-550e8400-e29b-41d4-a716-446655440000", Status: constants.TaskStatusCompleted, StartedAt: &startTime},
 	}
 
 	logContent := `{"ts":"2025-12-27T10:00:00Z","level":"info","event":"implement started","step_name":"implement"}
@@ -317,7 +317,7 @@ func TestRunWorkspaceLogs_JSONOutput(t *testing.T) {
 
 	startTime := time.Now()
 	tasks := []domain.TaskRef{
-		{ID: "task-20251227-100000", Status: constants.TaskStatusCompleted, StartedAt: &startTime},
+		{ID: "task-550e8400-e29b-41d4-a716-446655440000", Status: constants.TaskStatusCompleted, StartedAt: &startTime},
 	}
 
 	logContent := `{"ts":"2025-12-27T10:00:00Z","level":"info","event":"test log","step_name":"implement"}
@@ -366,7 +366,7 @@ func TestRunWorkspaceLogs_TailFlag(t *testing.T) {
 
 	startTime := time.Now()
 	tasks := []domain.TaskRef{
-		{ID: "task-20251227-100000", Status: constants.TaskStatusCompleted, StartedAt: &startTime},
+		{ID: "task-550e8400-e29b-41d4-a716-446655440000", Status: constants.TaskStatusCompleted, StartedAt: &startTime},
 	}
 
 	// Create log with 10 lines
@@ -397,7 +397,7 @@ func TestRunWorkspaceLogs_ContextCancellation(t *testing.T) {
 
 	startTime := time.Now()
 	tasks := []domain.TaskRef{
-		{ID: "task-20251227-100000", Status: constants.TaskStatusCompleted, StartedAt: &startTime},
+		{ID: "task-550e8400-e29b-41d4-a716-446655440000", Status: constants.TaskStatusCompleted, StartedAt: &startTime},
 	}
 	createTestWorkspaceWithLogs(t, tmpDir, "test-ws", tasks, `{"ts":"2025-12-27T10:00:00Z","level":"info","event":"log"}
 `)
@@ -471,7 +471,7 @@ func TestRunWorkspaceLogs_InvalidJSON(t *testing.T) {
 
 	startTime := time.Now()
 	tasks := []domain.TaskRef{
-		{ID: "task-20251227-100000", Status: constants.TaskStatusCompleted, StartedAt: &startTime},
+		{ID: "task-550e8400-e29b-41d4-a716-446655440000", Status: constants.TaskStatusCompleted, StartedAt: &startTime},
 	}
 
 	// Log content with invalid JSON lines mixed in
@@ -500,7 +500,7 @@ func TestRunWorkspaceLogs_EmptyLogFile(t *testing.T) {
 
 	startTime := time.Now()
 	tasks := []domain.TaskRef{
-		{ID: "task-20251227-100000", Status: constants.TaskStatusCompleted, StartedAt: &startTime},
+		{ID: "task-550e8400-e29b-41d4-a716-446655440000", Status: constants.TaskStatusCompleted, StartedAt: &startTime},
 	}
 
 	// Create workspace with empty log file
@@ -517,7 +517,7 @@ func TestRunWorkspaceLogs_EmptyLogFile(t *testing.T) {
 	require.NoError(t, store.Create(context.Background(), ws))
 
 	// Create task directory with empty log file
-	taskDir := filepath.Join(tmpDir, constants.WorkspacesDir, "test-ws", constants.TasksDir, "task-20251227-100000")
+	taskDir := filepath.Join(tmpDir, constants.WorkspacesDir, "test-ws", constants.TasksDir, "task-550e8400-e29b-41d4-a716-446655440000")
 	require.NoError(t, os.MkdirAll(taskDir, 0o750))
 	logPath := filepath.Join(taskDir, constants.TaskLogFileName)
 	require.NoError(t, os.WriteFile(logPath, []byte(""), 0o600)) // Empty file
@@ -538,7 +538,7 @@ func TestRunWorkspaceLogs_NoLogFile(t *testing.T) {
 
 	startTime := time.Now()
 	tasks := []domain.TaskRef{
-		{ID: "task-20251227-100000", Status: constants.TaskStatusCompleted, StartedAt: &startTime},
+		{ID: "task-550e8400-e29b-41d4-a716-446655440000", Status: constants.TaskStatusCompleted, StartedAt: &startTime},
 	}
 
 	// Create workspace without log file (just the task directory)
@@ -555,7 +555,7 @@ func TestRunWorkspaceLogs_NoLogFile(t *testing.T) {
 	require.NoError(t, store.Create(context.Background(), ws))
 
 	// Create task directory but NO log file
-	taskDir := filepath.Join(tmpDir, constants.WorkspacesDir, "test-ws", constants.TasksDir, "task-20251227-100000")
+	taskDir := filepath.Join(tmpDir, constants.WorkspacesDir, "test-ws", constants.TasksDir, "task-550e8400-e29b-41d4-a716-446655440000")
 	require.NoError(t, os.MkdirAll(taskDir, 0o750))
 	// Intentionally no log file created
 

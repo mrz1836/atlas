@@ -101,9 +101,16 @@ func TestRunAbandon_WorkspaceNotFound(t *testing.T) {
 }
 
 // testTaskID generates a valid task ID for testing.
-// Format: task-YYYYMMDD-HHMMSS
+// Format: task-{uuid}
+// Uses a deterministic UUID based on the suffix for test repeatability
 func testTaskID(suffix string) string {
-	return "task-20251229-" + suffix
+	// Generate a valid UUID format with suffix embedded for uniqueness
+	// Format: task-00000000-0000-4000-8000-{suffix padded to 12 chars}
+	paddedSuffix := suffix
+	for len(paddedSuffix) < 12 {
+		paddedSuffix = "0" + paddedSuffix
+	}
+	return "task-00000000-0000-4000-8000-" + paddedSuffix[:12]
 }
 
 func TestRunAbandon_NoTasksInWorkspace(t *testing.T) {
