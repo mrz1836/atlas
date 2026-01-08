@@ -9,9 +9,20 @@ import (
 
 	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/constants"
+	"github.com/mrz1836/atlas/internal/ctxutil"
 	"github.com/mrz1836/atlas/internal/domain"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 )
+
+// codexCLIInfo contains Codex-specific CLI metadata for error messages.
+//
+//nolint:gochecknoglobals // Constant-like structure
+var codexCLIInfo = CLIInfo{
+	Name:        "codex",
+	InstallHint: "install with: npm install -g @openai/codex",
+	ErrType:     atlaserrors.ErrCodexInvocation,
+	EnvVar:      "OPENAI_API_KEY",
+}
 
 // CodexRunner implements Runner for OpenAI Codex CLI invocation.
 // It builds command-line arguments and executes the codex CLI,
@@ -37,10 +48,8 @@ func NewCodexRunner(cfg *config.AIConfig, executor CommandExecutor) *CodexRunner
 // This method builds the command, executes it, and parses the JSON response.
 func (r *CodexRunner) Run(ctx context.Context, req *domain.AIRequest) (*domain.AIResult, error) {
 	// Check cancellation at entry
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	default:
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return nil, err
 	}
 
 	// Determine timeout: request > config > default
@@ -182,24 +191,7 @@ func (r *CodexRunner) buildCommand(ctx context.Context, req *domain.AIRequest) *
 
 // wrapCodexExecutionError wraps an execution error with context.
 func wrapCodexExecutionError(err error, stderr []byte) error {
-	stderrStr := strings.TrimSpace(string(stderr))
-
-	// Check for specific error conditions
-	if strings.Contains(stderrStr, "command not found") ||
-		strings.Contains(err.Error(), "executable file not found") {
-		return fmt.Errorf("%w: codex CLI not found - install with: npm install -g @openai/codex", atlaserrors.ErrCodexInvocation)
-	}
-
-	if strings.Contains(stderrStr, "api key") || strings.Contains(stderrStr, "API key") ||
-		strings.Contains(stderrStr, "authentication") || strings.Contains(stderrStr, "OPENAI_API_KEY") {
-		return fmt.Errorf("%w: API key error: %s", atlaserrors.ErrCodexInvocation, stderrStr)
-	}
-
-	if stderrStr != "" {
-		return fmt.Errorf("%w: %s", atlaserrors.ErrCodexInvocation, stderrStr)
-	}
-
-	return fmt.Errorf("%w: %s", atlaserrors.ErrCodexInvocation, err.Error())
+	return WrapCLIExecutionError(codexCLIInfo, err, stderr)
 }
 
 // CodexExecutor provides a custom executor for Codex CLI.

@@ -10,9 +10,20 @@ import (
 
 	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/constants"
+	"github.com/mrz1836/atlas/internal/ctxutil"
 	"github.com/mrz1836/atlas/internal/domain"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 )
+
+// claudeCLIInfo contains Claude-specific CLI metadata for error messages.
+//
+//nolint:gochecknoglobals // Constant-like structure
+var claudeCLIInfo = CLIInfo{
+	Name:        "claude",
+	InstallHint: "please install claude code",
+	ErrType:     atlaserrors.ErrClaudeInvocation,
+	EnvVar:      "ANTHROPIC_API_KEY",
+}
 
 // CommandExecutor abstracts command execution for testing.
 // The production implementation uses exec.Cmd to run subprocesses,
@@ -64,10 +75,8 @@ func NewClaudeCodeRunner(cfg *config.AIConfig, executor CommandExecutor) *Claude
 // This method builds the command, executes it, and parses the JSON response.
 func (r *ClaudeCodeRunner) Run(ctx context.Context, req *domain.AIRequest) (*domain.AIResult, error) {
 	// Check cancellation at entry
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	default:
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return nil, err
 	}
 
 	// Determine timeout: request > config > default
@@ -230,24 +239,7 @@ func (r *ClaudeCodeRunner) buildCommand(ctx context.Context, req *domain.AIReque
 
 // wrapExecutionError wraps an execution error with context.
 func wrapExecutionError(err error, stderr []byte) error {
-	stderrStr := strings.TrimSpace(string(stderr))
-
-	// Check for specific error conditions
-	if strings.Contains(stderrStr, "command not found") ||
-		strings.Contains(err.Error(), "executable file not found") {
-		return fmt.Errorf("%w: claude CLI not found - please install claude code", atlaserrors.ErrClaudeInvocation)
-	}
-
-	if strings.Contains(stderrStr, "api key") || strings.Contains(stderrStr, "API key") ||
-		strings.Contains(stderrStr, "authentication") || strings.Contains(stderrStr, "ANTHROPIC_API_KEY") {
-		return fmt.Errorf("%w: API key error: %s", atlaserrors.ErrClaudeInvocation, stderrStr)
-	}
-
-	if stderrStr != "" {
-		return fmt.Errorf("%w: %s", atlaserrors.ErrClaudeInvocation, stderrStr)
-	}
-
-	return fmt.Errorf("%w: %s", atlaserrors.ErrClaudeInvocation, err.Error())
+	return WrapCLIExecutionError(claudeCLIInfo, err, stderr)
 }
 
 // Compile-time check that ClaudeCodeRunner implements Runner.

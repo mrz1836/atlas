@@ -11,9 +11,20 @@ import (
 
 	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/constants"
+	"github.com/mrz1836/atlas/internal/ctxutil"
 	"github.com/mrz1836/atlas/internal/domain"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 )
+
+// geminiCLIInfo contains Gemini-specific CLI metadata for error messages.
+//
+//nolint:gochecknoglobals // Constant-like structure
+var geminiCLIInfo = CLIInfo{
+	Name:        "gemini",
+	InstallHint: "install with: npm install -g @google/gemini-cli",
+	ErrType:     atlaserrors.ErrGeminiInvocation,
+	EnvVar:      "GEMINI_API_KEY",
+}
 
 // GeminiRunner implements Runner for Gemini CLI invocation.
 // It builds command-line arguments and executes the gemini CLI,
@@ -53,10 +64,8 @@ func NewGeminiRunnerWithLogger(cfg *config.AIConfig, executor CommandExecutor, l
 // This method builds the command, executes it, and parses the JSON response.
 func (r *GeminiRunner) Run(ctx context.Context, req *domain.AIRequest) (*domain.AIResult, error) {
 	// Check cancellation at entry
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	default:
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return nil, err
 	}
 
 	// Determine timeout: request > config > default
@@ -225,24 +234,7 @@ func (r *GeminiRunner) buildCommand(ctx context.Context, req *domain.AIRequest) 
 
 // wrapGeminiExecutionError wraps an execution error with context.
 func wrapGeminiExecutionError(err error, stderr []byte) error {
-	stderrStr := strings.TrimSpace(string(stderr))
-
-	// Check for specific error conditions
-	if strings.Contains(stderrStr, "command not found") ||
-		strings.Contains(err.Error(), "executable file not found") {
-		return fmt.Errorf("%w: gemini CLI not found - install with: npm install -g @google/gemini-cli", atlaserrors.ErrGeminiInvocation)
-	}
-
-	if strings.Contains(stderrStr, "api key") || strings.Contains(stderrStr, "API key") ||
-		strings.Contains(stderrStr, "authentication") || strings.Contains(stderrStr, "GEMINI_API_KEY") {
-		return fmt.Errorf("%w: API key error: %s", atlaserrors.ErrGeminiInvocation, stderrStr)
-	}
-
-	if stderrStr != "" {
-		return fmt.Errorf("%w: %s", atlaserrors.ErrGeminiInvocation, stderrStr)
-	}
-
-	return fmt.Errorf("%w: %s", atlaserrors.ErrGeminiInvocation, err.Error())
+	return WrapCLIExecutionError(geminiCLIInfo, err, stderr)
 }
 
 // GeminiExecutor provides a custom executor for Gemini CLI.

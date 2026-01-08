@@ -24,48 +24,6 @@ import (
 // errContinuePolling is a sentinel error used internally to signal that polling should continue.
 var errContinuePolling = errors.New("continue polling")
 
-// PRErrorType classifies GitHub PR operation failures for appropriate handling.
-type PRErrorType int
-
-const (
-	// PRErrorNone indicates no error occurred.
-	PRErrorNone PRErrorType = iota
-	// PRErrorAuth indicates authentication failed - don't retry.
-	PRErrorAuth
-	// PRErrorRateLimit indicates rate limited - retry with backoff.
-	PRErrorRateLimit
-	// PRErrorNetwork indicates a network issue - retry with backoff.
-	PRErrorNetwork
-	// PRErrorNotFound indicates resource not found - don't retry.
-	PRErrorNotFound
-	// PRErrorNoChecksYet indicates CI checks haven't been registered yet - transient, retry.
-	// This occurs immediately after PR creation before GitHub Actions workflows start.
-	PRErrorNoChecksYet
-	// PRErrorOther indicates an unknown error - don't retry.
-	PRErrorOther
-)
-
-// String returns a string representation of the error type.
-func (t PRErrorType) String() string {
-	switch t {
-	case PRErrorNone:
-		return "none"
-	case PRErrorAuth:
-		return "auth"
-	case PRErrorRateLimit:
-		return "rate_limit"
-	case PRErrorNetwork:
-		return "network"
-	case PRErrorNotFound:
-		return "not_found"
-	case PRErrorNoChecksYet:
-		return "no_checks_yet"
-	case PRErrorOther:
-		return "other"
-	}
-	return "other"
-}
-
 // PRCreateOptions configures the PR creation operation.
 type PRCreateOptions struct {
 	// Title is the PR title (required).
@@ -108,41 +66,6 @@ type PRStatus struct {
 	ChecksPass bool
 	// CIStatus is the overall CI status (pending, success, failure).
 	CIStatus string
-}
-
-// CIStatus represents the overall CI status.
-type CIStatus int
-
-const (
-	// CIStatusPending indicates CI checks are still running.
-	CIStatusPending CIStatus = iota
-	// CIStatusSuccess indicates all required CI checks passed.
-	CIStatusSuccess
-	// CIStatusFailure indicates one or more CI checks failed.
-	CIStatusFailure
-	// CIStatusTimeout indicates CI polling exceeded the timeout.
-	CIStatusTimeout
-	// CIStatusFetchError indicates CI status could not be determined due to fetch failures.
-	// This is distinct from CIStatusFailure - the CI may have passed, but we couldn't verify.
-	CIStatusFetchError
-)
-
-// String returns a string representation of the CI status.
-func (s CIStatus) String() string {
-	switch s {
-	case CIStatusPending:
-		return "pending"
-	case CIStatusSuccess:
-		return "success"
-	case CIStatusFailure:
-		return "failure"
-	case CIStatusTimeout:
-		return "timeout"
-	case CIStatusFetchError:
-		return "fetch_error"
-	default:
-		return "unknown"
-	}
 }
 
 // CheckResult contains the outcome of a single CI check.
@@ -348,159 +271,6 @@ func buildPRSuccessResult(result *PRResult, attemptResult prAttemptResult, opts 
 	return result
 }
 
-// shouldRetryPR determines if the error type is retryable.
-// PRErrorOther is now retryable since unknown gh errors may be transient.
-func shouldRetryPR(errType PRErrorType) bool {
-	return errType == PRErrorNetwork || errType == PRErrorRateLimit || errType == PRErrorOther
-}
-
-// buildPRFinalError builds the appropriate error based on the error type.
-func buildPRFinalError(result *PRResult) error {
-	switch result.ErrorType {
-	case PRErrorNone:
-		return nil
-	case PRErrorAuth:
-		return fmt.Errorf("authentication failed: %w", atlaserrors.ErrGHAuthFailed)
-	case PRErrorRateLimit:
-		return fmt.Errorf("rate limited after %d attempts: %w", result.Attempts, atlaserrors.ErrGHRateLimited)
-	case PRErrorNetwork:
-		return fmt.Errorf("network error after %d attempts: %w", result.Attempts, atlaserrors.ErrPRCreationFailed)
-	case PRErrorNotFound:
-		return fmt.Errorf("resource not found: %w", atlaserrors.ErrPRCreationFailed)
-	case PRErrorNoChecksYet:
-		return fmt.Errorf("no checks reported yet: %w", atlaserrors.ErrPRCreationFailed)
-	case PRErrorOther:
-		return fmt.Errorf("failed to create PR: %w", result.FinalErr)
-	}
-	return fmt.Errorf("failed to create PR: %w", result.FinalErr)
-}
-
-// classifyGHError classifies a gh CLI error for retry handling.
-func classifyGHError(err error) PRErrorType {
-	if err == nil {
-		return PRErrorNone
-	}
-
-	// Check for context timeout
-	if errors.Is(err, context.DeadlineExceeded) {
-		return PRErrorNetwork
-	}
-
-	// Check for sentinel errors first (more reliable than string matching)
-	if errors.Is(err, atlaserrors.ErrGHAuthFailed) {
-		return PRErrorAuth
-	}
-	if errors.Is(err, atlaserrors.ErrGHRateLimited) {
-		return PRErrorRateLimit
-	}
-	if errors.Is(err, atlaserrors.ErrPRNotFound) {
-		return PRErrorNotFound
-	}
-
-	errStr := strings.ToLower(err.Error())
-
-	if isGHRateLimitError(errStr) {
-		return PRErrorRateLimit
-	}
-
-	if isGHAuthError(errStr) {
-		return PRErrorAuth
-	}
-
-	if isGHNetworkError(errStr) {
-		return PRErrorNetwork
-	}
-
-	if isGHNotFoundError(errStr) {
-		return PRErrorNotFound
-	}
-
-	// Check for "no checks reported" before falling through to PRErrorOther
-	// This is a transient condition when CI checks haven't started yet
-	if isGHNoChecksReportedError(errStr) {
-		return PRErrorNoChecksYet
-	}
-
-	return PRErrorOther
-}
-
-// isGHRateLimitError checks if the error indicates a rate limit.
-func isGHRateLimitError(errStr string) bool {
-	patterns := []string{
-		"rate limit exceeded",
-		"api rate limit",
-		"secondary rate limit",
-		"abuse detection",
-		"too many requests",
-	}
-	for _, pattern := range patterns {
-		if strings.Contains(errStr, pattern) {
-			return true
-		}
-	}
-	return false
-}
-
-// isGHAuthError checks if the error indicates an authentication failure.
-func isGHAuthError(errStr string) bool {
-	patterns := []string{
-		"authentication required",
-		"bad credentials",
-		"not logged into",
-		"must be authenticated",
-		"gh auth login",
-		"invalid token",
-		"token expired",
-	}
-	for _, pattern := range patterns {
-		if strings.Contains(errStr, pattern) {
-			return true
-		}
-	}
-	return false
-}
-
-// isGHNetworkError checks if the error indicates a network issue.
-func isGHNetworkError(errStr string) bool {
-	patterns := []string{
-		"could not resolve host",
-		"connection refused",
-		"network is unreachable",
-		"connection timed out",
-		"no route to host",
-		"failed to connect",
-		"timeout",
-	}
-	for _, pattern := range patterns {
-		if strings.Contains(errStr, pattern) {
-			return true
-		}
-	}
-	return false
-}
-
-// isGHNotFoundError checks if the error indicates a not found condition.
-func isGHNotFoundError(errStr string) bool {
-	patterns := []string{
-		"not found",
-		"no such",
-		"repository not found",
-		"does not exist",
-	}
-	for _, pattern := range patterns {
-		if strings.Contains(errStr, pattern) {
-			return true
-		}
-	}
-	return false
-}
-
-// isGHNoChecksReportedError checks if the error indicates CI checks haven't been registered yet.
-// This is a transient condition that occurs immediately after PR creation before workflows start.
-func isGHNoChecksReportedError(errStr string) bool {
-	return strings.Contains(errStr, "no checks reported")
-}
-
 // parsePRCreateOutput extracts the PR URL and number from gh pr create output.
 // gh pr create outputs the PR URL on success: https://github.com/owner/repo/pull/42
 func parsePRCreateOutput(output string) (url string, number int) {
@@ -514,7 +284,10 @@ func parsePRCreateOutput(output string) (url string, number int) {
 		if match := prURLPattern.FindStringSubmatch(line); match != nil {
 			url = strings.TrimSpace(match[0])
 			if len(match) > 1 {
-				number, _ = strconv.Atoi(match[1])
+				// Regex guarantees \d+ match, but handle error explicitly for safety
+				if n, err := strconv.Atoi(match[1]); err == nil {
+					number = n
+				}
 			}
 			return url, number
 		}
