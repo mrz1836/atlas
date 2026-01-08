@@ -1989,3 +1989,541 @@ func TestRenderApprovalSummary_WithAIRetry(t *testing.T) {
 	assert.Contains(t, result, "Format ✓")
 	assert.Contains(t, result, "CI ✓")
 }
+
+// TestCountInterruptions tests counting interruptions from task transitions.
+func TestCountInterruptions(t *testing.T) {
+	t.Run("counts multiple interruptions", func(t *testing.T) {
+		transitions := []domain.Transition{
+			{FromStatus: constants.TaskStatusPending, ToStatus: constants.TaskStatusRunning},
+			{FromStatus: constants.TaskStatusRunning, ToStatus: constants.TaskStatusInterrupted},
+			{FromStatus: constants.TaskStatusInterrupted, ToStatus: constants.TaskStatusRunning},
+			{FromStatus: constants.TaskStatusRunning, ToStatus: constants.TaskStatusInterrupted},
+			{FromStatus: constants.TaskStatusInterrupted, ToStatus: constants.TaskStatusRunning},
+			{FromStatus: constants.TaskStatusRunning, ToStatus: constants.TaskStatusInterrupted},
+			{FromStatus: constants.TaskStatusInterrupted, ToStatus: constants.TaskStatusRunning},
+			{FromStatus: constants.TaskStatusRunning, ToStatus: constants.TaskStatusAwaitingApproval},
+		}
+
+		count := countInterruptions(transitions)
+		assert.Equal(t, 3, count)
+	})
+
+	t.Run("returns zero for no interruptions", func(t *testing.T) {
+		transitions := []domain.Transition{
+			{FromStatus: constants.TaskStatusPending, ToStatus: constants.TaskStatusRunning},
+			{FromStatus: constants.TaskStatusRunning, ToStatus: constants.TaskStatusAwaitingApproval},
+		}
+
+		count := countInterruptions(transitions)
+		assert.Equal(t, 0, count)
+	})
+
+	t.Run("returns zero for empty transitions", func(t *testing.T) {
+		transitions := []domain.Transition{}
+		count := countInterruptions(transitions)
+		assert.Equal(t, 0, count)
+	})
+
+	t.Run("returns zero for nil transitions", func(t *testing.T) {
+		count := countInterruptions(nil)
+		assert.Equal(t, 0, count)
+	})
+
+	t.Run("counts single interruption", func(t *testing.T) {
+		transitions := []domain.Transition{
+			{FromStatus: constants.TaskStatusPending, ToStatus: constants.TaskStatusRunning},
+			{FromStatus: constants.TaskStatusRunning, ToStatus: constants.TaskStatusInterrupted},
+			{FromStatus: constants.TaskStatusInterrupted, ToStatus: constants.TaskStatusRunning},
+			{FromStatus: constants.TaskStatusRunning, ToStatus: constants.TaskStatusCompleted},
+		}
+
+		count := countInterruptions(transitions)
+		assert.Equal(t, 1, count)
+	})
+}
+
+// TestApprovalSummary_Interruptions tests interruption tracking in approval summary.
+func TestApprovalSummary_Interruptions(t *testing.T) {
+	t.Run("tracks interruptions from task transitions", func(t *testing.T) {
+		task := &domain.Task{
+			ID:          "task-interrupted",
+			WorkspaceID: "ws-test",
+			Status:      constants.TaskStatusAwaitingApproval,
+			CurrentStep: 2,
+			Steps: []domain.Step{
+				{Name: "implement", Status: "completed"},
+				{Name: "validate", Status: "completed"},
+				{Name: "approval", Status: "pending"},
+			},
+			Transitions: []domain.Transition{
+				{FromStatus: constants.TaskStatusPending, ToStatus: constants.TaskStatusRunning},
+				{FromStatus: constants.TaskStatusRunning, ToStatus: constants.TaskStatusInterrupted},
+				{FromStatus: constants.TaskStatusInterrupted, ToStatus: constants.TaskStatusRunning},
+				{FromStatus: constants.TaskStatusRunning, ToStatus: constants.TaskStatusInterrupted},
+				{FromStatus: constants.TaskStatusInterrupted, ToStatus: constants.TaskStatusRunning},
+				{FromStatus: constants.TaskStatusRunning, ToStatus: constants.TaskStatusAwaitingApproval},
+			},
+		}
+
+		workspace := &domain.Workspace{Name: "test", Branch: "feat/x"}
+		summary := NewApprovalSummary(task, workspace)
+
+		require.NotNil(t, summary)
+		assert.Equal(t, 2, summary.InterruptionCount)
+		assert.True(t, summary.WasPaused)
+	})
+
+	t.Run("no interruptions when task ran smoothly", func(t *testing.T) {
+		task := &domain.Task{
+			ID:          "task-smooth",
+			WorkspaceID: "ws-test",
+			Status:      constants.TaskStatusAwaitingApproval,
+			CurrentStep: 2,
+			Steps: []domain.Step{
+				{Name: "implement", Status: "completed"},
+				{Name: "approval", Status: "pending"},
+			},
+			Transitions: []domain.Transition{
+				{FromStatus: constants.TaskStatusPending, ToStatus: constants.TaskStatusRunning},
+				{FromStatus: constants.TaskStatusRunning, ToStatus: constants.TaskStatusAwaitingApproval},
+			},
+		}
+
+		workspace := &domain.Workspace{Name: "test", Branch: "feat/x"}
+		summary := NewApprovalSummary(task, workspace)
+
+		require.NotNil(t, summary)
+		assert.Equal(t, 0, summary.InterruptionCount)
+		assert.False(t, summary.WasPaused)
+	})
+
+	t.Run("handles empty transitions", func(t *testing.T) {
+		task := &domain.Task{
+			ID:          "task-no-trans",
+			WorkspaceID: "ws-test",
+			Status:      constants.TaskStatusPending,
+			Transitions: []domain.Transition{},
+		}
+
+		workspace := &domain.Workspace{Name: "test", Branch: "feat/x"}
+		summary := NewApprovalSummary(task, workspace)
+
+		require.NotNil(t, summary)
+		assert.Equal(t, 0, summary.InterruptionCount)
+		assert.False(t, summary.WasPaused)
+	})
+}
+
+// TestRenderSessionLine tests rendering of session/interruption info.
+func TestRenderSessionLine(t *testing.T) {
+	// Disable colors for consistent test output
+	t.Setenv("NO_COLOR", "1")
+
+	t.Run("renders single interruption", func(t *testing.T) {
+		result := renderSessionLine(1, 100)
+		assert.Contains(t, result, "Session:")
+		assert.Contains(t, result, "1 interruption")
+		assert.NotContains(t, result, "interruptions")
+		assert.Contains(t, result, "resumed")
+	})
+
+	t.Run("renders multiple interruptions", func(t *testing.T) {
+		result := renderSessionLine(5, 100)
+		assert.Contains(t, result, "Session:")
+		assert.Contains(t, result, "5 interruptions")
+		assert.Contains(t, result, "resumed")
+	})
+
+	t.Run("renders zero interruptions", func(t *testing.T) {
+		result := renderSessionLine(0, 100)
+		assert.Contains(t, result, "Session:")
+		assert.Contains(t, result, "0 interruptions")
+	})
+}
+
+// TestRenderApprovalSummary_WithInterruptions tests full approval summary with interruptions.
+func TestRenderApprovalSummary_WithInterruptions(t *testing.T) {
+	// Disable colors for consistent test output
+	t.Setenv("NO_COLOR", "1")
+
+	t.Run("shows session line when task was paused", func(t *testing.T) {
+		summary := &ApprovalSummary{
+			TaskID:            "task-paused",
+			WorkspaceName:     "test-ws",
+			Status:            constants.TaskStatusAwaitingApproval,
+			CurrentStep:       5,
+			TotalSteps:        6,
+			BranchName:        "feat/test",
+			InterruptionCount: 3,
+			WasPaused:         true,
+		}
+
+		result := RenderApprovalSummaryWithWidth(summary, 100, false)
+
+		assert.Contains(t, result, "Approval Summary")
+		assert.Contains(t, result, "test-ws")
+		assert.Contains(t, result, "Session:")
+		assert.Contains(t, result, "3 interruptions")
+		assert.Contains(t, result, "resumed")
+	})
+
+	t.Run("does not show session line when task was not paused", func(t *testing.T) {
+		summary := &ApprovalSummary{
+			TaskID:            "task-smooth",
+			WorkspaceName:     "test-ws",
+			Status:            constants.TaskStatusAwaitingApproval,
+			CurrentStep:       5,
+			TotalSteps:        6,
+			BranchName:        "feat/test",
+			InterruptionCount: 0,
+			WasPaused:         false,
+		}
+
+		result := RenderApprovalSummaryWithWidth(summary, 100, false)
+
+		assert.Contains(t, result, "Approval Summary")
+		assert.NotContains(t, result, "Session:")
+		assert.NotContains(t, result, "interruption")
+	})
+
+	t.Run("shows single interruption correctly", func(t *testing.T) {
+		summary := &ApprovalSummary{
+			TaskID:            "task-single-int",
+			WorkspaceName:     "test-ws",
+			Status:            constants.TaskStatusAwaitingApproval,
+			CurrentStep:       3,
+			TotalSteps:        4,
+			BranchName:        "feat/test",
+			InterruptionCount: 1,
+			WasPaused:         true,
+		}
+
+		result := RenderApprovalSummaryWithWidth(summary, 100, false)
+
+		assert.Contains(t, result, "Session:")
+		assert.Contains(t, result, "1 interruption,")
+		assert.NotContains(t, result, "1 interruptions")
+	})
+}
+
+// TestExtractValidationStatus_MultipleResults tests extraction when validation runs multiple times.
+// This covers the scenario where a task is interrupted and resumed, resulting in multiple
+// validation step results for the same step.
+func TestExtractValidationStatus_MultipleResults(t *testing.T) {
+	t.Run("prefers successful result over earlier failed results", func(t *testing.T) {
+		// Scenario: Validation failed twice (interrupted), then succeeded
+		task := &domain.Task{
+			ID:          "task-multi-val",
+			WorkspaceID: "ws-test",
+			Status:      constants.TaskStatusAwaitingApproval,
+			CurrentStep: 3,
+			Steps: []domain.Step{
+				{Name: "implement", Status: "completed"},
+				{Name: "validate", Status: "completed"},
+				{Name: "approval", Status: "pending"},
+			},
+			StepResults: []domain.StepResult{
+				// First attempt - failed due to interruption
+				{
+					StepIndex: 1,
+					StepName:  "validate",
+					Status:    "failed",
+					Metadata: map[string]any{
+						"validation_checks": []map[string]any{
+							{"name": "Format", "passed": true},
+							{"name": "Lint", "passed": true},
+							{"name": "Test", "passed": true},
+							{"name": "Pre-commit", "passed": false},
+						},
+					},
+				},
+				// Second attempt - also failed
+				{
+					StepIndex: 1,
+					StepName:  "validate",
+					Status:    "failed",
+					Metadata: map[string]any{
+						"validation_checks": []map[string]any{
+							{"name": "Format", "passed": true},
+							{"name": "Lint", "passed": true},
+							{"name": "Test", "passed": false},
+							{"name": "Pre-commit", "passed": true},
+						},
+					},
+				},
+				// Third attempt - success
+				{
+					StepIndex: 1,
+					StepName:  "validate",
+					Status:    "success",
+					Metadata: map[string]any{
+						"validation_checks": []map[string]any{
+							{"name": "Format", "passed": true},
+							{"name": "Lint", "passed": true},
+							{"name": "Test", "passed": true},
+							{"name": "Pre-commit", "passed": true},
+						},
+					},
+				},
+			},
+		}
+
+		workspace := &domain.Workspace{Name: "test", Branch: "feat/x"}
+		summary := NewApprovalSummary(task, workspace)
+
+		require.NotNil(t, summary.Validation)
+		assert.Equal(t, "passed", summary.Validation.Status, "should use successful validation result")
+		assert.Equal(t, 4, summary.Validation.PassCount, "all 4 checks should pass")
+		assert.Equal(t, 0, summary.Validation.FailCount, "no checks should fail")
+	})
+
+	t.Run("prefers successful result regardless of position in array", func(t *testing.T) {
+		// Scenario: Success appears in the middle of the array
+		task := &domain.Task{
+			ID:          "task-success-middle",
+			WorkspaceID: "ws-test",
+			Status:      constants.TaskStatusAwaitingApproval,
+			CurrentStep: 3,
+			Steps: []domain.Step{
+				{Name: "implement", Status: "completed"},
+				{Name: "validate", Status: "completed"},
+				{Name: "approval", Status: "pending"},
+			},
+			StepResults: []domain.StepResult{
+				// First - failed
+				{
+					StepName: "validate",
+					Status:   "failed",
+					Metadata: map[string]any{
+						"validation_checks": []map[string]any{
+							{"name": "Lint", "passed": false},
+						},
+					},
+				},
+				// Second - success
+				{
+					StepName: "validate",
+					Status:   "success",
+					Metadata: map[string]any{
+						"validation_checks": []map[string]any{
+							{"name": "Lint", "passed": true},
+						},
+					},
+				},
+				// Third - failed (interrupted after success, then resumed and failed)
+				{
+					StepName: "validate",
+					Status:   "failed",
+					Metadata: map[string]any{
+						"validation_checks": []map[string]any{
+							{"name": "Lint", "passed": false},
+						},
+					},
+				},
+			},
+		}
+
+		workspace := &domain.Workspace{Name: "test", Branch: "feat/x"}
+		summary := NewApprovalSummary(task, workspace)
+
+		require.NotNil(t, summary.Validation)
+		assert.Equal(t, "passed", summary.Validation.Status, "should prefer success even if not last")
+	})
+
+	t.Run("uses latest failed result when all validations failed", func(t *testing.T) {
+		// Scenario: All validation attempts failed - use most recent failure
+		task := &domain.Task{
+			ID:          "task-all-failed",
+			WorkspaceID: "ws-test",
+			Status:      constants.TaskStatusValidationFailed,
+			CurrentStep: 1,
+			Steps: []domain.Step{
+				{Name: "implement", Status: "completed"},
+				{Name: "validate", Status: "failed"},
+				{Name: "approval", Status: "pending"},
+			},
+			StepResults: []domain.StepResult{
+				// First failure - Pre-commit failed
+				{
+					StepName: "validate",
+					Status:   "failed",
+					Metadata: map[string]any{
+						"validation_checks": []map[string]any{
+							{"name": "Format", "passed": true},
+							{"name": "Lint", "passed": true},
+							{"name": "Pre-commit", "passed": false},
+						},
+					},
+				},
+				// Second failure - different check failed (this is the latest)
+				{
+					StepName: "validate",
+					Status:   "failed",
+					Metadata: map[string]any{
+						"validation_checks": []map[string]any{
+							{"name": "Format", "passed": true},
+							{"name": "Lint", "passed": false}, // Different failure
+							{"name": "Pre-commit", "passed": true},
+						},
+					},
+				},
+			},
+		}
+
+		workspace := &domain.Workspace{Name: "test", Branch: "feat/x"}
+		summary := NewApprovalSummary(task, workspace)
+
+		require.NotNil(t, summary.Validation)
+		assert.Equal(t, "failed", summary.Validation.Status, "should show failed status")
+		// Should use the LATEST failed result (second one with Lint failed)
+		assert.Equal(t, 2, summary.Validation.PassCount, "2 checks passed in latest result")
+		assert.Equal(t, 1, summary.Validation.FailCount, "1 check failed in latest result")
+
+		// Verify it's using the second result (Lint failed, not Pre-commit)
+		var lintCheck, precommitCheck *ValidationCheck
+		for i := range summary.Validation.Checks {
+			if summary.Validation.Checks[i].Name == "Lint" {
+				lintCheck = &summary.Validation.Checks[i]
+			}
+			if summary.Validation.Checks[i].Name == "Pre-commit" {
+				precommitCheck = &summary.Validation.Checks[i]
+			}
+		}
+		require.NotNil(t, lintCheck, "should have Lint check")
+		require.NotNil(t, precommitCheck, "should have Pre-commit check")
+		assert.False(t, lintCheck.Passed, "Lint should be failed (from latest result)")
+		assert.True(t, precommitCheck.Passed, "Pre-commit should be passed (from latest result)")
+	})
+
+	t.Run("single validation result works as before", func(t *testing.T) {
+		task := &domain.Task{
+			ID:          "task-single-val",
+			WorkspaceID: "ws-test",
+			Status:      constants.TaskStatusAwaitingApproval,
+			CurrentStep: 2,
+			Steps: []domain.Step{
+				{Name: "validate", Status: "completed"},
+				{Name: "approval", Status: "pending"},
+			},
+			StepResults: []domain.StepResult{
+				{
+					StepName: "validate",
+					Status:   "success",
+					Metadata: map[string]any{
+						"validation_checks": []map[string]any{
+							{"name": "Format", "passed": true},
+							{"name": "Lint", "passed": true},
+						},
+					},
+				},
+			},
+		}
+
+		workspace := &domain.Workspace{Name: "test", Branch: "feat/x"}
+		summary := NewApprovalSummary(task, workspace)
+
+		require.NotNil(t, summary.Validation)
+		assert.Equal(t, "passed", summary.Validation.Status)
+		assert.Equal(t, 2, summary.Validation.PassCount)
+	})
+
+	t.Run("handles mixed step results with validation in middle", func(t *testing.T) {
+		// Scenario: step_results contains multiple step types, validation results mixed in
+		task := &domain.Task{
+			ID:          "task-mixed-steps",
+			WorkspaceID: "ws-test",
+			Status:      constants.TaskStatusAwaitingApproval,
+			CurrentStep: 5,
+			Steps: []domain.Step{
+				{Name: "implement", Status: "completed"},
+				{Name: "validate", Status: "completed"},
+				{Name: "git_commit", Status: "completed"},
+				{Name: "git_push", Status: "completed"},
+				{Name: "approval", Status: "pending"},
+			},
+			StepResults: []domain.StepResult{
+				{StepName: "implement", Status: "success"},
+				// First validation - failed
+				{
+					StepName: "validate",
+					Status:   "failed",
+					Metadata: map[string]any{
+						"validation_checks": []map[string]any{
+							{"name": "Test", "passed": false},
+						},
+					},
+				},
+				// Second validation - success
+				{
+					StepName: "validate",
+					Status:   "success",
+					Metadata: map[string]any{
+						"validation_checks": []map[string]any{
+							{"name": "Test", "passed": true},
+						},
+					},
+				},
+				{StepName: "git_commit", Status: "success"},
+				{StepName: "git_push", Status: "success"},
+			},
+		}
+
+		workspace := &domain.Workspace{Name: "test", Branch: "feat/x"}
+		summary := NewApprovalSummary(task, workspace)
+
+		require.NotNil(t, summary.Validation)
+		assert.Equal(t, "passed", summary.Validation.Status, "should find success among mixed results")
+	})
+
+	t.Run("fallback to step name when no metadata present", func(t *testing.T) {
+		task := &domain.Task{
+			ID:          "task-no-meta",
+			WorkspaceID: "ws-test",
+			Status:      constants.TaskStatusAwaitingApproval,
+			CurrentStep: 2,
+			Steps: []domain.Step{
+				{Name: "validate", Status: "completed"},
+				{Name: "approval", Status: "pending"},
+			},
+			StepResults: []domain.StepResult{
+				// First - no metadata, failed
+				{
+					StepName: "validate",
+					Status:   "failed",
+					// No Metadata
+				},
+				// Second - no metadata, success
+				{
+					StepName: "validate",
+					Status:   "success",
+					// No Metadata
+				},
+			},
+		}
+
+		workspace := &domain.Workspace{Name: "test", Branch: "feat/x"}
+		summary := NewApprovalSummary(task, workspace)
+
+		require.NotNil(t, summary.Validation)
+		// Should fall back to step name matching and use latest (second result - success)
+		assert.Equal(t, "passed", summary.Validation.Status)
+	})
+
+	t.Run("handles empty step results", func(t *testing.T) {
+		task := &domain.Task{
+			ID:          "task-empty-results",
+			WorkspaceID: "ws-test",
+			Status:      constants.TaskStatusPending,
+			CurrentStep: 0,
+			Steps: []domain.Step{
+				{Name: "validate", Status: "pending"},
+			},
+			StepResults: []domain.StepResult{}, // Empty
+		}
+
+		workspace := &domain.Workspace{Name: "test", Branch: "feat/x"}
+		summary := NewApprovalSummary(task, workspace)
+
+		assert.Nil(t, summary.Validation, "should have nil validation when no results")
+	})
+}
