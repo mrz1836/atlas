@@ -14,6 +14,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/domain"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
@@ -28,8 +30,9 @@ const (
 	filePerm = 0o600 // Secure file permissions
 )
 
-// validTaskIDRegex matches valid task IDs (task-YYYYMMDD-HHMMSS with optional ms suffix).
-var validTaskIDRegex = regexp.MustCompile(`^task-\d{8}-\d{6}(-\d{3})?$`)
+// validTaskIDRegex matches valid task IDs (task-{uuid}).
+// Format: task-[8 hex]-[4 hex]-[4 hex]-[4 hex]-[12 hex]
+var validTaskIDRegex = regexp.MustCompile(`^task-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
 // Store defines the interface for task persistence operations.
 type Store interface {
@@ -824,38 +827,9 @@ func atomicWrite(path string, data []byte) error {
 	return nil
 }
 
-// GenerateTaskID generates a task ID with format task-YYYYMMDD-HHMMSS.
-// IDs generated within the same second will be identical.
-// Use GenerateTaskIDUnique for scenarios requiring uniqueness checks.
+// GenerateTaskID generates a globally unique task ID using UUID v4.
+// Format: task-{uuid} (e.g., task-a1b2c3d4-e5f6-4789-g0h1-i2j3k4l5m6n7)
+// Collision probability is negligible (1 in 2^122).
 func GenerateTaskID() string {
-	now := time.Now().UTC()
-	return fmt.Sprintf("task-%s-%s",
-		now.Format("20060102"),
-		now.Format("150405"))
-}
-
-// GenerateTaskIDUnique generates a task ID, adding milliseconds if needed for uniqueness.
-// It checks against the provided map of existing IDs.
-//
-// IMPORTANT: This function provides best-effort uniqueness based on a snapshot of IDs.
-// It does NOT guarantee uniqueness in concurrent scenarios. The recommended pattern is:
-//
-//	id := GenerateTaskIDUnique(existingIDs)
-//	err := store.Create(ctx, workspaceName, task)
-//	if errors.Is(err, ErrTaskExists) {
-//	    // Regenerate and retry
-//	}
-//
-// The Create method handles the actual uniqueness guarantee via filesystem checks.
-func GenerateTaskIDUnique(existingIDs map[string]bool) string {
-	id := GenerateTaskID()
-	if !existingIDs[id] {
-		return id
-	}
-	// Add milliseconds for uniqueness
-	now := time.Now().UTC()
-	return fmt.Sprintf("task-%s-%s-%03d",
-		now.Format("20060102"),
-		now.Format("150405"),
-		now.Nanosecond()/1000000)
+	return "task-" + uuid.New().String()
 }
