@@ -16,6 +16,36 @@ import (
 	"github.com/mrz1836/atlas/internal/constants"
 )
 
+// Pre-compiled regexes for version parsing (compiled once at package init).
+//
+//nolint:gochecknoglobals // Package-level compiled regexes are a Go best practice for performance
+var (
+	goVersionRe      = regexp.MustCompile(`go(\d+\.\d+(?:\.\d+)?)`)
+	gitVersionRe     = regexp.MustCompile(`git version (\d+\.\d+(?:\.\d+)?)`)
+	ghVersionRe      = regexp.MustCompile(`gh version (\d+\.\d+(?:\.\d+)?)`)
+	uvVersionRe      = regexp.MustCompile(`uv (\d+\.\d+(?:\.\d+)?)`)
+	mageVersionRe    = regexp.MustCompile(`v?(\d+\.\d+(?:\.\d+)?)`)
+	genericVersionRe = regexp.MustCompile(`v?(\d+\.\d+(?:\.\d+)?)`)
+
+	// Claude version patterns (from most specific to most general)
+	claudeVersionPatterns = []*regexp.Regexp{
+		regexp.MustCompile(`(?i)claude[- ]?code[- ]?v?(\d+\.\d+(?:\.\d+)?)`),
+		regexp.MustCompile(`v?(\d+\.\d+\.\d+)`),
+	}
+
+	// Gemini version patterns (from most specific to most general)
+	geminiVersionPatterns = []*regexp.Regexp{
+		regexp.MustCompile(`(?i)gemini[- ]?(?:cli)?[- ]?v?(\d+\.\d+(?:\.\d+)?)`),
+		regexp.MustCompile(`v?(\d+\.\d+\.\d+)`),
+	}
+
+	// Codex version patterns (from most specific to most general)
+	codexVersionPatterns = []*regexp.Regexp{
+		regexp.MustCompile(`(?i)codex[- ]?(?:cli)?[- ]?v?(\d+\.\d+(?:\.\d+)?)`),
+		regexp.MustCompile(`v?(\d+\.\d+\.\d+)`),
+	}
+)
+
 // ToolStatus represents the installation status of an external tool.
 //
 //nolint:recvcheck // UnmarshalJSON requires pointer receiver per json.Unmarshaler interface
@@ -385,13 +415,12 @@ func (d *DefaultToolDetector) detectTool(ctx context.Context, cfg toolConfig) To
 	return tool
 }
 
-// Version parsing functions for each tool
+// Version parsing functions for each tool.
+// All functions use pre-compiled regexes defined at package level for performance.
 
 // parseGoVersion parses "go version go1.24.2 darwin/arm64" → "1.24.2"
 func parseGoVersion(output string) string {
-	re := regexp.MustCompile(`go(\d+\.\d+(?:\.\d+)?)`)
-	matches := re.FindStringSubmatch(output)
-	if len(matches) >= 2 {
+	if matches := goVersionRe.FindStringSubmatch(output); len(matches) >= 2 {
 		return matches[1]
 	}
 	return ""
@@ -399,9 +428,7 @@ func parseGoVersion(output string) string {
 
 // parseGitVersion parses "git version 2.39.0" → "2.39.0"
 func parseGitVersion(output string) string {
-	re := regexp.MustCompile(`git version (\d+\.\d+(?:\.\d+)?)`)
-	matches := re.FindStringSubmatch(output)
-	if len(matches) >= 2 {
+	if matches := gitVersionRe.FindStringSubmatch(output); len(matches) >= 2 {
 		return matches[1]
 	}
 	return ""
@@ -409,9 +436,7 @@ func parseGitVersion(output string) string {
 
 // parseGHVersion parses "gh version 2.62.0 (2024-11-06)" → "2.62.0"
 func parseGHVersion(output string) string {
-	re := regexp.MustCompile(`gh version (\d+\.\d+(?:\.\d+)?)`)
-	matches := re.FindStringSubmatch(output)
-	if len(matches) >= 2 {
+	if matches := ghVersionRe.FindStringSubmatch(output); len(matches) >= 2 {
 		return matches[1]
 	}
 	return ""
@@ -419,9 +444,7 @@ func parseGHVersion(output string) string {
 
 // parseUVVersion parses "uv 0.5.14 (bb7af57b8 2025-01-03)" → "0.5.14"
 func parseUVVersion(output string) string {
-	re := regexp.MustCompile(`uv (\d+\.\d+(?:\.\d+)?)`)
-	matches := re.FindStringSubmatch(output)
-	if len(matches) >= 2 {
+	if matches := uvVersionRe.FindStringSubmatch(output); len(matches) >= 2 {
 		return matches[1]
 	}
 	return ""
@@ -430,15 +453,8 @@ func parseUVVersion(output string) string {
 // parseClaudeVersion parses various Claude version formats.
 // Examples: "Claude Code 2.0.76", "claude-code 2.0.76", "2.0.76"
 func parseClaudeVersion(output string) string {
-	// Try patterns from most specific to most general
-	patterns := []string{
-		`(?i)claude[- ]?code[- ]?v?(\d+\.\d+(?:\.\d+)?)`,
-		`v?(\d+\.\d+\.\d+)`,
-	}
-	for _, pattern := range patterns {
-		re := regexp.MustCompile(pattern)
-		matches := re.FindStringSubmatch(output)
-		if len(matches) >= 2 {
+	for _, re := range claudeVersionPatterns {
+		if matches := re.FindStringSubmatch(output); len(matches) >= 2 {
 			return matches[1]
 		}
 	}
@@ -447,9 +463,7 @@ func parseClaudeVersion(output string) string {
 
 // parseMageXVersion parses mage-x version output.
 func parseMageXVersion(output string) string {
-	re := regexp.MustCompile(`v?(\d+\.\d+(?:\.\d+)?)`)
-	matches := re.FindStringSubmatch(output)
-	if len(matches) >= 2 {
+	if matches := mageVersionRe.FindStringSubmatch(output); len(matches) >= 2 {
 		return matches[1]
 	}
 	return ""
@@ -458,15 +472,8 @@ func parseMageXVersion(output string) string {
 // parseGeminiVersion parses various Gemini CLI version formats.
 // Examples: "gemini 0.22.5", "gemini-cli 0.22.5", "0.22.5"
 func parseGeminiVersion(output string) string {
-	// Try patterns from most specific to most general
-	patterns := []string{
-		`(?i)gemini[- ]?(?:cli)?[- ]?v?(\d+\.\d+(?:\.\d+)?)`,
-		`v?(\d+\.\d+\.\d+)`,
-	}
-	for _, pattern := range patterns {
-		re := regexp.MustCompile(pattern)
-		matches := re.FindStringSubmatch(output)
-		if len(matches) >= 2 {
+	for _, re := range geminiVersionPatterns {
+		if matches := re.FindStringSubmatch(output); len(matches) >= 2 {
 			return matches[1]
 		}
 	}
@@ -476,15 +483,8 @@ func parseGeminiVersion(output string) string {
 // parseCodexVersion parses various Codex CLI version formats.
 // Examples: "codex 0.77.0", "Codex CLI v0.77.0", "0.77.0"
 func parseCodexVersion(output string) string {
-	// Try patterns from most specific to most general
-	patterns := []string{
-		`(?i)codex[- ]?(?:cli)?[- ]?v?(\d+\.\d+(?:\.\d+)?)`,
-		`v?(\d+\.\d+\.\d+)`,
-	}
-	for _, pattern := range patterns {
-		re := regexp.MustCompile(pattern)
-		matches := re.FindStringSubmatch(output)
-		if len(matches) >= 2 {
+	for _, re := range codexVersionPatterns {
+		if matches := re.FindStringSubmatch(output); len(matches) >= 2 {
 			return matches[1]
 		}
 	}
@@ -493,9 +493,7 @@ func parseCodexVersion(output string) string {
 
 // parseGenericVersion extracts a version number from generic output.
 func parseGenericVersion(output string) string {
-	re := regexp.MustCompile(`v?(\d+\.\d+(?:\.\d+)?)`)
-	matches := re.FindStringSubmatch(output)
-	if len(matches) >= 2 {
+	if matches := genericVersionRe.FindStringSubmatch(output); len(matches) >= 2 {
 		return matches[1]
 	}
 	return ""
