@@ -111,7 +111,7 @@ Examples:
   atlas workspace logs auth           # View most recent task logs
   atlas workspace logs auth -f        # Follow logs in real-time
   atlas workspace logs auth --step validate  # Filter by step
-  atlas workspace logs auth --task task-20251227-100000  # Specific task
+  atlas workspace logs auth --task task-550e8400-e29b-41d4-a716-446655440000  # Specific task
   atlas workspace logs auth --tail 50  # Last 50 lines only`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
