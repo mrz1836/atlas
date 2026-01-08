@@ -52,7 +52,7 @@ func (e *VariableExpander) Expand(t *domain.Template, values map[string]string) 
 	maps.Copy(merged, values)
 
 	// Clone template before modifying
-	result := cloneTemplate(t)
+	result := t.Clone()
 
 	// Expand in description
 	result.Description = expandString(result.Description, merged)
@@ -94,63 +94,5 @@ func expandConfig(cfg map[string]any, values map[string]string) map[string]any {
 			result[k] = v
 		}
 	}
-	return result
-}
-
-// cloneTemplate creates a deep copy of a template.
-func cloneTemplate(t *domain.Template) *domain.Template {
-	result := &domain.Template{
-		Name:         t.Name,
-		Description:  t.Description,
-		BranchPrefix: t.BranchPrefix,
-		DefaultAgent: t.DefaultAgent,
-		DefaultModel: t.DefaultModel,
-		Verify:       t.Verify,
-		VerifyModel:  t.VerifyModel,
-	}
-
-	// Clone validation commands
-	if len(t.ValidationCommands) > 0 {
-		result.ValidationCommands = make([]string, len(t.ValidationCommands))
-		copy(result.ValidationCommands, t.ValidationCommands)
-	}
-
-	// Clone steps
-	if len(t.Steps) > 0 {
-		result.Steps = make([]domain.StepDefinition, len(t.Steps))
-		for i, s := range t.Steps {
-			result.Steps[i] = domain.StepDefinition{
-				Name:        s.Name,
-				Type:        s.Type,
-				Description: s.Description,
-				Required:    s.Required,
-				Timeout:     s.Timeout,
-				RetryCount:  s.RetryCount,
-			}
-			if s.Config != nil {
-				result.Steps[i].Config = cloneConfig(s.Config)
-			}
-		}
-	}
-
-	// Clone variables
-	if t.Variables != nil {
-		result.Variables = make(map[string]domain.TemplateVariable)
-		maps.Copy(result.Variables, t.Variables)
-	}
-
-	return result
-}
-
-// cloneConfig creates a shallow copy of a config map.
-// Nested maps and slices are shared references, not deep cloned.
-// This is acceptable because expandConfig creates new maps during expansion,
-// and templates should be treated as immutable after registration.
-func cloneConfig(cfg map[string]any) map[string]any {
-	if cfg == nil {
-		return nil
-	}
-	result := make(map[string]any)
-	maps.Copy(result, cfg)
 	return result
 }

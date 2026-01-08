@@ -133,3 +133,47 @@ type TemplateVariable struct {
 	// Required indicates whether this variable must be provided.
 	Required bool `json:"required"`
 }
+
+// Clone creates a deep copy of the template.
+// Value types are copied via struct assignment, while slices and maps
+// are explicitly deep copied to prevent shared references.
+func (t *Template) Clone() *Template {
+	// Shallow copy handles all value types (strings, bool, Agent)
+	clone := *t
+
+	// Deep copy ValidationCommands slice
+	if t.ValidationCommands != nil {
+		clone.ValidationCommands = make([]string, len(t.ValidationCommands))
+		copy(clone.ValidationCommands, t.ValidationCommands)
+	}
+
+	// Deep copy Steps slice with nested Config maps
+	if t.Steps != nil {
+		clone.Steps = make([]StepDefinition, len(t.Steps))
+		for i, s := range t.Steps {
+			clone.Steps[i] = s.Clone()
+		}
+	}
+
+	// Deep copy Variables map
+	if t.Variables != nil {
+		clone.Variables = make(map[string]TemplateVariable, len(t.Variables))
+		for k, v := range t.Variables {
+			clone.Variables[k] = v
+		}
+	}
+
+	return &clone
+}
+
+// Clone creates a deep copy of the step definition.
+func (s StepDefinition) Clone() StepDefinition {
+	clone := s
+	if s.Config != nil {
+		clone.Config = make(map[string]any, len(s.Config))
+		for k, v := range s.Config {
+			clone.Config[k] = v
+		}
+	}
+	return clone
+}
