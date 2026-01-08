@@ -334,6 +334,6 @@ func TestGetLogger(t *testing.T) {
 	require.NoError(t, err)
 
 	// GetLogger should return a valid logger after execution
-	logger := GetLogger()
+	logger := Logger()
 	assert.NotNil(t, logger)
 }

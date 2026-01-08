@@ -70,7 +70,7 @@ func runWorkspaceDestroy(ctx context.Context, cmd *cobra.Command, w io.Writer, n
 
 // runWorkspaceDestroyWithOutput executes the workspace destroy command with explicit output format.
 func runWorkspaceDestroyWithOutput(ctx context.Context, w io.Writer, name string, force bool, storeBaseDir, output string) error {
-	logger := GetLogger()
+	logger := Logger()
 
 	// Respect NO_COLOR environment variable (UX-7)
 	tui.CheckNoColor()
@@ -96,7 +96,7 @@ func runWorkspaceDestroyWithOutput(ctx context.Context, w io.Writer, name string
 // checkWorkspaceExists creates the store and checks if the workspace exists.
 // Returns (store, exists, error). For JSON output errors, returns ErrJSONErrorOutput.
 func checkWorkspaceExists(ctx context.Context, name, storeBaseDir, output string, w io.Writer) (*workspace.FileStore, bool, error) {
-	logger := GetLogger()
+	logger := Logger()
 
 	store, err := workspace.NewFileStore(storeBaseDir)
 	if err != nil {

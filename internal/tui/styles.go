@@ -551,9 +551,9 @@ const DefaultTerminalWidth = 80
 
 // IsNarrowTerminal returns true if terminal width is below the narrow threshold.
 // Use this to adapt output format for narrow terminals.
-// Uses GetTerminalWidth() from header.go for actual terminal detection.
+// Uses TerminalWidth() from header.go for actual terminal detection.
 func IsNarrowTerminal() bool {
-	width := GetTerminalWidth()
+	width := TerminalWidth()
 	if width == 0 {
 		// Width 0 means detection failed - treat as narrow for safety
 		return true

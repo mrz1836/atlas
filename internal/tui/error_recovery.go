@@ -258,9 +258,9 @@ func CITimeoutOptions() []ErrorRecoveryOption {
 	}
 }
 
-// GetOptionsForStatus returns the appropriate recovery options for a given task status.
+// OptionsForStatus returns the appropriate recovery options for a given task status.
 // Returns nil if the status is not an error state.
-func GetOptionsForStatus(status constants.TaskStatus) []ErrorRecoveryOption {
+func OptionsForStatus(status constants.TaskStatus) []ErrorRecoveryOption {
 	//nolint:exhaustive // Only error states have recovery options
 	switch status {
 	case constants.TaskStatusValidationFailed:
@@ -276,8 +276,8 @@ func GetOptionsForStatus(status constants.TaskStatus) []ErrorRecoveryOption {
 	}
 }
 
-// GetMenuTitleForStatus returns the appropriate menu title for a given error status.
-func GetMenuTitleForStatus(status constants.TaskStatus) string {
+// MenuTitleForStatus returns the appropriate menu title for a given error status.
+func MenuTitleForStatus(status constants.TaskStatus) string {
 	//nolint:exhaustive // Only error states have specific titles
 	switch status {
 	case constants.TaskStatusValidationFailed:
@@ -297,7 +297,7 @@ func GetMenuTitleForStatus(status constants.TaskStatus) string {
 // Uses the established menu system from menus.go with ATLAS styling.
 // Returns ErrMenuCanceled if user presses q or Esc.
 func SelectErrorRecovery(status constants.TaskStatus) (RecoveryAction, error) {
-	options := GetOptionsForStatus(status)
+	options := OptionsForStatus(status)
 	if len(options) == 0 {
 		return "", ErrMenuCanceled
 	}
@@ -308,7 +308,7 @@ func SelectErrorRecovery(status constants.TaskStatus) (RecoveryAction, error) {
 		baseOptions[i] = opt.Option
 	}
 
-	title := GetMenuTitleForStatus(status)
+	title := MenuTitleForStatus(status)
 	selected, err := Select(title, baseOptions)
 	if err != nil {
 		return "", err

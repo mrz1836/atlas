@@ -25,7 +25,7 @@ type BuildInfo struct {
 }
 
 // globalLogger stores the initialized logger for use by subcommands.
-// This is set during PersistentPreRunE and should be accessed via GetLogger.
+// This is set during PersistentPreRunE and should be accessed via Logger.
 // This is a necessary global for CLI logger access across command handlers.
 // Access is protected by globalLoggerMu for thread safety.
 var (
@@ -40,7 +40,7 @@ var (
 	}
 )
 
-// GetLogger returns the initialized logger for use by subcommands.
+// Logger returns the initialized logger for use by subcommands.
 //
 // IMPORTANT: This function MUST only be called after the root command's
 // PersistentPreRunE has executed. Calling it before initialization will
@@ -51,22 +51,22 @@ var (
 // Typical usage is within a subcommand's Run/RunE function:
 //
 //	RunE: func(cmd *cobra.Command, args []string) error {
-//	    logger := cli.GetLogger()
+//	    logger := cli.Logger()
 //	    logger.Info().Msg("executing command")
 //	    ...
 //	}
-func GetLogger() zerolog.Logger {
+func Logger() zerolog.Logger {
 	globalLoggerMu.RLock()
 	defer globalLoggerMu.RUnlock()
 	return globalLogger
 }
 
-// GetLoggerWithTaskStore returns a logger configured to persist task-specific logs.
+// LoggerWithTaskStore returns a logger configured to persist task-specific logs.
 // Log entries containing workspace_name and task_id fields will be written to
 // the task's log file in addition to the console and global log.
 //
 // This function is safe for concurrent use.
-func GetLoggerWithTaskStore(store TaskLogAppender) zerolog.Logger {
+func LoggerWithTaskStore(store TaskLogAppender) zerolog.Logger {
 	// Read the global flags with lock protection
 	globalLoggerMu.RLock()
 	verbose := globalLogFlags.verbose

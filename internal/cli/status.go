@@ -103,7 +103,7 @@ func runStatus(ctx context.Context, cmd *cobra.Command, w io.Writer, watchMode b
 	// Respect NO_COLOR
 	tui.CheckNoColor()
 
-	logger := GetLogger()
+	logger := Logger()
 
 	// Create production dependencies
 	wsStore, err := workspace.NewFileStore("")

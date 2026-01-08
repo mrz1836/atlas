@@ -170,7 +170,7 @@ func runApprove(ctx context.Context, cmd *cobra.Command, w io.Writer, opts appro
 	default:
 	}
 
-	logger := GetLogger()
+	logger := Logger()
 	outputFormat := cmd.Flag("output").Value.String()
 
 	// Respect NO_COLOR environment variable
@@ -1083,7 +1083,7 @@ func closeWorkspace(ctx context.Context, workspaceName string) (warning string, 
 	// Create worktree runner (may be nil if no repo path)
 	var wtRunner workspace.WorktreeRunner
 	if repoPath != "" {
-		wtRunner, err = workspace.NewGitWorktreeRunner(ctx, repoPath, GetLogger())
+		wtRunner, err = workspace.NewGitWorktreeRunner(ctx, repoPath, Logger())
 		if err != nil {
 			// Continue without worktree runner - close should still update state
 			wtRunner = nil
@@ -1099,7 +1099,7 @@ func closeWorkspace(ctx context.Context, workspaceName string) (warning string, 
 	}
 
 	// Create manager and close
-	mgr := workspace.NewManager(wsStore, wtRunner, GetLogger())
+	mgr := workspace.NewManager(wsStore, wtRunner, Logger())
 	result, closeErr := mgr.Close(ctx, ws.Name, taskLister)
 	if closeErr != nil {
 		return "", fmt.Errorf("failed to close workspace: %w", closeErr)

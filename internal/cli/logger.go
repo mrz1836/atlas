@@ -314,9 +314,9 @@ func getAtlasHome() (string, error) {
 	return filepath.Join(home, constants.AtlasHome), nil
 }
 
-// GetLogFilePath returns the path to the global CLI log file.
+// LogFilePath returns the path to the global CLI log file.
 // This is useful for displaying the log location to users.
-func GetLogFilePath() (string, error) {
+func LogFilePath() (string, error) {
 	atlasHome, err := getAtlasHome()
 	if err != nil {
 		return "", err

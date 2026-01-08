@@ -47,7 +47,7 @@ func runLint(ctx context.Context, cmd *cobra.Command, w io.Writer) error {
 	default:
 	}
 
-	logger := GetLogger()
+	logger := Logger()
 	outputFormat := cmd.Flag("output").Value.String()
 	verbose := cmd.Flag("verbose").Value.String() == "true"
 	tui.CheckNoColor()

@@ -75,7 +75,7 @@ func runResume(ctx context.Context, cmd *cobra.Command, w io.Writer, workspaceNa
 	default:
 	}
 
-	logger := GetLogger()
+	logger := Logger()
 	outputFormat := cmd.Flag("output").Value.String()
 
 	// Respect NO_COLOR environment variable

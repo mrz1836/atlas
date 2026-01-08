@@ -23,6 +23,15 @@ import (
 	"github.com/mrz1836/atlas/internal/git"
 )
 
+// Verification step configuration constants.
+const (
+	// DefaultVerifyMaxTurns is the maximum number of AI conversation turns for verification.
+	DefaultVerifyMaxTurns = 3
+
+	// DefaultVerifyTimeout is the timeout for verification AI requests.
+	DefaultVerifyTimeout = 3 * time.Minute
+)
+
 // VerifyExecutor handles AI verification steps.
 // It uses a secondary AI model to review implementation changes and detect potential issues.
 type VerifyExecutor struct {
@@ -402,8 +411,8 @@ If no issues, respond with: []
 
 	req := &domain.AIRequest{
 		Prompt:     prompt,
-		MaxTurns:   3,
-		Timeout:    3 * time.Minute,
+		MaxTurns:   DefaultVerifyMaxTurns,
+		Timeout:    DefaultVerifyTimeout,
 		WorkingDir: e.workingDir,
 	}
 
@@ -489,7 +498,7 @@ func (e *VerifyExecutor) CheckGarbageFiles(_ context.Context, stagedFiles []stri
 // CheckSecurityIssues scans for common security vulnerabilities.
 // Uses pattern matching for common issues like hardcoded secrets.
 func (e *VerifyExecutor) CheckSecurityIssues(_ context.Context, changedFiles []ChangedFile) ([]VerificationIssue, error) {
-	var issues []VerificationIssue
+	issues := make([]VerificationIssue, 0, len(changedFiles))
 
 	for _, f := range changedFiles {
 		fileIssues := e.scanForSecurityPatterns(f)
@@ -509,36 +518,37 @@ type ChangedFile struct {
 // securityPattern defines a pattern to detect security issues.
 type securityPattern struct {
 	Name        string
-	Pattern     string
+	Regex       *regexp.Regexp
 	Description string
 	Severity    string
 }
 
 // Common security patterns to detect.
+// Patterns are pre-compiled at package initialization for performance.
 //
 //nolint:gochecknoglobals // Constant-like data structure, initialized once
 var securityPatterns = []securityPattern{
 	{
 		Name:        "hardcoded_password",
-		Pattern:     `(?i)(password|passwd|pwd)\s*[:=]+\s*["'][^"']+["']`,
+		Regex:       regexp.MustCompile(`(?i)(password|passwd|pwd)\s*[:=]+\s*["'][^"']+["']`),
 		Description: "Hardcoded password detected",
 		Severity:    "error",
 	},
 	{
 		Name:        "hardcoded_secret",
-		Pattern:     `(?i)(secret|api[_-]?key|auth[_-]?token)\s*[:=]+\s*["'][^"']+["']`,
+		Regex:       regexp.MustCompile(`(?i)(secret|api[_-]?key|auth[_-]?token)\s*[:=]+\s*["'][^"']+["']`),
 		Description: "Hardcoded secret or API key detected",
 		Severity:    "error",
 	},
 	{
 		Name:        "sql_concatenation",
-		Pattern:     `(?i)(exec|query).*\+.*\$|fmt\.Sprintf.*SELECT|fmt\.Sprintf.*INSERT|fmt\.Sprintf.*UPDATE|fmt\.Sprintf.*DELETE`,
+		Regex:       regexp.MustCompile(`(?i)(exec|query).*\+.*\$|fmt\.Sprintf.*SELECT|fmt\.Sprintf.*INSERT|fmt\.Sprintf.*UPDATE|fmt\.Sprintf.*DELETE`),
 		Description: "Potential SQL injection - string concatenation in query",
 		Severity:    "warning",
 	},
 	{
 		Name:        "exec_with_var",
-		Pattern:     `exec\.Command\([^"]+\)|exec\.CommandContext\([^,]+,[^"]+\)`,
+		Regex:       regexp.MustCompile(`exec\.Command\([^"]+\)|exec\.CommandContext\([^,]+,[^"]+\)`),
 		Description: "Potential command injection - variable in exec",
 		Severity:    "warning",
 	},
@@ -554,7 +564,7 @@ func (e *VerifyExecutor) scanForSecurityPatterns(file ChangedFile) []Verificatio
 	}
 
 	for _, pattern := range securityPatterns {
-		matches := findPatternMatches(file.Content, pattern.Pattern)
+		matches := findPatternMatches(file.Content, pattern.Regex)
 		for _, match := range matches {
 			issues = append(issues, VerificationIssue{
 				Severity:   pattern.Severity,
@@ -576,14 +586,9 @@ type patternMatch struct {
 	Content string
 }
 
-// findPatternMatches finds all matches of a pattern in content with line numbers.
-func findPatternMatches(content, pattern string) []patternMatch {
+// findPatternMatches finds all matches of a pre-compiled regex in content with line numbers.
+func findPatternMatches(content string, re *regexp.Regexp) []patternMatch {
 	var matches []patternMatch
-
-	re, err := compilePattern(pattern)
-	if err != nil {
-		return matches
-	}
 
 	lines := splitLines(content)
 	for i, line := range lines {
@@ -596,11 +601,6 @@ func findPatternMatches(content, pattern string) []patternMatch {
 	}
 
 	return matches
-}
-
-// compilePattern compiles a regex pattern with caching.
-func compilePattern(pattern string) (*regexp.Regexp, error) {
-	return regexp.Compile(pattern)
 }
 
 // splitLines splits content into lines.

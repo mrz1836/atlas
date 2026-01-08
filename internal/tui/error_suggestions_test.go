@@ -9,29 +9,29 @@ import (
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 )
 
-func TestGetSuggestionForError(t *testing.T) {
+func TestSuggestionForError(t *testing.T) {
 	t.Run("workspace not found has suggestion", func(t *testing.T) {
-		suggestion := GetSuggestionForError(atlaserrors.ErrWorkspaceNotFound)
+		suggestion := SuggestionForError(atlaserrors.ErrWorkspaceNotFound)
 		assert.Contains(t, suggestion, "atlas workspace list")
 	})
 
 	t.Run("config not found has suggestion", func(t *testing.T) {
-		suggestion := GetSuggestionForError(atlaserrors.ErrConfigNotFound)
+		suggestion := SuggestionForError(atlaserrors.ErrConfigNotFound)
 		assert.Contains(t, suggestion, "atlas init")
 	})
 
 	t.Run("not git repo has suggestion", func(t *testing.T) {
-		suggestion := GetSuggestionForError(atlaserrors.ErrNotGitRepo)
+		suggestion := SuggestionForError(atlaserrors.ErrNotGitRepo)
 		assert.Contains(t, suggestion, "git init")
 	})
 
 	t.Run("nil error returns empty string", func(t *testing.T) {
-		suggestion := GetSuggestionForError(nil)
+		suggestion := SuggestionForError(nil)
 		assert.Empty(t, suggestion)
 	})
 
 	t.Run("unmapped error returns empty string", func(t *testing.T) {
-		suggestion := GetSuggestionForError(atlaserrors.ErrUnknownTool)
+		suggestion := SuggestionForError(atlaserrors.ErrUnknownTool)
 		// ErrUnknownTool has no specific suggestion mapped
 		assert.Empty(t, suggestion)
 	})
@@ -39,27 +39,27 @@ func TestGetSuggestionForError(t *testing.T) {
 	t.Run("wrapped error returns suggestion", func(t *testing.T) {
 		// errors.Is works with properly wrapped errors (using %w)
 		// so we test with the sentinel error directly
-		suggestion := GetSuggestionForError(atlaserrors.ErrWorkspaceNotFound)
+		suggestion := SuggestionForError(atlaserrors.ErrWorkspaceNotFound)
 		assert.NotEmpty(t, suggestion)
 	})
 
 	t.Run("validation failed has suggestion", func(t *testing.T) {
-		suggestion := GetSuggestionForError(atlaserrors.ErrValidationFailed)
+		suggestion := SuggestionForError(atlaserrors.ErrValidationFailed)
 		assert.Contains(t, suggestion, "atlas recover")
 	})
 
 	t.Run("template required has suggestion", func(t *testing.T) {
-		suggestion := GetSuggestionForError(atlaserrors.ErrTemplateRequired)
+		suggestion := SuggestionForError(atlaserrors.ErrTemplateRequired)
 		assert.Contains(t, suggestion, "--template")
 	})
 
 	t.Run("gh auth failed has suggestion", func(t *testing.T) {
-		suggestion := GetSuggestionForError(atlaserrors.ErrGHAuthFailed)
+		suggestion := SuggestionForError(atlaserrors.ErrGHAuthFailed)
 		assert.Contains(t, suggestion, "gh auth login")
 	})
 
 	t.Run("invalid model has suggestion", func(t *testing.T) {
-		suggestion := GetSuggestionForError(atlaserrors.ErrInvalidModel)
+		suggestion := SuggestionForError(atlaserrors.ErrInvalidModel)
 		assert.Contains(t, suggestion, "sonnet")
 		assert.Contains(t, suggestion, "opus")
 		assert.Contains(t, suggestion, "haiku")
@@ -153,7 +153,7 @@ func TestCommonErrors_HaveSuggestions(t *testing.T) {
 
 	for _, err := range commonErrors {
 		t.Run(err.Error(), func(t *testing.T) {
-			suggestion := GetSuggestionForError(err)
+			suggestion := SuggestionForError(err)
 			assert.NotEmpty(t, suggestion, "common error should have suggestion")
 		})
 	}

@@ -115,7 +115,7 @@ func TestCITimeoutOptions(t *testing.T) {
 	assert.Equal(t, tui.RecoveryActionAbandon, options[3].Action)
 }
 
-func TestGetOptionsForStatus(t *testing.T) {
+func TestOptionsForStatus(t *testing.T) {
 	tests := []struct {
 		status        constants.TaskStatus
 		expectedCount int
@@ -132,7 +132,7 @@ func TestGetOptionsForStatus(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.description, func(t *testing.T) {
-			options := tui.GetOptionsForStatus(tc.status)
+			options := tui.OptionsForStatus(tc.status)
 			if tc.expectedCount == 0 {
 				assert.Nil(t, options)
 			} else {
@@ -142,7 +142,7 @@ func TestGetOptionsForStatus(t *testing.T) {
 	}
 }
 
-func TestGetMenuTitleForStatus(t *testing.T) {
+func TestMenuTitleForStatus(t *testing.T) {
 	tests := []struct {
 		status   constants.TaskStatus
 		contains string
@@ -156,7 +156,7 @@ func TestGetMenuTitleForStatus(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(string(tc.status), func(t *testing.T) {
-			title := tui.GetMenuTitleForStatus(tc.status)
+			title := tui.MenuTitleForStatus(tc.status)
 			assert.Contains(t, title, tc.contains)
 			assert.Contains(t, title, "What would you like to do?")
 		})
@@ -240,7 +240,7 @@ func TestAllOptionsHaveEscapeRoute(t *testing.T) {
 
 	for _, status := range statuses {
 		t.Run(string(status), func(t *testing.T) {
-			options := tui.GetOptionsForStatus(status)
+			options := tui.OptionsForStatus(status)
 			require.NotNil(t, options)
 
 			// Check that "Abandon task" option exists
@@ -267,7 +267,7 @@ func TestAllOptionsHaveConsistentFormat(t *testing.T) {
 
 	for _, status := range statuses {
 		t.Run(string(status), func(t *testing.T) {
-			options := tui.GetOptionsForStatus(status)
+			options := tui.OptionsForStatus(status)
 			require.NotNil(t, options)
 
 			for _, opt := range options {
@@ -288,7 +288,7 @@ func TestAllOptionsHaveConsistentFormat(t *testing.T) {
 // TestSelectErrorRecovery_NonErrorStatus verifies that SelectErrorRecovery
 // returns ErrMenuCanceled when called with a non-error status (H1 fix).
 func TestSelectErrorRecovery_NonErrorStatus(t *testing.T) {
-	// Non-error statuses should return ErrMenuCanceled because GetOptionsForStatus returns nil
+	// Non-error statuses should return ErrMenuCanceled because OptionsForStatus returns nil
 	nonErrorStatuses := []constants.TaskStatus{
 		constants.TaskStatusPending,
 		constants.TaskStatusRunning,

@@ -36,7 +36,7 @@ type PipelineResult struct {
 
 // AllResults returns a flat list of all results from all steps.
 func (p *PipelineResult) AllResults() []Result {
-	var all []Result
+	all := make([]Result, 0, len(p.FormatResults)+len(p.LintResults)+len(p.TestResults)+len(p.PreCommitResults))
 	all = append(all, p.FormatResults...)
 	all = append(all, p.LintResults...)
 	all = append(all, p.TestResults...)

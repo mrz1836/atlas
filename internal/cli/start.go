@@ -153,7 +153,7 @@ func runStart(ctx context.Context, cmd *cobra.Command, w io.Writer, description 
 	defer sigHandler.Stop()
 	ctx = sigHandler.Context()
 
-	logger := GetLogger()
+	logger := Logger()
 	outputFormat := cmd.Flag("output").Value.String()
 
 	// Respect NO_COLOR environment variable
@@ -479,7 +479,7 @@ func safeTaskID(t *domain.Task) string {
 // If a workspace with the given name already exists and is active/paused, it will be reused.
 // If a closed workspace with the same name exists, it will be automatically cleaned up and a new workspace created.
 func createWorkspace(ctx context.Context, sc *startContext, wsName, repoPath, branchPrefix, baseBranch string, useLocal, _ bool) (*domain.Workspace, error) {
-	logger := GetLogger()
+	logger := Logger()
 
 	// Create workspace store
 	wsStore, err := workspace.NewFileStore("")
@@ -692,7 +692,7 @@ func createEngine(ctx context.Context, taskStore *task.FileStore, execRegistry *
 	engineCfg := task.DefaultEngineConfig()
 	engineCfg.ProgressCallback = createProgressCallback(ctx, out, wsName)
 
-	taskLogger := GetLoggerWithTaskStore(taskStore)
+	taskLogger := LoggerWithTaskStore(taskStore)
 	opts := []task.EngineOption{
 		task.WithNotifier(stateNotifier),
 	}
@@ -1057,7 +1057,7 @@ type taskInfo struct {
 // cleanupWorkspace removes a workspace after a failed task start.
 // This calls Destroy() (complete removal), not Close() (archive).
 func cleanupWorkspace(ctx context.Context, wsName, repoPath string) error {
-	logger := GetLogger()
+	logger := Logger()
 	logger.Debug().
 		Str("workspace_name", wsName).
 		Str("repo_path", repoPath).

@@ -275,8 +275,10 @@ func (r *Runner) reportProgress(step, status string) {
 	case "starting":
 		r.stepTimes.Store(step, time.Now())
 	case "completed", "failed":
-		if startTime, ok := r.stepTimes.Load(step); ok {
-			info.DurationMs = time.Since(startTime.(time.Time)).Milliseconds()
+		if startTimeVal, ok := r.stepTimes.Load(step); ok {
+			if startTime, ok := startTimeVal.(time.Time); ok {
+				info.DurationMs = time.Since(startTime).Milliseconds()
+			}
 			r.stepTimes.Delete(step)
 		}
 	}

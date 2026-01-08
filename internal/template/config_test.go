@@ -198,7 +198,7 @@ func TestApplyOverrides_OriginalUnmodified(t *testing.T) {
 	assert.Nil(t, original.Steps[0].Config)
 }
 
-func TestGetTemplateWithConfig_Success(t *testing.T) {
+func TestWithConfig_Success(t *testing.T) {
 	r := NewDefaultRegistry()
 	cfg := &config.Config{
 		AI: config.AIConfig{
@@ -206,24 +206,24 @@ func TestGetTemplateWithConfig_Success(t *testing.T) {
 		},
 	}
 
-	tmpl, err := GetTemplateWithConfig(r, "bugfix", cfg)
+	tmpl, err := WithConfig(r, "bugfix", cfg)
 	require.NoError(t, err)
 	assert.Equal(t, "bugfix", tmpl.Name)
 	assert.Equal(t, "haiku", tmpl.DefaultModel)
 }
 
-func TestGetTemplateWithConfig_NotFound(t *testing.T) {
+func TestWithConfig_NotFound(t *testing.T) {
 	r := NewDefaultRegistry()
 	cfg := &config.Config{}
 
-	_, err := GetTemplateWithConfig(r, "nonexistent", cfg)
+	_, err := WithConfig(r, "nonexistent", cfg)
 	require.Error(t, err)
 }
 
-func TestGetTemplateWithConfig_NilConfig(t *testing.T) {
+func TestWithConfig_NilConfig(t *testing.T) {
 	r := NewDefaultRegistry()
 
-	tmpl, err := GetTemplateWithConfig(r, "bugfix", nil)
+	tmpl, err := WithConfig(r, "bugfix", nil)
 	require.NoError(t, err)
 	assert.Equal(t, "bugfix", tmpl.Name)
 	assert.Equal(t, "sonnet", tmpl.DefaultModel) // Original default

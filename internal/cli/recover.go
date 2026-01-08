@@ -115,7 +115,7 @@ func runRecover(ctx context.Context, cmd *cobra.Command, w io.Writer, opts *reco
 	default:
 	}
 
-	logger := GetLogger()
+	logger := Logger()
 	outputFormat := cmd.Flag("output").Value.String()
 
 	// Respect NO_COLOR environment variable
@@ -490,7 +490,7 @@ func tryGHFailedRecovery(t *domain.Task) (tui.RecoveryAction, bool) {
 		baseOptions[i] = opt.Option
 	}
 
-	title := tui.GetMenuTitleForStatus(t.Status)
+	title := tui.MenuTitleForStatus(t.Status)
 	selected, err := tui.Select(title, baseOptions)
 	if err != nil {
 		return "", false

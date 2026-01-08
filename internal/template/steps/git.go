@@ -634,7 +634,10 @@ func (e *GitExecutor) executeAddReview(ctx context.Context, step *domain.StepDef
 		}
 	}
 
-	body, _ := step.Config["body"].(string)
+	body, ok := step.Config["body"].(string)
+	if !ok && step.Config["body"] != nil {
+		log.Warn().Msg("review body config is not a string, ignoring")
+	}
 
 	log.Debug().
 		Int("pr_number", prNumber).
@@ -952,7 +955,11 @@ func looksLikeCommitMessage(s string) bool {
 
 // extractFilesChanged extracts files changed from previous step results.
 func extractFilesChanged(results []domain.StepResult) []string {
-	var files []string
+	totalFiles := 0
+	for _, r := range results {
+		totalFiles += len(r.FilesChanged)
+	}
+	files := make([]string, 0, totalFiles)
 	for _, r := range results {
 		files = append(files, r.FilesChanged...)
 	}

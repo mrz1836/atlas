@@ -528,18 +528,18 @@ func extractFromTarGz(archivePath string) (string, error) { //nolint:gocognit //
 
 	for {
 		header, err := tr.Next()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
-			return "", err
+			return "", fmt.Errorf("read tar header: %w", err)
 		}
 
 		// Look for the atlas binary
 		if header.Typeflag == tar.TypeReg && filepath.Base(header.Name) == binaryName {
 			tmpFile, err := os.CreateTemp("", "atlas-binary-*")
 			if err != nil {
-				return "", err
+				return "", fmt.Errorf("create temp file: %w", err)
 			}
 
 			// Use limited copy to prevent decompression bomb
@@ -567,7 +567,7 @@ func extractFromTarGz(archivePath string) (string, error) { //nolint:gocognit //
 func extractFromZip(archivePath string) (string, error) {
 	r, err := zip.OpenReader(archivePath)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("open zip archive: %w", err)
 	}
 	defer r.Close() //nolint:errcheck // zip reader close
 
@@ -589,13 +589,13 @@ func extractFromZip(archivePath string) (string, error) {
 func extractZipFile(f *zip.File) (string, error) {
 	rc, err := f.Open()
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("open zip entry: %w", err)
 	}
 	defer rc.Close() //nolint:errcheck // zip file close
 
 	tmpFile, err := os.CreateTemp("", "atlas-binary-*")
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("create temp file: %w", err)
 	}
 
 	// Use limited copy to prevent decompression bomb
@@ -649,18 +649,18 @@ func atomicReplaceBinary(currentPath, newPath string) error {
 func copyBinaryFile(src, dst string, mode os.FileMode) error {
 	srcFile, err := os.Open(src) //nolint:gosec // path from controlled source
 	if err != nil {
-		return err
+		return fmt.Errorf("open source %s: %w", src, err)
 	}
 	defer srcFile.Close() //nolint:errcheck // file close in reader
 
 	dstFile, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode) //nolint:gosec // path from controlled source
 	if err != nil {
-		return err
+		return fmt.Errorf("create destination %s: %w", dst, err)
 	}
 	defer dstFile.Close() //nolint:errcheck // will be closed explicitly
 
 	if _, err := io.Copy(dstFile, srcFile); err != nil {
-		return err
+		return fmt.Errorf("copy to %s: %w", dst, err)
 	}
 
 	return dstFile.Close()

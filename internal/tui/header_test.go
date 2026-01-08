@@ -187,9 +187,9 @@ func TestRenderHeaderAuto(t *testing.T) {
 	assert.Contains(t, result, "A")
 }
 
-func TestGetTerminalWidth(t *testing.T) {
+func TestTerminalWidth(t *testing.T) {
 	// This test just verifies the function doesn't panic
-	width := GetTerminalWidth()
+	width := TerminalWidth()
 	// Width should be 0 or a reasonable terminal width
 	assert.GreaterOrEqual(t, width, 0)
 }

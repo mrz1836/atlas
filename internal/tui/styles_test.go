@@ -482,9 +482,9 @@ func TestIsNarrowTerminal(t *testing.T) {
 	assert.IsType(t, true, isNarrow)
 }
 
-// TestIsNarrowTerminal_UsesGetTerminalWidth verifies IsNarrowTerminal uses GetTerminalWidth.
-func TestIsNarrowTerminal_UsesGetTerminalWidth(t *testing.T) {
-	width := GetTerminalWidth()
+// TestIsNarrowTerminal_UsesTerminalWidth verifies IsNarrowTerminal uses TerminalWidth.
+func TestIsNarrowTerminal_UsesTerminalWidth(t *testing.T) {
+	width := TerminalWidth()
 	isNarrow := IsNarrowTerminal()
 
 	// If width is 0 (detection failed), should be narrow

@@ -328,7 +328,7 @@ func TestWithExecutionContext(t *testing.T) {
 		ctx := WithExecutionContext(originalCtx, ec)
 
 		// Retrieve context
-		retrieved := GetExecutionContext(ctx)
+		retrieved := ExecutionContextFrom(ctx)
 
 		require.NotNil(t, retrieved)
 		assert.Equal(t, ec, retrieved, "should retrieve same ExecutionContext pointer")
@@ -347,21 +347,21 @@ func TestWithExecutionContext(t *testing.T) {
 		ctx2 := WithExecutionContext(ctx1, ec2)
 
 		// Last value should win
-		retrieved := GetExecutionContext(ctx2)
+		retrieved := ExecutionContextFrom(ctx2)
 		require.NotNil(t, retrieved)
 		assert.Equal(t, "/second", retrieved.WorkDir)
 
 		// Original context should still have first value
-		retrieved1 := GetExecutionContext(ctx1)
+		retrieved1 := ExecutionContextFrom(ctx1)
 		require.NotNil(t, retrieved1)
 		assert.Equal(t, "/first", retrieved1.WorkDir)
 	})
 }
 
-func TestGetExecutionContext(t *testing.T) {
+func TestExecutionContextFrom(t *testing.T) {
 	t.Run("returns nil when no context stored", func(t *testing.T) {
 		ctx := context.Background()
-		ec := GetExecutionContext(ctx)
+		ec := ExecutionContextFrom(ctx)
 		assert.Nil(t, ec, "should return nil when no ExecutionContext is stored")
 	})
 
@@ -374,7 +374,7 @@ func TestGetExecutionContext(t *testing.T) {
 
 		// Should not panic - this is the bug we're testing for
 		assert.NotPanics(t, func() {
-			ec := GetExecutionContext(ctx)
+			ec := ExecutionContextFrom(ctx)
 			assert.Nil(t, ec)
 		})
 	})

@@ -79,7 +79,7 @@ func runAbandon(ctx context.Context, cmd *cobra.Command, w io.Writer, workspaceN
 
 // runAbandonWithOutput executes the abandon command with explicit output format.
 func runAbandonWithOutput(ctx context.Context, w io.Writer, workspaceName string, force bool, storeBaseDir, outputFormat string) error {
-	logger := GetLogger()
+	logger := Logger()
 	tui.CheckNoColor()
 
 	// Set up workspace and task stores

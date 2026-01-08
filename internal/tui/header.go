@@ -86,9 +86,9 @@ func runeWidth(s string) int {
 	return len([]rune(s))
 }
 
-// GetTerminalWidth returns the current terminal width.
+// TerminalWidth returns the current terminal width.
 // Returns 0 if width cannot be determined (triggers narrow mode fallback).
-func GetTerminalWidth() int {
+func TerminalWidth() int {
 	width, _, err := term.GetSize(int(os.Stdout.Fd()))
 	if err != nil {
 		return 0 // Fallback to narrow mode
@@ -105,5 +105,5 @@ func RenderHeader(width int) string {
 // RenderHeaderAuto renders the ATLAS header, auto-detecting terminal width.
 // Uses narrow mode if width detection fails.
 func RenderHeaderAuto() string {
-	return NewHeader(GetTerminalWidth()).Render()
+	return NewHeader(TerminalWidth()).Render()
 }

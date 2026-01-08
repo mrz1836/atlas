@@ -250,13 +250,13 @@ func TestGetAtlasHome_DefaultsToUserHome(t *testing.T) {
 	assert.Equal(t, expectedHome, home)
 }
 
-func TestGetLogFilePath(t *testing.T) {
+func TestLogFilePath(t *testing.T) {
 	// Can't use t.Parallel() with t.Setenv()
 
 	tmpDir := t.TempDir()
 	t.Setenv("ATLAS_HOME", tmpDir)
 
-	path, err := GetLogFilePath()
+	path, err := LogFilePath()
 	require.NoError(t, err)
 
 	expected := filepath.Join(tmpDir, constants.LogsDir, constants.CLILogFileName)
@@ -561,7 +561,7 @@ func TestInitLoggerWithTaskStore(t *testing.T) {
 	assert.Contains(t, string(mock.entries[0].entry), "step completed")
 }
 
-func TestGetLoggerWithTaskStore(t *testing.T) {
+func TestLoggerWithTaskStore(t *testing.T) {
 	// Can't use t.Parallel() due to global state access
 
 	// Set up global flags
@@ -577,7 +577,7 @@ func TestGetLoggerWithTaskStore(t *testing.T) {
 	logFileWriter = nil
 
 	mock := &mockTaskLogAppender{}
-	logger := GetLoggerWithTaskStore(mock)
+	logger := LoggerWithTaskStore(mock)
 
 	// Log with workspace/task context
 	logger.Info().

@@ -854,7 +854,11 @@ func formatArtifactMarkdown(artifact *CommitArtifact) string {
 func (r *SmartCommitRunner) buildDryRunResult(analysis *CommitAnalysis, opts CommitOptions) (*CommitResult, error) {
 	var groups []FileGroup
 	if opts.SingleCommit {
-		var allFiles []FileChange
+		totalFiles := 0
+		for _, g := range analysis.FileGroups {
+			totalFiles += len(g.Files)
+		}
+		allFiles := make([]FileChange, 0, totalFiles)
 		for _, g := range analysis.FileGroups {
 			allFiles = append(allFiles, g.Files...)
 		}

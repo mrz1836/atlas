@@ -579,7 +579,7 @@ func saveAtlasConfig(cfg AtlasConfig, headerSource string) error {
 		backupPath := configPath + ".backup"
 		if copyErr := copyFile(configPath, backupPath); copyErr != nil {
 			// Log warning but continue - backup is best effort
-			logger := GetLogger()
+			logger := Logger()
 			logger.Warn().
 				Err(copyErr).
 				Str("backup_path", backupPath).
@@ -763,7 +763,7 @@ func saveProjectConfig(ctx context.Context, cfg AtlasConfig) error {
 		backupPath := configPath + ".backup"
 		if copyErr := copyFile(configPath, backupPath); copyErr != nil {
 			// Log warning but continue - backup is best effort
-			logger := GetLogger()
+			logger := Logger()
 			logger.Warn().
 				Err(copyErr).
 				Str("backup_path", backupPath).

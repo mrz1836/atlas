@@ -154,7 +154,7 @@ func runWorkspaceLogs(ctx context.Context, cmd *cobra.Command, w io.Writer, name
 
 // runWorkspaceLogsWithOutput executes the workspace logs command with explicit output format.
 func runWorkspaceLogsWithOutput(ctx context.Context, w io.Writer, name string, opts logsOptions, storeBaseDir, output string) error {
-	logger := GetLogger()
+	logger := Logger()
 
 	// Respect NO_COLOR environment variable (UX-7)
 	tui.CheckNoColor()
@@ -509,7 +509,7 @@ func pollLogFile(ctx context.Context, f *os.File, w io.Writer, styles *logStyles
 func readNewLines(reader *bufio.Reader, w io.Writer, styles *logStyles, output, stepFilter string) error {
 	for {
 		line, err := reader.ReadBytes('\n')
-		if err == io.EOF {
+		if stderrors.Is(err, io.EOF) {
 			return nil // No more data
 		}
 		if err != nil {

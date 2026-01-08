@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/mrz1836/atlas/internal/errors"
@@ -23,22 +24,22 @@ func Validate(cfg *Config) error {
 
 	// Validate AI config
 	if err := validateAIConfig(&cfg.AI); err != nil {
-		return err
+		return fmt.Errorf("validate AI config: %w", err)
 	}
 
 	// Validate Git config
 	if err := validateGitConfig(&cfg.Git); err != nil {
-		return err
+		return fmt.Errorf("validate git config: %w", err)
 	}
 
 	// Validate CI config
 	if err := validateCIConfig(&cfg.CI); err != nil {
-		return err
+		return fmt.Errorf("validate CI config: %w", err)
 	}
 
 	// Validate Validation config
 	if err := validateValidationConfig(&cfg.Validation); err != nil {
-		return err
+		return fmt.Errorf("validate validation config: %w", err)
 	}
 
 	return nil

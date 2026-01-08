@@ -73,7 +73,7 @@ func runWorkspaceList(ctx context.Context, cmd *cobra.Command, w io.Writer) erro
 	default:
 	}
 
-	logger := GetLogger()
+	logger := Logger()
 
 	// Get output format from global flags
 	output := cmd.Flag("output").Value.String()

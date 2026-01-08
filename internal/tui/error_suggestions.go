@@ -72,9 +72,9 @@ var errorSuggestions = []ErrorSuggestion{
 	{atlaserrors.ErrInvalidModel, "Use: --model sonnet, opus, or haiku"},
 }
 
-// GetSuggestionForError returns a suggestion for the given error.
+// SuggestionForError returns a suggestion for the given error.
 // Returns empty string if no suggestion is available.
-func GetSuggestionForError(err error) string {
+func SuggestionForError(err error) string {
 	if err == nil {
 		return ""
 	}
@@ -95,7 +95,7 @@ func WithSuggestion(err error) *ActionableError {
 		return nil
 	}
 
-	suggestion := GetSuggestionForError(err)
+	suggestion := SuggestionForError(err)
 	return NewActionableError(err.Error(), suggestion)
 }
 
@@ -107,7 +107,7 @@ func WrapWithSuggestion(err error) error {
 		return nil
 	}
 
-	suggestion := GetSuggestionForError(err)
+	suggestion := SuggestionForError(err)
 	if suggestion == "" {
 		return err
 	}

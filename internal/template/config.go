@@ -88,9 +88,9 @@ func ApplyOverrides(t *domain.Template, overrides Overrides) *domain.Template {
 	return result
 }
 
-// GetTemplateWithConfig retrieves a template from the registry and applies config overrides.
+// WithConfig retrieves a template from the registry and applies config overrides.
 // This is the main entry point for getting a ready-to-use template.
-func GetTemplateWithConfig(r *Registry, name string, cfg *config.Config) (*domain.Template, error) {
+func WithConfig(r *Registry, name string, cfg *config.Config) (*domain.Template, error) {
 	tmpl, err := r.Get(name)
 	if err != nil {
 		return nil, err

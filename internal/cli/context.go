@@ -85,13 +85,17 @@ func WithExecutionContext(ctx context.Context, ec *ExecutionContext) context.Con
 	return context.WithValue(ctx, executionContextKey{}, ec)
 }
 
-// GetExecutionContext retrieves the ExecutionContext from the context.
-// Returns nil if no execution context was set.
-func GetExecutionContext(ctx context.Context) *ExecutionContext {
+// ExecutionContextFrom retrieves the ExecutionContext from the context.
+// Returns nil if no execution context was set or if type assertion fails.
+// Callers must check for nil before calling methods on the result.
+func ExecutionContextFrom(ctx context.Context) *ExecutionContext {
 	if ctx == nil {
 		return nil
 	}
-	ec, _ := ctx.Value(executionContextKey{}).(*ExecutionContext)
+	ec, ok := ctx.Value(executionContextKey{}).(*ExecutionContext)
+	if !ok {
+		return nil
+	}
 	return ec
 }
 

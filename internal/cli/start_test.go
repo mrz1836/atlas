@@ -827,7 +827,7 @@ func TestHandleTaskStartError_WithNilTask(t *testing.T) {
 	require.NoError(t, err)
 
 	sc := &startContext{outputFormat: "text"}
-	logger := GetLogger()
+	logger := Logger()
 
 	// When task is nil, workspace should be cleaned up
 	sc.handleTaskStartError(context.Background(), ws, repoPath, nil, logger)
@@ -861,7 +861,7 @@ func TestHandleTaskStartError_WithExistingTask(t *testing.T) {
 	}
 
 	sc := &startContext{outputFormat: "text"}
-	logger := GetLogger()
+	logger := Logger()
 
 	// When task exists, workspace should NOT be cleaned up
 	sc.handleTaskStartError(context.Background(), ws, repoPath, task, logger)
@@ -970,7 +970,7 @@ func TestStartTaskExecution_ContextCanceled(t *testing.T) {
 	tmpl, err := registry.Get("bugfix")
 	require.NoError(t, err)
 
-	logger := GetLogger()
+	logger := Logger()
 	out := tui.NewOutput(os.Stdout, "")
 
 	// Should fail due to canceled context

@@ -71,7 +71,7 @@ func runWorkspaceClose(ctx context.Context, cmd *cobra.Command, w io.Writer, nam
 
 // runWorkspaceCloseWithOutput executes the workspace close command with explicit output format.
 func runWorkspaceCloseWithOutput(ctx context.Context, w io.Writer, name string, force bool, storeBaseDir, output string) error {
-	logger := GetLogger()
+	logger := Logger()
 
 	// Respect NO_COLOR environment variable (UX-7)
 	tui.CheckNoColor()
@@ -116,7 +116,7 @@ func runWorkspaceCloseWithOutput(ctx context.Context, w io.Writer, name string, 
 // checkWorkspaceExistsForClose creates the store and checks if the workspace exists.
 // Returns (store, exists, error). For JSON output errors, returns ErrJSONErrorOutput.
 func checkWorkspaceExistsForClose(ctx context.Context, name, storeBaseDir, output string, w io.Writer) (*workspace.FileStore, bool, error) {
-	logger := GetLogger()
+	logger := Logger()
 
 	store, err := workspace.NewFileStore(storeBaseDir)
 	if err != nil {
