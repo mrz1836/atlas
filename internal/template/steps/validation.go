@@ -217,7 +217,7 @@ func (e *ValidationExecutor) Execute(ctx context.Context, task *domain.Task, ste
 	output.WriteString(validation.FormatResultWithArtifact(pipelineResult, artifactPath))
 
 	// Build validation checks metadata for verbose display
-	validationChecks := buildValidationChecks(pipelineResult)
+	validationChecks := pipelineResult.BuildChecksAsMap()
 
 	// Check for detect_only mode from step config
 	detectOnly := false
@@ -394,61 +394,4 @@ func (n *notifierAdapter) Bell() {
 	if n.notifier != nil {
 		n.notifier.Bell()
 	}
-}
-
-// buildValidationChecks creates validation check metadata from pipeline results.
-// Returns a slice of maps with "name" and "passed" keys for each validation category.
-func buildValidationChecks(result *validation.PipelineResult) []map[string]any {
-	checks := make([]map[string]any, 0, 4)
-
-	// Format check
-	formatPassed := len(result.FormatResults) == 0 || !hasFailedResult(result.FormatResults)
-	checks = append(checks, map[string]any{
-		"name":   "Format",
-		"passed": formatPassed,
-	})
-
-	// Lint check
-	lintPassed := len(result.LintResults) == 0 || !hasFailedResult(result.LintResults)
-	checks = append(checks, map[string]any{
-		"name":   "Lint",
-		"passed": lintPassed,
-	})
-
-	// Test check
-	testPassed := len(result.TestResults) == 0 || !hasFailedResult(result.TestResults)
-	checks = append(checks, map[string]any{
-		"name":   "Test",
-		"passed": testPassed,
-	})
-
-	// Pre-commit check (check if skipped)
-	preCommitPassed := true
-	preCommitSkipped := false
-	for _, skipped := range result.SkippedSteps {
-		if skipped == "pre-commit" {
-			preCommitSkipped = true
-			break
-		}
-	}
-	if !preCommitSkipped {
-		preCommitPassed = len(result.PreCommitResults) == 0 || !hasFailedResult(result.PreCommitResults)
-	}
-	checks = append(checks, map[string]any{
-		"name":    "Pre-commit",
-		"passed":  preCommitPassed,
-		"skipped": preCommitSkipped,
-	})
-
-	return checks
-}
-
-// hasFailedResult checks if any result in the slice indicates failure.
-func hasFailedResult(results []validation.Result) bool {
-	for _, r := range results {
-		if !r.Success {
-			return true
-		}
-	}
-	return false
 }

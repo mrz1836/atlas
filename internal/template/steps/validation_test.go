@@ -460,7 +460,8 @@ func TestValidationExecutor_MaxRetryAttempts_WithoutHandler(t *testing.T) {
 	assert.Equal(t, 0, executor.MaxRetryAttempts())
 }
 
-// TestBuildValidationChecks tests the buildValidationChecks function.
+// TestBuildValidationChecks tests the PipelineResult.BuildChecksAsMap method via the step executor.
+// Full unit tests for BuildChecksAsMap are in internal/validation/result_test.go
 func TestBuildValidationChecks(t *testing.T) {
 	t.Run("all passing", func(t *testing.T) {
 		result := &validation.PipelineResult{
@@ -479,7 +480,7 @@ func TestBuildValidationChecks(t *testing.T) {
 			},
 		}
 
-		checks := buildValidationChecks(result)
+		checks := result.BuildChecksAsMap()
 
 		require.Len(t, checks, 4)
 		assert.Equal(t, "Format", checks[0]["name"])
@@ -507,7 +508,7 @@ func TestBuildValidationChecks(t *testing.T) {
 			},
 		}
 
-		checks := buildValidationChecks(result)
+		checks := result.BuildChecksAsMap()
 
 		require.Len(t, checks, 4)
 		assert.True(t, checks[0]["passed"].(bool))  // Format passed
@@ -532,7 +533,7 @@ func TestBuildValidationChecks(t *testing.T) {
 			SkipReasons:  map[string]string{"pre-commit": "go-pre-commit not installed"},
 		}
 
-		checks := buildValidationChecks(result)
+		checks := result.BuildChecksAsMap()
 
 		require.Len(t, checks, 4)
 		assert.True(t, checks[0]["passed"].(bool))
@@ -555,7 +556,7 @@ func TestBuildValidationChecks(t *testing.T) {
 			},
 		}
 
-		checks := buildValidationChecks(result)
+		checks := result.BuildChecksAsMap()
 
 		assert.True(t, checks[0]["passed"].(bool))  // Format passed
 		assert.False(t, checks[1]["passed"].(bool)) // Lint failed (one failure)
@@ -569,7 +570,7 @@ func TestBuildValidationChecks(t *testing.T) {
 			TestResults:   []validation.Result{}, // Empty
 		}
 
-		checks := buildValidationChecks(result)
+		checks := result.BuildChecksAsMap()
 
 		require.Len(t, checks, 4)
 		assert.True(t, checks[0]["passed"].(bool)) // Format passed (empty)
@@ -579,38 +580,7 @@ func TestBuildValidationChecks(t *testing.T) {
 	})
 }
 
-// TestHasFailedResult tests the hasFailedResult function.
-func TestHasFailedResult(t *testing.T) {
-	t.Run("empty slice returns false", func(t *testing.T) {
-		assert.False(t, hasFailedResult(nil))
-		assert.False(t, hasFailedResult([]validation.Result{}))
-	})
-
-	t.Run("all passing returns false", func(t *testing.T) {
-		results := []validation.Result{
-			{Command: "cmd1", Success: true},
-			{Command: "cmd2", Success: true},
-		}
-		assert.False(t, hasFailedResult(results))
-	})
-
-	t.Run("one failure returns true", func(t *testing.T) {
-		results := []validation.Result{
-			{Command: "cmd1", Success: true},
-			{Command: "cmd2", Success: false},
-			{Command: "cmd3", Success: true},
-		}
-		assert.True(t, hasFailedResult(results))
-	})
-
-	t.Run("all failures returns true", func(t *testing.T) {
-		results := []validation.Result{
-			{Command: "cmd1", Success: false},
-			{Command: "cmd2", Success: false},
-		}
-		assert.True(t, hasFailedResult(results))
-	})
-}
+// Tests for hasFailedResult are in internal/validation/result_test.go
 
 // TestValidationExecutor_Execute_IncludesMetadata tests that validation checks are stored in metadata.
 func TestValidationExecutor_Execute_IncludesMetadata(t *testing.T) {

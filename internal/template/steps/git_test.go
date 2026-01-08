@@ -316,9 +316,7 @@ func TestGitExecutor_ExecuteCommit_Success(t *testing.T) {
 				HasGarbage:   false,
 			}, nil
 		},
-		commitFunc: func(_ context.Context, opts git.CommitOptions) (*git.CommitResult, error) {
-			// Trailers are deprecated - opts.Trailers should be empty now
-			assert.Empty(t, opts.Trailers)
+		commitFunc: func(_ context.Context, _ git.CommitOptions) (*git.CommitResult, error) {
 			return &git.CommitResult{
 				Commits: []git.CommitInfo{
 					{Hash: "abc123", Message: "feat: test", FileCount: 1, FilesChanged: []string{"file.go"}},
@@ -887,7 +885,7 @@ func (m *mockRunner) Add(_ context.Context, _ []string) error {
 	return nil
 }
 
-func (m *mockRunner) Commit(_ context.Context, _ string, _ map[string]string) error {
+func (m *mockRunner) Commit(_ context.Context, _ string) error {
 	return nil
 }
 
