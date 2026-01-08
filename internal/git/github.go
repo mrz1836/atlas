@@ -777,61 +777,90 @@ func (r *CLIGitHubRunner) handleCIFetchError(
 	}
 
 	// For transient errors (network, rate limit, unknown), try fallback verification
-	// PRErrorOther is treated as transient since unknown gh errors may be recoverable
-	if errType == PRErrorNetwork || errType == PRErrorRateLimit || errType == PRErrorOther {
+	if isTransientCIError(errType) {
+		return r.handleTransientCIError(ctx, err, errType, elapsed, opts, result, bellEmitted)
+	}
+
+	// For permanent errors, return immediately with proper sentinel error
+	return nil, r.mapPermanentCIError(errType, err)
+}
+
+// isTransientCIError returns true for error types that should attempt fallback verification.
+// PRErrorOther is treated as transient since unknown gh errors may be recoverable.
+func isTransientCIError(errType PRErrorType) bool {
+	return errType == PRErrorNetwork || errType == PRErrorRateLimit || errType == PRErrorOther
+}
+
+// handleTransientCIError attempts fallback verification for transient CI fetch errors.
+func (r *CLIGitHubRunner) handleTransientCIError(
+	ctx context.Context,
+	err error,
+	errType PRErrorType,
+	elapsed time.Duration,
+	opts CIWatchOptions,
+	result *CIWatchResult,
+	bellEmitted *bool,
+) (*CIWatchResult, error) {
+	r.logger.Info().
+		Err(err).
+		Str("error_type", errType.String()).
+		Int("pr_number", opts.PRNumber).
+		Msg("CI fetch failed, attempting fallback verification via gh pr view")
+
+	fallbackStatus, fallbackErr := r.verifyPRCIStatusFallback(ctx, opts.PRNumber)
+	if fallbackErr == nil && fallbackStatus != nil {
 		r.logger.Info().
-			Err(err).
-			Str("error_type", errType.String()).
-			Int("pr_number", opts.PRNumber).
-			Msg("CI fetch failed, attempting fallback verification via gh pr view")
-
-		fallbackStatus, fallbackErr := r.verifyPRCIStatusFallback(ctx, opts.PRNumber)
-		if fallbackErr == nil && fallbackStatus != nil {
-			r.logger.Info().
-				Str("fallback_status", fallbackStatus.String()).
-				Dur("elapsed", elapsed).
-				Msg("determined CI status via fallback verification")
-
-			result.Status = *fallbackStatus
-			result.ElapsedTime = elapsed
-			if *fallbackStatus == CIStatusFailure {
-				result.Error = atlaserrors.ErrCIFailed
-			}
-			r.emitBellIfEnabled(opts.BellEnabled, bellEmitted)
-			return result, nil
-		}
-
-		// Fallback also failed - return fetch error status instead of propagating error
-		r.logger.Warn().
-			Err(err).
-			AnErr("fallback_error", fallbackErr).
+			Str("fallback_status", fallbackStatus.String()).
 			Dur("elapsed", elapsed).
-			Msg("CI fetch failed after retries and fallback - returning fetch error status")
+			Msg("determined CI status via fallback verification")
 
-		result.Status = CIStatusFetchError
-		result.ElapsedTime = elapsed
-		result.Error = fmt.Errorf("CI status fetch failed: %w", err)
-		r.emitBellIfEnabled(opts.BellEnabled, bellEmitted)
+		r.finalizeResult(result, *fallbackStatus, elapsed, opts.BellEnabled, bellEmitted)
+		if *fallbackStatus == CIStatusFailure {
+			result.Error = atlaserrors.ErrCIFailed
+		}
 		return result, nil
 	}
 
-	// For permanent errors (auth, not found), return immediately with proper sentinel error
-	// PRErrorNetwork, PRErrorRateLimit, and PRErrorOther are handled above with fallback
+	// Fallback also failed - return fetch error status instead of propagating error
+	r.logger.Warn().
+		Err(err).
+		AnErr("fallback_error", fallbackErr).
+		Dur("elapsed", elapsed).
+		Msg("CI fetch failed after retries and fallback - returning fetch error status")
+
+	r.finalizeResult(result, CIStatusFetchError, elapsed, opts.BellEnabled, bellEmitted)
+	result.Error = fmt.Errorf("CI status fetch failed: %w", err)
+	return result, nil
+}
+
+// mapPermanentCIError maps permanent error types to appropriate sentinel errors.
+func (r *CLIGitHubRunner) mapPermanentCIError(errType PRErrorType, err error) error {
 	switch errType {
 	case PRErrorAuth:
-		return nil, fmt.Errorf("CI fetch failed - authentication error: %w", atlaserrors.ErrGHAuthFailed)
+		return fmt.Errorf("CI fetch failed - authentication error: %w", atlaserrors.ErrGHAuthFailed)
 	case PRErrorNotFound:
-		return nil, fmt.Errorf("CI fetch failed - PR not found: %w", atlaserrors.ErrPRNotFound)
-	case PRErrorNetwork, PRErrorRateLimit, PRErrorOther:
-		// These are handled above with fallback - should not reach here
-		return nil, err
-	case PRErrorNone, PRErrorNoChecksYet:
-		// These should not reach here - PRErrorNone means no error, PRErrorNoChecksYet is handled earlier
-		return nil, err
+		return fmt.Errorf("CI fetch failed - PR not found: %w", atlaserrors.ErrPRNotFound)
+	case PRErrorNone, PRErrorRateLimit, PRErrorNetwork, PRErrorNoChecksYet, PRErrorOther:
+		// For any other error type (including those that should have been handled earlier),
+		// return the original error
+		return err
 	default:
-		// Unreachable for known error types, but return error for safety
-		return nil, err
+		// Fallback for any future error types
+		return err
 	}
+}
+
+// finalizeResult sets the common result fields and emits bell if enabled.
+func (r *CLIGitHubRunner) finalizeResult(
+	result *CIWatchResult,
+	status CIStatus,
+	elapsed time.Duration,
+	bellEnabled bool,
+	bellEmitted *bool,
+) {
+	result.Status = status
+	result.ElapsedTime = elapsed
+	r.emitBellIfEnabled(bellEnabled, bellEmitted)
 }
 
 // verifyPRCIStatusFallback attempts to determine CI status via gh pr view
