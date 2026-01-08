@@ -487,8 +487,8 @@ func TestRenderApprovalSummary_TerminalWidth(t *testing.T) {
 	})
 }
 
-// TestExtractPRNumber tests PR number extraction from URLs.
-func TestExtractPRNumber(t *testing.T) {
+// TestExtractPRDisplay tests PR display extraction from URLs.
+func TestExtractPRDisplay(t *testing.T) {
 	tests := []struct {
 		name     string
 		url      string
@@ -523,7 +523,7 @@ func TestExtractPRNumber(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := extractPRNumber(tt.url)
+			result := extractPRDisplay(tt.url)
 			assert.Equal(t, tt.expected, result)
 		})
 	}
@@ -1071,8 +1071,8 @@ func TestParseCheckMap(t *testing.T) {
 	})
 }
 
-// TestCountCheckResults tests counting passed and failed checks.
-func TestCountCheckResults(t *testing.T) {
+// TestCountValidationChecks tests counting passed, failed, and skipped checks.
+func TestCountValidationChecks(t *testing.T) {
 	t.Run("counts only passed checks", func(t *testing.T) {
 		checks := []ValidationCheck{
 			{Name: "Format", Passed: true},
@@ -1080,10 +1080,11 @@ func TestCountCheckResults(t *testing.T) {
 			{Name: "Test", Passed: true},
 		}
 
-		passCount, failCount := countCheckResults(checks)
+		passCount, failCount, skipCount := countValidationChecks(checks)
 
 		assert.Equal(t, 3, passCount)
 		assert.Equal(t, 0, failCount)
+		assert.Equal(t, 0, skipCount)
 	})
 
 	t.Run("counts mixed pass and fail", func(t *testing.T) {
@@ -1094,13 +1095,14 @@ func TestCountCheckResults(t *testing.T) {
 			{Name: "CI", Passed: false},
 		}
 
-		passCount, failCount := countCheckResults(checks)
+		passCount, failCount, skipCount := countValidationChecks(checks)
 
 		assert.Equal(t, 2, passCount)
 		assert.Equal(t, 2, failCount)
+		assert.Equal(t, 0, skipCount)
 	})
 
-	t.Run("excludes skipped checks from counts", func(t *testing.T) {
+	t.Run("excludes skipped checks from pass/fail counts", func(t *testing.T) {
 		checks := []ValidationCheck{
 			{Name: "Format", Passed: true},
 			{Name: "Lint", Passed: false},
@@ -1109,10 +1111,11 @@ func TestCountCheckResults(t *testing.T) {
 			{Name: "CI", Skipped: true},
 		}
 
-		passCount, failCount := countCheckResults(checks)
+		passCount, failCount, skipCount := countValidationChecks(checks)
 
 		assert.Equal(t, 2, passCount)
 		assert.Equal(t, 1, failCount)
+		assert.Equal(t, 2, skipCount)
 	})
 
 	t.Run("handles all skipped checks", func(t *testing.T) {
@@ -1121,57 +1124,21 @@ func TestCountCheckResults(t *testing.T) {
 			{Name: "CI", Skipped: true},
 		}
 
-		passCount, failCount := countCheckResults(checks)
+		passCount, failCount, skipCount := countValidationChecks(checks)
 
 		assert.Equal(t, 0, passCount)
 		assert.Equal(t, 0, failCount)
-	})
-}
-
-// TestCountSkippedChecks tests counting skipped checks.
-func TestCountSkippedChecks(t *testing.T) {
-	t.Run("counts skipped checks", func(t *testing.T) {
-		checks := []ValidationCheck{
-			{Name: "Format", Passed: true},
-			{Name: "Lint", Passed: true},
-			{Name: "Pre-commit", Skipped: true},
-			{Name: "CI", Skipped: true},
-		}
-
-		count := countSkippedChecks(checks)
-
-		assert.Equal(t, 2, count)
-	})
-
-	t.Run("returns zero when no checks are skipped", func(t *testing.T) {
-		checks := []ValidationCheck{
-			{Name: "Format", Passed: true},
-			{Name: "Lint", Passed: false},
-			{Name: "Test", Passed: true},
-		}
-
-		count := countSkippedChecks(checks)
-
-		assert.Equal(t, 0, count)
-	})
-
-	t.Run("handles all checks skipped", func(t *testing.T) {
-		checks := []ValidationCheck{
-			{Name: "Pre-commit", Skipped: true},
-			{Name: "CI", Skipped: true},
-		}
-
-		count := countSkippedChecks(checks)
-
-		assert.Equal(t, 2, count)
+		assert.Equal(t, 2, skipCount)
 	})
 
 	t.Run("handles empty checks list", func(t *testing.T) {
 		checks := []ValidationCheck{}
 
-		count := countSkippedChecks(checks)
+		passCount, failCount, skipCount := countValidationChecks(checks)
 
-		assert.Equal(t, 0, count)
+		assert.Equal(t, 0, passCount)
+		assert.Equal(t, 0, failCount)
+		assert.Equal(t, 0, skipCount)
 	})
 }
 

@@ -86,7 +86,14 @@ type BellMsg struct{}
 
 // NewWatchModel creates a new WatchModel with the given dependencies.
 // The context is stored for use in async Bubble Tea commands.
+// If ctx is nil, context.Background() is used as a fallback.
+//
+//nolint:contextcheck // Fallback to Background is intentional for nil-safety
 func NewWatchModel(ctx context.Context, wsMgr WorkspaceLister, taskStore TaskLister, cfg WatchConfig) *WatchModel {
+	// Validate context at construction time rather than at each usage
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	return &WatchModel{
 		rows:         nil,
 		previousRows: make(map[string]constants.TaskStatus),
@@ -232,17 +239,13 @@ func (m *WatchModel) tick() tea.Cmd {
 func (m *WatchModel) refreshData() tea.Cmd {
 	return func() tea.Msg {
 		// Use stored context for proper cancellation propagation
-		ctx := m.baseCtx
-		if ctx == nil {
-			ctx = context.Background()
-		}
-
-		workspaces, err := m.wsMgr.List(ctx)
+		// Context is guaranteed non-nil by NewWatchModel
+		workspaces, err := m.wsMgr.List(m.baseCtx)
 		if err != nil {
 			return RefreshMsg{Err: fmt.Errorf("failed to list workspaces: %w", err)}
 		}
 
-		rows := m.buildStatusRows(ctx, workspaces)
+		rows := m.buildStatusRows(m.baseCtx, workspaces)
 		m.sortByStatusPriority(rows)
 		return RefreshMsg{Rows: rows}
 	}

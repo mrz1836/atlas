@@ -290,7 +290,7 @@ func buildValidationSummary(result domain.StepResult) *ValidationSummary {
 
 	// Set pass/fail counts
 	if len(vs.Checks) > 0 {
-		vs.PassCount, vs.FailCount = countCheckResults(vs.Checks)
+		vs.PassCount, vs.FailCount, _ = countValidationChecks(vs.Checks)
 	} else {
 		vs.PassCount, vs.FailCount = legacyPassFailCounts(result.Status)
 	}
@@ -330,30 +330,19 @@ func extractChecksFromMetadata(metadata map[string]any) []ValidationCheck {
 	return parseValidationChecks(checksData)
 }
 
-// countCheckResults counts passed and failed checks.
-func countCheckResults(checks []ValidationCheck) (passCount, failCount int) {
+// countValidationChecks counts passed, failed, and skipped checks in a single iteration.
+func countValidationChecks(checks []ValidationCheck) (passCount, failCount, skipCount int) {
 	for _, check := range checks {
-		if check.Skipped {
-			continue // Skip checks that weren't run
-		}
-		if check.Passed {
+		switch {
+		case check.Skipped:
+			skipCount++
+		case check.Passed:
 			passCount++
-		} else {
+		default:
 			failCount++
 		}
 	}
-	return passCount, failCount
-}
-
-// countSkippedChecks counts how many checks were skipped.
-func countSkippedChecks(checks []ValidationCheck) int {
-	count := 0
-	for _, check := range checks {
-		if check.Skipped {
-			count++
-		}
-	}
-	return count
+	return passCount, failCount, skipCount
 }
 
 // legacyPassFailCounts returns pass/fail counts based on overall status.
@@ -686,7 +675,7 @@ func renderSessionLine(interruptionCount, _ int) string {
 // renderPRLine renders the PR link without truncation (PR numbers are inherently short).
 // This avoids truncating ANSI escape sequences used for hyperlinks/underlines.
 func renderPRLine(prURL string, mode displayMode) string {
-	prDisplay := extractPRNumber(prURL)
+	prDisplay := extractPRDisplay(prURL)
 	if mode == displayModeExpanded {
 		prDisplay = prDisplay + " (" + prURL + ")"
 	}
@@ -812,7 +801,7 @@ func renderValidationSectionWithMode(validation *ValidationSummary, _ int, mode 
 	}
 
 	// Add skipped count if any checks were skipped
-	skipCount := countSkippedChecks(validation.Checks)
+	_, _, skipCount := countValidationChecks(validation.Checks)
 	if skipCount > 0 {
 		skippedText := " (" + intToString(skipCount) + " skipped)"
 		passFailText += skippedText
@@ -948,8 +937,8 @@ func intToString(n int) string {
 	return strconv.Itoa(n)
 }
 
-// extractPRNumber extracts the PR number from a GitHub PR URL.
-func extractPRNumber(url string) string {
+// extractPRDisplay extracts the PR number from a GitHub PR URL.
+func extractPRDisplay(url string) string {
 	// Look for /pull/NUMBER pattern
 	if idx := strings.LastIndex(url, "/pull/"); idx != -1 {
 		prNum := url[idx+6:]
