@@ -113,6 +113,22 @@ func runResume(ctx context.Context, cmd *cobra.Command, w io.Writer, workspaceNa
 			fmt.Errorf("failed to ensure worktree exists: %w", err))
 	}
 
+	// Create workspace store for status updates (used for both active and paused states)
+	wsStore, wsStoreErr := workspace.NewFileStore("")
+	if wsStoreErr != nil {
+		logger.Warn().Err(wsStoreErr).Msg("failed to create workspace store for status updates")
+	}
+
+	// Update workspace status to active since we're resuming
+	ws.Status = constants.WorkspaceStatusActive
+	if wsStore != nil {
+		if updateErr := wsStore.Update(ctx, ws); updateErr != nil { //nolint:contextcheck // ctx inherits from parent via signal.NewHandler
+			logger.Warn().Err(updateErr).
+				Str("workspace_name", ws.Name).
+				Msg("failed to update workspace status to active")
+		}
+	}
+
 	// Get template
 	registry := template.NewDefaultRegistry()
 	tmpl, err := registry.Get(currentTask.TemplateID)
@@ -146,7 +162,7 @@ func runResume(ctx context.Context, cmd *cobra.Command, w io.Writer, workspaceNa
 		// Check if we were interrupted by Ctrl+C
 		select {
 		case <-sigHandler.Interrupted():
-			return handleResumeInterruption(ctx, out, ws, currentTask, logger) //nolint:contextcheck // ctx inherits from parent via signal.NewHandler
+			return handleResumeInterruption(ctx, out, ws, currentTask, wsStore, logger) //nolint:contextcheck // ctx inherits from parent via signal.NewHandler
 		default:
 		}
 
@@ -159,7 +175,7 @@ func runResume(ctx context.Context, cmd *cobra.Command, w io.Writer, workspaceNa
 	// Check if we were interrupted by Ctrl+C (even if no error)
 	select {
 	case <-sigHandler.Interrupted():
-		return handleResumeInterruption(ctx, out, ws, currentTask, logger) //nolint:contextcheck // ctx inherits from parent via signal.NewHandler
+		return handleResumeInterruption(ctx, out, ws, currentTask, wsStore, logger) //nolint:contextcheck // ctx inherits from parent via signal.NewHandler
 	default:
 	}
 
@@ -334,7 +350,8 @@ func createResumeEngine(ctx context.Context, ws *domain.Workspace, taskStore *ta
 
 // handleResumeInterruption handles graceful shutdown when user presses Ctrl+C during resume.
 // It saves the task and workspace state so the user can resume later.
-func handleResumeInterruption(ctx context.Context, out tui.Output, ws *domain.Workspace, t *domain.Task, logger zerolog.Logger) error {
+// The wsStore parameter allows dependency injection for testing - pass nil to skip persistence.
+func handleResumeInterruption(ctx context.Context, out tui.Output, ws *domain.Workspace, t *domain.Task, wsStore workspace.Store, logger zerolog.Logger) error {
 	logger.Info().
 		Str("workspace_name", ws.Name).
 		Str("task_id", t.ID).
@@ -350,15 +367,14 @@ func handleResumeInterruption(ctx context.Context, out tui.Output, ws *domain.Wo
 
 	// Update workspace to paused
 	ws.Status = constants.WorkspaceStatusPaused
-	wsStore, err := workspace.NewFileStore("")
-	if err != nil {
-		logger.Error().Err(err).
-			Str("workspace_name", ws.Name).
-			Msg("failed to create workspace store for pause update")
-	} else if updateErr := wsStore.Update(cleanupCtx, ws); updateErr != nil {
-		logger.Error().Err(updateErr).
-			Str("workspace_name", ws.Name).
-			Msg("failed to persist workspace pause status")
+
+	// Persist workspace state if store is provided (allows nil for testing)
+	if wsStore != nil {
+		if updateErr := wsStore.Update(cleanupCtx, ws); updateErr != nil {
+			logger.Warn().Err(updateErr).
+				Str("workspace_name", ws.Name).
+				Msg("failed to persist workspace pause status")
+		}
 	}
 
 	// Display summary (reuse the function from start.go)
