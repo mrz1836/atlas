@@ -30,6 +30,7 @@ package tui
 
 import (
 	"errors"
+	"fmt"
 	"os"
 
 	"github.com/charmbracelet/huh"
@@ -135,6 +136,30 @@ func adaptWidth(maxWidth int) int {
 	return availableWidth
 }
 
+// runFormWithConfig creates and runs a form with the given field and config.
+// It handles common setup (theme, width, accessibility) and error handling.
+// The errorContext parameter is used to wrap errors with descriptive context.
+func runFormWithConfig(field huh.Field, cfg *MenuConfig, errorContext string) error {
+	CheckNoColor()
+
+	width := adaptWidth(cfg.Width)
+
+	form := huh.NewForm(huh.NewGroup(field)).
+		WithTheme(AtlasTheme()).
+		WithWidth(width).
+		WithAccessible(cfg.Accessible).
+		WithShowHelp(cfg.ShowKeyHints)
+
+	if err := form.Run(); err != nil {
+		if errors.Is(err, huh.ErrUserAborted) {
+			return ErrMenuCanceled
+		}
+		return fmt.Errorf("%s: %w", errorContext, err)
+	}
+
+	return nil
+}
+
 // AtlasTheme returns a custom Huh theme using ATLAS colors from styles.go (AC: #2, #9).
 // Uses AdaptiveColor for proper light/dark terminal support.
 func AtlasTheme() *huh.Theme {
@@ -179,9 +204,6 @@ func SelectWithConfig(title string, options []Option, cfg *MenuConfig) (string, 
 		return "", atlaserrors.ErrNoMenuOptions
 	}
 
-	// Respect NO_COLOR
-	CheckNoColor()
-
 	// Convert options to huh.Option format (AC: #1)
 	// Huh library doesn't support option-level descriptions natively,
 	// so we include the description in the label if present for better UX
@@ -201,21 +223,7 @@ func SelectWithConfig(title string, options []Option, cfg *MenuConfig) (string, 
 		Options(huhOptions...).
 		Value(&selected)
 
-	// Apply width constraint
-	width := adaptWidth(cfg.Width)
-
-	form := huh.NewForm(huh.NewGroup(selectField)).
-		WithTheme(AtlasTheme()).
-		WithWidth(width).
-		WithAccessible(cfg.Accessible).
-		WithShowHelp(cfg.ShowKeyHints) // AC: #4 - Display action hints
-
-	err := form.Run()
-	if err != nil {
-		// Check for user cancellation (q/Esc)
-		if errors.Is(err, huh.ErrUserAborted) {
-			return "", ErrMenuCanceled
-		}
+	if err := runFormWithConfig(selectField, cfg, "select menu failed"); err != nil {
 		return "", err
 	}
 
@@ -230,10 +238,10 @@ func Confirm(message string, defaultYes bool) (bool, error) {
 
 // ConfirmWithConfig presents a confirmation prompt with custom configuration.
 func ConfirmWithConfig(message string, defaultYes bool, cfg *MenuConfig) (bool, error) {
-	// Respect NO_COLOR
-	CheckNoColor()
-
 	var confirmed bool
+	if defaultYes {
+		confirmed = true
+	}
 
 	confirmField := huh.NewConfirm().
 		Title(message).
@@ -241,24 +249,7 @@ func ConfirmWithConfig(message string, defaultYes bool, cfg *MenuConfig) (bool, 
 		Negative("No").
 		Value(&confirmed)
 
-	// Set default value
-	if defaultYes {
-		confirmed = true
-	}
-
-	width := adaptWidth(cfg.Width)
-
-	form := huh.NewForm(huh.NewGroup(confirmField)).
-		WithTheme(AtlasTheme()).
-		WithWidth(width).
-		WithAccessible(cfg.Accessible).
-		WithShowHelp(cfg.ShowKeyHints) // AC: #4 - Display action hints
-
-	err := form.Run()
-	if err != nil {
-		if errors.Is(err, huh.ErrUserAborted) {
-			return false, ErrMenuCanceled
-		}
+	if err := runFormWithConfig(confirmField, cfg, "confirm prompt failed"); err != nil {
 		return false, err
 	}
 
@@ -273,9 +264,6 @@ func Input(prompt, defaultValue string) (string, error) {
 
 // InputWithConfig presents an input prompt with custom configuration.
 func InputWithConfig(prompt, defaultValue string, cfg *MenuConfig) (string, error) {
-	// Respect NO_COLOR
-	CheckNoColor()
-
 	var value string
 	if defaultValue != "" {
 		value = defaultValue
@@ -285,19 +273,7 @@ func InputWithConfig(prompt, defaultValue string, cfg *MenuConfig) (string, erro
 		Title(prompt).
 		Value(&value)
 
-	width := adaptWidth(cfg.Width)
-
-	form := huh.NewForm(huh.NewGroup(inputField)).
-		WithTheme(AtlasTheme()).
-		WithWidth(width).
-		WithAccessible(cfg.Accessible).
-		WithShowHelp(cfg.ShowKeyHints) // AC: #4 - Display action hints
-
-	err := form.Run()
-	if err != nil {
-		if errors.Is(err, huh.ErrUserAborted) {
-			return "", ErrMenuCanceled
-		}
+	if err := runFormWithConfig(inputField, cfg, "input prompt failed"); err != nil {
 		return "", err
 	}
 
@@ -311,9 +287,6 @@ func InputWithValidation(prompt, defaultValue string, validate func(string) erro
 
 // InputWithValidationConfig presents an input prompt with validation and custom config.
 func InputWithValidationConfig(prompt, defaultValue string, validate func(string) error, cfg *MenuConfig) (string, error) {
-	// Respect NO_COLOR
-	CheckNoColor()
-
 	var value string
 	if defaultValue != "" {
 		value = defaultValue
@@ -324,19 +297,7 @@ func InputWithValidationConfig(prompt, defaultValue string, validate func(string
 		Value(&value).
 		Validate(validate)
 
-	width := adaptWidth(cfg.Width)
-
-	form := huh.NewForm(huh.NewGroup(inputField)).
-		WithTheme(AtlasTheme()).
-		WithWidth(width).
-		WithAccessible(cfg.Accessible).
-		WithShowHelp(cfg.ShowKeyHints) // AC: #4 - Display action hints
-
-	err := form.Run()
-	if err != nil {
-		if errors.Is(err, huh.ErrUserAborted) {
-			return "", ErrMenuCanceled
-		}
+	if err := runFormWithConfig(inputField, cfg, "validated input prompt failed"); err != nil {
 		return "", err
 	}
 
@@ -351,9 +312,6 @@ func TextArea(prompt, placeholder string) (string, error) {
 
 // TextAreaWithConfig presents a text area with custom configuration.
 func TextAreaWithConfig(prompt, placeholder string, cfg *MenuConfig) (string, error) {
-	// Respect NO_COLOR
-	CheckNoColor()
-
 	var value string
 
 	textField := huh.NewText().
@@ -361,19 +319,7 @@ func TextAreaWithConfig(prompt, placeholder string, cfg *MenuConfig) (string, er
 		Placeholder(placeholder).
 		Value(&value)
 
-	width := adaptWidth(cfg.Width)
-
-	form := huh.NewForm(huh.NewGroup(textField)).
-		WithTheme(AtlasTheme()).
-		WithWidth(width).
-		WithAccessible(cfg.Accessible).
-		WithShowHelp(cfg.ShowKeyHints) // AC: #4 - Display action hints
-
-	err := form.Run()
-	if err != nil {
-		if errors.Is(err, huh.ErrUserAborted) {
-			return "", ErrMenuCanceled
-		}
+	if err := runFormWithConfig(textField, cfg, "text area failed"); err != nil {
 		return "", err
 	}
 
@@ -387,9 +333,6 @@ func TextAreaWithLimit(prompt, placeholder string, charLimit int) (string, error
 
 // TextAreaWithLimitConfig presents a text area with character limit and custom config.
 func TextAreaWithLimitConfig(prompt, placeholder string, charLimit int, cfg *MenuConfig) (string, error) {
-	// Respect NO_COLOR
-	CheckNoColor()
-
 	var value string
 
 	textField := huh.NewText().
@@ -398,19 +341,7 @@ func TextAreaWithLimitConfig(prompt, placeholder string, charLimit int, cfg *Men
 		CharLimit(charLimit).
 		Value(&value)
 
-	width := adaptWidth(cfg.Width)
-
-	form := huh.NewForm(huh.NewGroup(textField)).
-		WithTheme(AtlasTheme()).
-		WithWidth(width).
-		WithAccessible(cfg.Accessible).
-		WithShowHelp(cfg.ShowKeyHints) // AC: #4 - Display action hints
-
-	err := form.Run()
-	if err != nil {
-		if errors.Is(err, huh.ErrUserAborted) {
-			return "", ErrMenuCanceled
-		}
+	if err := runFormWithConfig(textField, cfg, "text area with limit failed"); err != nil {
 		return "", err
 	}
 
