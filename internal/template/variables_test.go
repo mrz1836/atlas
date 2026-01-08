@@ -329,7 +329,7 @@ func Test_expandString(t *testing.T) {
 	}
 }
 
-func Test_cloneTemplate(t *testing.T) {
+func TestTemplate_Clone(t *testing.T) {
 	original := &domain.Template{
 		Name:               "original",
 		Description:        "Original description",
@@ -351,7 +351,7 @@ func Test_cloneTemplate(t *testing.T) {
 		},
 	}
 
-	clone := cloneTemplate(original)
+	clone := original.Clone()
 
 	// Verify clone has same values
 	assert.Equal(t, original.Name, clone.Name)

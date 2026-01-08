@@ -45,7 +45,7 @@ func parseClaudeResponse(data []byte) (*ClaudeResponse, error) {
 
 	var resp ClaudeResponse
 	if err := json.Unmarshal(data, &resp); err != nil {
-		return nil, fmt.Errorf("%w: failed to parse json response: %s", atlaserrors.ErrClaudeInvocation, err.Error())
+		return nil, fmt.Errorf("%w: failed to unmarshal response (%d bytes): %w", atlaserrors.ErrClaudeInvocation, len(data), err)
 	}
 
 	return &resp, nil

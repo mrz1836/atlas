@@ -153,19 +153,19 @@ func InferCommitType(files []FileChange) CommitType {
 
 // isTestFile checks if a file is a test file.
 func isTestFile(path string) bool {
-	return len(path) > 8 && path[len(path)-8:] == "_test.go"
+	return strings.HasSuffix(path, "_test.go")
 }
 
 // isDocFile checks if a file is documentation.
 func isDocFile(path string) bool {
-	if len(path) >= 3 && path[len(path)-3:] == ".md" {
+	if strings.HasSuffix(path, ".md") {
 		return true
 	}
-	if len(path) >= 4 && path[len(path)-4:] == ".txt" {
+	if strings.HasSuffix(path, ".txt") {
 		return true
 	}
 	// Check for docs directory
-	if len(path) >= 5 && path[:5] == "docs/" {
+	if strings.HasPrefix(path, "docs/") {
 		return true
 	}
 	return false
@@ -175,7 +175,7 @@ func isDocFile(path string) bool {
 func isConfigFile(path string) bool {
 	configExtensions := []string{".yaml", ".yml", ".json", ".toml", ".ini"}
 	for _, ext := range configExtensions {
-		if len(path) >= len(ext) && path[len(path)-len(ext):] == ext {
+		if strings.HasSuffix(path, ext) {
 			return true
 		}
 	}

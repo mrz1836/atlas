@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/mrz1836/atlas/internal/config"
+	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/errors"
 	"github.com/mrz1836/atlas/internal/tui"
 	"github.com/mrz1836/atlas/internal/validation"
@@ -112,25 +113,25 @@ func runValidate(ctx context.Context, cmd *cobra.Command, w io.Writer) error {
 			stepInfo = fmt.Sprintf("[%d/%d] ", info.CurrentStep, info.TotalSteps)
 		}
 
-		switch status {
-		case "starting":
+		switch constants.ValidationProgressStatus(status) {
+		case constants.ValidationProgressStarting:
 			// Use spinner for starting status
 			spinner.Start(ctx, fmt.Sprintf("%sRunning %s...", stepInfo, step))
-		case "completed":
+		case constants.ValidationProgressCompleted:
 			// Stop spinner and show success
 			duration := ""
 			if info != nil && info.DurationMs > 0 {
 				duration = fmt.Sprintf(" (%s)", tui.FormatDuration(info.DurationMs))
 			}
 			spinner.StopWithSuccess(fmt.Sprintf("%s passed%s", capitalizeStep(step), duration))
-		case "failed":
+		case constants.ValidationProgressFailed:
 			// Stop spinner - error will be reported later with details
 			if verbose {
 				spinner.StopWithError(fmt.Sprintf("%s failed", capitalizeStep(step)))
 			} else {
 				spinner.Stop()
 			}
-		case "skipped":
+		case constants.ValidationProgressSkipped:
 			spinner.StopWithWarning(fmt.Sprintf("%s skipped (tool not installed)", capitalizeStep(step)))
 		}
 	})

@@ -927,6 +927,14 @@ func (m *mockRunner) Reset(_ context.Context) error {
 	return nil
 }
 
+func (m *mockRunner) DiffStaged(_ context.Context) (string, error) {
+	return "", nil
+}
+
+func (m *mockRunner) DiffUnstaged(_ context.Context) (string, error) {
+	return "", nil
+}
+
 // Tests for new git operations: merge_pr, add_pr_review, add_pr_comment
 
 func TestGitExecutor_ExecuteMergePR_NoHubRunner(t *testing.T) {

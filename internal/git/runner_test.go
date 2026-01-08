@@ -591,7 +591,7 @@ func TestCLIRunner_Diff(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
 
-		_, err = runner.Diff(ctx, false)
+		_, err = runner.DiffUnstaged(ctx)
 		assert.ErrorIs(t, err, context.Canceled)
 	})
 }

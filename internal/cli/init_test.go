@@ -260,7 +260,7 @@ func TestSuggestValidationCommands(t *testing.T) {
 			t.Parallel()
 
 			result := &config.ToolDetectionResult{Tools: tc.tools}
-			cmds := suggestValidationCommands(result)
+			cmds := SuggestValidationDefaults(result)
 
 			require.Len(t, cmds.Format, 1)
 			assert.Equal(t, tc.expectedFormat, cmds.Format[0])
@@ -312,7 +312,7 @@ func TestParseMultilineInput(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			result := parseMultilineInput(tc.input)
+			result := ParseMultilineInput(tc.input)
 			assert.Equal(t, tc.expected, result)
 		})
 	}

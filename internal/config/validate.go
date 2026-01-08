@@ -7,6 +7,14 @@ import (
 	"github.com/mrz1836/atlas/internal/errors"
 )
 
+// CI poll interval boundaries for validation.
+const (
+	// MinCIPollInterval is the minimum allowed CI poll interval.
+	MinCIPollInterval = 1 * time.Second
+	// MaxCIPollInterval is the maximum allowed CI poll interval.
+	MaxCIPollInterval = 10 * time.Minute
+)
+
 // Validate checks the configuration for invalid or inconsistent values.
 // It returns an error describing the first validation failure found.
 //
@@ -77,12 +85,10 @@ func validateCIConfig(cfg *CIConfig) error {
 			"ci.timeout must be positive, got %s", cfg.Timeout)
 	}
 
-	minPollInterval := 1 * time.Second
-	maxPollInterval := 10 * time.Minute
-	if cfg.PollInterval < minPollInterval || cfg.PollInterval > maxPollInterval {
+	if cfg.PollInterval < MinCIPollInterval || cfg.PollInterval > MaxCIPollInterval {
 		return errors.Wrapf(errors.ErrConfigInvalidCI,
 			"ci.poll_interval must be between %s and %s, got %s",
-			minPollInterval, maxPollInterval, cfg.PollInterval)
+			MinCIPollInterval, MaxCIPollInterval, cfg.PollInterval)
 	}
 
 	return nil

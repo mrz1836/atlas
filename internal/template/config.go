@@ -28,7 +28,7 @@ func ApplyConfig(t *domain.Template, cfg *config.Config) *domain.Template {
 	}
 
 	// Clone the template to avoid modifying the original
-	result := cloneTemplate(t)
+	result := t.Clone()
 
 	if cfg == nil {
 		return result
@@ -56,7 +56,7 @@ func ApplyOverrides(t *domain.Template, overrides Overrides) *domain.Template {
 	}
 
 	// Clone the template to avoid modifying the original
-	result := cloneTemplate(t)
+	result := t.Clone()
 
 	// Apply agent override
 	if overrides.Agent != "" {

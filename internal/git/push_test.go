@@ -138,6 +138,14 @@ func (m *MockRunner) Reset(ctx context.Context) error {
 	return nil
 }
 
+func (m *MockRunner) DiffStaged(ctx context.Context) (string, error) {
+	return m.Diff(ctx, true)
+}
+
+func (m *MockRunner) DiffUnstaged(ctx context.Context) (string, error) {
+	return m.Diff(ctx, false)
+}
+
 func TestPushErrorType_String(t *testing.T) {
 	tests := []struct {
 		name     string

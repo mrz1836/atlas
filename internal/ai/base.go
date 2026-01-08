@@ -97,5 +97,5 @@ func (b *BaseRunner) runWithRetry(ctx context.Context, req *domain.AIRequest, ex
 		}
 	}
 
-	return nil, fmt.Errorf("%w: max retries exceeded: %s", b.ErrType, lastErr.Error())
+	return nil, fmt.Errorf("%w: max retries exceeded: %w", b.ErrType, lastErr)
 }

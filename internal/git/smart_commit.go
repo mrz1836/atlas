@@ -503,7 +503,7 @@ func (r *SmartCommitRunner) getDiffSummary(ctx context.Context, group FileGroup)
 
 // fetchDiff gets the diff output, trying unstaged first then staged.
 func (r *SmartCommitRunner) fetchDiff(ctx context.Context) string {
-	diff, err := r.runner.Diff(ctx, false)
+	diff, err := r.runner.DiffUnstaged(ctx)
 	if err != nil {
 		r.logger.Debug().Err(err).Msg("failed to get diff for AI prompt")
 		return ""
@@ -513,7 +513,7 @@ func (r *SmartCommitRunner) fetchDiff(ctx context.Context) string {
 		return diff
 	}
 
-	diff, err = r.runner.Diff(ctx, true)
+	diff, err = r.runner.DiffStaged(ctx)
 	if err != nil {
 		r.logger.Debug().Err(err).Msg("failed to get staged diff for AI prompt")
 		return ""

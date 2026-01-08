@@ -25,8 +25,10 @@ type RetryContext struct {
 	MaxAttempts int
 }
 
-// MaxErrorOutputLength is the maximum length for error output in the prompt.
-// This prevents overly long prompts while providing sufficient context.
+// MaxErrorOutputLength limits error output included in AI retry prompts.
+// This prevents exceeding AI model token limits while providing sufficient
+// context for fixing issues. Typical validation error output is 500-2000 chars;
+// 4000 provides a safety margin for complex multi-command failures.
 const MaxErrorOutputLength = 4000
 
 // ExtractErrorContext creates a RetryContext from a failed PipelineResult.
