@@ -105,18 +105,14 @@ func (r *GeminiRunner) execute(ctx context.Context, req *domain.AIRequest) (*dom
 
 // handleExecutionError processes errors from command execution.
 func (r *GeminiRunner) handleExecutionError(ctx context.Context, err error, stdout, stderr []byte) (*domain.AIResult, error) {
-	// Check if context was canceled
-	if ctx.Err() != nil {
-		return nil, ctx.Err()
-	}
-
-	// Try to parse response even on error (may have valid JSON with error info)
-	result, handled := r.tryParseErrorResponse(err, stdout, stderr)
-	if handled {
-		return result, nil
-	}
-
-	return nil, wrapGeminiExecutionError(err, stderr)
+	return r.base.HandleExecutionError(ctx, err,
+		func() (*domain.AIResult, bool) {
+			return r.tryParseErrorResponse(err, stdout, stderr)
+		},
+		func(e error) error {
+			return wrapGeminiExecutionError(e, stderr)
+		},
+	)
 }
 
 // tryParseErrorResponse attempts to extract error information from a JSON response.
