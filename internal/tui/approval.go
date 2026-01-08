@@ -77,6 +77,12 @@ type ApprovalSummary struct {
 
 	// Validation holds the validation summary if validation has run (AC: #4).
 	Validation *ValidationSummary
+
+	// InterruptionCount is the number of times the task was interrupted (Ctrl+C).
+	InterruptionCount int
+
+	// WasPaused indicates if the task was paused at any point during execution.
+	WasPaused bool
 }
 
 // FileChange represents a single file modification (AC: #3).
@@ -161,7 +167,23 @@ func NewApprovalSummary(task *domain.Task, workspace *domain.Workspace) *Approva
 	// Extract CI status and add to validation checks
 	summary.extractCIStatus(task.StepResults)
 
+	// Count interruptions from task transitions
+	summary.InterruptionCount = countInterruptions(task.Transitions)
+	summary.WasPaused = summary.InterruptionCount > 0
+
 	return summary
+}
+
+// countInterruptions counts how many times a task was interrupted (Ctrl+C).
+// It counts transitions where the task moved to "interrupted" status.
+func countInterruptions(transitions []domain.Transition) int {
+	count := 0
+	for _, t := range transitions {
+		if t.ToStatus == constants.TaskStatusInterrupted {
+			count++
+		}
+	}
+	return count
 }
 
 // SetFileStats updates file change statistics from git diff data.
@@ -200,23 +222,40 @@ func (s *ApprovalSummary) collectFileChanges(results []domain.StepResult) {
 }
 
 // extractValidationStatus finds and parses validation results from step results (AC: #4).
-// Priority: steps with actual validation metadata > steps with "validate" in name.
-// This ensures we find results from "detect" steps (detect_only mode) when the
-// "validate" step was skipped.
+// Priority: successful validation > latest failed validation > step name fallback.
+// Iterates in reverse order to prefer latest results when a step runs multiple times
+// (e.g., after interruptions and resumes).
 func (s *ApprovalSummary) extractValidationStatus(results []domain.StepResult) {
-	// First pass: look for steps with actual validation metadata
-	// This is the most reliable indicator since it means validation actually ran
-	for _, result := range results {
-		if hasValidationMetadata(result.Metadata) {
+	// Iterate in reverse to prefer latest results
+	// Track latest failed result as fallback if no success found
+	var latestFailed *domain.StepResult
+
+	for i := len(results) - 1; i >= 0; i-- {
+		result := results[i]
+		if !hasValidationMetadata(result.Metadata) {
+			continue
+		}
+		// Prefer successful result - return immediately
+		if result.Status == "success" {
 			s.Validation = buildValidationSummary(result)
 			return
 		}
+		// Track latest failed as fallback (first one found in reverse = latest)
+		if latestFailed == nil {
+			latestFailed = &results[i]
+		}
 	}
 
-	// Fallback: look by step name (for backwards compatibility)
-	for _, result := range results {
-		if isValidationStep(result.StepName) {
-			s.Validation = buildValidationSummary(result)
+	// Use latest failed if no success found
+	if latestFailed != nil {
+		s.Validation = buildValidationSummary(*latestFailed)
+		return
+	}
+
+	// Fallback: look by step name (for backwards compatibility), also in reverse
+	for i := len(results) - 1; i >= 0; i-- {
+		if isValidationStep(results[i].StepName) {
+			s.Validation = buildValidationSummary(results[i])
 			return
 		}
 	}
@@ -545,6 +584,10 @@ func RenderApprovalSummaryWithWidth(summary *ApprovalSummary, width int, verbose
 	content.WriteString(renderInfoLineWithMode("Workspace", summary.WorkspaceName, width, mode))
 	content.WriteString(renderInfoLineWithMode("Branch", summary.BranchName, width, mode))
 	content.WriteString(renderStatusLine(summary.Status, width))
+	// Show session info if task was paused/interrupted
+	if summary.WasPaused {
+		content.WriteString(renderSessionLine(summary.InterruptionCount, width))
+	}
 	content.WriteString(renderProgressLine(summary.CurrentStep, summary.TotalSteps, width))
 
 	// Show description in expanded mode
@@ -619,6 +662,25 @@ func renderProgressLine(current, total, _ int) string {
 	progressText.WriteString(intToString(total))
 
 	return "  " + padRight("Progress:", 12) + progressText.String() + "\n"
+}
+
+// renderSessionLine renders session info showing interruption count.
+// Only shown when task was paused/interrupted at least once.
+func renderSessionLine(interruptionCount, _ int) string {
+	// Format interruption text with proper pluralization
+	interruptText := strconv.Itoa(interruptionCount) + " interruption"
+	if interruptionCount != 1 {
+		interruptText += "s"
+	}
+	interruptText += ", resumed"
+
+	// Apply dimmed style if colors are supported
+	styledText := interruptText
+	if HasColorSupport() {
+		styledText = lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Render(interruptText)
+	}
+
+	return "  " + padRight("Session:", 12) + styledText + "\n"
 }
 
 // renderPRLine renders the PR link without truncation (PR numbers are inherently short).
