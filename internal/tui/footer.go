@@ -88,19 +88,21 @@ func (f *StatusFooter) Render(w io.Writer) error {
 
 	// Blank line before footer
 	if _, err := fmt.Fprintln(w); err != nil {
-		return err
+		return fmt.Errorf("write footer separator: %w", err)
 	}
 
 	// Render action commands
 	if len(f.items) == 1 {
-		_, err := fmt.Fprintln(w, f.renderSingleAction(f.items[0]))
-		return err
+		if _, err := fmt.Fprintln(w, f.renderSingleAction(f.items[0])); err != nil {
+			return fmt.Errorf("write action item: %w", err)
+		}
+		return nil
 	}
 
 	// Multiple items
 	for _, item := range f.items {
 		if _, err := fmt.Fprintln(w, f.renderSingleAction(item)); err != nil {
-			return err
+			return fmt.Errorf("write action item: %w", err)
 		}
 	}
 
@@ -116,12 +118,12 @@ func (f *StatusFooter) RenderPlain(w io.Writer) error {
 
 	// Blank line before footer
 	if _, err := fmt.Fprintln(w); err != nil {
-		return err
+		return fmt.Errorf("write footer separator: %w", err)
 	}
 
 	for _, item := range f.items {
 		if _, err := fmt.Fprintf(w, "Run: %s\n", item.Action); err != nil {
-			return err
+			return fmt.Errorf("write action item: %w", err)
 		}
 	}
 
