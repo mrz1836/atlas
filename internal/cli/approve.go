@@ -848,7 +848,7 @@ func handleApproveError(format string, w io.Writer, workspaceName string, err er
 
 // outputApproveErrorJSON outputs an error result as JSON.
 func outputApproveErrorJSON(w io.Writer, workspaceName, taskID, errMsg string) error {
-	resp := approveResponse{
+	if err := encodeJSONIndented(w, approveResponse{
 		Success: false,
 		Workspace: workspaceInfo{
 			Name: workspaceName,
@@ -857,11 +857,7 @@ func outputApproveErrorJSON(w io.Writer, workspaceName, taskID, errMsg string) e
 			ID: taskID,
 		},
 		Error: errMsg,
-	}
-
-	encoder := json.NewEncoder(w)
-	encoder.SetIndent("", "  ")
-	if err := encoder.Encode(resp); err != nil {
+	}); err != nil {
 		return fmt.Errorf("failed to encode JSON: %w", err)
 	}
 	return atlaserrors.ErrJSONErrorOutput

@@ -3,12 +3,14 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"time"
 
 	"github.com/rs/zerolog"
 
+	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/errors"
 	"github.com/mrz1836/atlas/internal/tui"
@@ -184,4 +186,79 @@ func handleValidationFailure(out tui.Output, outputFormat string, results []Comm
 	}
 
 	return errors.ErrValidationFailed
+}
+
+// encodeJSONIndented encodes a value as indented JSON to the writer.
+// This is a shared helper for JSON error output functions across commands.
+func encodeJSONIndented(w io.Writer, v any) error {
+	encoder := json.NewEncoder(w)
+	encoder.SetIndent("", "  ")
+	return encoder.Encode(v)
+}
+
+// Default values for smart commit and PR description configuration.
+const (
+	DefaultSmartCommitTimeout       = 30 * time.Second
+	DefaultSmartCommitMaxRetries    = 2
+	DefaultSmartCommitBackoffFactor = 1.5
+)
+
+// ResolvedGitConfig holds resolved agent/model settings for git operations.
+// This consolidates the fallback logic for SmartCommit and PRDescription settings.
+type ResolvedGitConfig struct {
+	CommitAgent         string
+	CommitModel         string
+	PRDescAgent         string
+	PRDescModel         string
+	CommitTimeout       time.Duration
+	CommitMaxRetries    int
+	CommitBackoffFactor float64
+}
+
+// ResolveGitConfig resolves SmartCommit and PRDescription settings with fallback to global AI config.
+// This eliminates duplicated resolution logic across commands.
+func ResolveGitConfig(cfg *config.Config) ResolvedGitConfig {
+	// Resolve commit agent/model with fallback to global AI config
+	commitAgent := cfg.SmartCommit.Agent
+	if commitAgent == "" {
+		commitAgent = cfg.AI.Agent
+	}
+	commitModel := cfg.SmartCommit.Model
+	if commitModel == "" {
+		commitModel = cfg.AI.Model
+	}
+
+	// Resolve PR description agent/model with fallback to global AI config
+	prDescAgent := cfg.PRDescription.Agent
+	if prDescAgent == "" {
+		prDescAgent = cfg.AI.Agent
+	}
+	prDescModel := cfg.PRDescription.Model
+	if prDescModel == "" {
+		prDescModel = cfg.AI.Model
+	}
+
+	// Resolve smart commit timeout/retry settings with defaults
+	commitTimeout := cfg.SmartCommit.Timeout
+	if commitTimeout == 0 {
+		commitTimeout = DefaultSmartCommitTimeout
+	}
+	commitMaxRetries := cfg.SmartCommit.MaxRetries
+	if commitMaxRetries == 0 {
+		commitMaxRetries = DefaultSmartCommitMaxRetries
+	}
+	commitBackoffFactor := cfg.SmartCommit.RetryBackoffFactor
+	if commitBackoffFactor == 0 {
+		commitBackoffFactor = DefaultSmartCommitBackoffFactor
+	}
+
+	return ResolvedGitConfig{
+		CommitAgent:         commitAgent,
+		CommitModel:         commitModel,
+		PRDescAgent:         prDescAgent,
+		PRDescModel:         prDescModel,
+		CommitTimeout:       commitTimeout,
+		CommitMaxRetries:    commitMaxRetries,
+		CommitBackoffFactor: commitBackoffFactor,
+	}
 }

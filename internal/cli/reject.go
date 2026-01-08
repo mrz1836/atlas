@@ -584,16 +584,12 @@ func handleRejectError(format string, w io.Writer, workspaceName string, err err
 
 // outputRejectErrorJSON outputs an error result as JSON.
 func outputRejectErrorJSON(w io.Writer, workspaceName, taskID, errMsg string) error {
-	resp := rejectResponse{
+	if err := encodeJSONIndented(w, rejectResponse{
 		Success:       false,
 		WorkspaceName: workspaceName,
 		TaskID:        taskID,
 		Error:         errMsg,
-	}
-
-	encoder := json.NewEncoder(w)
-	encoder.SetIndent("", "  ")
-	if err := encoder.Encode(resp); err != nil {
+	}); err != nil {
 		return fmt.Errorf("failed to encode JSON: %w", err)
 	}
 	return atlaserrors.ErrJSONErrorOutput

@@ -646,53 +646,22 @@ func createGitServices(ctx context.Context, worktreePath string, cfg *config.Con
 		return nil, fmt.Errorf("failed to create git runner: %w", err)
 	}
 
-	// Resolve commit agent/model with fallback to global AI config
-	commitAgent := cfg.SmartCommit.Agent
-	if commitAgent == "" {
-		commitAgent = cfg.AI.Agent
-	}
-	commitModel := cfg.SmartCommit.Model
-	if commitModel == "" {
-		commitModel = cfg.AI.Model
-	}
-
-	// Resolve PR description agent/model with fallback to global AI config
-	prDescAgent := cfg.PRDescription.Agent
-	if prDescAgent == "" {
-		prDescAgent = cfg.AI.Agent
-	}
-	prDescModel := cfg.PRDescription.Model
-	if prDescModel == "" {
-		prDescModel = cfg.AI.Model
-	}
-
-	// Resolve smart commit timeout/retry settings with defaults
-	commitTimeout := cfg.SmartCommit.Timeout
-	if commitTimeout == 0 {
-		commitTimeout = 30 * time.Second
-	}
-	commitMaxRetries := cfg.SmartCommit.MaxRetries
-	if commitMaxRetries == 0 {
-		commitMaxRetries = 2
-	}
-	commitRetryBackoffFactor := cfg.SmartCommit.RetryBackoffFactor
-	if commitRetryBackoffFactor == 0 {
-		commitRetryBackoffFactor = 1.5
-	}
+	// Resolve git config settings with fallbacks
+	gitCfg := ResolveGitConfig(cfg)
 
 	smartCommitter := git.NewSmartCommitRunner(gitRunner, worktreePath, aiRunner,
-		git.WithAgent(commitAgent),
-		git.WithModel(commitModel),
-		git.WithTimeout(commitTimeout),
-		git.WithMaxRetries(commitMaxRetries),
-		git.WithRetryBackoffFactor(commitRetryBackoffFactor),
+		git.WithAgent(gitCfg.CommitAgent),
+		git.WithModel(gitCfg.CommitModel),
+		git.WithTimeout(gitCfg.CommitTimeout),
+		git.WithMaxRetries(gitCfg.CommitMaxRetries),
+		git.WithRetryBackoffFactor(gitCfg.CommitBackoffFactor),
 		git.WithLogger(logger),
 	)
 	pusher := git.NewPushRunner(gitRunner)
 	hubRunner := git.NewCLIGitHubRunner(worktreePath)
 	prDescGen := git.NewAIDescriptionGenerator(aiRunner,
-		git.WithAIDescAgent(prDescAgent),
-		git.WithAIDescModel(prDescModel),
+		git.WithAIDescAgent(gitCfg.PRDescAgent),
+		git.WithAIDescModel(gitCfg.PRDescModel),
 		git.WithAIDescLogger(logger),
 	)
 	ciFailureHandler := task.NewCIFailureHandler(hubRunner)
@@ -1293,7 +1262,7 @@ func displayTaskStatus(out tui.Output, format string, ws *domain.Workspace, t *d
 
 // outputStartErrorJSON outputs an error result as JSON.
 func outputStartErrorJSON(w io.Writer, workspaceName, taskID, errMsg string) error {
-	resp := startResponse{
+	return encodeJSONIndented(w, startResponse{
 		Success: false,
 		Workspace: workspaceInfo{
 			Name: workspaceName,
@@ -1302,11 +1271,7 @@ func outputStartErrorJSON(w io.Writer, workspaceName, taskID, errMsg string) err
 			ID: taskID,
 		},
 		Error: errMsg,
-	}
-
-	encoder := json.NewEncoder(w)
-	encoder.SetIndent("", "  ")
-	return encoder.Encode(resp)
+	})
 }
 
 // dryRunResponse represents the JSON output for dry-run mode.

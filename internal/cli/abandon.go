@@ -3,7 +3,6 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
 	stderrors "errors"
 	"fmt"
 	"io"
@@ -286,17 +285,13 @@ func handleAbandonError(format string, w io.Writer, workspaceName, taskID string
 
 // outputAbandonSuccessJSON outputs a success result as JSON.
 func outputAbandonSuccessJSON(w io.Writer, workspaceName, taskID, branch, worktreePath string) error {
-	result := abandonResult{
+	return encodeJSONIndented(w, abandonResult{
 		Status:       "abandoned",
 		Workspace:    workspaceName,
 		TaskID:       taskID,
 		Branch:       branch,
 		WorktreePath: worktreePath,
-	}
-
-	encoder := json.NewEncoder(w)
-	encoder.SetIndent("", "  ")
-	return encoder.Encode(result)
+	})
 }
 
 // outputAbandonErrorJSON outputs an error result as JSON.
@@ -306,14 +301,10 @@ func outputAbandonSuccessJSON(w io.Writer, workspaceName, taskID, branch, worktr
 // and the caller's return of ErrJSONErrorOutput signals to cobra to suppress
 // its own error printing regardless of whether our JSON succeeded.
 func outputAbandonErrorJSON(w io.Writer, workspaceName, taskID, errMsg string) error {
-	result := abandonResult{
+	return encodeJSONIndented(w, abandonResult{
 		Status:    "error",
 		Workspace: workspaceName,
 		TaskID:    taskID,
 		Error:     errMsg,
-	}
-
-	encoder := json.NewEncoder(w)
-	encoder.SetIndent("", "  ")
-	return encoder.Encode(result)
+	})
 }
