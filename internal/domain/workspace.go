@@ -67,7 +67,7 @@ type Workspace struct {
 // Example JSON representation:
 //
 //	{
-//	    "id": "task-20251227-100000",
+//	    "id": "task-550e8400-e29b-41d4-a716-446655440000",
 //	    "status": "completed",
 //	    "started_at": "2025-12-27T10:00:00Z",
 //	    "completed_at": "2025-12-27T10:30:00Z"

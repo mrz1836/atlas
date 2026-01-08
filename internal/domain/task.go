@@ -21,7 +21,7 @@ import (
 // Example JSON representation:
 //
 //	{
-//	    "id": "task-20251227-100000",
+//	    "id": "task-550e8400-e29b-41d4-a716-446655440000",
 //	    "workspace_id": "auth-workspace",
 //	    "template_id": "bugfix",
 //	    "description": "Fix null pointer in parseConfig",
