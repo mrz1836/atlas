@@ -462,9 +462,9 @@ func (e *Engine) Abandon(ctx context.Context, task *domain.Task, reason string, 
 func (e *Engine) handleSuccessResult(task *domain.Task, step *domain.StepDefinition, result *domain.StepResult) error {
 	// Check for detect_only validation with no issues - skip fix steps
 	if result.Metadata != nil {
-		detectOnly, _ := result.Metadata["detect_only"].(bool)
-		validationFailed, _ := result.Metadata["validation_failed"].(bool)
-		if detectOnly && !validationFailed {
+		detectOnly, hasDetectOnly := result.Metadata["detect_only"].(bool)
+		validationFailed, _ := result.Metadata["validation_failed"].(bool) // defaults to false if missing
+		if hasDetectOnly && detectOnly && !validationFailed {
 			task.Metadata = e.ensureMetadata(task.Metadata)
 			task.Metadata["no_issues_detected"] = true
 			e.logger.Info().
