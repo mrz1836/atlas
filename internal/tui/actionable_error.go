@@ -57,14 +57,16 @@ func (e *ActionableError) WithContext(ctx string) *ActionableError {
 	return e
 }
 
-// GetSuggestion returns the suggestion for this error.
+// SuggestionText returns the suggestion for this error.
 // Used by output formatters to extract the suggestion for display.
-func (e *ActionableError) GetSuggestion() string {
+// Named SuggestionText (not Suggestion) to avoid collision with the Suggestion field.
+func (e *ActionableError) SuggestionText() string {
 	return e.Suggestion
 }
 
-// GetContext returns the context for this error.
+// ContextText returns the context for this error.
 // Used by output formatters to extract the context for structured output.
-func (e *ActionableError) GetContext() string {
+// Named ContextText (not Context) to avoid collision with the Context field.
+func (e *ActionableError) ContextText() string {
 	return e.Context
 }

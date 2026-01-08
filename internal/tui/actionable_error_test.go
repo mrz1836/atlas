@@ -80,18 +80,18 @@ func TestActionableError_WithContext(t *testing.T) {
 	assert.Equal(t, ctx, err.Context)
 }
 
-func TestActionableError_GetSuggestion(t *testing.T) {
+func TestActionableError_SuggestionText(t *testing.T) {
 	suggestion := "Run: atlas init"
 	err := NewActionableError("test error", suggestion)
 
-	assert.Equal(t, suggestion, err.GetSuggestion())
+	assert.Equal(t, suggestion, err.SuggestionText())
 }
 
-func TestActionableError_GetContext(t *testing.T) {
+func TestActionableError_ContextText(t *testing.T) {
 	ctx := "/some/path"
 	err := NewActionableError("test error", "suggestion").WithContext(ctx)
 
-	assert.Equal(t, ctx, err.GetContext())
+	assert.Equal(t, ctx, err.ContextText())
 }
 
 func TestActionableError_Chaining(t *testing.T) {
@@ -129,5 +129,5 @@ func TestActionableError_EmptySuggestion(t *testing.T) {
 	err := NewActionableError("something went wrong", "")
 
 	assert.Equal(t, "something went wrong", err.Error())
-	assert.Empty(t, err.GetSuggestion())
+	assert.Empty(t, err.SuggestionText())
 }

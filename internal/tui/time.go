@@ -4,12 +4,26 @@ package tui
 import (
 	"fmt"
 	"time"
+
+	"github.com/mrz1836/atlas/internal/clock"
 )
+
+// DefaultClock is the default clock used for time operations.
+// It can be replaced in tests with a mock clock.
+//
+//nolint:gochecknoglobals // Package-level default for dependency injection
+var DefaultClock clock.Clock = clock.RealClock{}
 
 // RelativeTime formats a time as a human-readable relative string.
 // Examples: "just now", "2 minutes ago", "1 hour ago", "3 days ago", "2 weeks ago"
 func RelativeTime(t time.Time) string {
-	now := time.Now()
+	return RelativeTimeWith(t, DefaultClock)
+}
+
+// RelativeTimeWith formats a time as a human-readable relative string using the provided clock.
+// This function allows for testable time-based formatting.
+func RelativeTimeWith(t time.Time, c clock.Clock) string {
+	now := c.Now()
 	diff := now.Sub(t)
 
 	switch {

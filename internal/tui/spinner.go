@@ -33,9 +33,7 @@ type TerminalSpinner struct {
 	done    chan struct{}
 	mu      sync.Mutex
 	running bool
-
-	// stopOnce ensures Stop() cleanup happens exactly once per Start() cycle
-	stopOnce sync.Once
+	stopped bool // tracks if Stop() has been called for current cycle
 }
 
 // NewTerminalSpinner creates a new spinner that writes to w.
@@ -66,9 +64,8 @@ func (s *TerminalSpinner) Start(ctx context.Context, message string) {
 	}
 
 	s.running = true
+	s.stopped = false // Reset stopped flag for this new Start() cycle
 	s.done = make(chan struct{})
-	// Reset stopOnce for this new Start() cycle
-	s.stopOnce = sync.Once{}
 
 	// Capture the done channel before starting the goroutine
 	// to avoid race with potential Stop() calls
@@ -86,20 +83,19 @@ func (s *TerminalSpinner) UpdateMessage(message string) {
 // Stop stops the spinner animation and clears the line.
 func (s *TerminalSpinner) Stop() {
 	s.mu.Lock()
-	if !s.running {
+	if !s.running || s.stopped {
 		s.mu.Unlock()
 		return
 	}
 
-	// Use stopOnce to ensure we only close the done channel once
+	// Mark as stopped to ensure we only close the done channel once
 	// This prevents races between Stop() and context cancellation
-	done := s.done
+	s.stopped = true
 	s.running = false
+	done := s.done
 	s.mu.Unlock()
 
-	s.stopOnce.Do(func() {
-		close(done)
-	})
+	close(done)
 
 	// Clear the spinner line
 	_, _ = fmt.Fprint(s.w, "\r\033[K")
@@ -136,11 +132,12 @@ func (s *TerminalSpinner) animate(ctx context.Context, done <-chan struct{}) {
 			// Stopped explicitly via Stop() - don't write, Stop() handles cleanup
 			return
 		case <-ctx.Done():
-			// Context canceled - mark as not running and clear line
+			// Context canceled - mark as stopped and clear line
 			s.mu.Lock()
-			wasRunning := s.running
+			wasRunning := s.running && !s.stopped
 			if wasRunning {
 				s.running = false
+				s.stopped = true
 			}
 			s.mu.Unlock()
 
