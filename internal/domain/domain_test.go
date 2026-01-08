@@ -14,7 +14,7 @@ import (
 const (
 	// exampleTaskJSON shows the expected JSON serialization format for Task.
 	exampleTaskJSON = `{
-    "id": "task-20251227-100000",
+    "id": "task-550e8400-e29b-41d4-a716-446655440000",
     "workspace_id": "auth-workspace",
     "template_id": "bugfix",
     "description": "Fix null pointer in parseConfig",
@@ -55,7 +55,7 @@ const (
     "status": "active",
     "tasks": [
         {
-            "id": "task-20251227-100000",
+            "id": "task-550e8400-e29b-41d4-a716-446655440000",
             "status": "completed",
             "started_at": "2025-12-27T10:00:00Z",
             "completed_at": "2025-12-27T10:30:00Z"
@@ -73,7 +73,7 @@ func TestTask_JSONSerialization(t *testing.T) {
 	later := now.Add(5 * time.Minute)
 
 	task := Task{
-		ID:          "task-20251227-100000",
+		ID:          "task-550e8400-e29b-41d4-a716-446655440000",
 		WorkspaceID: "auth-workspace",
 		TemplateID:  "bugfix",
 		Description: "Fix null pointer in parseConfig",
@@ -155,7 +155,7 @@ func TestWorkspace_JSONSerialization(t *testing.T) {
 		Status:       WorkspaceStatusActive,
 		Tasks: []TaskRef{
 			{
-				ID:          "task-20251227-100000",
+				ID:          "task-550e8400-e29b-41d4-a716-446655440000",
 				Status:      TaskStatusCompleted,
 				StartedAt:   &now,
 				CompletedAt: &later,
@@ -441,7 +441,7 @@ func TestStatusReexports(t *testing.T) {
 // TestTask_OmitemptyFields verifies optional fields are omitted when empty.
 func TestTask_OmitemptyFields(t *testing.T) {
 	task := Task{
-		ID:            "task-20251227-100000",
+		ID:            "task-550e8400-e29b-41d4-a716-446655440000",
 		WorkspaceID:   "ws-1",
 		TemplateID:    "bugfix",
 		Description:   "Test task",
@@ -555,7 +555,7 @@ func TestDeserializeExampleTaskJSON(t *testing.T) {
 	err := json.Unmarshal([]byte(exampleTaskJSON), &task)
 	require.NoError(t, err)
 
-	assert.Equal(t, "task-20251227-100000", task.ID)
+	assert.Equal(t, "task-550e8400-e29b-41d4-a716-446655440000", task.ID)
 	assert.Equal(t, "auth-workspace", task.WorkspaceID)
 	assert.Equal(t, "bugfix", task.TemplateID)
 	assert.Equal(t, "Fix null pointer in parseConfig", task.Description)
@@ -583,7 +583,7 @@ func TestDeserializeExampleWorkspaceJSON(t *testing.T) {
 	assert.Equal(t, WorkspaceStatusActive, ws.Status)
 	assert.Equal(t, 1, ws.SchemaVersion)
 	require.Len(t, ws.Tasks, 1)
-	assert.Equal(t, "task-20251227-100000", ws.Tasks[0].ID)
+	assert.Equal(t, "task-550e8400-e29b-41d4-a716-446655440000", ws.Tasks[0].ID)
 	assert.Equal(t, TaskStatusCompleted, ws.Tasks[0].Status)
 }
 
