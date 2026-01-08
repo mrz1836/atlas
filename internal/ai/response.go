@@ -1,9 +1,6 @@
 package ai
 
 import (
-	"encoding/json"
-	"fmt"
-
 	"github.com/mrz1836/atlas/internal/domain"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 )
@@ -39,16 +36,7 @@ type ClaudeResponse struct {
 // parseClaudeResponse parses the JSON output from Claude Code CLI.
 // Returns an error wrapped with ErrClaudeInvocation on parse failure.
 func parseClaudeResponse(data []byte) (*ClaudeResponse, error) {
-	if len(data) == 0 {
-		return nil, fmt.Errorf("%w: empty response", atlaserrors.ErrClaudeInvocation)
-	}
-
-	var resp ClaudeResponse
-	if err := json.Unmarshal(data, &resp); err != nil {
-		return nil, fmt.Errorf("%w: failed to unmarshal response (%d bytes): %w", atlaserrors.ErrClaudeInvocation, len(data), err)
-	}
-
-	return &resp, nil
+	return parseResponse[ClaudeResponse](data, atlaserrors.ErrClaudeInvocation)
 }
 
 // toAIResult converts a ClaudeResponse to a domain.AIResult.

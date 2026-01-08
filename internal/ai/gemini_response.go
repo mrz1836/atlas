@@ -108,16 +108,7 @@ type GeminiResponse struct {
 // parseGeminiResponse parses the JSON output from Gemini CLI.
 // Returns an error wrapped with ErrGeminiInvocation on parse failure.
 func parseGeminiResponse(data []byte) (*GeminiResponse, error) {
-	if len(data) == 0 {
-		return nil, fmt.Errorf("%w: empty response", atlaserrors.ErrGeminiInvocation)
-	}
-
-	var resp GeminiResponse
-	if err := json.Unmarshal(data, &resp); err != nil {
-		return nil, fmt.Errorf("%w: failed to parse json response: %s", atlaserrors.ErrGeminiInvocation, err.Error())
-	}
-
-	return &resp, nil
+	return parseResponse[GeminiResponse](data, atlaserrors.ErrGeminiInvocation)
 }
 
 // toAIResult converts a GeminiResponse to a domain.AIResult.

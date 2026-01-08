@@ -451,7 +451,7 @@ func TestClaudeCodeRunner_ErrorHandling(t *testing.T) {
 
 		require.Error(t, err)
 		require.ErrorIs(t, err, atlaserrors.ErrClaudeInvocation)
-		assert.Contains(t, err.Error(), "unmarshal")
+		assert.Contains(t, err.Error(), "parse json")
 	})
 
 	t.Run("handles API key error in stderr", func(t *testing.T) {

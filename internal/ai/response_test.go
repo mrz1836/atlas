@@ -72,7 +72,7 @@ func TestParseClaudeResponse(t *testing.T) {
 		require.Error(t, err)
 		assert.Nil(t, resp)
 		require.ErrorIs(t, err, atlaserrors.ErrClaudeInvocation)
-		assert.Contains(t, err.Error(), "unmarshal")
+		assert.Contains(t, err.Error(), "parse json")
 	})
 
 	t.Run("handles minimal valid response", func(t *testing.T) {

@@ -281,7 +281,7 @@ func TestWrapCodexExecutionError(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := wrapCodexExecutionError(tt.err, tt.stderr)
+			err := WrapCLIExecutionError(codexCLIInfo, tt.err, tt.stderr)
 			require.ErrorIs(t, err, atlaserrors.ErrCodexInvocation)
 			assert.Contains(t, err.Error(), tt.expectedSubstr)
 		})

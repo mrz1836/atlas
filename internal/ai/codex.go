@@ -81,7 +81,7 @@ func (r *CodexRunner) handleExecutionError(ctx context.Context, err error, stdou
 			return r.tryParseErrorResponse(err, stdout, stderr)
 		},
 		func(e error) error {
-			return wrapCodexExecutionError(e, stderr)
+			return WrapCLIExecutionError(codexCLIInfo, e, stderr)
 		},
 	)
 }
@@ -134,11 +134,6 @@ func (r *CodexRunner) buildCommand(ctx context.Context, req *domain.AIRequest) *
 	}
 
 	return cmd
-}
-
-// wrapCodexExecutionError wraps an execution error with context.
-func wrapCodexExecutionError(err error, stderr []byte) error {
-	return WrapCLIExecutionError(codexCLIInfo, err, stderr)
 }
 
 // CodexExecutor provides a custom executor for Codex CLI.

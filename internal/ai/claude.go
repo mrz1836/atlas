@@ -117,7 +117,7 @@ func (r *ClaudeCodeRunner) handleExecutionError(ctx context.Context, err error, 
 			return r.tryParseErrorResponse(err, stdout, stderr)
 		},
 		func(e error) error {
-			return wrapExecutionError(e, stderr)
+			return WrapCLIExecutionError(claudeCLIInfo, e, stderr)
 		},
 	)
 }
@@ -182,11 +182,6 @@ func (r *ClaudeCodeRunner) buildCommand(ctx context.Context, req *domain.AIReque
 	}
 
 	return cmd
-}
-
-// wrapExecutionError wraps an execution error with context.
-func wrapExecutionError(err error, stderr []byte) error {
-	return WrapCLIExecutionError(claudeCLIInfo, err, stderr)
 }
 
 // Compile-time check that ClaudeCodeRunner implements Runner.

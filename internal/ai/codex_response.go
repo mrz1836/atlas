@@ -1,9 +1,6 @@
 package ai
 
 import (
-	"encoding/json"
-	"fmt"
-
 	"github.com/mrz1836/atlas/internal/domain"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 )
@@ -45,16 +42,7 @@ type CodexResponse struct {
 // parseCodexResponse parses the JSON output from Codex CLI.
 // Returns an error wrapped with ErrCodexInvocation on parse failure.
 func parseCodexResponse(data []byte) (*CodexResponse, error) {
-	if len(data) == 0 {
-		return nil, fmt.Errorf("%w: empty response", atlaserrors.ErrCodexInvocation)
-	}
-
-	var resp CodexResponse
-	if err := json.Unmarshal(data, &resp); err != nil {
-		return nil, fmt.Errorf("%w: failed to parse json response: %s", atlaserrors.ErrCodexInvocation, err.Error())
-	}
-
-	return &resp, nil
+	return parseResponse[CodexResponse](data, atlaserrors.ErrCodexInvocation)
 }
 
 // toAIResult converts a CodexResponse to a domain.AIResult.

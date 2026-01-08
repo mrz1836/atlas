@@ -110,7 +110,7 @@ func (r *GeminiRunner) handleExecutionError(ctx context.Context, err error, stdo
 			return r.tryParseErrorResponse(err, stdout, stderr)
 		},
 		func(e error) error {
-			return wrapGeminiExecutionError(e, stderr)
+			return WrapCLIExecutionError(geminiCLIInfo, e, stderr)
 		},
 	)
 }
@@ -185,11 +185,6 @@ func (r *GeminiRunner) buildCommand(ctx context.Context, req *domain.AIRequest) 
 	}
 
 	return cmd
-}
-
-// wrapGeminiExecutionError wraps an execution error with context.
-func wrapGeminiExecutionError(err error, stderr []byte) error {
-	return WrapCLIExecutionError(geminiCLIInfo, err, stderr)
 }
 
 // GeminiExecutor provides a custom executor for Gemini CLI.
