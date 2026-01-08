@@ -40,7 +40,7 @@ func NewCommitTemplate() *domain.Template {
 				Required:    true,
 				Timeout:     2 * time.Minute,
 				Config: map[string]any{
-					"operation":        "smart_commit",
+					"operation":        domain.GitOpSmartCommit,
 					"group_by_package": true,
 					"conventional":     true,
 				},
@@ -53,7 +53,7 @@ func NewCommitTemplate() *domain.Template {
 				Timeout:     2 * time.Minute,
 				RetryCount:  3,
 				Config: map[string]any{
-					"operation": "push",
+					"operation": domain.GitOpPush,
 				},
 			},
 		},

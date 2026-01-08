@@ -58,7 +58,7 @@ func NewTaskTemplate() *domain.Template {
 				Required:    true,
 				Timeout:     1 * time.Minute,
 				Config: map[string]any{
-					"operation": "commit",
+					"operation": domain.GitOpCommit,
 				},
 			},
 			{
@@ -69,7 +69,7 @@ func NewTaskTemplate() *domain.Template {
 				Timeout:     2 * time.Minute,
 				RetryCount:  3,
 				Config: map[string]any{
-					"operation": "push",
+					"operation": domain.GitOpPush,
 				},
 			},
 			{
@@ -80,7 +80,7 @@ func NewTaskTemplate() *domain.Template {
 				Timeout:     2 * time.Minute,
 				RetryCount:  2,
 				Config: map[string]any{
-					"operation": "create_pr",
+					"operation": domain.GitOpCreatePR,
 				},
 			},
 			{

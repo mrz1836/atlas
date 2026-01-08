@@ -26,6 +26,7 @@ func NewRegistry() *Registry {
 }
 
 // Get retrieves a template by name.
+// Returns a clone of the template to prevent mutation of registry state.
 // Returns ErrTemplateNotFound if the template doesn't exist.
 func (r *Registry) Get(name string) (*domain.Template, error) {
 	r.mu.RLock()
@@ -35,7 +36,7 @@ func (r *Registry) Get(name string) (*domain.Template, error) {
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", atlaserrors.ErrTemplateNotFound, name)
 	}
-	return t, nil
+	return t.Clone(), nil
 }
 
 // List returns all registered templates.

@@ -1,19 +1,32 @@
 package template
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/mrz1836/atlas/internal/domain"
+)
+
+// mustRegister registers a template and panics on error.
+// This is used during registry initialization where registration
+// errors indicate programming bugs (duplicate names, nil templates).
+func mustRegister(r *Registry, t *domain.Template) {
+	if err := r.Register(t); err != nil {
+		panic(fmt.Sprintf("failed to register %s template: %v", t.Name, err))
+	}
+}
 
 // NewDefaultRegistry creates a registry with all built-in templates.
 // Templates are compiled into the binary (not external files).
+// Panics if any template registration fails (indicates programming error).
 func NewDefaultRegistry() *Registry {
 	r := NewRegistry()
 
 	// Register built-in templates
-	// Errors are ignored as template names are guaranteed unique
-	_ = r.Register(NewBugfixTemplate())
-	_ = r.Register(NewFeatureTemplate())
-	_ = r.Register(NewCommitTemplate())
-	_ = r.Register(NewTaskTemplate())
-	_ = r.Register(NewFixTemplate())
+	mustRegister(r, NewBugfixTemplate())
+	mustRegister(r, NewFeatureTemplate())
+	mustRegister(r, NewCommitTemplate())
+	mustRegister(r, NewTaskTemplate())
+	mustRegister(r, NewFixTemplate())
 
 	return r
 }
