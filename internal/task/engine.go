@@ -460,8 +460,7 @@ func (e *Engine) handleSuccessResult(task *domain.Task, step *domain.StepDefinit
 		detectOnly, hasDetectOnly := result.Metadata["detect_only"].(bool)
 		validationFailed, _ := result.Metadata["validation_failed"].(bool) // defaults to false if missing
 		if hasDetectOnly && detectOnly && !validationFailed {
-			task.Metadata = e.ensureMetadata(task.Metadata)
-			task.Metadata["no_issues_detected"] = true
+			e.setMetadata(task, "no_issues_detected", true)
 			e.logger.Info().
 				Str("task_id", task.ID).
 				Str("step_name", step.Name).
@@ -476,8 +475,7 @@ func (e *Engine) handleSuccessResult(task *domain.Task, step *domain.StepDefinit
 func (e *Engine) handleNoChangesResult(task *domain.Task, step *domain.StepDefinition) error {
 	// No changes were made (e.g., AI decided no modifications needed)
 	// Set metadata flag to skip remaining git steps (push, PR)
-	task.Metadata = e.ensureMetadata(task.Metadata)
-	task.Metadata["skip_git_steps"] = true
+	e.setMetadata(task, "skip_git_steps", true)
 	e.logger.Info().
 		Str("task_id", task.ID).
 		Str("step_name", step.Name).
@@ -836,23 +834,26 @@ func (e *Engine) shouldSkipStep(task *domain.Task, step *domain.StepDefinition) 
 }
 
 // shouldSkipForNoIssues checks if step should be skipped when no issues were detected.
+// AI steps are always skipped, validation steps are skipped unless they're detect-only.
 func (e *Engine) shouldSkipForNoIssues(task *domain.Task, step *domain.StepDefinition) bool {
 	noIssues, ok := task.Metadata["no_issues_detected"].(bool)
 	if !ok || !noIssues {
 		return false
 	}
 
-	switch step.Type {
-	case domain.StepTypeAI:
+	// AI steps are always skipped when no issues detected
+	if step.Type == domain.StepTypeAI {
 		return true
-	case domain.StepTypeValidation:
+	}
+
+	// Validation steps are skipped unless they're detect-only
+	if step.Type == domain.StepTypeValidation {
 		detectOnly, _ := step.Config["detect_only"].(bool)
 		return !detectOnly
-	case domain.StepTypeGit, domain.StepTypeHuman, domain.StepTypeSDD, domain.StepTypeCI, domain.StepTypeVerify:
-		return false
-	default:
-		return false
 	}
+
+	// All other step types (Git, Human, SDD, CI, Verify) are never skipped
+	return false
 }
 
 // shouldSkipGitSteps checks if git push/PR steps should be skipped (no changes to commit).
@@ -885,11 +886,12 @@ func (e *Engine) shouldPause(task *domain.Task) bool {
 // This consolidates error metadata setting that was previously duplicated in
 // handleStepError and HandleStepResult.
 func (e *Engine) setErrorMetadata(task *domain.Task, stepName, errMsg string) {
-	task.Metadata = e.ensureMetadata(task.Metadata)
-	task.Metadata["last_error"] = errMsg
-	task.Metadata["retry_context"] = e.buildRetryContext(task, &domain.StepResult{
-		StepName: stepName,
-		Error:    errMsg,
+	e.setMetadataMultiple(task, map[string]any{
+		"last_error": errMsg,
+		"retry_context": e.buildRetryContext(task, &domain.StepResult{
+			StepName: stepName,
+			Error:    errMsg,
+		}),
 	})
 }
 
@@ -1038,6 +1040,22 @@ func (e *Engine) ensureMetadata(m map[string]any) map[string]any {
 		return make(map[string]any)
 	}
 	return m
+}
+
+// setMetadata sets a single metadata key-value pair on the task.
+// It ensures the metadata map is initialized before setting the value.
+func (e *Engine) setMetadata(task *domain.Task, key string, value any) {
+	task.Metadata = e.ensureMetadata(task.Metadata)
+	task.Metadata[key] = value
+}
+
+// setMetadataMultiple sets multiple metadata key-value pairs on the task.
+// It ensures the metadata map is initialized once before setting all values.
+func (e *Engine) setMetadataMultiple(task *domain.Task, values map[string]any) {
+	task.Metadata = e.ensureMetadata(task.Metadata)
+	for k, v := range values {
+		task.Metadata[k] = v
+	}
 }
 
 // executeParallelGroup runs multiple steps concurrently.

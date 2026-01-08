@@ -232,7 +232,7 @@ func (e *Engine) convertRetryResultToStepResult(
 	}
 
 	// Build validation checks from pipeline result for display in approval summary
-	validationChecks := buildValidationChecksFromPipelineResult(retryResult.PipelineResult)
+	validationChecks := retryResult.PipelineResult.BuildChecksAsMap()
 
 	return &domain.StepResult{
 		StepIndex:   task.CurrentStep,
@@ -249,68 +249,6 @@ func (e *Engine) convertRetryResultToStepResult(
 			"ai_files_changed":  filesChanged,
 		},
 	}
-}
-
-// buildValidationChecksFromPipelineResult creates validation check metadata from pipeline results.
-// This mirrors the logic in internal/template/steps/validation.go:buildValidationChecks
-// to ensure consistent display in the approval summary after AI retry.
-func buildValidationChecksFromPipelineResult(result *validation.PipelineResult) []map[string]any {
-	if result == nil {
-		return nil
-	}
-
-	checks := make([]map[string]any, 0, 4)
-
-	// Format check
-	formatPassed := len(result.FormatResults) == 0 || !hasFailedValidationResult(result.FormatResults)
-	checks = append(checks, map[string]any{
-		"name":   "Format",
-		"passed": formatPassed,
-	})
-
-	// Lint check
-	lintPassed := len(result.LintResults) == 0 || !hasFailedValidationResult(result.LintResults)
-	checks = append(checks, map[string]any{
-		"name":   "Lint",
-		"passed": lintPassed,
-	})
-
-	// Test check
-	testPassed := len(result.TestResults) == 0 || !hasFailedValidationResult(result.TestResults)
-	checks = append(checks, map[string]any{
-		"name":   "Test",
-		"passed": testPassed,
-	})
-
-	// Pre-commit check (check if skipped)
-	preCommitPassed := true
-	preCommitSkipped := false
-	for _, skipped := range result.SkippedSteps {
-		if skipped == "pre-commit" {
-			preCommitSkipped = true
-			break
-		}
-	}
-	if !preCommitSkipped {
-		preCommitPassed = len(result.PreCommitResults) == 0 || !hasFailedValidationResult(result.PreCommitResults)
-	}
-	checks = append(checks, map[string]any{
-		"name":    "Pre-commit",
-		"passed":  preCommitPassed,
-		"skipped": preCommitSkipped,
-	})
-
-	return checks
-}
-
-// hasFailedValidationResult checks if any result in the slice indicates failure.
-func hasFailedValidationResult(results []validation.Result) bool {
-	for _, r := range results {
-		if !r.Success {
-			return true
-		}
-	}
-	return false
 }
 
 // notifyRetryAttempt sends a progress notification for retry attempts.
