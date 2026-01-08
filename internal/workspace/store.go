@@ -16,6 +16,7 @@ import (
 	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/domain"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
+	"github.com/mrz1836/atlas/internal/flock"
 )
 
 // CurrentSchemaVersion is the current version of the workspace schema.
@@ -179,9 +180,11 @@ func (s *FileStore) Get(ctx context.Context, name string) (*domain.Workspace, er
 		return nil, fmt.Errorf("workspace '%s' has corrupted state file: %w. Consider deleting %s/", name, atlaserrors.ErrWorkspaceCorrupted, wsPath)
 	}
 
-	// Future: handle schema migrations for newer versions
-	// Currently we just accept any schema version
-	_ = ws.SchemaVersion
+	// Schema version tracking for forward compatibility.
+	// Currently all versions (including 0 from pre-versioning) are compatible.
+	// When breaking schema changes occur, add migration logic here.
+	// If SchemaVersion > CurrentSchemaVersion, the data is from a newer
+	// version of atlas - we accept it as-is for forward compatibility.
 
 	return &ws, nil
 }
@@ -436,7 +439,7 @@ func (s *FileStore) acquireLock(ctx context.Context, name string) (*os.File, err
 		}
 
 		// Attempt to acquire exclusive non-blocking lock
-		err := flockExclusive(f.Fd())
+		err := flock.Exclusive(f.Fd())
 		if err == nil {
 			return f, nil
 		}
@@ -458,7 +461,7 @@ func (s *FileStore) releaseLock(f *os.File) error {
 	}
 
 	// Release the lock
-	if err := flockUnlock(f.Fd()); err != nil {
+	if err := flock.Unlock(f.Fd()); err != nil {
 		// Still try to close the file
 		_ = f.Close()
 		return fmt.Errorf("failed to release lock: %w", err)

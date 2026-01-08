@@ -19,6 +19,7 @@ import (
 	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/domain"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
+	"github.com/mrz1836/atlas/internal/flock"
 )
 
 // LockTimeout is the maximum duration to wait for acquiring a file lock.
@@ -757,7 +758,7 @@ func (s *FileStore) acquireLock(ctx context.Context, workspaceName, taskID strin
 		}
 
 		// Attempt to acquire exclusive non-blocking lock
-		err := flockExclusive(f.Fd())
+		err := flock.Exclusive(f.Fd())
 		if err == nil {
 			return f, nil
 		}
@@ -779,7 +780,7 @@ func (s *FileStore) releaseLock(f *os.File) error {
 	}
 
 	// Release the lock
-	if err := flockUnlock(f.Fd()); err != nil {
+	if err := flock.Unlock(f.Fd()); err != nil {
 		// Still try to close the file
 		_ = f.Close()
 		return fmt.Errorf("failed to release lock: %w", err)
