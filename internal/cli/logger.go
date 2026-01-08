@@ -42,6 +42,38 @@ func configureZerologGlobals() {
 	})
 }
 
+// loggerSetup holds the common components needed to create a logger.
+type loggerSetup struct {
+	level      zerolog.Level
+	hook       zerolog.Hook
+	fileWriter io.WriteCloser
+	console    io.Writer
+}
+
+// prepareLoggerSetup creates the common logger components.
+// Returns the setup and any error from file writer creation.
+// The error is non-fatal - callers can proceed with console-only logging.
+func prepareLoggerSetup(verbose, quiet bool) (*loggerSetup, error) {
+	configureZerologGlobals()
+
+	setup := &loggerSetup{
+		level:   selectLevel(verbose, quiet),
+		hook:    logging.NewSensitiveDataHook(),
+		console: selectOutput(),
+	}
+
+	fileWriter, err := createLogFileWriter()
+	if err == nil {
+		setup.fileWriter = fileWriter
+	}
+	return setup, err
+}
+
+// buildLogger creates a zerolog.Logger from the setup and writer.
+func buildLogger(setup *loggerSetup, writer io.Writer) zerolog.Logger {
+	return zerolog.New(writer).Level(setup.level).Hook(setup.hook).With().Timestamp().Logger()
+}
+
 // InitLogger creates and configures a zerolog.Logger based on verbosity flags.
 //
 // Log levels are set as follows:
@@ -56,35 +88,21 @@ func configureZerologGlobals() {
 // The logger also writes to ~/.atlas/logs/atlas.log with rotation enabled.
 // If the log file cannot be created, the logger will continue with console-only output.
 func InitLogger(verbose, quiet bool) zerolog.Logger {
-	// Configure zerolog global field names on first call
-	configureZerologGlobals()
+	setup, err := prepareLoggerSetup(verbose, quiet)
 
-	level := selectLevel(verbose, quiet)
-	consoleOutput := selectOutput()
-
-	// Create sensitive data filter hook
-	hook := logging.NewSensitiveDataHook()
-
-	// Create file writer for global log with rotation
-	fileWriter, err := createLogFileWriter()
-	if err != nil {
+	var writer io.Writer
+	if err != nil || setup.fileWriter == nil {
 		// Log file creation failed; continue with console-only output
-		// This can happen if ATLAS_HOME is not writable
-		logger := zerolog.New(consoleOutput).Level(level).Hook(hook).With().Timestamp().Logger()
-		setGlobalLogger(logger)
-		return logger
+		writer = setup.console
+	} else {
+		// Store file writer for cleanup
+		logFileWriter = setup.fileWriter
+		// Multi-writer: console + file
+		writer = zerolog.MultiLevelWriter(setup.console, setup.fileWriter)
 	}
 
-	// Store file writer for cleanup
-	logFileWriter = fileWriter
-
-	// Multi-writer: console + file
-	multi := zerolog.MultiLevelWriter(consoleOutput, fileWriter)
-	logger := zerolog.New(multi).Level(level).Hook(hook).With().Timestamp().Logger()
-
-	// Configure global logger to match CLI logger settings
+	logger := buildLogger(setup, writer)
 	setGlobalLogger(logger)
-
 	return logger
 }
 
@@ -124,40 +142,24 @@ type TaskLogAppender interface {
 // Log entries with workspace_name and task_id fields are written to the task's log file.
 // All logs continue to go to console and global log file as normal.
 func InitLoggerWithTaskStore(verbose, quiet bool, store TaskLogAppender) zerolog.Logger {
-	// Configure zerolog global field names on first call
-	configureZerologGlobals()
+	setup, err := prepareLoggerSetup(verbose, quiet)
 
-	level := selectLevel(verbose, quiet)
-
-	// Create sensitive data filter hook
-	hook := logging.NewSensitiveDataHook()
-
-	// Create file writer for global log with rotation
-	fileWriter, err := createLogFileWriter()
-	if err != nil {
+	var baseWriter io.Writer
+	if err != nil || setup.fileWriter == nil {
 		// Log file creation failed; continue with console-only output + task logs
-		consoleOutput := selectOutput()
-		taskLogWriter := newTaskLogWriter(store, consoleOutput)
-		logger := zerolog.New(taskLogWriter).Level(level).Hook(hook).With().Timestamp().Logger()
-		setGlobalLogger(logger)
-		return logger
+		baseWriter = setup.console
+	} else {
+		// Store file writer for cleanup
+		logFileWriter = setup.fileWriter
+		// Multi-writer: console + file
+		baseWriter = zerolog.MultiLevelWriter(setup.console, setup.fileWriter)
 	}
 
-	// Store file writer for cleanup
-	logFileWriter = fileWriter
-
-	// Multi-writer: console + file
-	consoleOutput := selectOutput()
-	multi := zerolog.MultiLevelWriter(consoleOutput, fileWriter)
-
 	// Wrap with task log writer to persist task-specific logs
-	taskLogWriter := newTaskLogWriter(store, multi)
+	taskLogWriter := newTaskLogWriter(store, baseWriter)
 
-	logger := zerolog.New(taskLogWriter).Level(level).Hook(hook).With().Timestamp().Logger()
-
-	// Configure global logger to match CLI logger settings
+	logger := buildLogger(setup, taskLogWriter)
 	setGlobalLogger(logger)
-
 	return logger
 }
 

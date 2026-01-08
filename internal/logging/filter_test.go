@@ -244,6 +244,7 @@ func TestIsSensitiveFieldName(t *testing.T) {
 		fieldName   string
 		isSensitive bool
 	}{
+		// Exact matches
 		{"api_key", "api_key", true},
 		{"API_KEY uppercase", "API_KEY", true},
 		{"apikey", "apikey", true},
@@ -255,18 +256,85 @@ func TestIsSensitiveFieldName(t *testing.T) {
 		{"authorization", "authorization", true},
 		{"anthropic_api_key", "anthropic_api_key", true},
 		{"github_token", "github_token", true},
+
+		// Prefix patterns (sensitive_*)
 		{"user_api_key field", "user_api_key", true},
+		{"password_hash", "password_hash", true},
+		{"secret-value with dash", "secret-value", true},
+
+		// Suffix patterns (*_sensitive)
 		{"my_secret_value", "my_secret_value", true},
+		{"db_password", "db_password", true},
+		{"user-password with dash", "user-password", true},
+
+		// Infix patterns (*_sensitive_*)
+		{"my_password_field", "my_password_field", true},
+		{"app-secret-key", "app-secret-key", true},
+
+		// Mixed separator patterns
+		{"my_password-field", "my_password-field", true},
+		{"my-password_field", "my-password_field", true},
+
+		// Non-sensitive fields
 		{"normal field", "workspace_name", false},
 		{"task_id", "task_id", false},
 		{"status", "status", false},
 		{"duration_ms", "duration_ms", false},
+		{"secretariat - partial word match should not trigger", "secretariat", false},
+		{"passwords - plural not exact", "passwords", false},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			assert.Equal(t, tc.isSensitive, IsSensitiveFieldName(tc.fieldName))
+		})
+	}
+}
+
+func TestMatchesSensitivePattern(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		fieldName string
+		sensitive string
+		expected  bool
+	}{
+		// Exact match
+		{"exact match", "password", "password", true},
+		{"no exact match", "passwords", "password", false},
+
+		// Prefix: sensitive_*
+		{"prefix underscore", "password_hash", "password", true},
+		{"prefix dash", "password-hash", "password", true},
+
+		// Suffix: *_sensitive
+		{"suffix underscore", "db_password", "password", true},
+		{"suffix dash", "db-password", "password", true},
+
+		// Neither prefix nor suffix (partial word)
+		{"not prefix or suffix - partial word", "mypassword_hash", "password", false},
+		{"not suffix - different word", "password_hash", "hash", true}, // hash is suffix of password_hash
+
+		// Infix: *_sensitive_*
+		{"infix underscore", "my_password_field", "password", true},
+		{"infix dash", "my-password-field", "password", true},
+
+		// Mixed separators
+		{"mixed underscore-dash", "my_password-field", "password", true},
+		{"mixed dash-underscore", "my-password_field", "password", true},
+
+		// Edge cases
+		{"empty name", "", "password", false},
+		{"empty sensitive", "password", "", false},
+		{"partial match no boundary", "mypassword", "password", false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tc.expected, matchesSensitivePattern(tc.fieldName, tc.sensitive))
 		})
 	}
 }
