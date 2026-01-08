@@ -48,3 +48,91 @@ func (p *PipelineResult) AllResults() []Result {
 func (p *PipelineResult) FailedStep() string {
 	return p.FailedStepName
 }
+
+// Check represents a single validation check result for display.
+type Check struct {
+	Name    string `json:"name"`
+	Passed  bool   `json:"passed"`
+	Skipped bool   `json:"skipped,omitempty"`
+}
+
+// BuildChecks creates validation check metadata from pipeline results.
+// Returns a slice of Check for each validation category (Format, Lint, Test, Pre-commit).
+// This is the single source of truth for building validation check summaries.
+func (p *PipelineResult) BuildChecks() []Check {
+	if p == nil {
+		return nil
+	}
+
+	checks := make([]Check, 0, 4)
+
+	// Format check
+	checks = append(checks, Check{
+		Name:   "Format",
+		Passed: len(p.FormatResults) == 0 || !hasFailedResult(p.FormatResults),
+	})
+
+	// Lint check
+	checks = append(checks, Check{
+		Name:   "Lint",
+		Passed: len(p.LintResults) == 0 || !hasFailedResult(p.LintResults),
+	})
+
+	// Test check
+	checks = append(checks, Check{
+		Name:   "Test",
+		Passed: len(p.TestResults) == 0 || !hasFailedResult(p.TestResults),
+	})
+
+	// Pre-commit check (check if skipped)
+	preCommitSkipped := false
+	for _, skipped := range p.SkippedSteps {
+		if skipped == "pre-commit" {
+			preCommitSkipped = true
+			break
+		}
+	}
+	preCommitPassed := true
+	if !preCommitSkipped {
+		preCommitPassed = len(p.PreCommitResults) == 0 || !hasFailedResult(p.PreCommitResults)
+	}
+	checks = append(checks, Check{
+		Name:    "Pre-commit",
+		Passed:  preCommitPassed,
+		Skipped: preCommitSkipped,
+	})
+
+	return checks
+}
+
+// BuildChecksAsMap creates validation check metadata as a slice of maps.
+// This is a convenience method for use with step result metadata.
+func (p *PipelineResult) BuildChecksAsMap() []map[string]any {
+	checks := p.BuildChecks()
+	if checks == nil {
+		return nil
+	}
+
+	result := make([]map[string]any, len(checks))
+	for i, c := range checks {
+		m := map[string]any{
+			"name":   c.Name,
+			"passed": c.Passed,
+		}
+		if c.Skipped {
+			m["skipped"] = c.Skipped
+		}
+		result[i] = m
+	}
+	return result
+}
+
+// hasFailedResult checks if any result in the slice indicates failure.
+func hasFailedResult(results []Result) bool {
+	for _, r := range results {
+		if !r.Success {
+			return true
+		}
+	}
+	return false
+}
