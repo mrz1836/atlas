@@ -15,8 +15,31 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/mrz1836/atlas/internal/ai"
+	"github.com/mrz1836/atlas/internal/ctxutil"
 	"github.com/mrz1836/atlas/internal/domain"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
+)
+
+// Pre-compiled regex patterns for parsing PR descriptions.
+// These are compiled once at package initialization for performance.
+var (
+	// conventionalTitlePattern validates conventional commits format.
+	conventionalTitlePattern = regexp.MustCompile(`^(feat|fix|docs|style|refactor|test|chore|build|ci|perf|revert)(\([a-zA-Z0-9_-]+\))?:\s+.+$`)
+
+	// titleMarkerPattern extracts title from AI response.
+	titleMarkerPattern = regexp.MustCompile(`(?im)^TITLE:\s*(.+)$`)
+
+	// bodyMarkerPattern extracts body from AI response.
+	bodyMarkerPattern = regexp.MustCompile(`(?is)BODY:\s*(.+)$`)
+
+	// conventionalTypePattern extracts the commit type from title.
+	conventionalTypePattern = regexp.MustCompile(`^(feat|fix|docs|style|refactor|test|chore|build|ci|perf|revert)`)
+
+	// scopePattern extracts the scope from title.
+	titleScopePattern = regexp.MustCompile(`^\w+\(([^)]+)\):`)
+
+	// codeBlockPattern strips markdown code blocks from AI output.
+	codeBlockPattern = regexp.MustCompile("(?s)```(?:\\w*\\n)?(.+?)```")
 )
 
 // PRDescriptionGenerator generates PR descriptions.
@@ -97,9 +120,7 @@ func (d *PRDescription) Validate() error {
 // isValidConventionalTitle checks if the title matches conventional commits format.
 // Format: <type>(<scope>): <description> or <type>: <description>
 func isValidConventionalTitle(title string) bool {
-	// Matches: type(scope): description or type: description
-	pattern := regexp.MustCompile(`^(feat|fix|docs|style|refactor|test|chore|build|ci|perf|revert)(\([a-zA-Z0-9_-]+\))?:\s+.+$`)
-	return pattern.MatchString(title)
+	return conventionalTitlePattern.MatchString(title)
 }
 
 // hasRequiredSections checks if the body has required sections.
@@ -172,10 +193,8 @@ func WithAIDescAgent(agent string) AIDescGenOption {
 // Generate creates a PR description using AI.
 func (g *AIDescriptionGenerator) Generate(ctx context.Context, opts PRDescOptions) (*PRDescription, error) {
 	// Check for cancellation at entry
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	default:
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return nil, err
 	}
 
 	// Validate inputs
@@ -382,14 +401,12 @@ func (g *AIDescriptionGenerator) parseResponse(output, templateName string) (*PR
 	output = stripMarkdownCodeBlocks(output)
 
 	// Extract title - case insensitive, require TITLE: marker at start of line
-	titlePattern := regexp.MustCompile(`(?im)^TITLE:\s*(.+)$`)
-	if match := titlePattern.FindStringSubmatch(output); len(match) > 1 {
+	if match := titleMarkerPattern.FindStringSubmatch(output); len(match) > 1 {
 		desc.Title = strings.TrimSpace(match[1])
 	}
 
 	// Extract body - case insensitive, require BODY: marker
-	bodyPattern := regexp.MustCompile(`(?is)BODY:\s*(.+)$`)
-	if match := bodyPattern.FindStringSubmatch(output); len(match) > 1 {
+	if match := bodyMarkerPattern.FindStringSubmatch(output); len(match) > 1 {
 		desc.Body = strings.TrimSpace(match[1])
 	}
 
@@ -402,8 +419,7 @@ func (g *AIDescriptionGenerator) parseResponse(output, templateName string) (*PR
 	}
 
 	// Extract conventional type from title
-	typePattern := regexp.MustCompile(`^(feat|fix|docs|style|refactor|test|chore|build|ci|perf|revert)`)
-	if match := typePattern.FindStringSubmatch(desc.Title); len(match) > 1 {
+	if match := conventionalTypePattern.FindStringSubmatch(desc.Title); len(match) > 1 {
 		desc.ConventionalType = match[1]
 	} else {
 		// Default based on template
@@ -411,8 +427,7 @@ func (g *AIDescriptionGenerator) parseResponse(output, templateName string) (*PR
 	}
 
 	// Extract scope from title
-	scopePattern := regexp.MustCompile(`^\w+\(([^)]+)\):`)
-	if match := scopePattern.FindStringSubmatch(desc.Title); len(match) > 1 {
+	if match := titleScopePattern.FindStringSubmatch(desc.Title); len(match) > 1 {
 		desc.Scope = match[1]
 	}
 
@@ -448,10 +463,8 @@ func WithTemplateDescLogger(logger zerolog.Logger) TemplateDescGenOption {
 // Generate creates a PR description using templates.
 func (g *TemplateDescriptionGenerator) Generate(ctx context.Context, opts PRDescOptions) (*PRDescription, error) {
 	// Check for cancellation at entry
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	default:
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return nil, err
 	}
 
 	g.logger.Info().
@@ -704,7 +717,6 @@ func lowercaseFirst(s string) string {
 // AI models sometimes wrap their output in ```...``` blocks.
 func stripMarkdownCodeBlocks(s string) string {
 	// Remove fenced code blocks (```...``` or ```lang\n...\n```)
-	codeBlockPattern := regexp.MustCompile("(?s)```(?:\\w*\\n)?(.+?)```")
 	if matches := codeBlockPattern.FindStringSubmatch(s); len(matches) > 1 {
 		return strings.TrimSpace(matches[1])
 	}
