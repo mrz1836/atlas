@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"testing"
@@ -15,6 +16,8 @@ import (
 	"github.com/mrz1836/atlas/internal/domain"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 )
+
+var errGitCommandFailed = errors.New("git command failed")
 
 // MockStore implements Store for testing.
 type MockStore struct {
@@ -159,6 +162,7 @@ func newMockWorktreeRunner() *MockWorktreeRunner {
 			Branch:    "feat/test",
 			CreatedAt: time.Now(),
 		},
+		branchExists: true, // Default to true for existing tests
 	}
 }
 
@@ -1727,4 +1731,90 @@ func TestDefaultManager_Create_BranchNotFound_Anywhere(t *testing.T) {
 	require.Error(t, err2)
 	assert.Nil(t, ws2)
 	require.ErrorIs(t, err2, atlaserrors.ErrBranchNotFound)
+}
+
+// ============================================================================
+// Branch Existence Check Tests (for graceful handling of missing branches)
+// ============================================================================
+
+// TestClose_BranchDoesNotExist verifies graceful handling when branch doesn't exist
+func TestClose_BranchDoesNotExist(t *testing.T) {
+	store := newMockStore()
+	store.workspaces["test"] = &domain.Workspace{
+		Name:         "test",
+		WorktreePath: "/tmp/repo-test",
+		Branch:       "feat/nonexistent", // Branch doesn't exist
+		Status:       constants.WorkspaceStatusActive,
+		Tasks:        []domain.TaskRef{},
+	}
+	runner := newMockWorktreeRunner()
+	runner.branchExists = false // Branch does not exist
+
+	mgr := NewManager(store, runner, zerolog.Nop())
+	result, err := mgr.Close(context.Background(), "test", nil)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Empty(t, result.WorktreeWarning)
+	// CRITICAL: No branch warning should be produced
+	assert.Empty(t, result.BranchWarning, "Expected no warning when branch doesn't exist")
+	// Branch deletion should NOT have been attempted
+	assert.Equal(t, 0, runner.deleteBranchCallCount, "Branch deletion should be skipped when branch doesn't exist")
+	// Status should still be updated to closed
+	ws := store.workspaces["test"]
+	assert.Equal(t, constants.WorkspaceStatusClosed, ws.Status)
+}
+
+// TestClose_BranchExistsAndDeleted verifies normal deletion path still works when branch exists
+func TestClose_BranchExistsAndDeleted(t *testing.T) {
+	store := newMockStore()
+	store.workspaces["test"] = &domain.Workspace{
+		Name:         "test",
+		WorktreePath: "/tmp/repo-test",
+		Branch:       "feat/test",
+		Status:       constants.WorkspaceStatusActive,
+		Tasks:        []domain.TaskRef{},
+	}
+	runner := newMockWorktreeRunner()
+	runner.branchExists = true     // Branch exists
+	runner.findByBranchResult = "" // Not in use by other worktrees
+
+	mgr := NewManager(store, runner, zerolog.Nop())
+	result, err := mgr.Close(context.Background(), "test", nil)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Empty(t, result.WorktreeWarning)
+	assert.Empty(t, result.BranchWarning, "Expected no warning when branch is successfully deleted")
+	// Branch deletion SHOULD have been attempted
+	assert.Equal(t, 1, runner.deleteBranchCallCount, "Branch deletion should be attempted when branch exists")
+	// Status should be updated to closed
+	ws := store.workspaces["test"]
+	assert.Equal(t, constants.WorkspaceStatusClosed, ws.Status)
+}
+
+// TestClose_BranchExistenceCheckFails verifies resilience when BranchExists check fails
+func TestClose_BranchExistenceCheckFails(t *testing.T) {
+	store := newMockStore()
+	store.workspaces["test"] = &domain.Workspace{
+		Name:         "test",
+		WorktreePath: "/tmp/repo-test",
+		Branch:       "feat/test",
+		Status:       constants.WorkspaceStatusActive,
+		Tasks:        []domain.TaskRef{},
+	}
+	runner := newMockWorktreeRunner()
+	runner.branchExistsErr = errGitCommandFailed // BranchExists check fails
+	runner.findByBranchResult = ""
+
+	mgr := NewManager(store, runner, zerolog.Nop())
+	result, err := mgr.Close(context.Background(), "test", nil)
+
+	require.NoError(t, err, "Close should succeed even when BranchExists check fails")
+	require.NotNil(t, result)
+	// Branch deletion should still be attempted despite check failure (fallback behavior)
+	assert.Equal(t, 1, runner.deleteBranchCallCount, "Branch deletion should be attempted despite BranchExists error")
+	// Status should be updated to closed
+	ws := store.workspaces["test"]
+	assert.Equal(t, constants.WorkspaceStatusClosed, ws.Status)
 }
