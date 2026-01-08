@@ -72,8 +72,8 @@ func (t *Table) WriteRow(values ...string) {
 		if i < len(values) {
 			value = values[i]
 		}
-		// Truncate if needed
-		if len(value) > col.Width {
+		// Truncate if needed (require Width > 1 to avoid slice bounds panic)
+		if col.Width > 1 && len(value) > col.Width {
 			value = value[:col.Width-1] + "…"
 		}
 		row += fmt.Sprintf(format, value)
@@ -100,8 +100,8 @@ func (t *Table) WriteStyledRow(values []string, styledIndex int, styledValue, pl
 			if i < len(values) {
 				value = values[i]
 			}
-			// Truncate if needed
-			if len(value) > col.Width {
+			// Truncate if needed (require Width > 1 to avoid slice bounds panic)
+			if col.Width > 1 && len(value) > col.Width {
 				value = value[:col.Width-1] + "…"
 			}
 			row += fmt.Sprintf(format, value)
