@@ -92,13 +92,14 @@ func (s *FileStore) Create(ctx context.Context, ws *domain.Workspace) error {
 	}
 
 	wsPath := s.workspacePath(ws.Name)
+	wsFile := s.workspaceFilePath(ws.Name)
 
-	// Check if workspace already exists
-	if _, err := os.Stat(wsPath); err == nil {
+	// Check if workspace.json already exists (directory may exist with preserved tasks)
+	if _, err := os.Stat(wsFile); err == nil {
 		return fmt.Errorf("failed to create workspace '%s': %w", ws.Name, atlaserrors.ErrWorkspaceExists)
 	}
 
-	// Create workspace directory
+	// Create workspace directory (may already exist if recreating closed workspace)
 	if err := os.MkdirAll(wsPath, dirPerm); err != nil {
 		return fmt.Errorf("failed to create workspace directory '%s': %w", ws.Name, err)
 	}
@@ -126,7 +127,6 @@ func (s *FileStore) Create(ctx context.Context, ws *domain.Workspace) error {
 	}
 
 	// Write workspace file atomically
-	wsFile := s.workspaceFilePath(ws.Name)
 	if err := atomicWrite(wsFile, data, filePerm); err != nil {
 		_ = os.RemoveAll(wsPath)
 		return fmt.Errorf("failed to create workspace '%s': %w", ws.Name, err)

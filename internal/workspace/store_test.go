@@ -97,6 +97,46 @@ func TestFileStore_Create_AlreadyExists(t *testing.T) {
 	require.ErrorIs(t, err, atlaserrors.ErrWorkspaceExists)
 }
 
+// TestFileStore_Create_AfterResetMetadata tests creating a workspace after metadata reset.
+// This simulates recreating a closed workspace where only the tasks directory remains.
+func TestFileStore_Create_AfterResetMetadata(t *testing.T) {
+	tmpDir := t.TempDir()
+	store, err := NewFileStore(tmpDir)
+	require.NoError(t, err)
+
+	ws := &domain.Workspace{
+		Name:      "reuse-workspace",
+		Status:    constants.WorkspaceStatusActive,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+
+	// Create workspace first time
+	err = store.Create(context.Background(), ws)
+	require.NoError(t, err)
+
+	// Simulate ResetMetadata (removes workspace.json, keeps tasks dir)
+	err = store.ResetMetadata(context.Background(), "reuse-workspace")
+	require.NoError(t, err)
+
+	// Verify directory still exists but workspace.json is gone
+	wsDir := filepath.Join(tmpDir, constants.WorkspacesDir, "reuse-workspace")
+	assert.DirExists(t, wsDir)
+	wsFile := filepath.Join(wsDir, constants.WorkspaceFileName)
+	_, err = os.Stat(wsFile)
+	assert.True(t, os.IsNotExist(err), "workspace.json should not exist")
+
+	// Create should succeed now
+	ws2 := &domain.Workspace{
+		Name:      "reuse-workspace",
+		Status:    constants.WorkspaceStatusActive,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+	err = store.Create(context.Background(), ws2)
+	require.NoError(t, err, "should be able to create workspace after metadata reset")
+}
+
 // TestFileStore_Create_EmptyName tests creating with empty name.
 func TestFileStore_Create_EmptyName(t *testing.T) {
 	tmpDir := t.TempDir()
