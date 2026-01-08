@@ -6,6 +6,7 @@ package steps
 import (
 	"context"
 	"encoding/json"
+	stderrors "errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -30,6 +31,15 @@ const (
 
 	// DefaultVerifyTimeout is the timeout for verification AI requests.
 	DefaultVerifyTimeout = 3 * time.Minute
+)
+
+// Verification step errors.
+var (
+	// ErrNoJSONObjectFound is returned when JSON parsing fails to find a valid JSON object.
+	ErrNoJSONObjectFound = stderrors.New("no valid JSON object found")
+
+	// ErrNoJSONArrayFound is returned when JSON parsing fails to find a valid JSON array.
+	ErrNoJSONArrayFound = stderrors.New("no valid JSON array found")
 )
 
 // VerifyExecutor handles AI verification steps.
@@ -384,23 +394,32 @@ func (e *VerifyExecutor) formatChecksCompact(checks []string) string {
 func (e *VerifyExecutor) parseVerificationResult(output string) (*VerificationResult, error) {
 	var result VerificationResult
 
-	// Try to parse as JSON object directly
-	//nolint:nestif // Error handling with fallback parsing logic
-	if err := json.Unmarshal([]byte(output), &result); err != nil {
-		// If parsing fails, try to extract JSON from the output
-		jsonStart := strings.Index(output, "{")
-		jsonEnd := strings.LastIndex(output, "}")
-		if jsonStart >= 0 && jsonEnd > jsonStart {
-			output = output[jsonStart : jsonEnd+1]
-			if parseErr := json.Unmarshal([]byte(output), &result); parseErr != nil {
-				return nil, fmt.Errorf("failed to parse verification result: %w", parseErr)
-			}
-		} else {
-			return nil, fmt.Errorf("failed to parse verification result: %w", err)
-		}
+	// Try direct parse first
+	if err := json.Unmarshal([]byte(output), &result); err == nil {
+		return &result, nil
+	}
+
+	// Try extracting JSON object from output
+	jsonOutput, ok := extractJSONObject(output)
+	if !ok {
+		return nil, fmt.Errorf("failed to parse verification result: %w", ErrNoJSONObjectFound)
+	}
+
+	if err := json.Unmarshal([]byte(jsonOutput), &result); err != nil {
+		return nil, fmt.Errorf("failed to parse verification result: %w", err)
 	}
 
 	return &result, nil
+}
+
+// extractJSONObject extracts a JSON object from text that may contain non-JSON content.
+func extractJSONObject(output string) (string, bool) {
+	jsonStart := strings.Index(output, "{")
+	jsonEnd := strings.LastIndex(output, "}")
+	if jsonStart >= 0 && jsonEnd > jsonStart {
+		return output[jsonStart : jsonEnd+1], true
+	}
+	return "", false
 }
 
 // CheckCodeCorrectness uses AI to review code changes against task description.
@@ -667,28 +686,41 @@ func (e *VerifyExecutor) formatChangedFiles(files []ChangedFile) string {
 func (e *VerifyExecutor) parseIssuesResponse(output, category string) ([]VerificationIssue, error) {
 	var issues []VerificationIssue
 
-	// Try to parse as JSON array
-	//nolint:nestif // Error handling with fallback parsing logic
-	if err := json.Unmarshal([]byte(output), &issues); err != nil {
-		// If parsing fails, try to extract JSON from the output
-		jsonStart := strings.Index(output, "[")
-		jsonEnd := strings.LastIndex(output, "]")
-		if jsonStart >= 0 && jsonEnd > jsonStart {
-			output = output[jsonStart : jsonEnd+1]
-			if parseErr := json.Unmarshal([]byte(output), &issues); parseErr != nil {
-				return nil, fmt.Errorf("failed to parse issues response: %w", parseErr)
-			}
-		} else {
-			return nil, fmt.Errorf("failed to parse issues response: %w", err)
-		}
+	// Try direct parse first
+	if err := json.Unmarshal([]byte(output), &issues); err == nil {
+		setCategoryForIssues(issues, category)
+		return issues, nil
 	}
 
-	// Set category for all issues
+	// Try extracting JSON array from output
+	jsonOutput, ok := extractJSONArray(output)
+	if !ok {
+		return nil, fmt.Errorf("failed to parse issues response: %w", ErrNoJSONArrayFound)
+	}
+
+	if err := json.Unmarshal([]byte(jsonOutput), &issues); err != nil {
+		return nil, fmt.Errorf("failed to parse issues response: %w", err)
+	}
+
+	setCategoryForIssues(issues, category)
+	return issues, nil
+}
+
+// extractJSONArray extracts a JSON array from text that may contain non-JSON content.
+func extractJSONArray(output string) (string, bool) {
+	jsonStart := strings.Index(output, "[")
+	jsonEnd := strings.LastIndex(output, "]")
+	if jsonStart >= 0 && jsonEnd > jsonStart {
+		return output[jsonStart : jsonEnd+1], true
+	}
+	return "", false
+}
+
+// setCategoryForIssues sets the category field for all issues in the slice.
+func setCategoryForIssues(issues []VerificationIssue, category string) {
 	for i := range issues {
 		issues[i].Category = category
 	}
-
-	return issues, nil
 }
 
 // GenerateVerificationReport creates a VerificationReport from check results.
