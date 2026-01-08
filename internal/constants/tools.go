@@ -41,6 +41,7 @@ const (
 	ToolGoPreCommit = "go-pre-commit"
 
 	// ToolSpeckit is the Speckit specification tool.
+	// The command/executable name is "specify" while the project is called "Speckit".
 	ToolSpeckit = "specify"
 )
 
