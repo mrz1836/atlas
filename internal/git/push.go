@@ -368,66 +368,29 @@ func classifyPushError(err error) PushErrorType {
 }
 
 // isAuthError checks if the error string indicates an authentication error.
+// Uses shared pattern matcher from error_classifier.go.
 func isAuthError(errStr string) bool {
-	authPatterns := []string{
-		"authentication failed",
-		"could not read username",
-		"permission denied",
-		"invalid username or password",
-		"access denied",
-		"fatal: authentication failed",
-	}
-	for _, pattern := range authPatterns {
-		if strings.Contains(errStr, pattern) {
-			return true
-		}
-	}
-	return false
+	return MatchesAuthError(errStr)
 }
 
 // isNetworkError checks if the error string indicates a network error.
+// Uses shared pattern matcher from error_classifier.go.
 func isNetworkError(errStr string) bool {
-	networkPatterns := []string{
-		"could not resolve host",
-		"connection refused",
-		"network is unreachable",
-		"connection timed out",
-		"operation timed out",
-		"unable to access",
-		"no route to host",
-		"failed to connect",
-	}
-	for _, pattern := range networkPatterns {
-		if strings.Contains(errStr, pattern) {
-			return true
-		}
-	}
-	return false
+	return MatchesNetworkError(errStr)
 }
 
 // isNonFastForwardError checks if the error indicates a non-fast-forward rejection.
 // This occurs when the remote branch has commits that the local branch doesn't have.
+// Uses shared pattern matcher from error_classifier.go with additional context checks.
 func isNonFastForwardError(errStr string) bool {
-	// Primary pattern - most specific
-	if strings.Contains(errStr, "non-fast-forward") {
+	// Use the shared non-fast-forward pattern matcher
+	if MatchesNonFastForwardError(errStr) {
 		return true
 	}
 
-	// Secondary patterns that indicate the branch is behind
-	behindPatterns := []string{
-		"tip of your current branch is behind",
-		"rejected because the remote contains work",
-		"updates were rejected",
-	}
-	for _, pattern := range behindPatterns {
-		if strings.Contains(errStr, pattern) {
-			return true
-		}
-	}
-
-	// "failed to push some refs" is only non-fast-forward if combined with rejection context
-	if strings.Contains(errStr, "failed to push some refs") &&
-		(strings.Contains(errStr, "rejected") || strings.Contains(errStr, "behind")) {
+	// Additional patterns specific to push that indicate the branch is behind
+	if strings.Contains(errStr, "tip of your current branch is behind") ||
+		strings.Contains(errStr, "rejected because the remote contains work") {
 		return true
 	}
 

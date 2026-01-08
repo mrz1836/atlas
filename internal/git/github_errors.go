@@ -139,19 +139,19 @@ func classifyGHError(err error) PRErrorType {
 
 	errStr := strings.ToLower(err.Error())
 
-	if isGHRateLimitError(errStr) {
+	if MatchesRateLimitError(errStr) {
 		return PRErrorRateLimit
 	}
 
-	if isGHAuthError(errStr) {
+	if MatchesAuthError(errStr) {
 		return PRErrorAuth
 	}
 
-	if isGHNetworkError(errStr) {
+	if MatchesNetworkError(errStr) {
 		return PRErrorNetwork
 	}
 
-	if isGHNotFoundError(errStr) {
+	if MatchesNotFoundError(errStr) {
 		return PRErrorNotFound
 	}
 
@@ -162,77 +162,6 @@ func classifyGHError(err error) PRErrorType {
 	}
 
 	return PRErrorOther
-}
-
-// isGHRateLimitError checks if the error indicates a rate limit.
-func isGHRateLimitError(errStr string) bool {
-	patterns := []string{
-		"rate limit exceeded",
-		"api rate limit",
-		"secondary rate limit",
-		"abuse detection",
-		"too many requests",
-	}
-	for _, pattern := range patterns {
-		if strings.Contains(errStr, pattern) {
-			return true
-		}
-	}
-	return false
-}
-
-// isGHAuthError checks if the error indicates an authentication failure.
-func isGHAuthError(errStr string) bool {
-	patterns := []string{
-		"authentication required",
-		"bad credentials",
-		"not logged into",
-		"must be authenticated",
-		"gh auth login",
-		"invalid token",
-		"token expired",
-	}
-	for _, pattern := range patterns {
-		if strings.Contains(errStr, pattern) {
-			return true
-		}
-	}
-	return false
-}
-
-// isGHNetworkError checks if the error indicates a network issue.
-func isGHNetworkError(errStr string) bool {
-	patterns := []string{
-		"could not resolve host",
-		"connection refused",
-		"network is unreachable",
-		"connection timed out",
-		"no route to host",
-		"failed to connect",
-		"timeout",
-	}
-	for _, pattern := range patterns {
-		if strings.Contains(errStr, pattern) {
-			return true
-		}
-	}
-	return false
-}
-
-// isGHNotFoundError checks if the error indicates a not found condition.
-func isGHNotFoundError(errStr string) bool {
-	patterns := []string{
-		"not found",
-		"no such",
-		"repository not found",
-		"does not exist",
-	}
-	for _, pattern := range patterns {
-		if strings.Contains(errStr, pattern) {
-			return true
-		}
-	}
-	return false
 }
 
 // isGHNoChecksReportedError checks if the error indicates CI checks haven't been registered yet.
