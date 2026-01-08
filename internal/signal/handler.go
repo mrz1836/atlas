@@ -19,6 +19,7 @@ type Handler struct {
 	ctx         context.Context //nolint:containedctx // intentional: handler manages context lifecycle
 	cancel      context.CancelFunc
 	interrupted chan struct{}
+	done        chan struct{} // signals listen() to exit cleanly
 	once        sync.Once
 	stopOnce    sync.Once
 	sigChan     chan os.Signal
@@ -47,6 +48,7 @@ func NewHandler(parent context.Context) *Handler {
 		ctx:         ctx,
 		cancel:      cancel,
 		interrupted: make(chan struct{}),
+		done:        make(chan struct{}),
 		sigChan:     make(chan os.Signal, 1),
 	}
 
@@ -73,7 +75,7 @@ func (h *Handler) Interrupted() <-chan struct{} {
 func (h *Handler) Stop() {
 	h.stopOnce.Do(func() {
 		signal.Stop(h.sigChan)
-		close(h.sigChan)
+		close(h.done) // Signal listen() to exit before closing sigChan
 		h.cancel()
 	})
 }
@@ -92,6 +94,9 @@ func (h *Handler) listen() {
 	select {
 	case <-h.ctx.Done():
 		// Context was canceled externally
+		return
+	case <-h.done:
+		// Stop() was called - exit cleanly
 		return
 	case <-h.sigChan:
 		h.handleSignal()
