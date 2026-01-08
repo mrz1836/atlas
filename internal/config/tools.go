@@ -62,6 +62,9 @@ const (
 	ToolStatusOutdated
 )
 
+// maxVersionSegments is the number of segments in a semantic version (major.minor.patch).
+const maxVersionSegments = 3
+
 // String returns a human-readable representation of the tool status.
 // Uses value receiver since ToolStatus is an immutable int type.
 func (s ToolStatus) String() string {
@@ -514,7 +517,7 @@ func CompareVersions(current, required string) int {
 	requiredParts := parseVersionParts(required)
 
 	// Compare each part
-	for i := 0; i < 3; i++ {
+	for i := 0; i < maxVersionSegments; i++ {
 		if currentParts[i] < requiredParts[i] {
 			return -1
 		}
@@ -527,11 +530,11 @@ func CompareVersions(current, required string) int {
 }
 
 // parseVersionParts parses a version string into [major, minor, patch].
-func parseVersionParts(version string) [3]int {
-	var parts [3]int
+func parseVersionParts(version string) [maxVersionSegments]int {
+	var parts [maxVersionSegments]int
 	segments := strings.Split(version, ".")
 
-	for i := 0; i < len(segments) && i < 3; i++ {
+	for i := 0; i < len(segments) && i < maxVersionSegments; i++ {
 		// Extract only numeric portion (handle formats like "0.5.x")
 		numStr := segments[i]
 		for j, c := range numStr {
