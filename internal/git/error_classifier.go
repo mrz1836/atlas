@@ -4,6 +4,44 @@ package git
 
 import "strings"
 
+// ErrorType represents the classification of a git/github error.
+type ErrorType int
+
+const (
+	// ErrorTypeUnknown indicates the error could not be classified.
+	ErrorTypeUnknown ErrorType = iota
+	// ErrorTypeAuth indicates an authentication error.
+	ErrorTypeAuth
+	// ErrorTypeNetwork indicates a network connectivity error.
+	ErrorTypeNetwork
+	// ErrorTypeRateLimit indicates an API rate limit error.
+	ErrorTypeRateLimit
+	// ErrorTypeNotFound indicates a resource not found error.
+	ErrorTypeNotFound
+	// ErrorTypeNonFastForward indicates a non-fast-forward push rejection.
+	ErrorTypeNonFastForward
+)
+
+// String returns a human-readable name for the error type.
+func (e ErrorType) String() string {
+	switch e {
+	case ErrorTypeUnknown:
+		return "unknown"
+	case ErrorTypeAuth:
+		return "authentication"
+	case ErrorTypeNetwork:
+		return "network"
+	case ErrorTypeRateLimit:
+		return "rate_limit"
+	case ErrorTypeNotFound:
+		return "not_found"
+	case ErrorTypeNonFastForward:
+		return "non_fast_forward"
+	default:
+		return "unknown"
+	}
+}
+
 // PatternMatcher checks if a string contains any of a list of patterns.
 // It performs case-insensitive matching on the lowercased input.
 type PatternMatcher struct {
@@ -99,6 +137,70 @@ var (
 		"fetch first",
 	)
 )
+
+// ErrorClassifier provides a unified interface for classifying git errors.
+// It consolidates all pattern matchers into a single struct for easier testing
+// and extension.
+type ErrorClassifier struct {
+	auth           *PatternMatcher
+	network        *PatternMatcher
+	rateLimit      *PatternMatcher
+	notFound       *PatternMatcher
+	nonFastForward *PatternMatcher
+}
+
+// defaultClassifier is the package-level classifier using standard patterns.
+//
+//nolint:gochecknoglobals // Singleton classifier for package use
+var defaultClassifier = &ErrorClassifier{
+	auth:           authPatterns,
+	network:        networkPatterns,
+	rateLimit:      rateLimitPatterns,
+	notFound:       notFoundPatterns,
+	nonFastForward: nonFastForwardPatterns,
+}
+
+// ClassifyError determines the error type from an error string.
+// The string is lowercased before matching. Returns ErrorTypeUnknown if
+// the error doesn't match any known pattern.
+//
+// Classification priority (first match wins):
+// 1. Rate limit (most specific, usually indicates temporary failure)
+// 2. Authentication (actionable - user can fix credentials)
+// 3. Network (often transient, retry may help)
+// 4. Non-fast-forward (git-specific, requires pull)
+// 5. Not found (general, last resort)
+func ClassifyError(errStr string) ErrorType {
+	return defaultClassifier.Classify(errStr)
+}
+
+// Classify determines the error type from an error string.
+// See ClassifyError for classification priority.
+func (c *ErrorClassifier) Classify(errStr string) ErrorType {
+	lower := strings.ToLower(errStr)
+	return c.classifyLower(lower)
+}
+
+// classifyLower performs classification on an already-lowercased string.
+func (c *ErrorClassifier) classifyLower(lower string) ErrorType {
+	// Order matters: more specific patterns first
+	if c.rateLimit.MatchesLower(lower) {
+		return ErrorTypeRateLimit
+	}
+	if c.auth.MatchesLower(lower) {
+		return ErrorTypeAuth
+	}
+	if c.network.MatchesLower(lower) {
+		return ErrorTypeNetwork
+	}
+	if c.nonFastForward.MatchesLower(lower) {
+		return ErrorTypeNonFastForward
+	}
+	if c.notFound.MatchesLower(lower) {
+		return ErrorTypeNotFound
+	}
+	return ErrorTypeUnknown
+}
 
 // MatchesAuthError checks if the error string indicates an authentication error.
 func MatchesAuthError(errStr string) bool {
