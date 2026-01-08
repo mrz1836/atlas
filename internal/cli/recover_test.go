@@ -1058,7 +1058,7 @@ func TestProcessJSONRecover_Continue(t *testing.T) {
 		tasks: map[string][]*domain.Task{"test-ws": {task}},
 	}
 
-	opts := &recoverOptions{continue_: true}
+	opts := &recoverOptions{continueExecution: true}
 	err := processJSONRecover(ctx, &buf, mockStore, ws, task, opts)
 	require.NoError(t, err)
 

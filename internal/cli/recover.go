@@ -28,11 +28,11 @@ func AddRecoverCommand(root *cobra.Command) {
 
 // recoverOptions contains all options for the recover command.
 type recoverOptions struct {
-	workspace string // Required workspace name
-	retry     bool   // For JSON mode: retry with AI fix
-	manual    bool   // For JSON mode: fix manually instructions
-	abandon   bool   // For JSON mode: abandon task
-	continue_ bool   // For JSON mode: continue waiting (CI timeout only)
+	workspace         string // Required workspace name
+	retry             bool   // For JSON mode: retry with AI fix
+	manual            bool   // For JSON mode: fix manually instructions
+	abandon           bool   // For JSON mode: abandon task
+	continueExecution bool   // For JSON mode: continue waiting (CI timeout only)
 }
 
 // newRecoverCmd creates the recover command.
@@ -82,7 +82,7 @@ Examples:
 	cmd.Flags().BoolVar(&opts.retry, "retry", false, "Retry with AI fix (JSON mode)")
 	cmd.Flags().BoolVar(&opts.manual, "manual", false, "Get fix manually instructions (JSON mode)")
 	cmd.Flags().BoolVar(&opts.abandon, "abandon", false, "Abandon task (JSON mode)")
-	cmd.Flags().BoolVar(&opts.continue_, "continue", false, "Continue waiting (JSON mode, ci_timeout only)")
+	cmd.Flags().BoolVar(&opts.continueExecution, "continue", false, "Continue waiting (JSON mode, ci_timeout only)")
 
 	return cmd
 }
@@ -129,7 +129,7 @@ func runRecover(ctx context.Context, cmd *cobra.Command, w io.Writer, opts *reco
 	}
 
 	// JSON mode requires exactly one action flag
-	actionCount := countBool(opts.retry, opts.manual, opts.abandon, opts.continue_)
+	actionCount := countBool(opts.retry, opts.manual, opts.abandon, opts.continueExecution)
 	if outputFormat == OutputJSON {
 		if actionCount == 0 {
 			return handleRecoverError(outputFormat, w, opts.workspace, fmt.Errorf("one of --retry, --manual, --abandon, or --continue required with --output json: %w", atlaserrors.ErrInvalidArgument))
@@ -172,7 +172,7 @@ func runRecover(ctx context.Context, cmd *cobra.Command, w io.Writer, opts *reco
 	}
 
 	// Validate --continue flag is only used with ci_timeout
-	if opts.continue_ && selectedTask.Status != constants.TaskStatusCITimeout {
+	if opts.continueExecution && selectedTask.Status != constants.TaskStatusCITimeout {
 		return handleRecoverError(outputFormat, w, selectedWS.Name, fmt.Errorf("--continue flag only valid for ci_timeout state (current: %s): %w", selectedTask.Status, atlaserrors.ErrInvalidStatus))
 	}
 
@@ -771,7 +771,7 @@ func processJSONRecover(ctx context.Context, w io.Writer, taskStore task.Store, 
 		return processJSONManual(w, ws, t)
 	case opts.abandon:
 		return processJSONAbandon(ctx, w, taskStore, ws, t)
-	case opts.continue_:
+	case opts.continueExecution:
 		return processJSONContinue(ctx, w, taskStore, ws, t)
 	}
 	return handleRecoverError(OutputJSON, w, ws.Name, fmt.Errorf("no action specified: %w", atlaserrors.ErrInvalidArgument))

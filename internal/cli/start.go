@@ -61,6 +61,29 @@ type startOptions struct {
 	dryRun        bool
 }
 
+// GitServices holds all git-related services created for task execution.
+// This struct reduces the number of return values from createGitServices.
+type GitServices struct {
+	Runner           git.Runner
+	SmartCommitter   *git.SmartCommitRunner
+	Pusher           *git.PushRunner
+	HubRunner        *git.CLIGitHubRunner
+	PRDescGen        *git.AIDescriptionGenerator
+	CIFailureHandler *task.CIFailureHandler
+}
+
+// RegistryDeps holds all dependencies needed to create an ExecutorRegistry.
+// This struct reduces the number of parameters to createExecutorRegistry.
+type RegistryDeps struct {
+	WorkDir     string
+	TaskStore   *task.FileStore
+	Notifier    *tui.Notifier
+	AIRunner    ai.Runner
+	Logger      zerolog.Logger
+	GitServices *GitServices
+	Config      *config.Config
+}
+
 // newStartCmd creates the start command.
 func newStartCmd() *cobra.Command {
 	var (
@@ -498,25 +521,25 @@ func createWorkspace(ctx context.Context, sc *startContext, wsName, repoPath, br
 
 	// Check if workspace already exists (upsert behavior)
 	existingWs, err := wsMgr.Get(ctx, wsName)
-	if err == nil && existingWs != nil {
-		// Check if workspace is closed (archived)
-		if existingWs.Status == constants.WorkspaceStatusClosed {
-			logger.Info().
-				Str("workspace_name", wsName).
-				Msg("workspace is closed, creating new workspace with same name")
-			// Fall through to create new workspace
-		} else {
-			// Workspace exists and is active/paused - reuse it
-			logger.Info().
-				Str("workspace_name", wsName).
-				Str("worktree_path", existingWs.WorktreePath).
-				Str("status", string(existingWs.Status)).
-				Msg("using existing workspace")
-			return existingWs, nil
-		}
+
+	// Handle existing active/paused workspace - reuse it
+	if err == nil && existingWs != nil && existingWs.Status != constants.WorkspaceStatusClosed {
+		logger.Info().
+			Str("workspace_name", wsName).
+			Str("worktree_path", existingWs.WorktreePath).
+			Str("status", string(existingWs.Status)).
+			Msg("using existing workspace")
+		return existingWs, nil
 	}
 
-	// Workspace doesn't exist - create new
+	// Handle existing closed workspace - log and create new
+	if err == nil && existingWs != nil && existingWs.Status == constants.WorkspaceStatusClosed {
+		logger.Info().
+			Str("workspace_name", wsName).
+			Msg("workspace is closed, creating new workspace with same name")
+	}
+
+	// Create new workspace
 	ws, err := wsMgr.Create(ctx, workspace.CreateOptions{
 		Name:       wsName,
 		RepoPath:   repoPath,
@@ -546,14 +569,21 @@ func startTaskExecution(ctx context.Context, ws *domain.Workspace, tmpl *domain.
 	aiRunner := createAIRunner(cfg, logger)
 
 	// Create git services
-	gitRunner, smartCommitter, pusher, hubRunner, prDescGen, ciFailureHandler, err := createGitServices(ctx, ws.WorktreePath, cfg, aiRunner, logger)
+	gitServices, err := createGitServices(ctx, ws.WorktreePath, cfg, aiRunner, logger)
 	if err != nil {
 		return nil, err
 	}
 
 	// Create executor registry
-	execRegistry := createExecutorRegistry(ws.WorktreePath, taskStore, notifier, aiRunner, logger,
-		smartCommitter, pusher, hubRunner, prDescGen, gitRunner, ciFailureHandler, cfg)
+	execRegistry := createExecutorRegistry(RegistryDeps{
+		WorkDir:     ws.WorktreePath,
+		TaskStore:   taskStore,
+		Notifier:    notifier,
+		AIRunner:    aiRunner,
+		Logger:      logger,
+		GitServices: gitServices,
+		Config:      cfg,
+	})
 
 	// Create validation retry handler for automatic AI-assisted fixes
 	validationRetryHandler := createValidationRetryHandler(aiRunner, cfg, logger)
@@ -609,11 +639,11 @@ func createAIRunner(cfg *config.Config, logger zerolog.Logger) ai.Runner {
 	return ai.NewMultiRunner(runnerRegistry)
 }
 
-// createGitServices creates all git-related services.
-func createGitServices(ctx context.Context, worktreePath string, cfg *config.Config, aiRunner ai.Runner, logger zerolog.Logger) (git.Runner, *git.SmartCommitRunner, *git.PushRunner, *git.CLIGitHubRunner, *git.AIDescriptionGenerator, *task.CIFailureHandler, error) {
+// createGitServices creates all git-related services and returns them in a GitServices struct.
+func createGitServices(ctx context.Context, worktreePath string, cfg *config.Config, aiRunner ai.Runner, logger zerolog.Logger) (*GitServices, error) {
 	gitRunner, err := git.NewRunner(ctx, worktreePath)
 	if err != nil {
-		return nil, nil, nil, nil, nil, nil, fmt.Errorf("failed to create git runner: %w", err)
+		return nil, fmt.Errorf("failed to create git runner: %w", err)
 	}
 
 	// Resolve commit agent/model with fallback to global AI config
@@ -667,29 +697,36 @@ func createGitServices(ctx context.Context, worktreePath string, cfg *config.Con
 	)
 	ciFailureHandler := task.NewCIFailureHandler(hubRunner)
 
-	return gitRunner, smartCommitter, pusher, hubRunner, prDescGen, ciFailureHandler, nil
+	return &GitServices{
+		Runner:           gitRunner,
+		SmartCommitter:   smartCommitter,
+		Pusher:           pusher,
+		HubRunner:        hubRunner,
+		PRDescGen:        prDescGen,
+		CIFailureHandler: ciFailureHandler,
+	}, nil
 }
 
 // createExecutorRegistry creates the step executor registry with all dependencies.
-func createExecutorRegistry(workDir string, taskStore *task.FileStore, notifier *tui.Notifier, aiRunner ai.Runner, logger zerolog.Logger, smartCommitter *git.SmartCommitRunner, pusher *git.PushRunner, hubRunner *git.CLIGitHubRunner, prDescGen *git.AIDescriptionGenerator, gitRunner git.Runner, ciFailureHandler *task.CIFailureHandler, cfg *config.Config) *steps.ExecutorRegistry {
+func createExecutorRegistry(deps RegistryDeps) *steps.ExecutorRegistry {
 	return steps.NewDefaultRegistry(steps.ExecutorDeps{
-		WorkDir:                workDir,
-		ArtifactSaver:          taskStore,
-		Notifier:               notifier,
-		AIRunner:               aiRunner,
-		Logger:                 logger,
-		SmartCommitter:         smartCommitter,
-		Pusher:                 pusher,
-		HubRunner:              hubRunner,
-		PRDescriptionGenerator: prDescGen,
-		GitRunner:              gitRunner,
-		CIFailureHandler:       ciFailureHandler,
-		BaseBranch:             cfg.Git.BaseBranch,
-		CIConfig:               &cfg.CI,
-		FormatCommands:         cfg.Validation.Commands.Format,
-		LintCommands:           cfg.Validation.Commands.Lint,
-		TestCommands:           cfg.Validation.Commands.Test,
-		PreCommitCommands:      cfg.Validation.Commands.PreCommit,
+		WorkDir:                deps.WorkDir,
+		ArtifactSaver:          deps.TaskStore,
+		Notifier:               deps.Notifier,
+		AIRunner:               deps.AIRunner,
+		Logger:                 deps.Logger,
+		SmartCommitter:         deps.GitServices.SmartCommitter,
+		Pusher:                 deps.GitServices.Pusher,
+		HubRunner:              deps.GitServices.HubRunner,
+		PRDescriptionGenerator: deps.GitServices.PRDescGen,
+		GitRunner:              deps.GitServices.Runner,
+		CIFailureHandler:       deps.GitServices.CIFailureHandler,
+		BaseBranch:             deps.Config.Git.BaseBranch,
+		CIConfig:               &deps.Config.CI,
+		FormatCommands:         deps.Config.Validation.Commands.Format,
+		LintCommands:           deps.Config.Validation.Commands.Lint,
+		TestCommands:           deps.Config.Validation.Commands.Test,
+		PreCommitCommands:      deps.Config.Validation.Commands.PreCommit,
 	})
 }
 

@@ -455,7 +455,7 @@ func TestRunStatus_EmptyWorkspaces(t *testing.T) {
 	rootCmd.AddCommand(statusCmd)
 
 	// Execute with buffer - tests the production code path (no watch mode)
-	err := runStatus(context.Background(), statusCmd, &buf, false, DefaultWatchInterval, false)
+	err := runStatus(context.Background(), statusCmd, &buf, statusOptions{WatchMode: false, WatchInterval: DefaultWatchInterval, ShowProgress: false})
 	require.NoError(t, err)
 
 	// Verify empty message
@@ -482,7 +482,7 @@ func TestRunStatus_JSONOutput(t *testing.T) {
 	_ = rootCmd.PersistentFlags().Set("output", "json")
 
 	// Execute with buffer (no watch mode)
-	err := runStatus(context.Background(), statusCmd, &buf, false, DefaultWatchInterval, false)
+	err := runStatus(context.Background(), statusCmd, &buf, statusOptions{WatchMode: false, WatchInterval: DefaultWatchInterval, ShowProgress: false})
 	require.NoError(t, err)
 
 	// Story 7.9: Should output empty structured JSON object
@@ -508,7 +508,7 @@ func TestRunStatus_ContextCancellation(t *testing.T) {
 	rootCmd.AddCommand(statusCmd)
 
 	// Execute with canceled context (no watch mode)
-	err := runStatus(ctx, statusCmd, &buf, false, DefaultWatchInterval, false)
+	err := runStatus(ctx, statusCmd, &buf, statusOptions{WatchMode: false, WatchInterval: DefaultWatchInterval, ShowProgress: false})
 
 	// Should return context.Canceled error
 	require.Error(t, err)
@@ -876,7 +876,7 @@ func TestRunStatus_WatchModeMinInterval(t *testing.T) {
 	rootCmd.AddCommand(statusCmd)
 
 	// Try with interval below minimum (500ms)
-	err := runStatus(context.Background(), statusCmd, &buf, true, 100*time.Millisecond, false)
+	err := runStatus(context.Background(), statusCmd, &buf, statusOptions{WatchMode: true, WatchInterval: 100 * time.Millisecond, ShowProgress: false})
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, errors.ErrWatchIntervalTooShort)
@@ -899,7 +899,7 @@ func TestRunStatus_WatchModeJSONError(t *testing.T) {
 	_ = rootCmd.PersistentFlags().Set("output", "json")
 
 	// Try watch mode with JSON output
-	err := runStatus(context.Background(), statusCmd, &buf, true, 2*time.Second, false)
+	err := runStatus(context.Background(), statusCmd, &buf, statusOptions{WatchMode: true, WatchInterval: 2 * time.Second, ShowProgress: false})
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, errors.ErrWatchModeJSONUnsupported)

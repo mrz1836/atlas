@@ -540,11 +540,13 @@ func executeApprovalAction(ctx context.Context, out tui.Output, taskStore task.S
 		prURL := extractPRURL(t)
 		if prURL == "" {
 			out.Warning("No PR URL available.")
-		} else if err := openInBrowser(ctx, prURL); err != nil {
-			out.Warning(fmt.Sprintf("Could not open PR: %v", err))
-		} else {
-			out.Info(fmt.Sprintf("Opened %s in browser.", prURL))
+			return false, nil
 		}
+		if err := openInBrowser(ctx, prURL); err != nil {
+			out.Warning(fmt.Sprintf("Could not open PR: %v", err))
+			return false, nil
+		}
+		out.Info(fmt.Sprintf("Opened %s in browser.", prURL))
 		return false, nil
 
 	case actionReject:

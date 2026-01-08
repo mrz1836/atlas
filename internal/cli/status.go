@@ -41,6 +41,15 @@ const MinWatchInterval = 500 * time.Millisecond
 // DefaultWatchInterval is the default refresh interval for watch mode.
 const DefaultWatchInterval = 2 * time.Second
 
+// statusOptions contains all options for the status command.
+// Using a struct instead of individual boolean parameters improves readability
+// at call sites and makes it easier to add new options.
+type statusOptions struct {
+	WatchMode     bool
+	WatchInterval time.Duration
+	ShowProgress  bool
+}
+
 // AddStatusCommand adds the status command to the root command.
 func AddStatusCommand(parent *cobra.Command) {
 	var watchMode bool
@@ -75,7 +84,11 @@ Examples:
   atlas status --progress   # Show progress bars for active tasks
   atlas status -w -p        # Watch mode with progress bars`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runStatus(cmd.Context(), cmd, os.Stdout, watchMode, watchInterval, showProgress)
+			return runStatus(cmd.Context(), cmd, os.Stdout, statusOptions{
+				WatchMode:     watchMode,
+				WatchInterval: watchInterval,
+				ShowProgress:  showProgress,
+			})
 		},
 	}
 
@@ -88,7 +101,7 @@ Examples:
 }
 
 // runStatus executes the status command with production dependencies.
-func runStatus(ctx context.Context, cmd *cobra.Command, w io.Writer, watchMode bool, watchInterval time.Duration, showProgress bool) error {
+func runStatus(ctx context.Context, cmd *cobra.Command, w io.Writer, opts statusOptions) error {
 	// Check for cancellation at entry
 	select {
 	case <-ctx.Done():
@@ -119,9 +132,9 @@ func runStatus(ctx context.Context, cmd *cobra.Command, w io.Writer, watchMode b
 	}
 
 	// Handle watch mode
-	if watchMode {
+	if opts.WatchMode {
 		// Validate interval
-		if watchInterval < MinWatchInterval {
+		if opts.WatchInterval < MinWatchInterval {
 			return fmt.Errorf("%w: minimum is %v", errors.ErrWatchIntervalTooShort, MinWatchInterval)
 		}
 
@@ -130,10 +143,10 @@ func runStatus(ctx context.Context, cmd *cobra.Command, w io.Writer, watchMode b
 			return errors.ErrWatchModeJSONUnsupported
 		}
 
-		return runWatchMode(ctx, wsMgr, taskStore, watchInterval, quiet, showProgress)
+		return runWatchMode(ctx, wsMgr, taskStore, opts.WatchInterval, quiet, opts.ShowProgress)
 	}
 
-	return runStatusWithDeps(ctx, w, output, quiet, showProgress, wsMgr, taskStore)
+	return runStatusWithDeps(ctx, w, output, quiet, opts.ShowProgress, wsMgr, taskStore)
 }
 
 // runStatusWithDeps executes the status command with injected dependencies.
@@ -323,7 +336,7 @@ func outputStatusTable(w io.Writer, rows []tui.StatusRow, quiet, showProgress bo
 
 	// Table
 	if err := table.Render(w); err != nil {
-		return err
+		return fmt.Errorf("render status table: %w", err)
 	}
 
 	// Progress bars (if enabled)
@@ -439,5 +452,8 @@ func runWatchMode(ctx context.Context, wsMgr tui.WorkspaceLister, taskStore tui.
 	p := tea.NewProgram(model, tea.WithAltScreen(), tea.WithContext(ctx))
 
 	_, err = p.Run()
-	return err
+	if err != nil {
+		return fmt.Errorf("run watch mode: %w", err)
+	}
+	return nil
 }

@@ -248,7 +248,7 @@ func executeClose(ctx context.Context, store *workspace.FileStore, name, storeBa
 
 	// Text output: success message first, then warning if any
 	if err := outputCloseSuccess(w, name, output); err != nil {
-		return err
+		return fmt.Errorf("output close success: %w", err)
 	}
 	if warning != "" {
 		outputCloseWarning(w, warning, output)
