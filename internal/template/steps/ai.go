@@ -21,23 +21,34 @@ type AIExecutor struct {
 	artifactHelper *ArtifactHelper
 }
 
-// NewAIExecutor creates a new AI executor with the given runner.
-func NewAIExecutor(runner ai.Runner, artifactSaver ArtifactSaver, logger zerolog.Logger) *AIExecutor {
-	return &AIExecutor{
-		runner:         runner,
-		artifactHelper: NewArtifactHelper(artifactSaver, logger),
+// AIExecutorOption is a functional option for configuring AIExecutor.
+type AIExecutorOption func(*AIExecutor)
+
+// WithAIWorkingDir sets the working directory for the AI executor.
+// The working directory is used to set the Claude CLI's working directory,
+// ensuring file operations happen in the correct location (e.g., worktree).
+func WithAIWorkingDir(dir string) AIExecutorOption {
+	return func(e *AIExecutor) {
+		e.workingDir = dir
 	}
 }
 
-// NewAIExecutorWithWorkingDir creates an AI executor with a working directory.
-// The working directory is used to set the Claude CLI's working directory,
-// ensuring file operations happen in the correct location (e.g., worktree).
-func NewAIExecutorWithWorkingDir(runner ai.Runner, workingDir string, artifactSaver ArtifactSaver, logger zerolog.Logger) *AIExecutor {
-	return &AIExecutor{
+// NewAIExecutor creates a new AI executor with the given runner and options.
+func NewAIExecutor(runner ai.Runner, artifactSaver ArtifactSaver, logger zerolog.Logger, opts ...AIExecutorOption) *AIExecutor {
+	e := &AIExecutor{
 		runner:         runner,
-		workingDir:     workingDir,
 		artifactHelper: NewArtifactHelper(artifactSaver, logger),
 	}
+	for _, opt := range opts {
+		opt(e)
+	}
+	return e
+}
+
+// NewAIExecutorWithWorkingDir creates an AI executor with a working directory.
+// Deprecated: Use NewAIExecutor with WithAIWorkingDir option instead.
+func NewAIExecutorWithWorkingDir(runner ai.Runner, workingDir string, artifactSaver ArtifactSaver, logger zerolog.Logger) *AIExecutor {
+	return NewAIExecutor(runner, artifactSaver, logger, WithAIWorkingDir(workingDir))
 }
 
 // Execute runs an AI step using Claude Code.

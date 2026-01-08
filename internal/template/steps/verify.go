@@ -36,33 +36,55 @@ const (
 // It uses a secondary AI model to review implementation changes and detect potential issues.
 type VerifyExecutor struct {
 	runner          ai.Runner
-	garbageDetector *git.GarbageDetector
+	garbageDetector GarbageChecker
 	logger          zerolog.Logger
 	workingDir      string
 	artifactHelper  *ArtifactHelper
 }
 
-// NewVerifyExecutor creates a new verify executor with the given dependencies.
-func NewVerifyExecutor(runner ai.Runner, garbageDetector *git.GarbageDetector, artifactSaver ArtifactSaver, logger zerolog.Logger) *VerifyExecutor {
-	return &VerifyExecutor{
-		runner:          runner,
-		garbageDetector: garbageDetector,
-		logger:          logger,
-		artifactHelper:  NewArtifactHelper(artifactSaver, logger),
+// GarbageChecker defines the interface for garbage file detection.
+// This allows for easier testing by enabling mock implementations.
+type GarbageChecker interface {
+	DetectGarbage(files []string) []git.GarbageFile
+}
+
+// VerifyExecutorOption is a functional option for configuring VerifyExecutor.
+type VerifyExecutorOption func(*VerifyExecutor)
+
+// WithVerifyWorkingDir sets the working directory for the verify executor.
+// The working directory is used to set the Claude CLI's working directory,
+// ensuring file operations happen in the correct location (e.g., worktree).
+func WithVerifyWorkingDir(dir string) VerifyExecutorOption {
+	return func(e *VerifyExecutor) {
+		e.workingDir = dir
 	}
 }
 
-// NewVerifyExecutorWithWorkingDir creates a verify executor with a working directory.
-// The working directory is used to set the Claude CLI's working directory,
-// ensuring file operations happen in the correct location (e.g., worktree).
-func NewVerifyExecutorWithWorkingDir(runner ai.Runner, garbageDetector *git.GarbageDetector, artifactSaver ArtifactSaver, logger zerolog.Logger, workingDir string) *VerifyExecutor {
-	return &VerifyExecutor{
+// WithGarbageChecker sets a custom garbage checker for testing.
+func WithGarbageChecker(checker GarbageChecker) VerifyExecutorOption {
+	return func(e *VerifyExecutor) {
+		e.garbageDetector = checker
+	}
+}
+
+// NewVerifyExecutor creates a new verify executor with the given dependencies and options.
+func NewVerifyExecutor(runner ai.Runner, garbageDetector *git.GarbageDetector, artifactSaver ArtifactSaver, logger zerolog.Logger, opts ...VerifyExecutorOption) *VerifyExecutor {
+	e := &VerifyExecutor{
 		runner:          runner,
 		garbageDetector: garbageDetector,
 		logger:          logger,
-		workingDir:      workingDir,
 		artifactHelper:  NewArtifactHelper(artifactSaver, logger),
 	}
+	for _, opt := range opts {
+		opt(e)
+	}
+	return e
+}
+
+// NewVerifyExecutorWithWorkingDir creates a verify executor with a working directory.
+// Deprecated: Use NewVerifyExecutor with WithVerifyWorkingDir option instead.
+func NewVerifyExecutorWithWorkingDir(runner ai.Runner, garbageDetector *git.GarbageDetector, artifactSaver ArtifactSaver, logger zerolog.Logger, workingDir string) *VerifyExecutor {
+	return NewVerifyExecutor(runner, garbageDetector, artifactSaver, logger, WithVerifyWorkingDir(workingDir))
 }
 
 // VerifyConfig configures the verification step.
@@ -469,11 +491,12 @@ func (e *VerifyExecutor) CheckTestCoverage(_ context.Context, changedFiles []Cha
 // CheckGarbageFiles detects garbage files that shouldn't be committed.
 // Reuses the GarbageDetector from internal/git package.
 func (e *VerifyExecutor) CheckGarbageFiles(_ context.Context, stagedFiles []string) ([]VerificationIssue, error) {
-	if e.garbageDetector == nil {
-		e.garbageDetector = git.NewGarbageDetector(nil)
+	checker := e.garbageDetector
+	if checker == nil {
+		checker = git.NewGarbageDetector(nil)
 	}
 
-	garbageFiles := e.garbageDetector.DetectGarbage(stagedFiles)
+	garbageFiles := checker.DetectGarbage(stagedFiles)
 
 	issues := make([]VerificationIssue, 0, len(garbageFiles))
 	for _, gf := range garbageFiles {
