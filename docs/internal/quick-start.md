@@ -424,7 +424,7 @@ atlas start "fix bug" --template bugfix
 # ─────────────────────────────────────────
 # 📁 Workspace:    fix-bug
 # 📁 Worktree:     /path/to/worktree
-# 📋 Task:         task-20260107-123456
+# 📋 Task:         task-550e8400-e29b-41d4-a716-446655440000
 # 📊 Status:       interrupted
 # ⏸ Stopped at:    Step 3/7 (validate)
 #
@@ -764,7 +764,7 @@ atlas workspace logs my-workspace --follow
 atlas workspace logs my-workspace --step validate
 
 # Filter by task ID
-atlas workspace logs my-workspace --task task-20251226-100000
+atlas workspace logs my-workspace --task task-550e8400-e29b-41d4-a716-446655440001
 
 # Show last N lines
 atlas workspace logs my-workspace --tail 50
@@ -1494,7 +1494,7 @@ By default, worktrees are created as siblings to your repository:
 cat ~/.atlas/workspaces/*/tasks/*/artifacts/pr-description.md
 
 # All artifacts for a specific task
-ls ~/.atlas/workspaces/auth/tasks/task-20251226-143022/artifacts/
+ls ~/.atlas/workspaces/auth/tasks/task-550e8400-e29b-41d4-a716-446655440002/artifacts/
 
 # Workspace task history
 jq '.tasks' ~/.atlas/workspaces/auth/workspace.json
