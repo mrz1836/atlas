@@ -51,6 +51,10 @@ type Store interface {
 	// Delete removes a workspace and its data. Returns ErrWorkspaceNotFound if not found.
 	Delete(ctx context.Context, name string) error
 
+	// ResetMetadata removes only the workspace metadata file, preserving task history.
+	// Returns ErrWorkspaceNotFound if not found.
+	ResetMetadata(ctx context.Context, name string) error
+
 	// Exists returns true if a workspace with the given name exists.
 	Exists(ctx context.Context, name string) (bool, error)
 }
@@ -302,6 +306,37 @@ func (s *FileStore) Delete(ctx context.Context, name string) error {
 	// Remove entire workspace directory
 	if err := os.RemoveAll(wsPath); err != nil {
 		return fmt.Errorf("failed to delete workspace '%s': %w", name, err)
+	}
+
+	return nil
+}
+
+// ResetMetadata removes only the workspace metadata file, preserving task history.
+// Use this when recreating a closed workspace to allow workspace name reuse while
+// keeping historical task data.
+func (s *FileStore) ResetMetadata(ctx context.Context, name string) error {
+	// Check for cancellation at entry
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
+	// Validate name
+	if err := validateName(name); err != nil {
+		return fmt.Errorf("failed to reset workspace '%s': %w", name, err)
+	}
+
+	metadataPath := s.workspaceFilePath(name)
+
+	// Check if workspace metadata exists
+	if _, err := os.Stat(metadataPath); os.IsNotExist(err) {
+		return fmt.Errorf("failed to reset workspace '%s': %w", name, atlaserrors.ErrWorkspaceNotFound)
+	}
+
+	// Remove only the metadata file, preserving tasks directory
+	if err := os.Remove(metadataPath); err != nil {
+		return fmt.Errorf("failed to reset workspace '%s': %w", name, err)
 	}
 
 	return nil

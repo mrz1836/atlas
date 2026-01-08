@@ -122,8 +122,8 @@ func (m *DefaultManager) Create(ctx context.Context, name, repoPath, branchType,
 		if existingWs.Status != constants.WorkspaceStatusClosed {
 			return nil, fmt.Errorf("failed to create workspace '%s': %w", name, atlaserrors.ErrWorkspaceExists)
 		}
-		// Delete the closed workspace entry to make room for the new one
-		if deleteErr := m.store.Delete(ctx, name); deleteErr != nil {
+		// Reset metadata (preserve tasks) to make room for the new workspace
+		if deleteErr := m.store.ResetMetadata(ctx, name); deleteErr != nil {
 			return nil, fmt.Errorf("failed to cleanup closed workspace '%s': %w", name, deleteErr)
 		}
 	}

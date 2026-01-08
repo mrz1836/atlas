@@ -387,6 +387,77 @@ func TestFileStore_Delete_NotFound(t *testing.T) {
 	require.ErrorIs(t, err, atlaserrors.ErrWorkspaceNotFound)
 }
 
+// TestFileStore_ResetMetadata_PreservesTasks tests that ResetMetadata removes
+// workspace.json but preserves the tasks directory.
+func TestFileStore_ResetMetadata_PreservesTasks(t *testing.T) {
+	tmpDir := t.TempDir()
+	store, err := NewFileStore(tmpDir)
+	require.NoError(t, err)
+
+	ws := &domain.Workspace{
+		Name:      "reset-test",
+		Status:    constants.WorkspaceStatusClosed,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+
+	err = store.Create(context.Background(), ws)
+	require.NoError(t, err)
+
+	// Create a tasks directory with a task file to simulate existing task data
+	wsPath := filepath.Join(tmpDir, constants.WorkspacesDir, "reset-test")
+	tasksDir := filepath.Join(wsPath, constants.TasksDir)
+	err = os.MkdirAll(tasksDir, 0o750)
+	require.NoError(t, err)
+
+	taskFile := filepath.Join(tasksDir, "task-12345.json")
+	err = os.WriteFile(taskFile, []byte(`{"id":"task-12345"}`), 0o600)
+	require.NoError(t, err)
+
+	// Reset metadata
+	err = store.ResetMetadata(context.Background(), "reset-test")
+	require.NoError(t, err)
+
+	// Verify workspace.json is gone
+	metadataPath := filepath.Join(wsPath, constants.WorkspaceFileName)
+	_, err = os.Stat(metadataPath)
+	assert.True(t, os.IsNotExist(err), "workspace.json should be deleted")
+
+	// Verify tasks directory and task file still exist
+	_, err = os.Stat(tasksDir)
+	require.NoError(t, err, "tasks directory should be preserved")
+
+	_, err = os.Stat(taskFile)
+	require.NoError(t, err, "task file should be preserved")
+
+	// Verify Exists returns false (since workspace.json is gone)
+	exists, err := store.Exists(context.Background(), "reset-test")
+	require.NoError(t, err)
+	assert.False(t, exists, "workspace should not exist after metadata reset")
+}
+
+// TestFileStore_ResetMetadata_NotFound tests ResetMetadata on non-existent workspace.
+func TestFileStore_ResetMetadata_NotFound(t *testing.T) {
+	tmpDir := t.TempDir()
+	store, err := NewFileStore(tmpDir)
+	require.NoError(t, err)
+
+	err = store.ResetMetadata(context.Background(), "nonexistent")
+	require.Error(t, err)
+	require.ErrorIs(t, err, atlaserrors.ErrWorkspaceNotFound)
+}
+
+// TestFileStore_ResetMetadata_InvalidName tests ResetMetadata with invalid name.
+func TestFileStore_ResetMetadata_InvalidName(t *testing.T) {
+	tmpDir := t.TempDir()
+	store, err := NewFileStore(tmpDir)
+	require.NoError(t, err)
+
+	err = store.ResetMetadata(context.Background(), "../evil")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid")
+}
+
 // TestFileStore_Exists_True tests Exists with existing workspace.
 func TestFileStore_Exists_True(t *testing.T) {
 	tmpDir := t.TempDir()

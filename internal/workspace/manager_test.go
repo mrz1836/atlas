@@ -21,13 +21,14 @@ var errGitCommandFailed = errors.New("git command failed")
 
 // MockStore implements Store for testing.
 type MockStore struct {
-	workspaces map[string]*domain.Workspace
-	createErr  error
-	getErr     error
-	updateErr  error
-	deleteErr  error
-	listErr    error
-	existsErr  error
+	workspaces       map[string]*domain.Workspace
+	createErr        error
+	getErr           error
+	updateErr        error
+	deleteErr        error
+	resetMetadataErr error
+	listErr          error
+	existsErr        error
 }
 
 func newMockStore() *MockStore {
@@ -91,6 +92,19 @@ func (m *MockStore) Delete(_ context.Context, name string) error {
 	if _, exists := m.workspaces[name]; !exists {
 		return atlaserrors.ErrWorkspaceNotFound
 	}
+	delete(m.workspaces, name)
+	return nil
+}
+
+func (m *MockStore) ResetMetadata(_ context.Context, name string) error {
+	if m.resetMetadataErr != nil {
+		return m.resetMetadataErr
+	}
+	if _, exists := m.workspaces[name]; !exists {
+		return atlaserrors.ErrWorkspaceNotFound
+	}
+	// ResetMetadata removes metadata but doesn't delete the entry
+	// For mock purposes, just delete the workspace entry
 	delete(m.workspaces, name)
 	return nil
 }

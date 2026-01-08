@@ -67,6 +67,10 @@ func (m *mockWorkspaceStore) Exists(_ context.Context, name string) (bool, error
 	return false, nil
 }
 
+func (m *mockWorkspaceStore) ResetMetadata(_ context.Context, _ string) error {
+	return nil
+}
+
 // mockTaskStoreForApprove implements task.Store interface for testing.
 type mockTaskStoreForApprove struct {
 	tasks       map[string][]*domain.Task // workspaceName -> tasks
