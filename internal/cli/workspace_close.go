@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
@@ -236,11 +237,7 @@ func executeClose(ctx context.Context, store *workspace.FileStore, name, storeBa
 			warnings = append(warnings, result.BranchWarning)
 		}
 		if len(warnings) > 0 {
-			// Join warnings with semicolon separator
-			warning = warnings[0]
-			for i := 1; i < len(warnings); i++ {
-				warning = warning + "; " + warnings[i]
-			}
+			warning = strings.Join(warnings, "; ")
 		}
 	}
 

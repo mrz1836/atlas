@@ -238,7 +238,7 @@ func runStart(ctx context.Context, cmd *cobra.Command, w io.Writer, description 
 	}
 
 	// Create and configure workspace
-	ws, err := createWorkspace(ctx, sc, wsName, repoPath, tmpl.BranchPrefix, opts.baseBranch, opts.useLocal, opts.noInteractive) //nolint:contextcheck // context is properly checked and used
+	ws, err := createWorkspace(ctx, sc, wsName, repoPath, tmpl.BranchPrefix, opts.baseBranch, opts.useLocal) //nolint:contextcheck // context is properly checked and used
 	if err != nil {
 		return fmt.Errorf("create workspace: %w", err)
 	}
@@ -478,7 +478,7 @@ func safeTaskID(t *domain.Task) string {
 // createWorkspace creates a new workspace or uses an existing one (upsert behavior).
 // If a workspace with the given name already exists and is active/paused, it will be reused.
 // If a closed workspace with the same name exists, it will be automatically cleaned up and a new workspace created.
-func createWorkspace(ctx context.Context, sc *startContext, wsName, repoPath, branchPrefix, baseBranch string, useLocal, _ bool) (*domain.Workspace, error) {
+func createWorkspace(ctx context.Context, sc *startContext, wsName, repoPath, branchPrefix, baseBranch string, useLocal bool) (*domain.Workspace, error) {
 	logger := Logger()
 
 	// Create workspace store
@@ -746,7 +746,7 @@ func handleProgressStart(out tui.Output, event task.StepProgressEvent, logPathSh
 	// Show log path on first step start
 	if !*logPathShown && event.TaskID != "" {
 		logPath := fmt.Sprintf("~/.atlas/workspaces/%s/tasks/%s/task.log", event.WorkspaceName, event.TaskID)
-		out.Info("Logs: " + logPath)
+		out.Info(fmt.Sprintf("Logs: %s", logPath))
 		*logPathShown = true
 	}
 
@@ -773,7 +773,7 @@ func handleProgressComplete(out tui.Output, event task.StepProgressEvent) {
 	if event.Agent != "" && (event.DurationMs > 0 || event.NumTurns > 0 || event.FilesChangedCount > 0) {
 		metrics := buildStepMetrics(event.DurationMs, event.NumTurns, event.FilesChangedCount)
 		if metrics != "" {
-			out.Info("  " + metrics)
+			out.Info(fmt.Sprintf("  %s", metrics))
 		}
 	}
 

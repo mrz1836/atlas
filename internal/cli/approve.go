@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -525,13 +526,13 @@ func executeApprovalAction(ctx context.Context, out tui.Output, taskStore task.S
 
 	case actionViewDiff:
 		if err := viewDiff(ctx, ws.WorktreePath); err != nil {
-			out.Warning("Could not display diff: " + err.Error())
+			out.Warning(fmt.Sprintf("Could not display diff: %v", err))
 		}
 		return false, nil
 
 	case actionViewLogs:
 		if err := viewLogs(ctx, taskStore, ws.Name, t.ID); err != nil {
-			out.Warning("Could not display logs: " + err.Error())
+			out.Warning(fmt.Sprintf("Could not display logs: %v", err))
 		}
 		return false, nil
 
@@ -540,14 +541,14 @@ func executeApprovalAction(ctx context.Context, out tui.Output, taskStore task.S
 		if prURL == "" {
 			out.Warning("No PR URL available.")
 		} else if err := openInBrowser(ctx, prURL); err != nil {
-			out.Warning("Could not open PR: " + err.Error())
+			out.Warning(fmt.Sprintf("Could not open PR: %v", err))
 		} else {
-			out.Info("Opened " + prURL + " in browser.")
+			out.Info(fmt.Sprintf("Opened %s in browser.", prURL))
 		}
 		return false, nil
 
 	case actionReject:
-		out.Info("Run 'atlas reject " + ws.Name + "' to reject with feedback.")
+		out.Info(fmt.Sprintf("Run 'atlas reject %s' to reject with feedback.", ws.Name))
 		return true, nil
 
 	case actionCancel:
@@ -925,7 +926,7 @@ func (t *approveStepTracker) notifyStepComplete(step approveStep, message string
 
 	// Display additional message if provided
 	if message != "" {
-		t.out.Info("  " + message)
+		t.out.Info(fmt.Sprintf("  %s", message))
 	}
 }
 
@@ -1049,7 +1050,7 @@ func executeCloseWorkspaceStep(ctx context.Context, stepCtx *approveStepContext)
 
 	msg := fmt.Sprintf("Workspace '%s' closed", stepCtx.ws.Name)
 	if warning != "" {
-		msg += " (warning: " + warning + ")"
+		msg = fmt.Sprintf("%s (warning: %s)", msg, warning)
 	}
 	return msg, nil
 }
@@ -1117,12 +1118,7 @@ func closeWorkspace(ctx context.Context, workspaceName string) (warning string, 
 	}
 
 	if len(warnings) > 0 {
-		// Join warnings with semicolon separator
-		warning := warnings[0]
-		for i := 1; i < len(warnings); i++ {
-			warning = warning + "; " + warnings[i]
-		}
-		return warning, nil
+		return strings.Join(warnings, "; "), nil
 	}
 
 	return "", nil

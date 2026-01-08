@@ -649,8 +649,8 @@ func handleViewErrors(ctx context.Context, out tui.Output, taskStore task.Store,
 		// Try alternate filename
 		data, err = taskStore.GetArtifact(ctx, workspaceName, taskID, "validation-result.json")
 		if err != nil {
-			out.Warning("Could not load validation results: " + err.Error())
-			return false, nil //nolint:nilerr // Intentional: return to menu loop on error
+			out.Warning(fmt.Sprintf("Could not load validation results: %v", err))
+			return false, nil
 		}
 	}
 
@@ -689,10 +689,10 @@ func handleViewLogs(ctx context.Context, out tui.Output, ws *domain.Workspace, t
 
 	// Open in browser
 	if err := openInBrowser(ctx, ghURL); err != nil {
-		out.Warning("Could not open browser: " + err.Error())
-		out.Info("URL: " + ghURL)
+		out.Warning(fmt.Sprintf("Could not open browser: %v", err))
+		out.Info(fmt.Sprintf("URL: %s", ghURL))
 	} else {
-		out.Info("Opened " + ghURL + " in browser.")
+		out.Info(fmt.Sprintf("Opened %s in browser.", ghURL))
 	}
 
 	return false, nil // Return to menu

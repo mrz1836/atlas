@@ -412,7 +412,7 @@ func buildActionableSuggestion(row *tui.StatusRow) string {
 	}
 
 	// All actions include the workspace name for consistency
-	return "\nRun: " + action + " " + row.Workspace
+	return fmt.Sprintf("\nRun: %s %s", action, row.Workspace)
 }
 
 // runWatchMode starts the watch mode TUI with live updates.
