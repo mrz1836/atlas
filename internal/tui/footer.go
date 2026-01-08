@@ -27,7 +27,7 @@ type StatusFooter struct {
 // NewStatusFooter creates a new StatusFooter from status rows.
 // Only includes rows with attention-required statuses.
 func NewStatusFooter(rows []StatusRow) *StatusFooter {
-	items := make([]ActionItem, 0)
+	items := make([]ActionItem, 0, len(rows)) // Pre-allocate capacity
 
 	for _, row := range rows {
 		if IsAttentionStatus(row.Status) {
@@ -35,7 +35,7 @@ func NewStatusFooter(rows []StatusRow) *StatusFooter {
 			if action != "" {
 				items = append(items, ActionItem{
 					Workspace: row.Workspace,
-					Action:    action + " " + row.Workspace,
+					Action:    fmt.Sprintf("%s %s", action, row.Workspace),
 					Status:    row.Status,
 				})
 			}
@@ -66,14 +66,14 @@ func (f *StatusFooter) Items() []ActionItem {
 // FormatSingleAction formats a single action command.
 // Returns "Run: atlas approve workspace-name" with optional styling.
 func FormatSingleAction(workspace, action string) string {
-	return "Run: " + action + " " + workspace
+	return fmt.Sprintf("Run: %s %s", action, workspace)
 }
 
 // FormatMultipleActions formats multiple action commands, one per line.
 func FormatMultipleActions(items []ActionItem) string {
 	lines := make([]string, len(items))
 	for i, item := range items {
-		lines[i] = "Run: " + item.Action
+		lines[i] = fmt.Sprintf("Run: %s", item.Action)
 	}
 	return strings.Join(lines, "\n")
 }
@@ -150,15 +150,15 @@ func (f *StatusFooter) ToJSON() []map[string]string {
 // renderSingleAction formats one action item with styling.
 // Uses bold for the command portion.
 func (f *StatusFooter) renderSingleAction(item ActionItem) string {
-	prefix := "Run: "
+	const prefix = "Run: "
 	command := item.Action
 
 	if !HasColorSupport() {
 		// NO_COLOR mode: plain text
-		return prefix + command
+		return fmt.Sprintf("%s%s", prefix, command)
 	}
 
 	// Apply bold styling to the command
 	boldStyle := lipgloss.NewStyle().Bold(true)
-	return prefix + boldStyle.Render(command)
+	return fmt.Sprintf("%s%s", prefix, boldStyle.Render(command))
 }
