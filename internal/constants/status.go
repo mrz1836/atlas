@@ -91,3 +91,28 @@ const (
 func (s WorkspaceStatus) String() string {
 	return string(s)
 }
+
+// ValidationProgressStatus represents the progress state of a validation step.
+// These are used by the validation runner to report step progress.
+type ValidationProgressStatus string
+
+// Validation progress status constants define the states a validation step can report.
+const (
+	// ValidationProgressStarting indicates a validation step is beginning execution.
+	ValidationProgressStarting ValidationProgressStatus = "starting"
+
+	// ValidationProgressCompleted indicates a validation step finished successfully.
+	ValidationProgressCompleted ValidationProgressStatus = "completed"
+
+	// ValidationProgressFailed indicates a validation step failed.
+	ValidationProgressFailed ValidationProgressStatus = "failed"
+
+	// ValidationProgressSkipped indicates a validation step was skipped
+	// (e.g., tool not installed).
+	ValidationProgressSkipped ValidationProgressStatus = "skipped"
+)
+
+// String returns the string representation of the ValidationProgressStatus.
+func (s ValidationProgressStatus) String() string {
+	return string(s)
+}

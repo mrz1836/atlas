@@ -10,6 +10,21 @@ import (
 	"github.com/rs/zerolog"
 )
 
+// Git status --porcelain format constants.
+// Format: "XY filename" where X=index status, Y=worktree status.
+const (
+	// gitStatusMinLen is the minimum line length for a valid status entry ("XY " + filename).
+	gitStatusMinLen = 3
+	// gitStatusPrefixLen is the length of the status prefix ("XY ").
+	gitStatusPrefixLen = 3
+	// gitUntrackedPrefix indicates an untracked file ("??").
+	gitUntrackedPrefix = "??"
+	// gitModifiedFlag indicates a modified file in the worktree position.
+	gitModifiedFlag = 'M'
+	// gitWorktreePos is the position of the worktree status character (0-indexed).
+	gitWorktreePos = 1
+)
+
 // GitRunner abstracts git command execution for testability.
 type GitRunner interface {
 	// Run executes a git command and returns its output.
@@ -89,14 +104,14 @@ func StageModifiedFilesWithRunner(ctx context.Context, workDir string, runner Gi
 func parseModifiedFiles(statusOutput string) []string {
 	var files []string
 	for _, line := range strings.Split(statusOutput, "\n") {
-		if len(line) < 3 {
+		if len(line) < gitStatusMinLen {
 			continue
 		}
 
 		// Handle untracked files ("?? filename")
 		// Pre-commit hooks may create new files that need to be staged
-		if strings.HasPrefix(line, "??") {
-			filename := strings.TrimSpace(line[3:])
+		if strings.HasPrefix(line, gitUntrackedPrefix) {
+			filename := strings.TrimSpace(line[gitStatusPrefixLen:])
 			if filename != "" {
 				files = append(files, filename)
 			}
@@ -106,9 +121,9 @@ func parseModifiedFiles(statusOutput string) []string {
 		// " M file.go" = modified but not staged
 		// "MM file.go" = modified in both (stage the worktree changes)
 		// We want files where Y (worktree) shows 'M' (modified)
-		if line[1] == 'M' {
+		if line[gitWorktreePos] == gitModifiedFlag {
 			// Extract filename (everything after "XY ")
-			filename := strings.TrimSpace(line[3:])
+			filename := strings.TrimSpace(line[gitStatusPrefixLen:])
 			if filename != "" {
 				files = append(files, filename)
 			}

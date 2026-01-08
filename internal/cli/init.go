@@ -132,6 +132,14 @@ const (
 	defaultAPIKeyEnv = "ANTHROPIC_API_KEY" //nolint:gosec // Not a credential, just env var name
 )
 
+// Separator widths for consistent UI formatting.
+const (
+	separatorWidthTable  = 55 // Tool table header
+	separatorWidthWide   = 35 // Section headers (validation)
+	separatorWidthMedium = 30 // Section headers (AI)
+	separatorWidthNarrow = 25 // Section headers (notifications)
+)
+
 // ToolDetector is an interface for detecting tools.
 // This allows for mocking in tests.
 type ToolDetector interface {
@@ -311,7 +319,7 @@ func displayHeader(w io.Writer, styles *initStyles) {
 func displayToolTable(w io.Writer, result *config.ToolDetectionResult, styles *initStyles) {
 	// Table header
 	_, _ = fmt.Fprintln(w, styles.dim.Render("TOOL            REQUIRED   VERSION        STATUS"))
-	_, _ = fmt.Fprintln(w, styles.dim.Render(strings.Repeat("─", 55)))
+	_, _ = fmt.Fprintln(w, styles.dim.Render(strings.Repeat("─", separatorWidthTable)))
 
 	// Sort tools: required first, then managed
 	tools := make([]config.Tool, len(result.Tools))
@@ -454,7 +462,7 @@ func runInteractiveWizard(ctx context.Context, w io.Writer, toolResult *config.T
 	// AI Provider Configuration using reusable functions from ai_config.go
 	_, _ = fmt.Fprintln(w)
 	_, _ = fmt.Fprintln(w, styles.info.Render("AI Provider Configuration"))
-	_, _ = fmt.Fprintln(w, styles.dim.Render(strings.Repeat("─", 30)))
+	_, _ = fmt.Fprintln(w, styles.dim.Render(strings.Repeat("─", separatorWidthMedium)))
 
 	aiCfg := &AIProviderConfig{}
 	if err := CollectAIConfigInteractive(ctx, aiCfg); err != nil {
@@ -478,7 +486,7 @@ func runInteractiveWizard(ctx context.Context, w io.Writer, toolResult *config.T
 	// Validation Commands Configuration using reusable functions from validation_config.go
 	_, _ = fmt.Fprintln(w)
 	_, _ = fmt.Fprintln(w, styles.info.Render("Validation Commands Configuration"))
-	_, _ = fmt.Fprintln(w, styles.dim.Render(strings.Repeat("─", 35)))
+	_, _ = fmt.Fprintln(w, styles.dim.Render(strings.Repeat("─", separatorWidthWide)))
 
 	valCfg := &ValidationProviderConfig{}
 	if err := CollectValidationConfigInteractive(ctx, valCfg, toolResult); err != nil {
@@ -503,7 +511,7 @@ func runInteractiveWizard(ctx context.Context, w io.Writer, toolResult *config.T
 	// Notification Preferences using reusable functions from notification_config.go
 	_, _ = fmt.Fprintln(w)
 	_, _ = fmt.Fprintln(w, styles.info.Render("Notification Preferences"))
-	_, _ = fmt.Fprintln(w, styles.dim.Render(strings.Repeat("─", 25)))
+	_, _ = fmt.Fprintln(w, styles.dim.Render(strings.Repeat("─", separatorWidthNarrow)))
 
 	notifyCfg := &NotificationProviderConfig{
 		BellEnabled: defaultBell,
@@ -536,18 +544,6 @@ func buildDefaultConfig(toolResult *config.ToolDetectionResult) AtlasConfig {
 		// Use reusable DefaultNotificationConfig from notification_config.go
 		Notifications: DefaultNotificationConfig(),
 	}
-}
-
-// suggestValidationCommands suggests validation commands based on detected tools.
-// Deprecated: Use SuggestValidationDefaults instead for new code.
-func suggestValidationCommands(result *config.ToolDetectionResult) ValidationCommands {
-	return SuggestValidationDefaults(result)
-}
-
-// parseMultilineInput splits multiline input into a slice of strings.
-// Deprecated: Use ParseMultilineInput instead for new code.
-func parseMultilineInput(input string) []string {
-	return ParseMultilineInput(input)
 }
 
 // saveConfig writes the configuration to ~/.atlas/config.yaml.
