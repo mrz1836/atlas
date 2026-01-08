@@ -269,7 +269,7 @@ func TestDefaultManager_Create_Success(t *testing.T) {
 	}
 
 	mgr := NewManager(store, runner, zerolog.Nop())
-	ws, err := mgr.Create(context.Background(), "test", "/tmp/repo", "feat", "", false)
+	ws, err := mgr.Create(context.Background(), CreateOptions{Name: "test", RepoPath: "/tmp/repo", BranchType: "feat"})
 
 	require.NoError(t, err)
 	require.NotNil(t, ws)
@@ -290,7 +290,7 @@ func TestDefaultManager_Create_ValidatesNameUniqueness(t *testing.T) {
 	store.workspaces["existing"] = &domain.Workspace{Name: "existing"}
 
 	mgr := NewManager(store, runner, zerolog.Nop())
-	ws, err := mgr.Create(context.Background(), "existing", "/tmp/repo", "feat", "", false)
+	ws, err := mgr.Create(context.Background(), CreateOptions{Name: "existing", RepoPath: "/tmp/repo", BranchType: "feat"})
 
 	require.Error(t, err)
 	assert.Nil(t, ws)
@@ -302,7 +302,7 @@ func TestDefaultManager_Create_ValidatesEmptyName(t *testing.T) {
 	runner := newMockWorktreeRunner()
 
 	mgr := NewManager(store, runner, zerolog.Nop())
-	ws, err := mgr.Create(context.Background(), "", "/tmp/repo", "feat", "", false)
+	ws, err := mgr.Create(context.Background(), CreateOptions{Name: "", RepoPath: "/tmp/repo", BranchType: "feat"})
 
 	require.Error(t, err)
 	assert.Nil(t, ws)
@@ -316,7 +316,7 @@ func TestDefaultManager_Create_RollsBackWorktreeOnStoreFailure(t *testing.T) {
 	runner.createResult = &WorktreeInfo{Path: "/tmp/test", Branch: "feat/test"}
 
 	mgr := NewManager(store, runner, zerolog.Nop())
-	ws, err := mgr.Create(context.Background(), "test", "/tmp/repo", "feat", "", false)
+	ws, err := mgr.Create(context.Background(), CreateOptions{Name: "test", RepoPath: "/tmp/repo", BranchType: "feat"})
 
 	require.Error(t, err)
 	assert.Nil(t, ws)
@@ -332,7 +332,7 @@ func TestDefaultManager_Create_FailsOnWorktreeError(t *testing.T) {
 	runner.createErr = atlaserrors.ErrWorktreeExists // Use sentinel error
 
 	mgr := NewManager(store, runner, zerolog.Nop())
-	ws, err := mgr.Create(context.Background(), "test", "/tmp/repo", "feat", "", false)
+	ws, err := mgr.Create(context.Background(), CreateOptions{Name: "test", RepoPath: "/tmp/repo", BranchType: "feat"})
 
 	require.Error(t, err)
 	assert.Nil(t, ws)
@@ -350,7 +350,7 @@ func TestDefaultManager_Create_ContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately
 
-	ws, err := mgr.Create(ctx, "test", "/tmp/repo", "feat", "", false)
+	ws, err := mgr.Create(ctx, CreateOptions{Name: "test", RepoPath: "/tmp/repo", BranchType: "feat"})
 
 	require.Error(t, err)
 	assert.Nil(t, ws)
@@ -1139,7 +1139,7 @@ func TestDefaultManager_Create_CheckExistenceError(t *testing.T) {
 	runner := newMockWorktreeRunner()
 
 	mgr := NewManager(store, runner, zerolog.Nop())
-	ws, err := mgr.Create(context.Background(), "test", "/tmp/repo", "feat", "", false)
+	ws, err := mgr.Create(context.Background(), CreateOptions{Name: "test", RepoPath: "/tmp/repo", BranchType: "feat"})
 
 	require.Error(t, err)
 	assert.Nil(t, ws)
@@ -1501,7 +1501,7 @@ func TestDefaultManager_SupportsConcurrentWorkspaces(t *testing.T) {
 			Path:   "/tmp/repo-" + name,
 			Branch: "feat/" + name,
 		}
-		ws, err := mgr.Create(context.Background(), name, "/tmp/repo", "feat", "", false)
+		ws, err := mgr.Create(context.Background(), CreateOptions{Name: name, RepoPath: "/tmp/repo", BranchType: "feat"})
 		require.NoError(t, err)
 		require.NotNil(t, ws)
 	}
@@ -1517,7 +1517,7 @@ func TestDefaultManager_Create_ValidatesEmptyRepoPath(t *testing.T) {
 	runner := newMockWorktreeRunner()
 
 	mgr := NewManager(store, runner, zerolog.Nop())
-	ws, err := mgr.Create(context.Background(), "test", "", "feat", "", false)
+	ws, err := mgr.Create(context.Background(), CreateOptions{Name: "test", RepoPath: "", BranchType: "feat"})
 
 	require.Error(t, err)
 	assert.Nil(t, ws)
@@ -1530,7 +1530,7 @@ func TestDefaultManager_Create_ValidatesEmptyBranchType(t *testing.T) {
 	runner := newMockWorktreeRunner()
 
 	mgr := NewManager(store, runner, zerolog.Nop())
-	ws, err := mgr.Create(context.Background(), "test", "/tmp/repo", "", "", false)
+	ws, err := mgr.Create(context.Background(), CreateOptions{Name: "test", RepoPath: "/tmp/repo", BranchType: ""})
 
 	require.Error(t, err)
 	assert.Nil(t, ws)
@@ -1543,7 +1543,7 @@ func TestDefaultManager_Create_ValidatesNilWorktreeRunner(t *testing.T) {
 
 	// Pass nil worktree runner
 	mgr := NewManager(store, nil, zerolog.Nop())
-	ws, err := mgr.Create(context.Background(), "test", "/tmp/repo", "task", "", false)
+	ws, err := mgr.Create(context.Background(), CreateOptions{Name: "test", RepoPath: "/tmp/repo", BranchType: "task"})
 
 	require.Error(t, err)
 	assert.Nil(t, ws)
@@ -1565,7 +1565,7 @@ func TestDefaultManager_Create_WithLocalBaseBranch(t *testing.T) {
 
 	mgr := NewManager(store, runner, zerolog.Nop())
 	// Use useLocal=true to explicitly prefer local branch
-	ws, err := mgr.Create(context.Background(), "test", "/tmp/repo", "feat", "develop", true)
+	ws, err := mgr.Create(context.Background(), CreateOptions{Name: "test", RepoPath: "/tmp/repo", BranchType: "feat", BaseBranch: "develop", UseLocal: true})
 
 	require.NoError(t, err)
 	require.NotNil(t, ws)
@@ -1585,7 +1585,7 @@ func TestDefaultManager_Create_WithRemoteBaseBranch(t *testing.T) {
 	}
 
 	mgr := NewManager(store, runner, zerolog.Nop())
-	ws, err := mgr.Create(context.Background(), "test", "/tmp/repo", "feat", "develop", false)
+	ws, err := mgr.Create(context.Background(), CreateOptions{Name: "test", RepoPath: "/tmp/repo", BranchType: "feat", BaseBranch: "develop"})
 
 	require.NoError(t, err)
 	require.NotNil(t, ws)
@@ -1600,7 +1600,7 @@ func TestDefaultManager_Create_WithNonExistentBaseBranch(t *testing.T) {
 	runner.remoteBranchExists = false // Not remote either
 
 	mgr := NewManager(store, runner, zerolog.Nop())
-	ws, err := mgr.Create(context.Background(), "test", "/tmp/repo", "feat", "nonexistent", false)
+	ws, err := mgr.Create(context.Background(), CreateOptions{Name: "test", RepoPath: "/tmp/repo", BranchType: "feat", BaseBranch: "nonexistent"})
 
 	require.Error(t, err)
 	assert.Nil(t, ws)
@@ -1622,7 +1622,7 @@ func TestDefaultManager_Create_WithBaseBranch_FetchError(t *testing.T) {
 
 	mgr := NewManager(store, runner, zerolog.Nop())
 	// Even if fetch fails, if remote branch exists (from stale refs), we should succeed
-	ws, err := mgr.Create(context.Background(), "test", "/tmp/repo", "feat", "develop", false)
+	ws, err := mgr.Create(context.Background(), CreateOptions{Name: "test", RepoPath: "/tmp/repo", BranchType: "feat", BaseBranch: "develop"})
 
 	require.NoError(t, err)
 	require.NotNil(t, ws)
@@ -1635,7 +1635,7 @@ func TestDefaultManager_Create_WithBaseBranch_RemoteCheckError(t *testing.T) {
 	runner.remoteBranchExistsErr = atlaserrors.ErrGitOperation
 
 	mgr := NewManager(store, runner, zerolog.Nop())
-	ws, err := mgr.Create(context.Background(), "test", "/tmp/repo", "feat", "develop", false)
+	ws, err := mgr.Create(context.Background(), CreateOptions{Name: "test", RepoPath: "/tmp/repo", BranchType: "feat", BaseBranch: "develop"})
 
 	require.Error(t, err)
 	assert.Nil(t, ws)
@@ -1648,7 +1648,7 @@ func TestDefaultManager_Create_WithBaseBranch_LocalCheckError(t *testing.T) {
 	runner.branchExistsErr = atlaserrors.ErrGitOperation
 
 	mgr := NewManager(store, runner, zerolog.Nop())
-	ws, err := mgr.Create(context.Background(), "test", "/tmp/repo", "feat", "develop", false)
+	ws, err := mgr.Create(context.Background(), CreateOptions{Name: "test", RepoPath: "/tmp/repo", BranchType: "feat", BaseBranch: "develop"})
 
 	require.Error(t, err)
 	assert.Nil(t, ws)
@@ -1663,7 +1663,7 @@ func TestDefaultManager_Create_PrefersRemoteBranch_Default(t *testing.T) {
 	runner.remoteBranchExists = true // Remote exists
 
 	mgr := NewManager(store, runner, zerolog.Nop())
-	ws, err := mgr.Create(context.Background(), "test", "/tmp/repo", "feat", "main", false)
+	ws, err := mgr.Create(context.Background(), CreateOptions{Name: "test", RepoPath: "/tmp/repo", BranchType: "feat", BaseBranch: "main"})
 
 	require.NoError(t, err)
 	require.NotNil(t, ws)
@@ -1681,7 +1681,7 @@ func TestDefaultManager_Create_UseLocalFlag_PrefersLocal(t *testing.T) {
 	runner.remoteBranchExists = true // Remote exists
 
 	mgr := NewManager(store, runner, zerolog.Nop())
-	ws, err := mgr.Create(context.Background(), "test", "/tmp/repo", "feat", "main", true)
+	ws, err := mgr.Create(context.Background(), CreateOptions{Name: "test", RepoPath: "/tmp/repo", BranchType: "feat", BaseBranch: "main", UseLocal: true})
 
 	require.NoError(t, err)
 	require.NotNil(t, ws)
@@ -1697,7 +1697,7 @@ func TestDefaultManager_Create_FallbackToLocal(t *testing.T) {
 	runner.remoteBranchExists = false // Remote missing
 
 	mgr := NewManager(store, runner, zerolog.Nop())
-	ws, err := mgr.Create(context.Background(), "test", "/tmp/repo", "feat", "local-only", false)
+	ws, err := mgr.Create(context.Background(), CreateOptions{Name: "test", RepoPath: "/tmp/repo", BranchType: "feat", BaseBranch: "local-only"})
 
 	require.NoError(t, err)
 	require.NotNil(t, ws)
@@ -1714,7 +1714,7 @@ func TestDefaultManager_Create_UseLocalError_OnlyRemote(t *testing.T) {
 	runner.remoteBranchExists = true // Only remote
 
 	mgr := NewManager(store, runner, zerolog.Nop())
-	ws, err := mgr.Create(context.Background(), "test", "/tmp/repo", "feat", "remote-only", true)
+	ws, err := mgr.Create(context.Background(), CreateOptions{Name: "test", RepoPath: "/tmp/repo", BranchType: "feat", BaseBranch: "remote-only", UseLocal: true})
 
 	require.Error(t, err)
 	assert.Nil(t, ws)
@@ -1732,7 +1732,7 @@ func TestDefaultManager_Create_BranchNotFound_Anywhere(t *testing.T) {
 
 	// Test with useLocal=false (default)
 	mgr := NewManager(store, runner, zerolog.Nop())
-	ws, err := mgr.Create(context.Background(), "test", "/tmp/repo", "feat", "nonexistent", false)
+	ws, err := mgr.Create(context.Background(), CreateOptions{Name: "test", RepoPath: "/tmp/repo", BranchType: "feat", BaseBranch: "nonexistent"})
 
 	require.Error(t, err)
 	assert.Nil(t, ws)
@@ -1740,7 +1740,7 @@ func TestDefaultManager_Create_BranchNotFound_Anywhere(t *testing.T) {
 	assert.Contains(t, err.Error(), "does not exist locally or on remote")
 
 	// Test with useLocal=true (should also error)
-	ws2, err2 := mgr.Create(context.Background(), "test", "/tmp/repo", "feat", "nonexistent", true)
+	ws2, err2 := mgr.Create(context.Background(), CreateOptions{Name: "test", RepoPath: "/tmp/repo", BranchType: "feat", BaseBranch: "nonexistent", UseLocal: true})
 
 	require.Error(t, err2)
 	assert.Nil(t, ws2)

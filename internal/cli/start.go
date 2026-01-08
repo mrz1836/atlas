@@ -240,7 +240,7 @@ func runStart(ctx context.Context, cmd *cobra.Command, w io.Writer, description 
 	// Create and configure workspace
 	ws, err := createWorkspace(ctx, sc, wsName, repoPath, tmpl.BranchPrefix, opts.baseBranch, opts.useLocal, opts.noInteractive) //nolint:contextcheck // context is properly checked and used
 	if err != nil {
-		return err
+		return fmt.Errorf("create workspace: %w", err)
 	}
 
 	logger.Info().
@@ -517,7 +517,13 @@ func createWorkspace(ctx context.Context, sc *startContext, wsName, repoPath, br
 	}
 
 	// Workspace doesn't exist - create new
-	ws, err := wsMgr.Create(ctx, wsName, repoPath, branchPrefix, baseBranch, useLocal)
+	ws, err := wsMgr.Create(ctx, workspace.CreateOptions{
+		Name:       wsName,
+		RepoPath:   repoPath,
+		BranchType: branchPrefix,
+		BaseBranch: baseBranch,
+		UseLocal:   useLocal,
+	})
 	if err != nil {
 		return nil, sc.handleError(wsName, fmt.Errorf("failed to create workspace: %w", err))
 	}

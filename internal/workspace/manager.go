@@ -13,6 +13,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/mrz1836/atlas/internal/constants"
+	"github.com/mrz1836/atlas/internal/ctxutil"
 	"github.com/mrz1836/atlas/internal/domain"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 )
@@ -34,18 +35,31 @@ type CloseResult struct {
 	BranchWarning string
 }
 
-// Manager orchestrates workspace lifecycle operations.
-// It coordinates between the Store (state persistence) and WorktreeRunner (git worktrees).
-type Manager interface {
-	// Create creates a new workspace with a git worktree.
-	// If baseBranch is specified, validates it exists (locally or remotely) and creates from it.
-	// By default, prefers remote branches (origin/branch) over local branches for safety.
-	// Set useLocal=true to explicitly prefer local branches when both exist.
-	// Returns ErrWorkspaceExists if an active or paused workspace already exists.
-	// Closed workspaces are automatically cleaned up, allowing the name to be reused.
-	// Returns ErrBranchNotFound if baseBranch is specified but doesn't exist.
-	Create(ctx context.Context, name, repoPath, branchType, baseBranch string, useLocal bool) (*domain.Workspace, error)
+// CreateOptions contains options for creating a new workspace.
+// Using an options struct instead of positional parameters makes the API
+// clearer and easier to extend without breaking changes.
+type CreateOptions struct {
+	// Name is the workspace name (required).
+	Name string
 
+	// RepoPath is the path to the git repository (required).
+	RepoPath string
+
+	// BranchType is the branch prefix type, e.g., "feature", "bugfix" (required).
+	BranchType string
+
+	// BaseBranch is the branch to create from. If empty, uses the default branch.
+	// Supports both local and remote branches.
+	BaseBranch string
+
+	// UseLocal prefers local branches over remote when both exist.
+	// Default (false) prefers remote branches for safety.
+	UseLocal bool
+}
+
+// Reader provides read-only access to workspaces.
+// Use this interface when you only need to query workspace information.
+type Reader interface {
 	// Get retrieves a workspace by name.
 	// Returns ErrWorkspaceNotFound if not found.
 	Get(ctx context.Context, name string) (*domain.Workspace, error)
@@ -54,6 +68,26 @@ type Manager interface {
 	// Returns empty slice if none exist.
 	List(ctx context.Context) ([]*domain.Workspace, error)
 
+	// Exists returns true if a workspace exists.
+	Exists(ctx context.Context, name string) (bool, error)
+}
+
+// Creator handles workspace creation.
+// Use this interface when you only need to create workspaces.
+type Creator interface {
+	// Create creates a new workspace with a git worktree.
+	// If BaseBranch is specified, validates it exists (locally or remotely) and creates from it.
+	// By default, prefers remote branches (origin/branch) over local branches for safety.
+	// Set UseLocal=true to explicitly prefer local branches when both exist.
+	// Returns ErrWorkspaceExists if an active or paused workspace already exists.
+	// Closed workspaces are automatically cleaned up, allowing the name to be reused.
+	// Returns ErrBranchNotFound if BaseBranch is specified but doesn't exist.
+	Create(ctx context.Context, opts CreateOptions) (*domain.Workspace, error)
+}
+
+// Lifecycle manages workspace lifecycle operations.
+// Use this interface when you need to modify workspace state.
+type Lifecycle interface {
 	// Destroy removes a workspace and its worktree.
 	// ALWAYS succeeds even if state is corrupted (NFR18).
 	Destroy(ctx context.Context, name string) error
@@ -66,9 +100,16 @@ type Manager interface {
 
 	// UpdateStatus updates the status of a workspace.
 	UpdateStatus(ctx context.Context, name string, status constants.WorkspaceStatus) error
+}
 
-	// Exists returns true if a workspace exists.
-	Exists(ctx context.Context, name string) (bool, error)
+// Manager orchestrates workspace lifecycle operations.
+// It coordinates between the Store (state persistence) and WorktreeRunner (git worktrees).
+// Manager composes Reader, Creator, and Lifecycle interfaces,
+// allowing consumers to depend on the minimal interface they need.
+type Manager interface {
+	Reader
+	Creator
+	Lifecycle
 }
 
 // DefaultManager implements Manager using Store and WorktreeRunner.
@@ -88,22 +129,19 @@ func NewManager(store Store, worktreeRunner WorktreeRunner, logger zerolog.Logge
 }
 
 // Create creates a new workspace with a git worktree.
-func (m *DefaultManager) Create(ctx context.Context, name, repoPath, branchType, baseBranch string, useLocal bool) (*domain.Workspace, error) {
-	// Check for cancellation
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	default:
+func (m *DefaultManager) Create(ctx context.Context, opts CreateOptions) (*domain.Workspace, error) {
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return nil, err
 	}
 
 	// Validate inputs
-	if name == "" {
+	if opts.Name == "" {
 		return nil, fmt.Errorf("failed to create workspace: name %w", atlaserrors.ErrEmptyValue)
 	}
-	if repoPath == "" {
+	if opts.RepoPath == "" {
 		return nil, fmt.Errorf("failed to create workspace: repoPath %w", atlaserrors.ErrEmptyValue)
 	}
-	if branchType == "" {
+	if opts.BranchType == "" {
 		return nil, fmt.Errorf("failed to create workspace: branchType %w", atlaserrors.ErrEmptyValue)
 	}
 	if m.worktreeRunner == nil {
@@ -111,7 +149,7 @@ func (m *DefaultManager) Create(ctx context.Context, name, repoPath, branchType,
 	}
 
 	// Check if workspace already exists
-	existingWs, err := m.store.Get(ctx, name)
+	existingWs, err := m.store.Get(ctx, opts.Name)
 	if err != nil && !errors.Is(err, atlaserrors.ErrWorkspaceNotFound) {
 		return nil, fmt.Errorf("failed to check workspace existence: %w", err)
 	}
@@ -120,30 +158,30 @@ func (m *DefaultManager) Create(ctx context.Context, name, repoPath, branchType,
 	if existingWs != nil {
 		// Active or paused workspace - cannot overwrite
 		if existingWs.Status != constants.WorkspaceStatusClosed {
-			return nil, fmt.Errorf("failed to create workspace '%s': %w", name, atlaserrors.ErrWorkspaceExists)
+			return nil, fmt.Errorf("failed to create workspace '%s': %w", opts.Name, atlaserrors.ErrWorkspaceExists)
 		}
 		// Reset metadata (preserve tasks) to make room for the new workspace
-		if deleteErr := m.store.ResetMetadata(ctx, name); deleteErr != nil {
-			return nil, fmt.Errorf("failed to cleanup closed workspace '%s': %w", name, deleteErr)
+		if deleteErr := m.store.ResetMetadata(ctx, opts.Name); deleteErr != nil {
+			return nil, fmt.Errorf("failed to cleanup closed workspace '%s': %w", opts.Name, deleteErr)
 		}
 	}
 
 	// Validate and resolve base branch if specified
-	resolvedBaseBranch := baseBranch
-	if baseBranch != "" {
+	resolvedBaseBranch := opts.BaseBranch
+	if opts.BaseBranch != "" {
 		var resolveErr error
-		resolved, resolveErr := m.ensureBaseBranch(ctx, baseBranch, useLocal)
+		resolved, resolveErr := m.ensureBaseBranch(ctx, opts.BaseBranch, opts.UseLocal)
 		if resolveErr != nil {
-			return nil, fmt.Errorf("failed to validate base branch '%s': %w", baseBranch, resolveErr)
+			return nil, fmt.Errorf("failed to validate base branch '%s': %w", opts.BaseBranch, resolveErr)
 		}
 		resolvedBaseBranch = resolved
 	}
 
 	// Create worktree
 	wtInfo, err := m.worktreeRunner.Create(ctx, WorktreeCreateOptions{
-		RepoPath:      repoPath,
-		WorkspaceName: name,
-		BranchType:    branchType,
+		RepoPath:      opts.RepoPath,
+		WorkspaceName: opts.Name,
+		BranchType:    opts.BranchType,
 		BaseBranch:    resolvedBaseBranch,
 	})
 	if err != nil {
@@ -153,7 +191,7 @@ func (m *DefaultManager) Create(ctx context.Context, name, repoPath, branchType,
 	// Build workspace
 	now := time.Now()
 	ws := &domain.Workspace{
-		Name:         name,
+		Name:         opts.Name,
 		WorktreePath: wtInfo.Path,
 		Branch:       wtInfo.Branch,
 		Status:       constants.WorkspaceStatusActive,
@@ -174,36 +212,25 @@ func (m *DefaultManager) Create(ctx context.Context, name, repoPath, branchType,
 
 // Get retrieves a workspace by name.
 func (m *DefaultManager) Get(ctx context.Context, name string) (*domain.Workspace, error) {
-	// Check for cancellation at entry
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	default:
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return nil, err
 	}
-
 	return m.store.Get(ctx, name)
 }
 
 // List returns all workspaces.
 func (m *DefaultManager) List(ctx context.Context) ([]*domain.Workspace, error) {
-	// Check for cancellation at entry
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	default:
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return nil, err
 	}
-
 	return m.store.List(ctx)
 }
 
 // Destroy removes a workspace and its worktree.
 // ALWAYS succeeds even if state is corrupted (NFR18).
 func (m *DefaultManager) Destroy(ctx context.Context, name string) error {
-	// Check for cancellation
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return err
 	}
 
 	// Collect warnings (for logging in production)
@@ -259,11 +286,8 @@ func removeOrphanedDirectory(logger zerolog.Logger, path string) error {
 func (m *DefaultManager) Close(ctx context.Context, name string, taskLister TaskLister) (*CloseResult, error) {
 	result := &CloseResult{}
 
-	// Check for cancellation
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	default:
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return nil, err
 	}
 
 	// Load workspace
@@ -329,11 +353,8 @@ func (m *DefaultManager) Close(ctx context.Context, name string, taskLister Task
 
 // UpdateStatus updates the status of a workspace.
 func (m *DefaultManager) UpdateStatus(ctx context.Context, name string, status constants.WorkspaceStatus) error {
-	// Check for cancellation at entry
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return err
 	}
 
 	// Load workspace
@@ -356,13 +377,9 @@ func (m *DefaultManager) UpdateStatus(ctx context.Context, name string, status c
 
 // Exists returns true if a workspace exists.
 func (m *DefaultManager) Exists(ctx context.Context, name string) (bool, error) {
-	// Check for cancellation at entry
-	select {
-	case <-ctx.Done():
-		return false, ctx.Err()
-	default:
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return false, err
 	}
-
 	return m.store.Exists(ctx, name)
 }
 
@@ -629,11 +646,8 @@ func (m *DefaultManager) deleteWorkspaceState(ctx context.Context, name string, 
 // By default (useLocal=false), prefers remote branches for safety.
 // When useLocal=true, prefers local branches and errors if local doesn't exist but remote does.
 func (m *DefaultManager) ensureBaseBranch(ctx context.Context, branch string, useLocal bool) (string, error) {
-	// Check for cancellation
-	select {
-	case <-ctx.Done():
-		return "", ctx.Err()
-	default:
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return "", err
 	}
 
 	// Check if local branch exists
