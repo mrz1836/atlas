@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/mrz1836/atlas/internal/constants"
+	"github.com/mrz1836/atlas/internal/ctxutil"
 	"github.com/mrz1836/atlas/internal/domain"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 	"github.com/mrz1836/atlas/internal/flock"
@@ -81,10 +82,8 @@ func NewFileStore(baseDir string) (*FileStore, error) {
 // Create persists a new workspace.
 func (s *FileStore) Create(ctx context.Context, ws *domain.Workspace) error {
 	// Check for cancellation at entry
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return err
 	}
 
 	// Validate workspace name
@@ -139,10 +138,8 @@ func (s *FileStore) Create(ctx context.Context, ws *domain.Workspace) error {
 // Get retrieves a workspace by name.
 func (s *FileStore) Get(ctx context.Context, name string) (*domain.Workspace, error) {
 	// Check for cancellation at entry
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	default:
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return nil, err
 	}
 
 	// Validate name
@@ -192,10 +189,8 @@ func (s *FileStore) Get(ctx context.Context, name string) (*domain.Workspace, er
 // Update persists changes to an existing workspace.
 func (s *FileStore) Update(ctx context.Context, ws *domain.Workspace) error {
 	// Check for cancellation at entry
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return err
 	}
 
 	// Validate workspace name
@@ -238,10 +233,8 @@ func (s *FileStore) Update(ctx context.Context, ws *domain.Workspace) error {
 // List returns all workspaces.
 func (s *FileStore) List(ctx context.Context) ([]*domain.Workspace, error) {
 	// Check for cancellation at entry
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	default:
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return nil, err
 	}
 
 	wsDir := s.workspacesDir()
@@ -266,10 +259,8 @@ func (s *FileStore) List(ctx context.Context) ([]*domain.Workspace, error) {
 		}
 
 		// Check for cancellation during iteration
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		default:
+		if err := ctxutil.Canceled(ctx); err != nil {
+			return nil, err
 		}
 
 		// Try to read workspace
@@ -288,10 +279,8 @@ func (s *FileStore) List(ctx context.Context) ([]*domain.Workspace, error) {
 // Delete removes a workspace and its data.
 func (s *FileStore) Delete(ctx context.Context, name string) error {
 	// Check for cancellation at entry
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return err
 	}
 
 	// Validate name
@@ -319,10 +308,8 @@ func (s *FileStore) Delete(ctx context.Context, name string) error {
 // keeping historical task data.
 func (s *FileStore) ResetMetadata(ctx context.Context, name string) error {
 	// Check for cancellation at entry
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return err
 	}
 
 	// Validate name
@@ -348,10 +335,8 @@ func (s *FileStore) ResetMetadata(ctx context.Context, name string) error {
 // Exists returns true if a workspace with the given name exists.
 func (s *FileStore) Exists(ctx context.Context, name string) (bool, error) {
 	// Check for cancellation at entry
-	select {
-	case <-ctx.Done():
-		return false, ctx.Err()
-	default:
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return false, err
 	}
 
 	// Validate name

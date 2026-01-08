@@ -140,10 +140,8 @@ func (r *Runner) Run(ctx context.Context, workDir string) (*PipelineResult, erro
 	}
 
 	// Check context cancellation between phases
-	select {
-	case <-ctx.Done():
-		return r.finalize(result, startTime), ctx.Err()
-	default:
+	if cancelErr := ctxutil.Canceled(ctx); cancelErr != nil {
+		return r.finalize(result, startTime), cancelErr
 	}
 
 	// Phase 2: Format (cleans up any changes from pre-commit)
@@ -165,10 +163,8 @@ func (r *Runner) Run(ctx context.Context, workDir string) (*PipelineResult, erro
 	}
 
 	// Check context cancellation between phases
-	select {
-	case <-ctx.Done():
-		return r.finalize(result, startTime), ctx.Err()
-	default:
+	if cancelErr := ctxutil.Canceled(ctx); cancelErr != nil {
+		return r.finalize(result, startTime), cancelErr
 	}
 
 	// Phase 3: Lint (validation only, no modifications)
@@ -184,10 +180,8 @@ func (r *Runner) Run(ctx context.Context, workDir string) (*PipelineResult, erro
 	r.reportProgress("lint", "completed")
 
 	// Check context cancellation between phases
-	select {
-	case <-ctx.Done():
-		return r.finalize(result, startTime), ctx.Err()
-	default:
+	if cancelErr := ctxutil.Canceled(ctx); cancelErr != nil {
+		return r.finalize(result, startTime), cancelErr
 	}
 
 	// Phase 4: Test (last)
@@ -242,20 +236,20 @@ func (r *Runner) runSequentialWithPhase(ctx context.Context, commands []string, 
 	return r.executor.RunWithPhase(ctx, commands, workDir, phase)
 }
 
+// stepNumbers maps step names to their 1-indexed position in the pipeline.
+//
+//nolint:gochecknoglobals // Package-level constant-like mapping for step ordering
+var stepNumbers = map[string]int{
+	"pre-commit": 1,
+	"format":     2,
+	"lint":       3,
+	"test":       4,
+}
+
 // stepNumber returns the 1-indexed step number for a given step name.
+// Returns 0 for unknown step names.
 func stepNumber(step string) int {
-	switch step {
-	case "pre-commit":
-		return 1
-	case "format":
-		return 2
-	case "lint":
-		return 3
-	case "test":
-		return 4
-	default:
-		return 0
-	}
+	return stepNumbers[step]
 }
 
 // reportProgress calls the progress callback if configured.
