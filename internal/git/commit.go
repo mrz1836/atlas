@@ -55,6 +55,22 @@ const (
 	CommitTypeCI       CommitType = "ci"
 )
 
+// ValidCommitTypes contains all valid conventional commit types.
+// Use this for validation instead of hardcoding the type strings.
+//
+//nolint:gochecknoglobals // Read-only list of valid commit types
+var ValidCommitTypes = []CommitType{
+	CommitTypeFeat,
+	CommitTypeFix,
+	CommitTypeDocs,
+	CommitTypeStyle,
+	CommitTypeRefactor,
+	CommitTypeTest,
+	CommitTypeChore,
+	CommitTypeBuild,
+	CommitTypeCI,
+}
+
 // CommitOptions controls how commits are created.
 type CommitOptions struct {
 	SingleCommit     bool // If true, create one commit for all changes

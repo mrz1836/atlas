@@ -187,6 +187,33 @@ func TestCommitType_Values(t *testing.T) {
 	assert.Equal(t, CommitTypeCI, CommitType("ci"))
 }
 
+func TestValidCommitTypes(t *testing.T) {
+	// Verify ValidCommitTypes contains all expected types
+	expectedTypes := []CommitType{
+		CommitTypeFeat,
+		CommitTypeFix,
+		CommitTypeDocs,
+		CommitTypeStyle,
+		CommitTypeRefactor,
+		CommitTypeTest,
+		CommitTypeChore,
+		CommitTypeBuild,
+		CommitTypeCI,
+	}
+
+	assert.Len(t, ValidCommitTypes, len(expectedTypes), "ValidCommitTypes should have %d entries", len(expectedTypes))
+
+	// Verify each type is present
+	typeSet := make(map[CommitType]bool)
+	for _, t := range ValidCommitTypes {
+		typeSet[t] = true
+	}
+
+	for _, expected := range expectedTypes {
+		assert.True(t, typeSet[expected], "ValidCommitTypes should contain %s", expected)
+	}
+}
+
 func TestCommitAnalysis_Fields(t *testing.T) {
 	analysis := CommitAnalysis{
 		FileGroups: []FileGroup{

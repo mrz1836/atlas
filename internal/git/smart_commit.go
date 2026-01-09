@@ -787,9 +787,9 @@ func getFileDescription(f FileChange) string {
 // isValidConventionalCommit checks if a message follows conventional commits.
 func isValidConventionalCommit(message string) bool {
 	// Simple validation: must start with a known type
-	validTypes := []string{"feat", "fix", "docs", "style", "refactor", "test", "chore", "build", "ci"}
-	for _, t := range validTypes {
-		if strings.HasPrefix(message, t+"(") || strings.HasPrefix(message, t+":") {
+	for _, t := range ValidCommitTypes {
+		typeStr := string(t)
+		if strings.HasPrefix(message, typeStr+"(") || strings.HasPrefix(message, typeStr+":") {
 			return true
 		}
 	}
