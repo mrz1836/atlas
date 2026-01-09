@@ -20,52 +20,52 @@ const (
 // agentConfig holds all configuration for an agent.
 // Adding a new agent only requires adding a single entry to agentConfigs.
 type agentConfig struct {
-	defaultModel string
-	apiKeyEnvVar string
-	installHint  string
-	toolName     string
-	modelAliases []string
-	// modelResolution maps short aliases to full model names.
+	model     string   // default model alias (e.g., "sonnet", "flash")
+	apiKeyEnv string   // environment variable for API key
+	hint      string   // CLI installation hint
+	tool      string   // CLI command name
+	aliases   []string // valid short model aliases
+	// resolution maps short aliases to full model names.
 	// Model names change frequently. Check current models at:
 	// - Claude: https://platform.claude.com/docs/en/about-claude/models/overview
 	// - Gemini: https://ai.google.dev/gemini-api/docs/models
 	// - Codex: https://developers.openai.com/codex/models/
-	modelResolution map[string]string
+	resolution map[string]string
 }
 
 // agentConfigs is the central configuration for all supported agents.
 // Adding a new agent only requires adding an entry here - all methods use this lookup.
 var agentConfigs = map[Agent]agentConfig{ //nolint:gochecknoglobals // Central config lookup
 	AgentClaude: {
-		defaultModel: "sonnet",
-		apiKeyEnvVar: "ANTHROPIC_API_KEY",
-		installHint:  "Install Claude CLI: npm install -g @anthropic-ai/claude-code",
-		toolName:     "claude",
-		modelAliases: []string{"sonnet", "opus", "haiku"},
-		modelResolution: map[string]string{
+		model:     "sonnet",
+		apiKeyEnv: "ANTHROPIC_API_KEY",
+		hint:      "Install Claude CLI: npm install -g @anthropic-ai/claude-code",
+		tool:      "claude",
+		aliases:   []string{"sonnet", "opus", "haiku"},
+		resolution: map[string]string{
 			"sonnet": "claude-sonnet-4-20250514",
 			"opus":   "claude-opus-4-20250514",
 			"haiku":  "claude-haiku-3-20250514",
 		},
 	},
 	AgentGemini: {
-		defaultModel: "flash",
-		apiKeyEnvVar: "GEMINI_API_KEY",
-		installHint:  "Install Gemini CLI: npm install -g @google/gemini-cli",
-		toolName:     "gemini",
-		modelAliases: []string{"flash", "pro"},
-		modelResolution: map[string]string{
+		model:     "flash",
+		apiKeyEnv: "GEMINI_API_KEY",
+		hint:      "Install Gemini CLI: npm install -g @google/gemini-cli",
+		tool:      "gemini",
+		aliases:   []string{"flash", "pro"},
+		resolution: map[string]string{
 			"flash": "gemini-3-flash-preview",
 			"pro":   "gemini-3-pro-preview",
 		},
 	},
 	AgentCodex: {
-		defaultModel: "codex",
-		apiKeyEnvVar: "OPENAI_API_KEY",
-		installHint:  "Install Codex CLI: npm install -g @openai/codex",
-		toolName:     "codex",
-		modelAliases: []string{"codex", "max", "mini"},
-		modelResolution: map[string]string{
+		model:     "codex",
+		apiKeyEnv: "OPENAI_API_KEY",
+		hint:      "Install Codex CLI: npm install -g @openai/codex",
+		tool:      "codex",
+		aliases:   []string{"codex", "max", "mini"},
+		resolution: map[string]string{
 			"codex": "gpt-5.2-codex",
 			"max":   "gpt-5.1-codex-max",
 			"mini":  "gpt-5.1-codex-mini",
@@ -88,7 +88,7 @@ func (a Agent) IsValid() bool {
 // DefaultModel returns the default model alias for this agent.
 func (a Agent) DefaultModel() string {
 	if cfg, ok := a.config(); ok {
-		return cfg.defaultModel
+		return cfg.model
 	}
 	return ""
 }
@@ -96,7 +96,7 @@ func (a Agent) DefaultModel() string {
 // ModelAliases returns the valid short model aliases for this agent.
 func (a Agent) ModelAliases() []string {
 	if cfg, ok := a.config(); ok {
-		return cfg.modelAliases
+		return cfg.aliases
 	}
 	return nil
 }
@@ -105,7 +105,7 @@ func (a Agent) ModelAliases() []string {
 // If the alias is not recognized, it returns the input unchanged (allowing full model names).
 func (a Agent) ResolveModelAlias(alias string) string {
 	if cfg, ok := a.config(); ok {
-		if fullName, found := cfg.modelResolution[alias]; found {
+		if fullName, found := cfg.resolution[alias]; found {
 			return fullName
 		}
 	}
@@ -116,7 +116,7 @@ func (a Agent) ResolveModelAlias(alias string) string {
 // APIKeyEnvVar returns the default environment variable name for the API key.
 func (a Agent) APIKeyEnvVar() string {
 	if cfg, ok := a.config(); ok {
-		return cfg.apiKeyEnvVar
+		return cfg.apiKeyEnv
 	}
 	return ""
 }
@@ -124,7 +124,7 @@ func (a Agent) APIKeyEnvVar() string {
 // InstallHint returns the installation instructions for this agent's CLI.
 func (a Agent) InstallHint() string {
 	if cfg, ok := a.config(); ok {
-		return cfg.installHint
+		return cfg.hint
 	}
 	return "Unknown agent"
 }
@@ -132,7 +132,7 @@ func (a Agent) InstallHint() string {
 // ToolName returns the CLI command name for this agent.
 func (a Agent) ToolName() string {
 	if cfg, ok := a.config(); ok {
-		return cfg.toolName
+		return cfg.tool
 	}
 	return ""
 }
