@@ -238,11 +238,11 @@ func TestFileStore_Get_CorruptedJSON(t *testing.T) {
 
 	// Create corrupted workspace.json
 	wsDir := filepath.Join(tmpDir, constants.WorkspacesDir, "corrupted")
-	err = os.MkdirAll(wsDir, dirPerm)
+	err = os.MkdirAll(wsDir, WorkspaceDirPerm)
 	require.NoError(t, err)
 
 	wsFile := filepath.Join(wsDir, constants.WorkspaceFileName)
-	err = os.WriteFile(wsFile, []byte("{invalid json"), filePerm)
+	err = os.WriteFile(wsFile, []byte("{invalid json"), WorkspaceFilePerm)
 	require.NoError(t, err)
 
 	// Attempt to read
@@ -368,14 +368,14 @@ func TestFileStore_List_MixedValidInvalid(t *testing.T) {
 
 	// Create invalid workspace directory (no workspace.json)
 	invalidDir := filepath.Join(tmpDir, constants.WorkspacesDir, "invalid-no-json")
-	err = os.MkdirAll(invalidDir, dirPerm)
+	err = os.MkdirAll(invalidDir, WorkspaceDirPerm)
 	require.NoError(t, err)
 
 	// Create workspace with corrupted JSON
 	corruptDir := filepath.Join(tmpDir, constants.WorkspacesDir, "corrupted-json")
-	err = os.MkdirAll(corruptDir, dirPerm)
+	err = os.MkdirAll(corruptDir, WorkspaceDirPerm)
 	require.NoError(t, err)
-	err = os.WriteFile(filepath.Join(corruptDir, constants.WorkspaceFileName), []byte("{bad json"), filePerm)
+	err = os.WriteFile(filepath.Join(corruptDir, constants.WorkspaceFileName), []byte("{bad json"), WorkspaceFilePerm)
 	require.NoError(t, err)
 
 	// List should only return valid workspace
@@ -601,7 +601,7 @@ func TestFileStore_AtomicWrite(t *testing.T) {
 	testPath := filepath.Join(tmpDir, "atomic-test.json")
 	testData := []byte(`{"test": "data"}`)
 
-	err := atomicWrite(testPath, testData, filePerm)
+	err := atomicWrite(testPath, testData, WorkspaceFilePerm)
 	require.NoError(t, err)
 
 	// Verify file exists with correct content
@@ -813,7 +813,7 @@ func TestFileStore_AtomicWrite_PreservesOriginalOnFailure(t *testing.T) {
 	// Create original file with known content
 	testPath := filepath.Join(tmpDir, "original.json")
 	originalData := []byte(`{"original": "data", "important": true}`)
-	err := os.WriteFile(testPath, originalData, filePerm)
+	err := os.WriteFile(testPath, originalData, WorkspaceFilePerm)
 	require.NoError(t, err)
 
 	// Verify original exists
@@ -823,7 +823,7 @@ func TestFileStore_AtomicWrite_PreservesOriginalOnFailure(t *testing.T) {
 
 	// Test atomic write with new data succeeds
 	newData := []byte(`{"new": "data", "updated": true}`)
-	err = atomicWrite(testPath, newData, filePerm)
+	err = atomicWrite(testPath, newData, WorkspaceFilePerm)
 	require.NoError(t, err)
 
 	// Verify new data is written
@@ -843,7 +843,7 @@ func TestFileStore_AtomicWrite_NoTempFileOnSuccess(t *testing.T) {
 	testPath := filepath.Join(tmpDir, "test.json")
 
 	// Write data
-	err := atomicWrite(testPath, []byte(`{"test": true}`), filePerm)
+	err := atomicWrite(testPath, []byte(`{"test": true}`), WorkspaceFilePerm)
 	require.NoError(t, err)
 
 	// Check no .tmp file exists
@@ -937,7 +937,7 @@ func TestAtomicWrite_Success(t *testing.T) {
 	filePath := filepath.Join(tmpDir, "test-file.json")
 	data := []byte(`{"test": "data"}`)
 
-	err := atomicWrite(filePath, data, filePerm)
+	err := atomicWrite(filePath, data, WorkspaceFilePerm)
 	require.NoError(t, err)
 
 	// Verify file exists and has correct content
@@ -956,7 +956,7 @@ func TestAtomicWrite_InvalidPath(t *testing.T) {
 	filePath := "/nonexistent/directory/test-file.json"
 	data := []byte(`{"test": "data"}`)
 
-	err := atomicWrite(filePath, data, filePerm)
+	err := atomicWrite(filePath, data, WorkspaceFilePerm)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to create temp file")
 }
@@ -1050,7 +1050,7 @@ func TestFileStore_List_WithInvalidFiles(t *testing.T) {
 
 	// Create an invalid workspace file
 	invalidDir := filepath.Join(tmpDir, constants.WorkspacesDir, "invalid-workspace")
-	err = os.MkdirAll(invalidDir, dirPerm)
+	err = os.MkdirAll(invalidDir, WorkspaceDirPerm)
 	require.NoError(t, err)
 
 	invalidPath := filepath.Join(invalidDir, constants.WorkspaceFileName)

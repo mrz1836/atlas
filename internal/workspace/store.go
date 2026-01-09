@@ -25,12 +25,16 @@ import (
 const CurrentSchemaVersion = 1
 
 // LockTimeout is the maximum duration to wait for acquiring a file lock.
-const LockTimeout = 5 * time.Second
+// Deprecated: Use constants.WorkspaceLockTimeout instead.
+const LockTimeout = constants.WorkspaceLockTimeout
 
-// Directory and file permission constants.
+// Directory and file permission constants for workspace files.
 const (
-	dirPerm  = 0o750 // Secure directory permissions
-	filePerm = 0o600 // Secure file permissions
+	// WorkspaceDirPerm is the permission mode for workspace directories.
+	WorkspaceDirPerm = 0o750
+
+	// WorkspaceFilePerm is the permission mode for workspace metadata files.
+	WorkspaceFilePerm = 0o600
 )
 
 // validNameRegex matches valid workspace names (alphanumeric, dash, underscore).
@@ -100,7 +104,7 @@ func (s *FileStore) Create(ctx context.Context, ws *domain.Workspace) error {
 	}
 
 	// Create workspace directory (may already exist if recreating closed workspace)
-	if err := os.MkdirAll(wsPath, dirPerm); err != nil {
+	if err := os.MkdirAll(wsPath, WorkspaceDirPerm); err != nil {
 		return fmt.Errorf("failed to create workspace directory '%s': %w", ws.Name, err)
 	}
 
@@ -127,7 +131,7 @@ func (s *FileStore) Create(ctx context.Context, ws *domain.Workspace) error {
 	}
 
 	// Write workspace file atomically
-	if err := atomicWrite(wsFile, data, filePerm); err != nil {
+	if err := atomicWrite(wsFile, data, WorkspaceFilePerm); err != nil {
 		_ = os.RemoveAll(wsPath)
 		return fmt.Errorf("failed to create workspace '%s': %w", ws.Name, err)
 	}
@@ -223,7 +227,7 @@ func (s *FileStore) Update(ctx context.Context, ws *domain.Workspace) error {
 
 	// Write workspace file atomically
 	wsFile := s.workspaceFilePath(ws.Name)
-	if err := atomicWrite(wsFile, data, filePerm); err != nil {
+	if err := atomicWrite(wsFile, data, WorkspaceFilePerm); err != nil {
 		return fmt.Errorf("failed to update workspace '%s': %w", ws.Name, err)
 	}
 
@@ -403,11 +407,11 @@ func (s *FileStore) acquireLock(ctx context.Context, name string) (*os.File, err
 
 	// Ensure workspace directory exists for lock file
 	wsPath := s.workspacePath(name)
-	if err := os.MkdirAll(wsPath, dirPerm); err != nil {
+	if err := os.MkdirAll(wsPath, WorkspaceDirPerm); err != nil {
 		return nil, fmt.Errorf("failed to create lock directory: %w", err)
 	}
 
-	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, filePerm) //#nosec G302,G304 -- lock file needs write access, path is constructed from validated name
+	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, WorkspaceFilePerm) //#nosec G302,G304 -- lock file needs write access, path is constructed from validated name
 	if err != nil {
 		return nil, fmt.Errorf("failed to open lock file: %w", err)
 	}
@@ -457,7 +461,7 @@ func (s *FileStore) releaseLock(f *os.File) error {
 
 // atomicWrite writes data to a file atomically using write-then-rename.
 //
-//nolint:unparam // perm is designed for flexibility, currently only uses filePerm
+//nolint:unparam // perm is designed for flexibility, currently only uses WorkspaceFilePerm
 func atomicWrite(path string, data []byte, perm os.FileMode) error {
 	// Write to temp file
 	tmpPath := path + ".tmp"

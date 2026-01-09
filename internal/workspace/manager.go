@@ -683,10 +683,10 @@ func (m *DefaultManager) ensureBaseBranch(ctx context.Context, branch string, us
 	// Fetch may fail if branch doesn't exist or network error
 	// We'll still check if remote branch exists after fetch attempt
 	// (fetch may have partially succeeded or refs may already be present)
-	_ = m.worktreeRunner.Fetch(ctx, "origin")
+	_ = m.worktreeRunner.Fetch(ctx, constants.DefaultRemote)
 
 	// Check if branch exists on remote
-	remoteExists, err := m.worktreeRunner.RemoteBranchExists(ctx, "origin", branch)
+	remoteExists, err := m.worktreeRunner.RemoteBranchExists(ctx, constants.DefaultRemote, branch)
 	if err != nil {
 		return "", fmt.Errorf("failed to check remote branch: %w", err)
 	}
@@ -695,18 +695,18 @@ func (m *DefaultManager) ensureBaseBranch(ctx context.Context, branch string, us
 		Str("branch", branch).
 		Bool("remote_exists", remoteExists).
 		Bool("local_exists", localExists).
-		Str("remote", "origin").
+		Str("remote", constants.DefaultRemote).
 		Msg("checked remote branch availability")
 
 	if remoteExists {
 		m.logger.Info().
 			Str("branch", branch).
 			Str("source", "remote").
-			Str("remote", "origin").
-			Str("resolved_ref", fmt.Sprintf("origin/%s", branch)).
+			Str("remote", constants.DefaultRemote).
+			Str("resolved_ref", fmt.Sprintf("%s/%s", constants.DefaultRemote, branch)).
 			Msg("resolved to remote branch")
 		// Return the remote tracking reference
-		return fmt.Sprintf("origin/%s", branch), nil
+		return fmt.Sprintf("%s/%s", constants.DefaultRemote, branch), nil
 	}
 
 	// Fallback to local if remote doesn't exist but local does
@@ -721,7 +721,7 @@ func (m *DefaultManager) ensureBaseBranch(ctx context.Context, branch string, us
 	}
 
 	// Branch doesn't exist locally or remotely
-	return "", fmt.Errorf("%w: branch '%s' does not exist locally or on remote 'origin'. "+
+	return "", fmt.Errorf("%w: branch '%s' does not exist locally or on remote '%s'. "+
 		"Use 'git branch -a' to see available branches",
-		atlaserrors.ErrBranchNotFound, branch)
+		atlaserrors.ErrBranchNotFound, branch, constants.DefaultRemote)
 }
