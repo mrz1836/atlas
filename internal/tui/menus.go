@@ -39,6 +39,17 @@ import (
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 )
 
+// Terminal layout constants.
+const (
+	// TerminalEdgeMargin is the number of characters to leave between
+	// menu content and the terminal edge for visual padding.
+	TerminalEdgeMargin = 4
+
+	// MinMenuWidth is the minimum usable width for menu content.
+	// Menus narrower than this become difficult to read and use.
+	MinMenuWidth = 40
+)
+
 // ErrMenuCanceled is an alias for errors.ErrMenuCanceled for package-local use.
 // Returns when the user cancels a menu operation by pressing q or Escape.
 var ErrMenuCanceled = atlaserrors.ErrMenuCanceled
@@ -150,8 +161,8 @@ func adaptWidth(maxWidth int) int {
 		return maxWidth
 	}
 
-	// Leave some margin (4 chars) from terminal edge
-	availableWidth := width - 4
+	// Leave some margin from terminal edge for visual padding
+	availableWidth := width - TerminalEdgeMargin
 
 	// Use the smaller of maxWidth and available terminal width
 	if maxWidth > 0 && maxWidth < availableWidth {
@@ -159,9 +170,8 @@ func adaptWidth(maxWidth int) int {
 	}
 
 	// Ensure minimum usable width
-	minWidth := 40
-	if availableWidth < minWidth {
-		return minWidth
+	if availableWidth < MinMenuWidth {
+		return MinMenuWidth
 	}
 
 	return availableWidth
