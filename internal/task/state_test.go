@@ -773,3 +773,71 @@ func TestValidTransitions_Completeness(t *testing.T) {
 		})
 	}
 }
+
+// TestGeneratedStateMaps verifies that the auto-generated terminalStatuses and errorStatuses
+// maps contain the expected values. This ensures the init() function correctly derives
+// these maps from ValidTransitions.
+func TestGeneratedStateMaps(t *testing.T) {
+	t.Run("terminalStatuses contains expected statuses", func(t *testing.T) {
+		expectedTerminal := []constants.TaskStatus{
+			constants.TaskStatusCompleted,
+			constants.TaskStatusRejected,
+			constants.TaskStatusAbandoned,
+		}
+
+		// Verify expected statuses are present
+		for _, status := range expectedTerminal {
+			assert.True(t, terminalStatuses[status], "%s should be a terminal status", status)
+		}
+
+		// Verify count matches expectations
+		assert.Len(t, terminalStatuses, len(expectedTerminal),
+			"terminalStatuses should have exactly %d entries", len(expectedTerminal))
+	})
+
+	t.Run("errorStatuses contains expected statuses", func(t *testing.T) {
+		expectedError := []constants.TaskStatus{
+			constants.TaskStatusValidationFailed,
+			constants.TaskStatusGHFailed,
+			constants.TaskStatusCIFailed,
+			constants.TaskStatusCITimeout,
+			constants.TaskStatusInterrupted,
+		}
+
+		// Verify expected statuses are present
+		for _, status := range expectedError {
+			assert.True(t, errorStatuses[status], "%s should be an error status", status)
+		}
+
+		// Verify count matches expectations
+		assert.Len(t, errorStatuses, len(expectedError),
+			"errorStatuses should have exactly %d entries", len(expectedError))
+	})
+
+	t.Run("terminalStatuses and errorStatuses are disjoint", func(t *testing.T) {
+		for status := range terminalStatuses {
+			assert.False(t, errorStatuses[status],
+				"%s cannot be both terminal and error status", status)
+		}
+	})
+
+	t.Run("error statuses can transition to Running and Abandoned", func(t *testing.T) {
+		for status := range errorStatuses {
+			targets := ValidTransitions[status]
+			require.NotNil(t, targets, "error status %s should have transitions", status)
+
+			hasRunning := false
+			hasAbandoned := false
+			for _, target := range targets {
+				if target == constants.TaskStatusRunning {
+					hasRunning = true
+				}
+				if target == constants.TaskStatusAbandoned {
+					hasAbandoned = true
+				}
+			}
+			assert.True(t, hasRunning, "error status %s should be able to transition to Running", status)
+			assert.True(t, hasAbandoned, "error status %s should be able to transition to Abandoned", status)
+		}
+	})
+}

@@ -59,29 +59,72 @@ var ValidTransitions = map[constants.TaskStatus][]constants.TaskStatus{
 }
 
 // terminalStatuses defines states where no further transitions are allowed.
-// These are intentionally duplicated from ValidTransitions for O(1) lookup performance.
-// Terminal states are those NOT present as keys in ValidTransitions.
-// MAINTENANCE: When adding new statuses, update both ValidTransitions and this map.
+// Terminal states are those that appear as transition targets but have no outgoing transitions.
+// This map is auto-generated from ValidTransitions in init() for consistency.
 //
 //nolint:gochecknoglobals // Read-only lookup table for terminal state checks
-var terminalStatuses = map[constants.TaskStatus]bool{
-	constants.TaskStatusCompleted: true,
-	constants.TaskStatusRejected:  true,
-	constants.TaskStatusAbandoned: true,
-}
+var terminalStatuses map[constants.TaskStatus]bool
 
 // errorStatuses defines states that indicate a recoverable error condition.
 // These states can transition to Running (retry) or Abandoned (give up).
-// Intentionally duplicated from ValidTransitions for O(1) lookup performance.
-// MAINTENANCE: When adding new error statuses, update both ValidTransitions and this map.
+// This map is auto-generated from ValidTransitions in init() by identifying states
+// that can transition to both Running and Abandoned.
 //
 //nolint:gochecknoglobals // Read-only lookup table for error state checks
-var errorStatuses = map[constants.TaskStatus]bool{
-	constants.TaskStatusValidationFailed: true,
-	constants.TaskStatusGHFailed:         true,
-	constants.TaskStatusCIFailed:         true,
-	constants.TaskStatusCITimeout:        true,
-	constants.TaskStatusInterrupted:      true,
+var errorStatuses map[constants.TaskStatus]bool
+
+// init generates the terminalStatuses and errorStatuses maps from ValidTransitions.
+// This ensures consistency - when ValidTransitions is updated, the lookup maps
+// are automatically updated as well.
+//
+//nolint:gochecknoinits // Init required to build lookup tables from ValidTransitions
+func init() {
+	// Find all statuses that are targets (reachable states)
+	targetStatuses := make(map[constants.TaskStatus]bool)
+	for _, targets := range ValidTransitions {
+		for _, target := range targets {
+			targetStatuses[target] = true
+		}
+	}
+
+	// Terminal statuses: targets that have no outgoing transitions
+	terminalStatuses = make(map[constants.TaskStatus]bool)
+	for target := range targetStatuses {
+		if _, hasOutgoing := ValidTransitions[target]; !hasOutgoing {
+			terminalStatuses[target] = true
+		}
+	}
+
+	// Error statuses: non-terminal states that can transition to both Running and Abandoned
+	errorStatuses = buildErrorStatuses()
+}
+
+// buildErrorStatuses identifies error states from ValidTransitions.
+// Error states are those that can retry (go to Running) or give up (go to Abandoned).
+func buildErrorStatuses() map[constants.TaskStatus]bool {
+	result := make(map[constants.TaskStatus]bool)
+	for status, targets := range ValidTransitions {
+		// Skip if this is a terminal status or Pending/Running (starting states)
+		if status == constants.TaskStatusPending || status == constants.TaskStatusRunning {
+			continue
+		}
+
+		canGoToRunning := false
+		canGoToAbandoned := false
+		for _, target := range targets {
+			if target == constants.TaskStatusRunning {
+				canGoToRunning = true
+			}
+			if target == constants.TaskStatusAbandoned {
+				canGoToAbandoned = true
+			}
+		}
+		// Error states are those that can retry (go to Running) or give up (go to Abandoned)
+		if canGoToRunning && canGoToAbandoned {
+			result[status] = true
+		}
+	}
+	return result
 }
 
 // IsValidTransition checks if a transition from one status to another is allowed.
