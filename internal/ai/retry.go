@@ -12,13 +12,9 @@ import (
 // timeSleep is a wrapper for time.After that can be overridden in tests.
 // It returns a channel that receives after the given duration.
 //
-// The interface type `interface{ Nanoseconds() int64 }` is used instead of
-// time.Duration to accept any duration-like type, providing flexibility for
-// test mocking while maintaining type safety.
-//
 //nolint:gochecknoglobals // Required for test mocking
-var timeSleep = func(d interface{ Nanoseconds() int64 }) <-chan time.Time {
-	return time.After(time.Duration(d.Nanoseconds()))
+var timeSleep = func(d time.Duration) <-chan time.Time {
+	return time.After(d)
 }
 
 // nonRetryablePatterns defines groups of error message patterns that indicate non-retryable errors.

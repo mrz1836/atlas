@@ -1,7 +1,6 @@
 package ai
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"os/exec"
@@ -131,19 +130,6 @@ func (r *CodexRunner) buildCommand(ctx context.Context, req *domain.AIRequest) *
 	}
 
 	return cmd
-}
-
-// CodexExecutor provides a custom executor for Codex CLI.
-// This can be used to capture and transform output.
-type CodexExecutor struct{}
-
-// Execute runs the codex command and captures output.
-func (e *CodexExecutor) Execute(_ context.Context, cmd *exec.Cmd) ([]byte, []byte, error) {
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	err := cmd.Run()
-	return stdout.Bytes(), stderr.Bytes(), err
 }
 
 // Compile-time check that CodexRunner implements Runner.

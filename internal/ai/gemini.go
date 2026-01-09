@@ -1,7 +1,6 @@
 package ai
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"os/exec"
@@ -182,19 +181,6 @@ func (r *GeminiRunner) buildCommand(ctx context.Context, req *domain.AIRequest) 
 	}
 
 	return cmd
-}
-
-// GeminiExecutor provides a custom executor for Gemini CLI.
-// This can be used to capture and transform output.
-type GeminiExecutor struct{}
-
-// Execute runs the gemini command and captures output.
-func (e *GeminiExecutor) Execute(_ context.Context, cmd *exec.Cmd) ([]byte, []byte, error) {
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	err := cmd.Run()
-	return stdout.Bytes(), stderr.Bytes(), err
 }
 
 // Compile-time check that GeminiRunner implements Runner.

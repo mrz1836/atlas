@@ -128,7 +128,7 @@ func TestClaudeCodeRunner_Run_Success(t *testing.T) {
 	t.Run("successful execution with JSON parsing", func(t *testing.T) {
 		// Override timeSleep to not actually sleep in tests
 		originalSleep := timeSleep
-		timeSleep = func(_ interface{ Nanoseconds() int64 }) <-chan time.Time {
+		timeSleep = func(_ time.Duration) <-chan time.Time {
 			ch := make(chan time.Time)
 			close(ch)
 			return ch
@@ -163,7 +163,7 @@ func TestClaudeCodeRunner_Run_Success(t *testing.T) {
 
 	t.Run("handles error response in JSON", func(t *testing.T) {
 		originalSleep := timeSleep
-		timeSleep = func(_ interface{ Nanoseconds() int64 }) <-chan time.Time {
+		timeSleep = func(_ time.Duration) <-chan time.Time {
 			ch := make(chan time.Time)
 			close(ch)
 			return ch
@@ -299,7 +299,7 @@ func TestClaudeCodeRunner_ErrorHandling(t *testing.T) {
 	t.Run("handles execution error with valid error JSON response", func(t *testing.T) {
 		// This tests the tryParseErrorResponse path where command fails but returns valid error JSON
 		originalSleep := timeSleep
-		timeSleep = func(_ interface{ Nanoseconds() int64 }) <-chan time.Time {
+		timeSleep = func(_ time.Duration) <-chan time.Time {
 			ch := make(chan time.Time)
 			close(ch)
 			return ch
@@ -335,7 +335,7 @@ func TestClaudeCodeRunner_ErrorHandling(t *testing.T) {
 
 	t.Run("wraps execution error with ErrClaudeInvocation", func(t *testing.T) {
 		originalSleep := timeSleep
-		timeSleep = func(_ interface{ Nanoseconds() int64 }) <-chan time.Time {
+		timeSleep = func(_ time.Duration) <-chan time.Time {
 			ch := make(chan time.Time)
 			close(ch)
 			return ch
@@ -366,7 +366,7 @@ func TestClaudeCodeRunner_ErrorHandling(t *testing.T) {
 
 	t.Run("handles claude not found error", func(t *testing.T) {
 		originalSleep := timeSleep
-		timeSleep = func(_ interface{ Nanoseconds() int64 }) <-chan time.Time {
+		timeSleep = func(_ time.Duration) <-chan time.Time {
 			ch := make(chan time.Time)
 			close(ch)
 			return ch
@@ -396,7 +396,7 @@ func TestClaudeCodeRunner_ErrorHandling(t *testing.T) {
 
 	t.Run("handles empty response", func(t *testing.T) {
 		originalSleep := timeSleep
-		timeSleep = func(_ interface{ Nanoseconds() int64 }) <-chan time.Time {
+		timeSleep = func(_ time.Duration) <-chan time.Time {
 			ch := make(chan time.Time)
 			close(ch)
 			return ch
@@ -426,7 +426,7 @@ func TestClaudeCodeRunner_ErrorHandling(t *testing.T) {
 
 	t.Run("handles invalid JSON response", func(t *testing.T) {
 		originalSleep := timeSleep
-		timeSleep = func(_ interface{ Nanoseconds() int64 }) <-chan time.Time {
+		timeSleep = func(_ time.Duration) <-chan time.Time {
 			ch := make(chan time.Time)
 			close(ch)
 			return ch
@@ -456,7 +456,7 @@ func TestClaudeCodeRunner_ErrorHandling(t *testing.T) {
 
 	t.Run("handles API key error in stderr", func(t *testing.T) {
 		originalSleep := timeSleep
-		timeSleep = func(_ interface{ Nanoseconds() int64 }) <-chan time.Time {
+		timeSleep = func(_ time.Duration) <-chan time.Time {
 			ch := make(chan time.Time)
 			close(ch)
 			return ch
@@ -487,7 +487,7 @@ func TestClaudeCodeRunner_ErrorHandling(t *testing.T) {
 
 	t.Run("handles command not found via stderr", func(t *testing.T) {
 		originalSleep := timeSleep
-		timeSleep = func(_ interface{ Nanoseconds() int64 }) <-chan time.Time {
+		timeSleep = func(_ time.Duration) <-chan time.Time {
 			ch := make(chan time.Time)
 			close(ch)
 			return ch
@@ -523,7 +523,7 @@ func TestClaudeCodeRunner_RetryLogic(t *testing.T) {
 	t.Run("retries transient errors", func(t *testing.T) {
 		// Override timeSleep to not actually sleep in tests
 		originalSleep := timeSleep
-		timeSleep = func(_ interface{ Nanoseconds() int64 }) <-chan time.Time {
+		timeSleep = func(_ time.Duration) <-chan time.Time {
 			ch := make(chan time.Time)
 			close(ch)
 			return ch
@@ -559,7 +559,7 @@ func TestClaudeCodeRunner_RetryLogic(t *testing.T) {
 
 	t.Run("does not retry non-retryable errors", func(t *testing.T) {
 		originalSleep := timeSleep
-		timeSleep = func(_ interface{ Nanoseconds() int64 }) <-chan time.Time {
+		timeSleep = func(_ time.Duration) <-chan time.Time {
 			ch := make(chan time.Time)
 			close(ch)
 			return ch
@@ -590,7 +590,7 @@ func TestClaudeCodeRunner_RetryLogic(t *testing.T) {
 
 	t.Run("respects context cancellation during retry", func(t *testing.T) {
 		originalSleep := timeSleep
-		timeSleep = func(_ interface{ Nanoseconds() int64 }) <-chan time.Time {
+		timeSleep = func(_ time.Duration) <-chan time.Time {
 			ch := make(chan time.Time)
 			close(ch)
 			return ch

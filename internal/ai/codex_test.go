@@ -8,6 +8,7 @@ package ai
 import (
 	"context"
 	"errors"
+	"os/exec"
 	"testing"
 	"time"
 
@@ -387,12 +388,19 @@ func TestCodexResponse_toAIResult(t *testing.T) {
 	})
 }
 
-func TestCodexExecutor_Execute(t *testing.T) {
+func TestDefaultExecutor_Execute_Codex(t *testing.T) {
 	t.Run("captures stdout and stderr", func(t *testing.T) {
-		// This test would require actual command execution
-		// In practice, we use MockExecutor for unit tests
-		executor := &CodexExecutor{}
-		assert.NotNil(t, executor)
+		// This test verifies the DefaultExecutor captures output correctly
+		// by testing with a simple echo command
+		executor := &DefaultExecutor{}
+
+		ctx := context.Background()
+		cmd := exec.CommandContext(ctx, "echo", "test output")
+		stdout, stderr, err := executor.Execute(ctx, cmd)
+
+		require.NoError(t, err)
+		assert.Equal(t, "test output\n", string(stdout))
+		assert.Empty(t, stderr)
 	})
 }
 
