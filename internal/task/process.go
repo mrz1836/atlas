@@ -22,9 +22,10 @@ func NewProcessManager(logger zerolog.Logger) *ProcessManager {
 }
 
 // TerminateProcesses attempts to gracefully terminate processes, then forcefully kills them if needed.
-// It uses a two-phase approach:
-//  1. Send SIGTERM to all processes and wait for gracefulWait duration
-//  2. Send SIGKILL to any processes that didn't terminate
+// It uses a three-phase approach:
+//  1. Send SIGTERM to all processes
+//  2. Wait for gracefulWait duration
+//  3. Send SIGKILL to any processes that didn't terminate
 //
 // Returns the number of processes successfully terminated and any errors encountered.
 func (pm *ProcessManager) TerminateProcesses(pids []int, gracefulWait time.Duration) (terminated int, errs []error) {
@@ -38,31 +39,7 @@ func (pm *ProcessManager) TerminateProcesses(pids []int, gracefulWait time.Durat
 		Msg("terminating processes")
 
 	// Phase 1: Send SIGTERM to all processes
-	alivePIDs := make(map[int]bool)
-	for _, pid := range pids {
-		if pid <= 0 {
-			continue
-		}
-
-		process, err := os.FindProcess(pid)
-		if err != nil {
-			// Process doesn't exist (already dead)
-			pm.logger.Debug().Int("pid", pid).Msg("process not found (already terminated)")
-			continue
-		}
-
-		// Try to send SIGTERM
-		err = process.Signal(syscall.SIGTERM)
-		if err != nil {
-			pm.logger.Warn().
-				Err(err).
-				Int("pid", pid).
-				Msg("failed to send SIGTERM, will try SIGKILL")
-		} else {
-			pm.logger.Debug().Int("pid", pid).Msg("sent SIGTERM")
-			alivePIDs[pid] = true
-		}
-	}
+	alivePIDs := pm.sendTermSignals(pids)
 
 	// If no processes to wait for, we're done
 	if len(alivePIDs) == 0 {
@@ -73,40 +50,8 @@ func (pm *ProcessManager) TerminateProcesses(pids []int, gracefulWait time.Durat
 	pm.logger.Debug().Dur("wait", gracefulWait).Msg("waiting for graceful termination")
 	time.Sleep(gracefulWait)
 
-	// Phase 3: Check which processes are still alive and SIGKILL them
-	for pid := range alivePIDs {
-		process, err := os.FindProcess(pid)
-		if err != nil {
-			// Process is gone
-			terminated++
-			delete(alivePIDs, pid)
-			continue
-		}
-
-		// Check if process is still running by sending signal 0
-		err = process.Signal(syscall.Signal(0))
-		if err != nil {
-			// Process is dead
-			terminated++
-			delete(alivePIDs, pid)
-			pm.logger.Debug().Int("pid", pid).Msg("process terminated gracefully")
-			continue
-		}
-
-		// Process is still alive, send SIGKILL
-		pm.logger.Warn().Int("pid", pid).Msg("process did not terminate gracefully, sending SIGKILL")
-		err = process.Signal(syscall.SIGKILL)
-		if err != nil {
-			pm.logger.Error().
-				Err(err).
-				Int("pid", pid).
-				Msg("failed to send SIGKILL")
-			errs = append(errs, fmt.Errorf("failed to kill PID %d: %w", pid, err))
-		} else {
-			terminated++
-			pm.logger.Debug().Int("pid", pid).Msg("sent SIGKILL")
-		}
-	}
+	// Phase 3: Kill remaining processes and count results
+	terminated, errs = pm.killRemainingProcesses(alivePIDs)
 
 	pm.logger.Info().
 		Int("total_pids", len(pids)).
@@ -145,4 +90,71 @@ func (pm *ProcessManager) CleanupDeadProcesses(pids []int) []int {
 		}
 	}
 	return alive
+}
+
+// sendTermSignals sends SIGTERM to all valid PIDs and returns a map of PIDs that received the signal.
+func (pm *ProcessManager) sendTermSignals(pids []int) map[int]bool {
+	alivePIDs := make(map[int]bool)
+	for _, pid := range pids {
+		if pid <= 0 {
+			continue
+		}
+
+		process, err := os.FindProcess(pid)
+		if err != nil {
+			// Process doesn't exist (already dead)
+			pm.logger.Debug().Int("pid", pid).Msg("process not found (already terminated)")
+			continue
+		}
+
+		// Try to send SIGTERM
+		err = process.Signal(syscall.SIGTERM)
+		if err != nil {
+			pm.logger.Warn().
+				Err(err).
+				Int("pid", pid).
+				Msg("failed to send SIGTERM, will try SIGKILL")
+		} else {
+			pm.logger.Debug().Int("pid", pid).Msg("sent SIGTERM")
+			alivePIDs[pid] = true
+		}
+	}
+	return alivePIDs
+}
+
+// killRemainingProcesses checks which processes are still alive and sends SIGKILL to them.
+// Returns the number of processes terminated and any errors encountered.
+func (pm *ProcessManager) killRemainingProcesses(alivePIDs map[int]bool) (terminated int, errs []error) {
+	for pid := range alivePIDs {
+		process, err := os.FindProcess(pid)
+		if err != nil {
+			// Process is gone
+			terminated++
+			continue
+		}
+
+		// Check if process is still running by sending signal 0
+		err = process.Signal(syscall.Signal(0))
+		if err != nil {
+			// Process is dead
+			terminated++
+			pm.logger.Debug().Int("pid", pid).Msg("process terminated gracefully")
+			continue
+		}
+
+		// Process is still alive, send SIGKILL
+		pm.logger.Warn().Int("pid", pid).Msg("process did not terminate gracefully, sending SIGKILL")
+		err = process.Signal(syscall.SIGKILL)
+		if err != nil {
+			pm.logger.Error().
+				Err(err).
+				Int("pid", pid).
+				Msg("failed to send SIGKILL")
+			errs = append(errs, fmt.Errorf("failed to kill PID %d: %w", pid, err))
+		} else {
+			terminated++
+			pm.logger.Debug().Int("pid", pid).Msg("sent SIGKILL")
+		}
+	}
+	return terminated, errs
 }
