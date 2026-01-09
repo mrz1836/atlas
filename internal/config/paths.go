@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -33,7 +34,7 @@ func ProjectConfigDir() string {
 func GlobalConfigPath() (string, error) {
 	dir, err := GlobalConfigDir()
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("get global config path: %w", err)
 	}
 	return filepath.Join(dir, "config.yaml"), nil
 }
