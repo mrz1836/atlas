@@ -1383,3 +1383,81 @@ func TestFileStore_AppendLog_Concurrent(t *testing.T) {
 		assert.Contains(t, logStr, expected)
 	}
 }
+
+// TestValidationHelpers tests the validation helper functions.
+func TestValidationHelpers(t *testing.T) {
+	t.Run("validateWorkspaceName", func(t *testing.T) {
+		err := validateWorkspaceName("test operation", "")
+		require.Error(t, err)
+		require.ErrorIs(t, err, atlaserrors.ErrEmptyValue)
+		assert.Contains(t, err.Error(), "test operation")
+
+		err = validateWorkspaceName("test operation", "valid-name")
+		assert.NoError(t, err)
+	})
+
+	t.Run("validateTaskID", func(t *testing.T) {
+		err := validateTaskID("test operation", "")
+		require.Error(t, err)
+		require.ErrorIs(t, err, atlaserrors.ErrEmptyValue)
+		assert.Contains(t, err.Error(), "test operation")
+
+		err = validateTaskID("test operation", "task-123")
+		assert.NoError(t, err)
+	})
+
+	t.Run("validateTask", func(t *testing.T) {
+		err := validateTask("test operation", nil)
+		require.Error(t, err)
+		require.ErrorIs(t, err, atlaserrors.ErrEmptyValue)
+		assert.Contains(t, err.Error(), "test operation")
+
+		err = validateTask("test operation", &domain.Task{})
+		assert.NoError(t, err)
+	})
+
+	t.Run("validateTaskWithID", func(t *testing.T) {
+		// nil task
+		err := validateTaskWithID("test operation", nil)
+		require.Error(t, err)
+		require.ErrorIs(t, err, atlaserrors.ErrEmptyValue)
+
+		// empty ID
+		err = validateTaskWithID("test operation", &domain.Task{})
+		require.Error(t, err)
+		require.ErrorIs(t, err, atlaserrors.ErrEmptyValue)
+		assert.Contains(t, err.Error(), "task ID")
+
+		// valid task
+		err = validateTaskWithID("test operation", &domain.Task{ID: "task-123"})
+		assert.NoError(t, err)
+	})
+
+	t.Run("validateFilename", func(t *testing.T) {
+		err := validateFilename("test operation", "")
+		require.Error(t, err)
+		require.ErrorIs(t, err, atlaserrors.ErrEmptyValue)
+		assert.Contains(t, err.Error(), "test operation")
+
+		err = validateFilename("test operation", "file.txt")
+		assert.NoError(t, err)
+	})
+
+	t.Run("validateWorkspaceAndTaskID", func(t *testing.T) {
+		// empty workspace
+		err := validateWorkspaceAndTaskID("test operation", "", "task-123")
+		require.Error(t, err)
+		require.ErrorIs(t, err, atlaserrors.ErrEmptyValue)
+		assert.Contains(t, err.Error(), "workspace name")
+
+		// empty task ID
+		err = validateWorkspaceAndTaskID("test operation", "ws", "")
+		require.Error(t, err)
+		require.ErrorIs(t, err, atlaserrors.ErrEmptyValue)
+		assert.Contains(t, err.Error(), "task ID")
+
+		// both valid
+		err = validateWorkspaceAndTaskID("test operation", "ws", "task-123")
+		assert.NoError(t, err)
+	})
+}

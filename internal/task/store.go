@@ -101,14 +101,11 @@ func (s *FileStore) Create(ctx context.Context, workspaceName string, task *doma
 	}
 
 	// Validate inputs
-	if workspaceName == "" {
-		return fmt.Errorf("failed to create task: workspace name %w", atlaserrors.ErrEmptyValue)
+	if err := validateWorkspaceName("create task", workspaceName); err != nil {
+		return err
 	}
-	if task == nil {
-		return fmt.Errorf("failed to create task: task %w", atlaserrors.ErrEmptyValue)
-	}
-	if task.ID == "" {
-		return fmt.Errorf("failed to create task: task ID %w", atlaserrors.ErrEmptyValue)
+	if err := validateTaskWithID("create task", task); err != nil {
+		return err
 	}
 
 	taskDir := s.taskDir(workspaceName, task.ID)
@@ -159,11 +156,8 @@ func (s *FileStore) Get(ctx context.Context, workspaceName, taskID string) (*dom
 	}
 
 	// Validate inputs
-	if workspaceName == "" {
-		return nil, fmt.Errorf("failed to get task: workspace name %w", atlaserrors.ErrEmptyValue)
-	}
-	if taskID == "" {
-		return nil, fmt.Errorf("failed to get task: task ID %w", atlaserrors.ErrEmptyValue)
+	if err := validateWorkspaceAndTaskID("get task", workspaceName, taskID); err != nil {
+		return nil, err
 	}
 
 	taskDir := s.taskDir(workspaceName, taskID)
@@ -206,14 +200,11 @@ func (s *FileStore) Update(ctx context.Context, workspaceName string, task *doma
 	}
 
 	// Validate inputs
-	if workspaceName == "" {
-		return fmt.Errorf("failed to update task: workspace name %w", atlaserrors.ErrEmptyValue)
+	if err := validateWorkspaceName("update task", workspaceName); err != nil {
+		return err
 	}
-	if task == nil {
-		return fmt.Errorf("failed to update task: task %w", atlaserrors.ErrEmptyValue)
-	}
-	if task.ID == "" {
-		return fmt.Errorf("failed to update task: task ID %w", atlaserrors.ErrEmptyValue)
+	if err := validateTaskWithID("update task", task); err != nil {
+		return err
 	}
 
 	taskDir := s.taskDir(workspaceName, task.ID)
@@ -255,8 +246,8 @@ func (s *FileStore) List(ctx context.Context, workspaceName string) ([]*domain.T
 	}
 
 	// Validate inputs
-	if workspaceName == "" {
-		return nil, fmt.Errorf("failed to list tasks: workspace name %w", atlaserrors.ErrEmptyValue)
+	if err := validateWorkspaceName("list tasks", workspaceName); err != nil {
+		return nil, err
 	}
 
 	tasksDir := s.tasksDir(workspaceName)
@@ -314,11 +305,8 @@ func (s *FileStore) Delete(ctx context.Context, workspaceName, taskID string) er
 	}
 
 	// Validate inputs
-	if workspaceName == "" {
-		return fmt.Errorf("failed to delete task: workspace name %w", atlaserrors.ErrEmptyValue)
-	}
-	if taskID == "" {
-		return fmt.Errorf("failed to delete task: task ID %w", atlaserrors.ErrEmptyValue)
+	if err := validateWorkspaceAndTaskID("delete task", workspaceName, taskID); err != nil {
+		return err
 	}
 
 	taskDir := s.taskDir(workspaceName, taskID)
@@ -351,11 +339,8 @@ func (s *FileStore) AppendLog(ctx context.Context, workspaceName, taskID string,
 	}
 
 	// Validate inputs
-	if workspaceName == "" {
-		return fmt.Errorf("failed to append log: workspace name %w", atlaserrors.ErrEmptyValue)
-	}
-	if taskID == "" {
-		return fmt.Errorf("failed to append log: task ID %w", atlaserrors.ErrEmptyValue)
+	if err := validateWorkspaceAndTaskID("append log", workspaceName, taskID); err != nil {
+		return err
 	}
 
 	taskDir := s.taskDir(workspaceName, taskID)
@@ -406,11 +391,8 @@ func (s *FileStore) ReadLog(ctx context.Context, workspaceName, taskID string) (
 	}
 
 	// Validate inputs
-	if workspaceName == "" {
-		return nil, fmt.Errorf("failed to read log: workspace name %w", atlaserrors.ErrEmptyValue)
-	}
-	if taskID == "" {
-		return nil, fmt.Errorf("failed to read log: task ID %w", atlaserrors.ErrEmptyValue)
+	if err := validateWorkspaceAndTaskID("read log", workspaceName, taskID); err != nil {
+		return nil, err
 	}
 
 	logPath := s.logFilePath(workspaceName, taskID)
@@ -433,14 +415,11 @@ func (s *FileStore) SaveArtifact(ctx context.Context, workspaceName, taskID, fil
 	}
 
 	// Validate inputs
-	if workspaceName == "" {
-		return fmt.Errorf("failed to save artifact: workspace name %w", atlaserrors.ErrEmptyValue)
+	if err := validateWorkspaceAndTaskID("save artifact", workspaceName, taskID); err != nil {
+		return err
 	}
-	if taskID == "" {
-		return fmt.Errorf("failed to save artifact: task ID %w", atlaserrors.ErrEmptyValue)
-	}
-	if filename == "" {
-		return fmt.Errorf("failed to save artifact: filename %w", atlaserrors.ErrEmptyValue)
+	if err := validateFilename("save artifact", filename); err != nil {
+		return err
 	}
 
 	// Prevent path traversal - reject absolute paths and ".." sequences
@@ -525,14 +504,11 @@ func (s *FileStore) GetArtifact(ctx context.Context, workspaceName, taskID, file
 	}
 
 	// Validate inputs
-	if workspaceName == "" {
-		return nil, fmt.Errorf("failed to get artifact: workspace name %w", atlaserrors.ErrEmptyValue)
+	if err := validateWorkspaceAndTaskID("get artifact", workspaceName, taskID); err != nil {
+		return nil, err
 	}
-	if taskID == "" {
-		return nil, fmt.Errorf("failed to get artifact: task ID %w", atlaserrors.ErrEmptyValue)
-	}
-	if filename == "" {
-		return nil, fmt.Errorf("failed to get artifact: filename %w", atlaserrors.ErrEmptyValue)
+	if err := validateFilename("get artifact", filename); err != nil {
+		return nil, err
 	}
 
 	// Prevent path traversal - reject absolute paths and ".." sequences
@@ -562,11 +538,8 @@ func (s *FileStore) ListArtifacts(ctx context.Context, workspaceName, taskID str
 	}
 
 	// Validate inputs
-	if workspaceName == "" {
-		return nil, fmt.Errorf("failed to list artifacts: workspace name %w", atlaserrors.ErrEmptyValue)
-	}
-	if taskID == "" {
-		return nil, fmt.Errorf("failed to list artifacts: task ID %w", atlaserrors.ErrEmptyValue)
+	if err := validateWorkspaceAndTaskID("list artifacts", workspaceName, taskID); err != nil {
+		return nil, err
 	}
 
 	artifactDir := s.artifactsDir(workspaceName, taskID)
@@ -594,13 +567,63 @@ func (s *FileStore) ListArtifacts(ctx context.Context, workspaceName, taskID str
 	return filenames, nil
 }
 
+// Validation helper functions to reduce code duplication.
+
+// validateWorkspaceName validates that workspace name is not empty.
+func validateWorkspaceName(operation, workspaceName string) error {
+	if workspaceName == "" {
+		return fmt.Errorf("failed to %s: workspace name %w", operation, atlaserrors.ErrEmptyValue)
+	}
+	return nil
+}
+
+// validateTaskID validates that task ID is not empty.
+func validateTaskID(operation, taskID string) error {
+	if taskID == "" {
+		return fmt.Errorf("failed to %s: task ID %w", operation, atlaserrors.ErrEmptyValue)
+	}
+	return nil
+}
+
+// validateTask validates that task pointer is not nil.
+func validateTask(operation string, task *domain.Task) error {
+	if task == nil {
+		return fmt.Errorf("failed to %s: task %w", operation, atlaserrors.ErrEmptyValue)
+	}
+	return nil
+}
+
+// validateTaskWithID validates that task pointer is not nil and has a non-empty ID.
+func validateTaskWithID(operation string, task *domain.Task) error {
+	if err := validateTask(operation, task); err != nil {
+		return err
+	}
+	if task.ID == "" {
+		return fmt.Errorf("failed to %s: task ID %w", operation, atlaserrors.ErrEmptyValue)
+	}
+	return nil
+}
+
+// validateFilename validates that filename is not empty.
+func validateFilename(operation, filename string) error {
+	if filename == "" {
+		return fmt.Errorf("failed to %s: filename %w", operation, atlaserrors.ErrEmptyValue)
+	}
+	return nil
+}
+
+// validateWorkspaceAndTaskID validates both workspace name and task ID.
+func validateWorkspaceAndTaskID(operation, workspaceName, taskID string) error {
+	if err := validateWorkspaceName(operation, workspaceName); err != nil {
+		return err
+	}
+	return validateTaskID(operation, taskID)
+}
+
 // validateVersionedArtifactInputs validates the input parameters for SaveVersionedArtifact.
 func validateVersionedArtifactInputs(workspaceName, taskID, baseName string) error {
-	if workspaceName == "" {
-		return fmt.Errorf("failed to save versioned artifact: workspace name %w", atlaserrors.ErrEmptyValue)
-	}
-	if taskID == "" {
-		return fmt.Errorf("failed to save versioned artifact: task ID %w", atlaserrors.ErrEmptyValue)
+	if err := validateWorkspaceAndTaskID("save versioned artifact", workspaceName, taskID); err != nil {
+		return err
 	}
 	if baseName == "" {
 		return fmt.Errorf("failed to save versioned artifact: base name %w", atlaserrors.ErrEmptyValue)
