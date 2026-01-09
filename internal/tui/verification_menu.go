@@ -66,7 +66,7 @@ type VerificationMenuOptions struct {
 // RenderVerificationMenu generates a non-interactive menu display for verification issues.
 // This is used in non-interactive mode or as a reference for the user.
 func RenderVerificationMenu(opts VerificationMenuOptions) string {
-	styles := NewOutputStyles()
+	styles := GetOutputStyles()
 	CheckNoColor()
 
 	var sb strings.Builder
@@ -175,7 +175,7 @@ func getIgnoreNote(hasErrors bool) string {
 
 // FormatVerificationSummary formats a brief verification summary for display.
 func FormatVerificationSummary(totalIssues, errorCount, warningCount int, passed bool) string {
-	styles := NewOutputStyles()
+	styles := GetOutputStyles()
 	CheckNoColor()
 
 	if passed {
@@ -204,7 +204,7 @@ func FormatVerificationSummary(totalIssues, errorCount, warningCount int, passed
 
 // RenderVerificationReport renders the verification report for display.
 func RenderVerificationReport(report string) string {
-	styles := NewOutputStyles()
+	styles := GetOutputStyles()
 	CheckNoColor()
 
 	var sb strings.Builder

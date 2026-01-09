@@ -71,7 +71,7 @@ type CIFailureMenuOptions struct {
 // RenderCIFailureMenu generates a non-interactive menu display for CI failure.
 // This is used in non-interactive mode or as a reference for the user.
 func RenderCIFailureMenu(opts CIFailureMenuOptions) string {
-	styles := NewOutputStyles()
+	styles := GetOutputStyles()
 	CheckNoColor()
 
 	var sb strings.Builder
@@ -153,7 +153,7 @@ func RenderCIFailureMenu(opts CIFailureMenuOptions) string {
 
 // FormatCIFailureStatus formats the CI failure status for display.
 func FormatCIFailureStatus(prNumber int, failedChecks []string, status string) string {
-	styles := NewOutputStyles()
+	styles := GetOutputStyles()
 	CheckNoColor()
 
 	var sb strings.Builder

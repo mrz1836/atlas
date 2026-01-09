@@ -26,6 +26,7 @@ package tui
 import (
 	"os"
 	"strings"
+	"sync"
 	"unicode/utf8"
 
 	"github.com/charmbracelet/lipgloss"
@@ -143,7 +144,25 @@ type OutputStyles struct {
 	Dim     lipgloss.Style
 }
 
+// cachedOutputStyles holds the singleton OutputStyles instance.
+//
+//nolint:gochecknoglobals // Intentional singleton pattern for performance
+var (
+	cachedOutputStyles     *OutputStyles
+	cachedOutputStylesOnce sync.Once
+)
+
+// GetOutputStyles returns a cached OutputStyles instance for performance.
+// The styles use AdaptiveColor which adapts at render time, so caching is safe.
+func GetOutputStyles() *OutputStyles {
+	cachedOutputStylesOnce.Do(func() {
+		cachedOutputStyles = NewOutputStyles()
+	})
+	return cachedOutputStyles
+}
+
 // NewOutputStyles creates common output styles using AdaptiveColor for light/dark terminal support.
+// For better performance in hot paths, use GetOutputStyles() to get a cached instance.
 func NewOutputStyles() *OutputStyles {
 	return &OutputStyles{
 		Success: lipgloss.NewStyle().

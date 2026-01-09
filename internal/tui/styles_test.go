@@ -76,6 +76,17 @@ func TestNewOutputStyles(t *testing.T) {
 	assert.NotNil(t, styles)
 }
 
+// TestGetOutputStyles_Caching verifies that GetOutputStyles returns the same cached instance.
+func TestGetOutputStyles_Caching(t *testing.T) {
+	// Get two references - they should be the same pointer
+	styles1 := GetOutputStyles()
+	styles2 := GetOutputStyles()
+
+	assert.NotNil(t, styles1)
+	assert.NotNil(t, styles2)
+	assert.Same(t, styles1, styles2, "GetOutputStyles should return the same cached instance")
+}
+
 func TestTaskStatusColors(t *testing.T) {
 	colors := TaskStatusColors()
 
