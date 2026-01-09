@@ -3,15 +3,13 @@ package ctxutil
 
 import "context"
 
-// Canceled checks if the context has been canceled.
-// Returns the context error if canceled, nil otherwise.
+// Canceled checks if the context has been canceled or exceeded its deadline.
+// Returns the context error if done (Canceled or DeadlineExceeded), nil otherwise.
 // This is a common pattern used throughout the codebase to check
 // for cancellation at function entry points.
+//
+// The implementation directly returns ctx.Err() because it already returns nil
+// if Done is not yet closed - no select with default case is needed.
 func Canceled(ctx context.Context) error {
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
-		return nil
-	}
+	return ctx.Err()
 }

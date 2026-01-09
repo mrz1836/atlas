@@ -49,7 +49,9 @@ func NewHandler(parent context.Context) *Handler {
 		cancel:      cancel,
 		interrupted: make(chan struct{}),
 		done:        make(chan struct{}),
-		sigChan:     make(chan os.Signal, 1),
+		// Buffer of 1 ensures signal.Notify doesn't drop signals if handler is busy.
+		// See: https://pkg.go.dev/os/signal#Notify
+		sigChan: make(chan os.Signal, 1),
 	}
 
 	signal.Notify(h.sigChan, syscall.SIGINT, syscall.SIGTERM)
@@ -103,7 +105,9 @@ func (h *Handler) listen() {
 			return
 		case <-h.sigChan:
 			h.handleSignal()
-			// Continue listening for more signals
+			// Continue looping to drain signal channel. Note: only the first signal
+			// has effect due to sync.Once in handleSignal(); subsequent signals are
+			// received but ignored to avoid blocking signal delivery.
 		}
 	}
 }
