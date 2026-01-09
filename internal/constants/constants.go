@@ -212,6 +212,18 @@ const (
 	ProcessTerminationTimeout = 2 * time.Second
 )
 
+// Time format constants for consistent timestamp formatting across the codebase.
+// These use Go's reference time: Mon Jan 2 15:04:05 MST 2006.
+const (
+	// TimeFormatISO is the standard ISO-like format for human-readable timestamps.
+	// Example: "2024-01-15 14:30:00"
+	TimeFormatISO = "2006-01-02 15:04:05"
+
+	// TimeFormatCompact is a compact format suitable for filenames and identifiers.
+	// Example: "20240115-143000"
+	TimeFormatCompact = "20060102-150405"
+)
+
 // PR description formatting constants.
 const (
 	// MaxPRSummaryLength is the maximum length for PR title summaries.

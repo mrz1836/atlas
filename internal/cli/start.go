@@ -827,7 +827,7 @@ func generateWorkspaceName(description string) string {
 
 	// Handle empty result
 	if name == "" {
-		name = fmt.Sprintf("task-%s", time.Now().Format("20060102-150405"))
+		name = fmt.Sprintf("task-%s", time.Now().Format(constants.TimeFormatCompact))
 	}
 
 	return name

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/ctxutil"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 )
@@ -118,7 +119,7 @@ func GenerateUniqueBranchNameWithChecker(ctx context.Context, checker BranchExis
 	}
 
 	// Branch exists, append timestamp suffix to create unique name
-	uniqueName := fmt.Sprintf("%s-%s", baseName, time.Now().Format("20060102-150405"))
+	uniqueName := fmt.Sprintf("%s-%s", baseName, time.Now().Format(constants.TimeFormatCompact))
 
 	// Verify the new name doesn't also exist (extremely unlikely but possible)
 	exists, err = checker.BranchExists(ctx, uniqueName)
