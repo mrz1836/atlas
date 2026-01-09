@@ -49,6 +49,18 @@ const (
 	TerminalWidthDefault = 80
 )
 
+// Layout constants for consistent spacing across TUI components.
+const (
+	// LabelWidthStandard is the label width for standard display mode.
+	LabelWidthStandard = 12
+
+	// LabelWidthExpanded is the label width for expanded display mode.
+	LabelWidthExpanded = 14
+
+	// TruncateMargin is the margin to reserve when truncating values in compact mode.
+	TruncateMargin = 15
+)
+
 //nolint:gochecknoglobals // Intentional package-level constants for TUI styling API
 var (
 	// ColorPrimary is blue, used for active states, links, and primary actions (UX-4).

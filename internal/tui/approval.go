@@ -621,13 +621,13 @@ func renderInfoLineWithMode(label, value string, width int, mode displayMode) st
 	switch mode {
 	case displayModeCompact:
 		// Abbreviated format for narrow terminals
-		return "  " + abbreviateLabel(label) + ": " + truncateString(value, width-15) + "\n"
+		return "  " + abbreviateLabel(label) + ": " + truncateString(value, width-TruncateMargin) + "\n"
 	case displayModeExpanded:
 		// Expanded format with more space for labels
-		return "  " + padRight(label+":", 14) + value + "\n"
+		return "  " + padRight(label+":", LabelWidthExpanded) + value + "\n"
 	case displayModeStandard:
 		// Standard format with fixed label width for alignment
-		return "  " + padRight(label+":", 12) + value + "\n"
+		return "  " + padRight(label+":", LabelWidthStandard) + value + "\n"
 	}
 	return ""
 }
@@ -646,7 +646,7 @@ func renderStatusLine(status constants.TaskStatus, _ int) string {
 		}
 	}
 
-	return "  " + padRight("Status:", 12) + icon + " " + styledStatus + "\n"
+	return "  " + padRight("Status:", LabelWidthStandard) + icon + " " + styledStatus + "\n"
 }
 
 // renderProgressLine renders step progress.
@@ -657,7 +657,7 @@ func renderProgressLine(current, total, _ int) string {
 	progressText.WriteString("/")
 	progressText.WriteString(intToString(total))
 
-	return "  " + padRight("Progress:", 12) + progressText.String() + "\n"
+	return "  " + padRight("Progress:", LabelWidthStandard) + progressText.String() + "\n"
 }
 
 // renderSessionLine renders session info showing interruption count.
@@ -676,7 +676,7 @@ func renderSessionLine(interruptionCount, _ int) string {
 		styledText = lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Render(interruptText)
 	}
 
-	return "  " + padRight("Session:", 12) + styledText + "\n"
+	return "  " + padRight("Session:", LabelWidthStandard) + styledText + "\n"
 }
 
 // renderPRLine renders the PR link without truncation (PR numbers are inherently short).
@@ -697,11 +697,11 @@ func renderPRLine(prURL string, mode displayMode) string {
 	case displayModeCompact:
 		return "  " + abbreviateLabel("PR") + ": " + prText + "\n"
 	case displayModeExpanded:
-		return "  " + padRight("PR:", 14) + prText + "\n"
+		return "  " + padRight("PR:", LabelWidthExpanded) + prText + "\n"
 	case displayModeStandard:
-		return "  " + padRight("PR:", 12) + prText + "\n"
+		return "  " + padRight("PR:", LabelWidthStandard) + prText + "\n"
 	default:
-		return "  " + padRight("PR:", 12) + prText + "\n"
+		return "  " + padRight("PR:", LabelWidthStandard) + prText + "\n"
 	}
 }
 
@@ -763,7 +763,7 @@ func renderFileChangeLine(fc FileChange, width int, mode displayMode) string {
 	case displayModeExpanded:
 		if fc.Insertions > 0 || fc.Deletions > 0 {
 			stats := renderFileStats(fc.Insertions, fc.Deletions)
-			return "    " + padRight(stats, 12) + path + "\n"
+			return "    " + padRight(stats, LabelWidthStandard) + path + "\n"
 		}
 		return "    " + path + "\n"
 	case displayModeStandard:
@@ -814,7 +814,7 @@ func renderValidationSectionWithMode(validation *ValidationSummary, _ int, mode 
 		passFailText += skippedText
 	}
 
-	result.WriteString("  " + padRight("Validation:", 12) + icon + " " + statusText + passFailText + "\n")
+	result.WriteString("  " + padRight("Validation:", LabelWidthStandard) + icon + " " + statusText + passFailText + "\n")
 
 	// Show AI retry indicator if retries were used
 	if validation.AIRetryCount > 0 {
