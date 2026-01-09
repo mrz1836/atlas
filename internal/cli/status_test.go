@@ -49,6 +49,23 @@ func (m *mockTaskStore) List(_ context.Context, workspaceName string) ([]*domain
 	return []*domain.Task{}, nil
 }
 
+// testStatusOpts creates StatusRenderOptions for tests.
+func testStatusOpts(output string, quiet, progress bool) StatusRenderOptions {
+	return StatusRenderOptions{
+		Output:       output,
+		Quiet:        quiet,
+		ShowProgress: progress,
+	}
+}
+
+// testStatusDeps creates StatusDeps for tests.
+func testStatusDeps(mgr WorkspaceLister, store TaskLister) StatusDeps {
+	return StatusDeps{
+		WorkspaceMgr: mgr,
+		TaskStore:    store,
+	}
+}
+
 func (m *mockTaskStore) Get(_ context.Context, workspaceName, taskID string) (*domain.Task, error) {
 	if m.getErr != nil {
 		return nil, m.getErr
@@ -118,7 +135,7 @@ func TestStatusCommand_Basic(t *testing.T) {
 			mockMgr := &mockWorkspaceManager{workspaces: tt.workspaces}
 			mockStore := &mockTaskStore{tasks: tt.tasks}
 
-			err := runStatusWithDeps(ctx, &buf, "text", false, false, mockMgr, mockStore)
+			err := runStatusWithDeps(ctx, &buf, testStatusOpts("text", false, false), testStatusDeps(mockMgr, mockStore))
 			require.NoError(t, err)
 
 			output := buf.String()
@@ -161,7 +178,7 @@ func TestStatusCommand_StatusPrioritySorting(t *testing.T) {
 	mockMgr := &mockWorkspaceManager{workspaces: workspaces}
 	mockStore := &mockTaskStore{tasks: tasks}
 
-	err := runStatusWithDeps(ctx, &buf, "text", false, false, mockMgr, mockStore)
+	err := runStatusWithDeps(ctx, &buf, testStatusOpts("text", false, false), testStatusDeps(mockMgr, mockStore))
 	require.NoError(t, err)
 
 	output := buf.String()
@@ -224,7 +241,7 @@ func TestStatusCommand_JSONOutput(t *testing.T) {
 	mockMgr := &mockWorkspaceManager{workspaces: workspaces}
 	mockStore := &mockTaskStore{tasks: tasks}
 
-	err := runStatusWithDeps(ctx, &buf, "json", false, false, mockMgr, mockStore)
+	err := runStatusWithDeps(ctx, &buf, testStatusOpts("json", false, false), testStatusDeps(mockMgr, mockStore))
 	require.NoError(t, err)
 
 	// Parse JSON output - now uses structured format with workspaces and attention_items (Story 7.9)
@@ -256,7 +273,7 @@ func TestStatusCommand_EmptyJSON(t *testing.T) {
 	mockMgr := &mockWorkspaceManager{workspaces: []*domain.Workspace{}}
 	mockStore := &mockTaskStore{tasks: map[string][]*domain.Task{}}
 
-	err := runStatusWithDeps(ctx, &buf, "json", false, false, mockMgr, mockStore)
+	err := runStatusWithDeps(ctx, &buf, testStatusOpts("json", false, false), testStatusDeps(mockMgr, mockStore))
 	require.NoError(t, err)
 
 	// Story 7.9: JSON output now uses structured format
@@ -300,7 +317,7 @@ func TestStatusCommand_QuietMode(t *testing.T) {
 	mockMgr := &mockWorkspaceManager{workspaces: workspaces}
 	mockStore := &mockTaskStore{tasks: tasks}
 
-	err := runStatusWithDeps(ctx, &buf, "text", true, false, mockMgr, mockStore)
+	err := runStatusWithDeps(ctx, &buf, testStatusOpts("text", true, false), testStatusDeps(mockMgr, mockStore))
 	require.NoError(t, err)
 
 	output := buf.String()
@@ -351,7 +368,7 @@ func TestStatusCommand_HeaderAndFooter(t *testing.T) {
 	mockMgr := &mockWorkspaceManager{workspaces: workspaces}
 	mockStore := &mockTaskStore{tasks: tasks}
 
-	err := runStatusWithDeps(ctx, &buf, "text", false, false, mockMgr, mockStore)
+	err := runStatusWithDeps(ctx, &buf, testStatusOpts("text", false, false), testStatusDeps(mockMgr, mockStore))
 	require.NoError(t, err)
 
 	output := buf.String()
@@ -403,7 +420,7 @@ func TestStatusCommand_Performance(t *testing.T) {
 	mockStore := &mockTaskStore{tasks: tasks}
 
 	start := time.Now()
-	err := runStatusWithDeps(ctx, &buf, "text", false, false, mockMgr, mockStore)
+	err := runStatusWithDeps(ctx, &buf, testStatusOpts("text", false, false), testStatusDeps(mockMgr, mockStore))
 	duration := time.Since(start)
 
 	require.NoError(t, err)
@@ -421,7 +438,7 @@ func TestStatusCommand_ContextCancellation(t *testing.T) {
 	mockMgr := &mockWorkspaceManager{workspaces: []*domain.Workspace{}}
 	mockStore := &mockTaskStore{tasks: map[string][]*domain.Task{}}
 
-	err := runStatusWithDeps(ctx, &buf, "text", false, false, mockMgr, mockStore)
+	err := runStatusWithDeps(ctx, &buf, testStatusOpts("text", false, false), testStatusDeps(mockMgr, mockStore))
 	assert.ErrorIs(t, err, context.Canceled)
 }
 
@@ -546,7 +563,7 @@ func TestStatusCommand_MultipleAttentionStates(t *testing.T) {
 	mockMgr := &mockWorkspaceManager{workspaces: workspaces}
 	mockStore := &mockTaskStore{tasks: tasks}
 
-	err := runStatusWithDeps(ctx, &buf, "text", false, false, mockMgr, mockStore)
+	err := runStatusWithDeps(ctx, &buf, testStatusOpts("text", false, false), testStatusDeps(mockMgr, mockStore))
 	require.NoError(t, err)
 
 	output := buf.String()
@@ -571,7 +588,7 @@ func TestStatusCommand_WorkspacesWithNoTasks(t *testing.T) {
 	mockMgr := &mockWorkspaceManager{workspaces: workspaces}
 	mockStore := &mockTaskStore{tasks: tasks}
 
-	err := runStatusWithDeps(ctx, &buf, "text", false, false, mockMgr, mockStore)
+	err := runStatusWithDeps(ctx, &buf, testStatusOpts("text", false, false), testStatusDeps(mockMgr, mockStore))
 	require.NoError(t, err)
 
 	output := buf.String()
@@ -616,7 +633,7 @@ func TestStatusCommand_EmptyTaskRefsWithTasksInStore(t *testing.T) {
 	mockMgr := &mockWorkspaceManager{workspaces: workspaces}
 	mockStore := &mockTaskStore{tasks: tasks}
 
-	err := runStatusWithDeps(ctx, &buf, "text", false, false, mockMgr, mockStore)
+	err := runStatusWithDeps(ctx, &buf, testStatusOpts("text", false, false), testStatusDeps(mockMgr, mockStore))
 	require.NoError(t, err)
 
 	output := buf.String()
@@ -658,7 +675,7 @@ func TestStatusCommand_EmptyTaskRefsWithTasksInStore_JSON(t *testing.T) {
 	mockMgr := &mockWorkspaceManager{workspaces: workspaces}
 	mockStore := &mockTaskStore{tasks: tasks}
 
-	err := runStatusWithDeps(ctx, &buf, "json", false, false, mockMgr, mockStore)
+	err := runStatusWithDeps(ctx, &buf, testStatusOpts("json", false, false), testStatusDeps(mockMgr, mockStore))
 	require.NoError(t, err)
 
 	var result statusJSONOutput
@@ -710,7 +727,7 @@ func TestStatusCommand_AllStatuses(t *testing.T) {
 			mockMgr := &mockWorkspaceManager{workspaces: workspaces}
 			mockStore := &mockTaskStore{tasks: tasks}
 
-			err := runStatusWithDeps(ctx, &buf, "text", false, false, mockMgr, mockStore)
+			err := runStatusWithDeps(ctx, &buf, testStatusOpts("text", false, false), testStatusDeps(mockMgr, mockStore))
 			require.NoError(t, err, "status %s should not cause error", status)
 
 			output := buf.String()
@@ -946,7 +963,7 @@ func TestStatusCommand_ProgressFlag(t *testing.T) {
 	mockStore := &mockTaskStore{tasks: tasks}
 
 	// Run with showProgress=true
-	err := runStatusWithDeps(ctx, &buf, "text", false, true, mockMgr, mockStore)
+	err := runStatusWithDeps(ctx, &buf, testStatusOpts("text", false, true), testStatusDeps(mockMgr, mockStore))
 	require.NoError(t, err)
 
 	output := buf.String()

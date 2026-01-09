@@ -50,6 +50,21 @@ type statusOptions struct {
 	ShowProgress  bool
 }
 
+// StatusRenderOptions contains display-related options for status rendering.
+// Using a struct reduces parameter count and improves readability.
+type StatusRenderOptions struct {
+	Output       string
+	Quiet        bool
+	ShowProgress bool
+}
+
+// StatusDeps contains dependencies for status command execution.
+// Using a struct enables easier testing with mock implementations.
+type StatusDeps struct {
+	WorkspaceMgr WorkspaceLister
+	TaskStore    TaskLister
+}
+
 // AddStatusCommand adds the status command to the root command.
 func AddStatusCommand(parent *cobra.Command) {
 	var watchMode bool
@@ -105,7 +120,7 @@ func runStatus(ctx context.Context, cmd *cobra.Command, w io.Writer, opts status
 	// Check for cancellation at entry
 	select {
 	case <-ctx.Done():
-		return ctx.Err()
+		return fmt.Errorf("status command canceled: %w", ctx.Err())
 	default:
 	}
 
@@ -146,7 +161,16 @@ func runStatus(ctx context.Context, cmd *cobra.Command, w io.Writer, opts status
 		return runWatchMode(ctx, wsMgr, taskStore, opts.WatchInterval, quiet, opts.ShowProgress)
 	}
 
-	return runStatusWithDeps(ctx, w, output, quiet, opts.ShowProgress, wsMgr, taskStore)
+	renderOpts := StatusRenderOptions{
+		Output:       output,
+		Quiet:        quiet,
+		ShowProgress: opts.ShowProgress,
+	}
+	deps := StatusDeps{
+		WorkspaceMgr: wsMgr,
+		TaskStore:    taskStore,
+	}
+	return runStatusWithDeps(ctx, w, renderOpts, deps)
 }
 
 // runStatusWithDeps executes the status command with injected dependencies.
@@ -154,28 +178,25 @@ func runStatus(ctx context.Context, cmd *cobra.Command, w io.Writer, opts status
 func runStatusWithDeps(
 	ctx context.Context,
 	w io.Writer,
-	output string,
-	quiet bool,
-	showProgress bool,
-	wsMgr WorkspaceLister,
-	taskStore TaskLister,
+	opts StatusRenderOptions,
+	deps StatusDeps,
 ) error {
 	// Check for cancellation at entry
 	select {
 	case <-ctx.Done():
-		return ctx.Err()
+		return fmt.Errorf("status check canceled: %w", ctx.Err())
 	default:
 	}
 
 	// Load workspaces
-	workspaces, err := wsMgr.List(ctx)
+	workspaces, err := deps.WorkspaceMgr.List(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to list workspaces: %w", err)
 	}
 
 	// Handle empty case
 	if len(workspaces) == 0 {
-		if output == OutputJSON {
+		if opts.Output == OutputJSON {
 			// Story 7.9: Use structured JSON format for consistency
 			emptyOutput := statusJSONOutput{
 				Workspaces: []map[string]string{},
@@ -189,7 +210,7 @@ func runStatusWithDeps(
 	}
 
 	// Build status rows from workspaces
-	rows, err := buildStatusRows(ctx, workspaces, taskStore)
+	rows, err := buildStatusRows(ctx, workspaces, deps.TaskStore)
 	if err != nil {
 		return fmt.Errorf("failed to build status rows: %w", err)
 	}
@@ -198,11 +219,11 @@ func runStatusWithDeps(
 	sortByStatusPriority(rows)
 
 	// Output based on format
-	if output == OutputJSON {
+	if opts.Output == OutputJSON {
 		return outputStatusJSON(w, rows)
 	}
 
-	return outputStatusTable(w, rows, quiet, showProgress)
+	return outputStatusTable(w, rows, opts.Quiet, opts.ShowProgress)
 }
 
 // buildStatusRows builds StatusRow slice from workspaces.
@@ -217,7 +238,7 @@ func buildStatusRows(
 		// Check for cancellation during iteration
 		select {
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			return nil, fmt.Errorf("building status rows canceled: %w", ctx.Err())
 		default:
 		}
 
