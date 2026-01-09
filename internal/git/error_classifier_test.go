@@ -234,3 +234,81 @@ func TestMatchesFunctions_BackwardCompatibility(t *testing.T) {
 		}
 	})
 }
+
+// TestMatchesFunctions_CaseInsensitive verifies that all Matches* functions
+// perform case-insensitive matching. This tests the fix for the bug where
+// MatchesLower was called without lowercasing the input first.
+func TestMatchesFunctions_CaseInsensitive(t *testing.T) {
+	tests := []struct {
+		name     string
+		fn       func(string) bool
+		inputs   []string
+		expected bool
+	}{
+		{
+			name:     "MatchesAuthError uppercase",
+			fn:       MatchesAuthError,
+			inputs:   []string{"AUTHENTICATION FAILED", "Authentication Failed", "PERMISSION DENIED"},
+			expected: true,
+		},
+		{
+			name:     "MatchesNetworkError uppercase",
+			fn:       MatchesNetworkError,
+			inputs:   []string{"CONNECTION REFUSED", "Connection Timed Out", "COULD NOT RESOLVE HOST"},
+			expected: true,
+		},
+		{
+			name:     "MatchesRateLimitError uppercase",
+			fn:       MatchesRateLimitError,
+			inputs:   []string{"RATE LIMIT EXCEEDED", "Rate Limit Exceeded", "TOO MANY REQUESTS"},
+			expected: true,
+		},
+		{
+			name:     "MatchesNotFoundError uppercase",
+			fn:       MatchesNotFoundError,
+			inputs:   []string{"NOT FOUND", "Not Found", "REPOSITORY NOT FOUND"},
+			expected: true,
+		},
+		{
+			name:     "MatchesNonFastForwardError uppercase",
+			fn:       MatchesNonFastForwardError,
+			inputs:   []string{"NON-FAST-FORWARD", "Non-Fast-Forward", "UPDATES WERE REJECTED"},
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for _, input := range tt.inputs {
+				if got := tt.fn(input); got != tt.expected {
+					t.Errorf("%s(%q) = %v, want %v (case-insensitive matching)", tt.name, input, got, tt.expected)
+				}
+			}
+		})
+	}
+}
+
+// TestMatchesFunctions_MixedCase tests edge cases with mixed case patterns.
+func TestMatchesFunctions_MixedCase(t *testing.T) {
+	// Real-world error messages often have mixed casing
+	realWorldErrors := []struct {
+		errStr   string
+		matchFn  func(string) bool
+		fnName   string
+		expected bool
+	}{
+		{"Error: Authentication Failed for user@example.com", MatchesAuthError, "MatchesAuthError", true},
+		{"FATAL: Could not resolve host: github.com", MatchesNetworkError, "MatchesNetworkError", true},
+		{"GitHub API Rate Limit Exceeded - try again later", MatchesRateLimitError, "MatchesRateLimitError", true},
+		{"Error 404: Repository Not Found", MatchesNotFoundError, "MatchesNotFoundError", true},
+		{"ERROR: Updates Were Rejected because the tip is behind", MatchesNonFastForwardError, "MatchesNonFastForwardError", true},
+	}
+
+	for _, tt := range realWorldErrors {
+		t.Run(tt.fnName+"_realworld", func(t *testing.T) {
+			if got := tt.matchFn(tt.errStr); got != tt.expected {
+				t.Errorf("%s(%q) = %v, want %v", tt.fnName, tt.errStr, got, tt.expected)
+			}
+		})
+	}
+}

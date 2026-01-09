@@ -203,26 +203,31 @@ func (c *ErrorClassifier) classifyLower(lower string) ErrorType {
 }
 
 // MatchesAuthError checks if the error string indicates an authentication error.
+// The input string is lowercased before matching.
 func MatchesAuthError(errStr string) bool {
-	return authPatterns.MatchesLower(errStr)
+	return authPatterns.Matches(errStr)
 }
 
 // MatchesNetworkError checks if the error string indicates a network error.
+// The input string is lowercased before matching.
 func MatchesNetworkError(errStr string) bool {
-	return networkPatterns.MatchesLower(errStr)
+	return networkPatterns.Matches(errStr)
 }
 
 // MatchesRateLimitError checks if the error string indicates a rate limit error.
+// The input string is lowercased before matching.
 func MatchesRateLimitError(errStr string) bool {
-	return rateLimitPatterns.MatchesLower(errStr)
+	return rateLimitPatterns.Matches(errStr)
 }
 
 // MatchesNotFoundError checks if the error string indicates a not-found error.
+// The input string is lowercased before matching.
 func MatchesNotFoundError(errStr string) bool {
-	return notFoundPatterns.MatchesLower(errStr)
+	return notFoundPatterns.Matches(errStr)
 }
 
 // MatchesNonFastForwardError checks if the error string indicates a non-fast-forward rejection.
+// The input string is lowercased before matching.
 func MatchesNonFastForwardError(errStr string) bool {
-	return nonFastForwardPatterns.MatchesLower(errStr)
+	return nonFastForwardPatterns.Matches(errStr)
 }
