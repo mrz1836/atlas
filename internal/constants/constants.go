@@ -53,6 +53,21 @@ const (
 	// CIGracePollInterval is the polling interval during the initial grace period.
 	// More frequent than normal polling since we're waiting for checks to appear.
 	CIGracePollInterval = 10 * time.Second
+
+	// GitCommitTimeout is the timeout for git commit operations.
+	GitCommitTimeout = 1 * time.Minute
+
+	// GitPushTimeout is the timeout for git push operations.
+	GitPushTimeout = 2 * time.Minute
+
+	// GitPRTimeout is the timeout for git PR creation operations.
+	GitPRTimeout = 2 * time.Minute
+
+	// ValidationStepTimeout is the timeout for validation step operations (format, lint, test).
+	ValidationStepTimeout = 10 * time.Minute
+
+	// WorkspaceLockTimeout is the maximum duration to wait for acquiring a workspace file lock.
+	WorkspaceLockTimeout = 5 * time.Second
 )
 
 // Retry configuration defaults for recoverable operations.
@@ -89,6 +104,12 @@ const (
 
 	// DefaultPreCommitCommand is the default command for pre-commit hooks.
 	DefaultPreCommitCommand = "go-pre-commit run --all-files"
+)
+
+// Git remote configuration.
+const (
+	// DefaultRemote is the default git remote name used for push/fetch operations.
+	DefaultRemote = "origin"
 )
 
 // Log rotation configuration constants.
