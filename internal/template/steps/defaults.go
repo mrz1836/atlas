@@ -117,12 +117,17 @@ func NewDefaultRegistry(deps ExecutorDeps) *ExecutorRegistry {
 	}
 
 	// Register validation executor with optional artifact saving, notifications, retry, and commands
-	r.Register(NewValidationExecutorFull(deps.WorkDir, deps.ArtifactSaver, deps.Notifier, deps.RetryHandler, ValidationCommands{
-		Format:    deps.FormatCommands,
-		Lint:      deps.LintCommands,
-		Test:      deps.TestCommands,
-		PreCommit: deps.PreCommitCommands,
-	}))
+	r.Register(NewValidationExecutorWithOptions(deps.WorkDir,
+		WithValidationArtifactSaver(deps.ArtifactSaver),
+		WithValidationNotifier(deps.Notifier),
+		WithValidationRetryHandler(deps.RetryHandler),
+		WithValidationCommands(ValidationCommands{
+			Format:    deps.FormatCommands,
+			Lint:      deps.LintCommands,
+			Test:      deps.TestCommands,
+			PreCommit: deps.PreCommitCommands,
+		}),
+	))
 
 	// Register git executor with dependencies for commit, push, and PR creation
 	gitExecutorOpts := []GitExecutorOption{
