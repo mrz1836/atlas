@@ -24,17 +24,6 @@ import (
 // This enables forward-compatible schema migrations.
 const CurrentSchemaVersion = 1
 
-// LockTimeout is the maximum duration to wait for acquiring a file lock.
-// Deprecated: Use constants.WorkspaceLockTimeout instead.
-const LockTimeout = constants.WorkspaceLockTimeout
-
-// File permission constants are imported from constants package.
-// Deprecated: Use constants.WorkspaceDirPerm and constants.WorkspaceFilePerm directly.
-const (
-	WorkspaceDirPerm  = constants.WorkspaceDirPerm
-	WorkspaceFilePerm = constants.WorkspaceFilePerm
-)
-
 // validNameRegex matches valid workspace names (alphanumeric, dash, underscore).
 var validNameRegex = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]*$`)
 
@@ -102,7 +91,7 @@ func (s *FileStore) Create(ctx context.Context, ws *domain.Workspace) error {
 	}
 
 	// Create workspace directory (may already exist if recreating closed workspace)
-	if err := os.MkdirAll(wsPath, WorkspaceDirPerm); err != nil {
+	if err := os.MkdirAll(wsPath, constants.WorkspaceDirPerm); err != nil {
 		return fmt.Errorf("failed to create workspace directory '%s': %w", ws.Name, err)
 	}
 
@@ -129,7 +118,7 @@ func (s *FileStore) Create(ctx context.Context, ws *domain.Workspace) error {
 	}
 
 	// Write workspace file atomically
-	if err := atomicWrite(wsFile, data, WorkspaceFilePerm); err != nil {
+	if err := atomicWrite(wsFile, data, constants.WorkspaceFilePerm); err != nil {
 		_ = os.RemoveAll(wsPath)
 		return fmt.Errorf("failed to create workspace '%s': %w", ws.Name, err)
 	}
@@ -225,7 +214,7 @@ func (s *FileStore) Update(ctx context.Context, ws *domain.Workspace) error {
 
 	// Write workspace file atomically
 	wsFile := s.workspaceFilePath(ws.Name)
-	if err := atomicWrite(wsFile, data, WorkspaceFilePerm); err != nil {
+	if err := atomicWrite(wsFile, data, constants.WorkspaceFilePerm); err != nil {
 		return fmt.Errorf("failed to update workspace '%s': %w", ws.Name, err)
 	}
 
@@ -385,8 +374,8 @@ func validateName(name string) error {
 	if name == "" {
 		return fmt.Errorf("workspace name cannot be empty: %w", atlaserrors.ErrEmptyValue)
 	}
-	if len(name) > 255 {
-		return fmt.Errorf("workspace name too long (max 255 characters): %w", atlaserrors.ErrValueOutOfRange)
+	if len(name) > constants.MaxWorkspaceNameLength {
+		return fmt.Errorf("workspace name too long (max %d characters): %w", constants.MaxWorkspaceNameLength, atlaserrors.ErrValueOutOfRange)
 	}
 	if !validNameRegex.MatchString(name) {
 		return fmt.Errorf("workspace name contains invalid characters (use alphanumeric, dash, underscore): %w", atlaserrors.ErrValueOutOfRange)
@@ -405,17 +394,17 @@ func (s *FileStore) acquireLock(ctx context.Context, name string) (*os.File, err
 
 	// Ensure workspace directory exists for lock file
 	wsPath := s.workspacePath(name)
-	if err := os.MkdirAll(wsPath, WorkspaceDirPerm); err != nil {
+	if err := os.MkdirAll(wsPath, constants.WorkspaceDirPerm); err != nil {
 		return nil, fmt.Errorf("failed to create lock directory: %w", err)
 	}
 
-	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, WorkspaceFilePerm) //#nosec G302,G304 -- lock file needs write access, path is constructed from validated name
+	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, constants.WorkspaceFilePerm) //#nosec G302,G304 -- lock file needs write access, path is constructed from validated name
 	if err != nil {
 		return nil, fmt.Errorf("failed to open lock file: %w", err)
 	}
 
 	// Try to acquire lock with timeout
-	deadline := time.Now().Add(LockTimeout)
+	deadline := time.Now().Add(constants.WorkspaceLockTimeout)
 	for {
 		// Check for context cancellation
 		select {
@@ -459,7 +448,7 @@ func (s *FileStore) releaseLock(f *os.File) error {
 
 // atomicWrite writes data to a file atomically using write-then-rename.
 //
-//nolint:unparam // perm is designed for flexibility, currently only uses WorkspaceFilePerm
+//nolint:unparam // perm is designed for flexibility, currently only uses constants.WorkspaceFilePerm
 func atomicWrite(path string, data []byte, perm os.FileMode) error {
 	// Write to temp file
 	tmpPath := path + ".tmp"

@@ -12,6 +12,7 @@ import (
 
 	"github.com/rs/zerolog"
 
+	"github.com/mrz1836/atlas/internal/constants"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 	"github.com/mrz1836/atlas/internal/git"
 )
@@ -84,9 +85,6 @@ func NewGitWorktreeRunner(ctx context.Context, repoPath string, logger zerolog.L
 	return &GitWorktreeRunner{repoPath: root, logger: logger}, nil
 }
 
-// maxWorkspaceNameLength is the maximum allowed length for workspace names.
-const maxWorkspaceNameLength = 255
-
 // Create creates a new worktree with the given options.
 func (r *GitWorktreeRunner) Create(ctx context.Context, opts WorktreeCreateOptions) (*WorktreeInfo, error) {
 	// Check for cancellation
@@ -100,9 +98,9 @@ func (r *GitWorktreeRunner) Create(ctx context.Context, opts WorktreeCreateOptio
 	if opts.WorkspaceName == "" {
 		return nil, fmt.Errorf("workspace name cannot be empty: %w", atlaserrors.ErrEmptyValue)
 	}
-	if len(opts.WorkspaceName) > maxWorkspaceNameLength {
+	if len(opts.WorkspaceName) > constants.MaxWorkspaceNameLength {
 		return nil, fmt.Errorf("workspace name exceeds maximum length of %d characters: %w",
-			maxWorkspaceNameLength, atlaserrors.ErrEmptyValue)
+			constants.MaxWorkspaceNameLength, atlaserrors.ErrEmptyValue)
 	}
 
 	// Validate branch type

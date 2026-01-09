@@ -138,6 +138,12 @@ const (
 	WorkspaceFilePerm = 0o600
 )
 
+// Workspace name validation constants.
+const (
+	// MaxWorkspaceNameLength is the maximum allowed length for workspace names.
+	MaxWorkspaceNameLength = 255
+)
+
 // Artifact filename constants for git operation results.
 const (
 	// ArtifactCommitResult is the filename for commit operation results.

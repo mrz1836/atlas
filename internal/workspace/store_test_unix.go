@@ -41,7 +41,7 @@ func TestFileStore_LockTimeout(t *testing.T) {
 
 	// Manually acquire the lock file to simulate contention
 	lockPath := filepath.Join(tmpDir, constants.WorkspacesDir, "lock-test", constants.WorkspaceFileName+".lock")
-	lockFile, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, WorkspaceFilePerm) //#nosec G302,G304 -- test lock file
+	lockFile, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, constants.WorkspaceFilePerm) //#nosec G302,G304 -- test lock file
 	require.NoError(t, err)
 	defer func() { _ = lockFile.Close() }()
 
@@ -86,7 +86,7 @@ func TestFileStore_ContextCancellationDuringLock(t *testing.T) {
 
 	// Manually acquire the lock to create contention
 	lockPath := filepath.Join(tmpDir, constants.WorkspacesDir, "ctx-cancel-lock-test", constants.WorkspaceFileName+".lock")
-	lockFile, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, WorkspaceFilePerm) //#nosec G302,G304 -- test lock file
+	lockFile, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, constants.WorkspaceFilePerm) //#nosec G302,G304 -- test lock file
 	require.NoError(t, err)
 	defer func() { _ = lockFile.Close() }()
 
