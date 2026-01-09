@@ -5,9 +5,12 @@ import (
 	"strings"
 )
 
-// maxStdoutDisplay is the maximum length of stdout to display in formatted output.
-// Longer output is truncated to prevent overwhelming the user.
-const maxStdoutDisplay = 1000
+// MaxStdoutDisplayChars is the maximum number of characters of stdout to display
+// in formatted output. Longer output is truncated to prevent overwhelming the user.
+const MaxStdoutDisplayChars = 1000
+
+// maxStdoutDisplay is an alias for MaxStdoutDisplayChars for internal use.
+const maxStdoutDisplay = MaxStdoutDisplayChars
 
 // FormatResult formats a PipelineResult for human-readable display.
 // It provides a clear summary of validation results with emphasis on failures.
@@ -69,6 +72,8 @@ func formatFailedCommand(r Result, artifactPath string) string {
 
 // formatStdout formats stdout output, truncating if necessary.
 // Output is plain text suitable for terminal display.
+// When truncating, ensures the output is cut at a line boundary to avoid
+// displaying incomplete lines.
 func formatStdout(stdout, artifactPath string) string {
 	var sb strings.Builder
 
@@ -81,9 +86,14 @@ func formatStdout(stdout, artifactPath string) string {
 		return sb.String()
 	}
 
-	// Truncated output
+	// Truncated output - ensure we cut at a line boundary
+	truncated := stdout[:maxStdoutDisplay]
+	if idx := strings.LastIndex(truncated, "\n"); idx > 0 {
+		truncated = truncated[:idx]
+	}
+
 	sb.WriteString("\nStandard output (truncated):\n")
-	for _, line := range strings.Split(stdout[:maxStdoutDisplay], "\n") {
+	for _, line := range strings.Split(truncated, "\n") {
 		sb.WriteString(fmt.Sprintf("  %s\n", line))
 	}
 	sb.WriteString("  ...[truncated]\n")
