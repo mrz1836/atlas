@@ -575,3 +575,63 @@ func TestFilteringWriter_PreservesWriteLength(t *testing.T) {
 	// Should return original length even though output is different
 	assert.Equal(t, len(input), n)
 }
+
+func TestContainsWordBoundary(t *testing.T) {
+	t.Parallel()
+
+	seps := []string{"_", "-"}
+
+	tests := []struct {
+		name     string
+		input    string
+		word     string
+		expected bool
+	}{
+		// Prefix patterns
+		{"prefix underscore", "password_hash", "password", true},
+		{"prefix dash", "password-hash", "password", true},
+
+		// Suffix patterns
+		{"suffix underscore", "db_password", "password", true},
+		{"suffix dash", "db-password", "password", true},
+
+		// Infix patterns
+		{"infix underscore", "my_password_field", "password", true},
+		{"infix dash", "my-password-field", "password", true},
+
+		// No boundary
+		{"no boundary - partial", "mypassword", "password", false},
+		{"no boundary - exact", "password", "password", false}, // exact match is not a boundary
+		{"no boundary - suffix only", "password_", "password", true},
+
+		// Edge cases
+		{"empty name", "", "password", false},
+		{"empty word", "password", "", false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tc.expected, containsWordBoundary(tc.input, tc.word, seps))
+		})
+	}
+}
+
+// BenchmarkIsSensitiveFieldName benchmarks the O(1) optimized lookup.
+func BenchmarkIsSensitiveFieldName(b *testing.B) {
+	testCases := []string{
+		"api_key",          // exact match (fast path)
+		"password",         // exact match (fast path)
+		"user_api_key",     // word boundary (slow path)
+		"workspace_name",   // non-sensitive (full scan)
+		"task_id",          // non-sensitive (full scan)
+		"my_password_hash", // word boundary (slow path)
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		for _, tc := range testCases {
+			IsSensitiveFieldName(tc)
+		}
+	}
+}
