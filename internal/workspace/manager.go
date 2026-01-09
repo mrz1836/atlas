@@ -277,20 +277,20 @@ func (m *DefaultManager) Destroy(ctx context.Context, name string) error {
 	wc := newWarningCollector(m.logger, name)
 
 	// Try to load workspace (may be corrupted)
-	ws := m.loadWorkspaceForDestroy(ctx, name, &wc.warnings)
+	ws := m.loadWorkspaceForDestroy(ctx, name, wc)
 
 	// Try to remove worktree
-	m.removeWorktree(ctx, ws, &wc.warnings)
+	m.removeWorktree(ctx, ws, wc)
 
 	// Prune stale worktrees (must happen BEFORE deleteBranch so git doesn't
 	// think a stale worktree is still using the branch)
-	m.pruneWorktrees(ctx, &wc.warnings)
+	m.pruneWorktrees(ctx, wc)
 
 	// Try to delete branch
-	m.deleteBranch(ctx, ws, &wc.warnings)
+	m.deleteBranch(ctx, ws, wc)
 
 	// Delete workspace state
-	m.deleteWorkspaceState(ctx, name, &wc.warnings)
+	m.deleteWorkspaceState(ctx, name, wc)
 
 	// NFR18: ALWAYS succeed - warnings are collected but not returned as errors
 	// Log warnings for debugging and observability
@@ -557,25 +557,24 @@ func (m *DefaultManager) tryDeleteBranch(ctx context.Context, branch string) str
 }
 
 // loadWorkspaceForDestroy attempts to load a workspace, collecting warnings on failure.
-func (m *DefaultManager) loadWorkspaceForDestroy(ctx context.Context, name string, warnings *[]error) *domain.Workspace {
+func (m *DefaultManager) loadWorkspaceForDestroy(ctx context.Context, name string, wc *WarningCollector) *domain.Workspace {
 	ws, err := m.store.Get(ctx, name)
 	if err != nil && !errors.Is(err, atlaserrors.ErrWorkspaceNotFound) {
 		// Log warning but continue - state might be corrupted
-		*warnings = append(*warnings, fmt.Errorf("warning: failed to load workspace: %w", err))
+		wc.Addf("warning: failed to load workspace: %v", err)
 	}
 	return ws
 }
 
 // removeWorktree removes the worktree directory and falls back to direct removal if needed.
-func (m *DefaultManager) removeWorktree(ctx context.Context, ws *domain.Workspace, warnings *[]error) {
+func (m *DefaultManager) removeWorktree(ctx context.Context, ws *domain.Workspace, wc *WarningCollector) {
 	if ws == nil {
 		return
 	}
 
 	if m.worktreeRunner == nil {
 		if ws.WorktreePath != "" {
-			//nolint:err113 // warning messages, not returned errors
-			*warnings = append(*warnings, fmt.Errorf("warning: worktree runner not available, cannot remove worktree at '%s'", ws.WorktreePath))
+			wc.Addf("warning: worktree runner not available, cannot remove worktree at '%s'", ws.WorktreePath)
 		}
 		return
 	}
@@ -609,13 +608,13 @@ func (m *DefaultManager) removeWorktree(ctx context.Context, ws *domain.Workspac
 			return // Complete success!
 		}
 	} else {
-		*warnings = append(*warnings, fmt.Errorf("warning: git worktree remove failed for '%s': %w", worktreePath, err))
+		wc.Addf("warning: git worktree remove failed for '%s': %v", worktreePath, err)
 	}
 
 	// Attempt 2: Fallback to manual directory removal + immediate prune
 	m.logger.Info().Str("path", worktreePath).Msg("attempting fallback: manual directory removal")
 	if removeErr := removeOrphanedDirectory(m.logger, worktreePath); removeErr != nil {
-		*warnings = append(*warnings, fmt.Errorf("warning: failed to remove directory '%s': %w", worktreePath, removeErr))
+		wc.Addf("warning: failed to remove directory '%s': %v", worktreePath, removeErr)
 		return // Can't proceed with cleanup
 	}
 
@@ -628,53 +627,49 @@ func (m *DefaultManager) removeWorktree(ctx context.Context, ws *domain.Workspac
 	// Final verification
 	dirExists, inGit, verifyErr := m.verifyWorktreeRemoved(ctx, worktreePath)
 	if verifyErr != nil {
-		*warnings = append(*warnings, fmt.Errorf("warning: could not verify worktree removal: %w", verifyErr))
+		wc.Addf("warning: could not verify worktree removal: %v", verifyErr)
 	} else if dirExists || inGit {
-		//nolint:err113 // warning messages, not returned errors
-		*warnings = append(*warnings, fmt.Errorf(
-			"warning: worktree cleanup incomplete for '%s' (dir_exists=%v, in_git_metadata=%v)",
-			worktreePath, dirExists, inGit))
+		wc.Addf("warning: worktree cleanup incomplete for '%s' (dir_exists=%v, in_git_metadata=%v)",
+			worktreePath, dirExists, inGit)
 	} else {
 		m.logger.Info().Str("path", worktreePath).Msg("worktree removed via fallback + prune")
 	}
 }
 
 // deleteBranch deletes the workspace branch.
-func (m *DefaultManager) deleteBranch(ctx context.Context, ws *domain.Workspace, warnings *[]error) {
+func (m *DefaultManager) deleteBranch(ctx context.Context, ws *domain.Workspace, wc *WarningCollector) {
 	if ws == nil || ws.Branch == "" {
 		return
 	}
 
 	if m.worktreeRunner == nil {
-		//nolint:err113 // warning messages, not returned errors
-		*warnings = append(*warnings, fmt.Errorf("warning: worktree runner not available, cannot delete branch '%s'", ws.Branch))
+		wc.Addf("warning: worktree runner not available, cannot delete branch '%s'", ws.Branch)
 		return
 	}
 
 	if err := m.worktreeRunner.DeleteBranch(ctx, ws.Branch, true); err != nil {
 		// Log warning but continue - branch might already be deleted
-		*warnings = append(*warnings, fmt.Errorf("warning: failed to delete branch: %w", err))
+		wc.Addf("warning: failed to delete branch: %v", err)
 	}
 }
 
 // pruneWorktrees prunes stale worktrees from git.
-func (m *DefaultManager) pruneWorktrees(ctx context.Context, warnings *[]error) {
+func (m *DefaultManager) pruneWorktrees(ctx context.Context, wc *WarningCollector) {
 	if m.worktreeRunner == nil {
-		//nolint:err113 // warning messages, not returned errors
-		*warnings = append(*warnings, fmt.Errorf("warning: worktree runner not available, cannot prune stale worktrees"))
+		wc.Addf("warning: worktree runner not available, cannot prune stale worktrees")
 		return
 	}
 
 	if err := m.worktreeRunner.Prune(ctx); err != nil {
-		*warnings = append(*warnings, fmt.Errorf("warning: failed to prune worktrees: %w", err))
+		wc.Addf("warning: failed to prune worktrees: %v", err)
 	}
 }
 
 // deleteWorkspaceState deletes the workspace state from the store.
-func (m *DefaultManager) deleteWorkspaceState(ctx context.Context, name string, warnings *[]error) {
+func (m *DefaultManager) deleteWorkspaceState(ctx context.Context, name string, wc *WarningCollector) {
 	if err := m.store.Delete(ctx, name); err != nil {
 		if !errors.Is(err, atlaserrors.ErrWorkspaceNotFound) {
-			*warnings = append(*warnings, fmt.Errorf("warning: failed to delete workspace state: %w", err))
+			wc.Addf("warning: failed to delete workspace state: %v", err)
 		}
 	}
 }
