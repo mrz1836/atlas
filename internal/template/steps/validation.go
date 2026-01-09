@@ -2,7 +2,6 @@
 package steps
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"time"
@@ -169,145 +168,39 @@ func NewValidationExecutorWithAll(workDir string, runner validation.CommandRunne
 // Results are saved as versioned artifacts if an ArtifactSaver is configured.
 // Bell notifications are emitted on failure if a Notifier is configured.
 func (e *ValidationExecutor) Execute(ctx context.Context, task *domain.Task, step *domain.StepDefinition) (*domain.StepResult, error) {
-	// Check for cancellation
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	default:
 	}
 
-	log := zerolog.Ctx(ctx)
-	log.Info().
-		Str("task_id", task.ID).
-		Str("step_name", step.Name).
-		Str("step_type", string(step.Type)).
-		Msg("executing validation step")
-
 	startTime := time.Now()
+	log := zerolog.Ctx(ctx)
+	e.logExecutionStart(log, task, step)
 
-	// Build runner config from task config
-	config := e.buildRunnerConfig(task)
-
-	log.Debug().
-		Strs("format_commands", config.FormatCommands).
-		Strs("lint_commands", config.LintCommands).
-		Strs("test_commands", config.TestCommands).
-		Strs("pre_commit_commands", config.PreCommitCommands).
-		Str("work_dir", e.workDir).
-		Msg("running validation pipeline")
-
-	// Create executor and runner for parallel pipeline execution
-	executor := validation.NewExecutorWithRunner(validation.DefaultTimeout, e.runner)
-	runner := validation.NewRunner(executor, config)
-
-	// Execute the pipeline
-	pipelineResult, pipelineErr := runner.Run(ctx, e.workDir)
-
+	// Run the validation pipeline
+	pipelineResult, pipelineErr := e.runPipeline(ctx, task, log)
 	elapsed := time.Since(startTime)
 
-	// Handle result first (save artifact, emit notification) to get artifact path
-	artifactPath, artifactErr := e.handlePipelineResult(ctx, task, pipelineResult, log)
-	// Only warn for actual artifact/notification errors, not for expected validation failures
-	if artifactErr != nil && !errors.Is(artifactErr, atlaserrors.ErrValidationFailed) {
-		log.Warn().Err(artifactErr).Msg("failed to handle pipeline result (artifact/notification)")
-	}
+	// Save artifact and emit notifications
+	artifactPath := e.saveArtifactIfNeeded(ctx, task, pipelineResult, log)
 
-	// Build output from pipeline results, including artifact path for truncated output
-	var output bytes.Buffer
-	output.WriteString(validation.FormatResultWithArtifact(pipelineResult, artifactPath))
-
-	// Build validation checks metadata for verbose display
+	// Build output and metadata
+	output := validation.FormatResultWithArtifact(pipelineResult, artifactPath)
 	validationChecks := pipelineResult.BuildChecksAsMap()
 
-	// Check for detect_only mode from step config
-	detectOnly := false
-	if d, ok := step.Config["detect_only"].(bool); ok {
-		detectOnly = d
+	// Early return: detect_only mode always succeeds
+	if e.isDetectOnlyMode(step) {
+		return e.buildDetectOnlyResult(task, step, startTime, elapsed, output, validationChecks, pipelineResult, artifactPath, log), nil
 	}
 
-	// In detect_only mode, always return success (for issue detection without failing)
-	// This allows the fix template to detect issues and pass them to an AI step for fixing
-	if detectOnly {
-		log.Info().
-			Str("task_id", task.ID).
-			Str("step_name", step.Name).
-			Bool("validation_passed", pipelineResult.Success).
-			Msg("validation step completed in detect_only mode")
-
-		metadata := map[string]any{
-			"validation_checks": validationChecks,
-			"pipeline_result":   pipelineResult,
-			"validation_failed": !pipelineResult.Success,
-			"detect_only":       true,
-		}
-		if artifactPath != "" {
-			metadata["artifact_path"] = artifactPath
-		}
-
-		return &domain.StepResult{
-			StepIndex:   task.CurrentStep,
-			StepName:    step.Name,
-			Status:      "success", // Always success in detect_only mode
-			StartedAt:   startTime,
-			CompletedAt: time.Now(),
-			DurationMs:  elapsed.Milliseconds(),
-			Output:      output.String(),
-			Metadata:    metadata,
-		}, nil
-	}
-
-	// Handle execution error (validation failed or context canceled)
+	// Early return: pipeline error
 	if pipelineErr != nil {
-		log.Error().
-			Str("task_id", task.ID).
-			Str("step_name", step.Name).
-			Str("failed_step", pipelineResult.FailedStepName).
-			Err(pipelineErr).
-			Dur("duration_ms", elapsed).
-			Msg("validation step failed")
-
-		metadata := map[string]any{
-			"validation_checks": validationChecks,
-			"pipeline_result":   pipelineResult, // For AI-assisted retry
-		}
-		// Include artifact path in metadata for display in manual fix instructions
-		if artifactPath != "" {
-			metadata["artifact_path"] = artifactPath
-		}
-
-		return &domain.StepResult{
-			StepIndex:   task.CurrentStep,
-			StepName:    step.Name,
-			Status:      "failed",
-			StartedAt:   startTime,
-			CompletedAt: time.Now(),
-			DurationMs:  elapsed.Milliseconds(),
-			Output:      output.String(),
-			Error:       pipelineErr.Error(),
-			Metadata:    metadata,
-		}, pipelineErr
+		return e.buildErrorResult(task, step, startTime, elapsed, output, validationChecks, pipelineResult, artifactPath, pipelineErr, log), pipelineErr
 	}
 
-	log.Info().
-		Str("task_id", task.ID).
-		Str("step_name", step.Name).
-		Int64("pipeline_duration_ms", pipelineResult.DurationMs).
-		Dur("duration_ms", elapsed).
-		Msg("validation step completed")
-
-	return &domain.StepResult{
-		StepIndex:   task.CurrentStep,
-		StepName:    step.Name,
-		Status:      "success",
-		StartedAt:   startTime,
-		CompletedAt: time.Now(),
-		DurationMs:  elapsed.Milliseconds(),
-		Output:      output.String(),
-		Metadata: map[string]any{
-			"validation_checks": validationChecks,
-			"pipeline_result":   pipelineResult, // For consistency
-		},
-	}, nil
+	// Success case
+	return e.buildSuccessResult(task, step, startTime, elapsed, output, validationChecks, pipelineResult, log), nil
 }
 
 // Type returns the step type this executor handles.
@@ -339,6 +232,136 @@ func (e *ValidationExecutor) MaxRetryAttempts() int {
 		return 0
 	}
 	return e.retryHandler.MaxAttempts()
+}
+
+// logExecutionStart logs the start of validation step execution.
+func (e *ValidationExecutor) logExecutionStart(log *zerolog.Logger, task *domain.Task, step *domain.StepDefinition) {
+	log.Info().
+		Str("task_id", task.ID).
+		Str("step_name", step.Name).
+		Str("step_type", string(step.Type)).
+		Msg("executing validation step")
+}
+
+// runPipeline executes the validation pipeline and returns the result.
+func (e *ValidationExecutor) runPipeline(ctx context.Context, task *domain.Task, log *zerolog.Logger) (*validation.PipelineResult, error) {
+	config := e.buildRunnerConfig(task)
+
+	log.Debug().
+		Strs("format_commands", config.FormatCommands).
+		Strs("lint_commands", config.LintCommands).
+		Strs("test_commands", config.TestCommands).
+		Strs("pre_commit_commands", config.PreCommitCommands).
+		Str("work_dir", e.workDir).
+		Msg("running validation pipeline")
+
+	executor := validation.NewExecutorWithRunner(validation.DefaultTimeout, e.runner)
+	runner := validation.NewRunner(executor, config)
+	return runner.Run(ctx, e.workDir)
+}
+
+// saveArtifactIfNeeded saves the pipeline result as an artifact if configured.
+func (e *ValidationExecutor) saveArtifactIfNeeded(ctx context.Context, task *domain.Task, result *validation.PipelineResult, log *zerolog.Logger) string {
+	artifactPath, err := e.handlePipelineResult(ctx, task, result, log)
+	if err != nil && !errors.Is(err, atlaserrors.ErrValidationFailed) {
+		log.Warn().Err(err).Msg("failed to handle pipeline result (artifact/notification)")
+	}
+	return artifactPath
+}
+
+// isDetectOnlyMode checks if the step is configured for detect-only mode.
+func (e *ValidationExecutor) isDetectOnlyMode(step *domain.StepDefinition) bool {
+	d, ok := step.Config["detect_only"].(bool)
+	return ok && d
+}
+
+// buildMetadataWithArtifact creates metadata map with optional artifact path.
+func (e *ValidationExecutor) buildMetadataWithArtifact(validationChecks []map[string]any, pipelineResult *validation.PipelineResult, artifactPath string, extra map[string]any) map[string]any {
+	metadata := map[string]any{
+		"validation_checks": validationChecks,
+		"pipeline_result":   pipelineResult,
+	}
+	for k, v := range extra {
+		metadata[k] = v
+	}
+	if artifactPath != "" {
+		metadata["artifact_path"] = artifactPath
+	}
+	return metadata
+}
+
+// buildDetectOnlyResult builds the result for detect_only mode.
+func (e *ValidationExecutor) buildDetectOnlyResult(task *domain.Task, step *domain.StepDefinition, startTime time.Time, elapsed time.Duration, output string, validationChecks []map[string]any, pipelineResult *validation.PipelineResult, artifactPath string, log *zerolog.Logger) *domain.StepResult {
+	log.Info().
+		Str("task_id", task.ID).
+		Str("step_name", step.Name).
+		Bool("validation_passed", pipelineResult.Success).
+		Msg("validation step completed in detect_only mode")
+
+	metadata := e.buildMetadataWithArtifact(validationChecks, pipelineResult, artifactPath, map[string]any{
+		"validation_failed": !pipelineResult.Success,
+		"detect_only":       true,
+	})
+
+	return &domain.StepResult{
+		StepIndex:   task.CurrentStep,
+		StepName:    step.Name,
+		Status:      "success",
+		StartedAt:   startTime,
+		CompletedAt: time.Now(),
+		DurationMs:  elapsed.Milliseconds(),
+		Output:      output,
+		Metadata:    metadata,
+	}
+}
+
+// buildErrorResult builds the result for a failed validation.
+func (e *ValidationExecutor) buildErrorResult(task *domain.Task, step *domain.StepDefinition, startTime time.Time, elapsed time.Duration, output string, validationChecks []map[string]any, pipelineResult *validation.PipelineResult, artifactPath string, pipelineErr error, log *zerolog.Logger) *domain.StepResult {
+	log.Error().
+		Str("task_id", task.ID).
+		Str("step_name", step.Name).
+		Str("failed_step", pipelineResult.FailedStepName).
+		Err(pipelineErr).
+		Dur("duration_ms", elapsed).
+		Msg("validation step failed")
+
+	metadata := e.buildMetadataWithArtifact(validationChecks, pipelineResult, artifactPath, nil)
+
+	return &domain.StepResult{
+		StepIndex:   task.CurrentStep,
+		StepName:    step.Name,
+		Status:      "failed",
+		StartedAt:   startTime,
+		CompletedAt: time.Now(),
+		DurationMs:  elapsed.Milliseconds(),
+		Output:      output,
+		Error:       pipelineErr.Error(),
+		Metadata:    metadata,
+	}
+}
+
+// buildSuccessResult builds the result for a successful validation.
+func (e *ValidationExecutor) buildSuccessResult(task *domain.Task, step *domain.StepDefinition, startTime time.Time, elapsed time.Duration, output string, validationChecks []map[string]any, pipelineResult *validation.PipelineResult, log *zerolog.Logger) *domain.StepResult {
+	log.Info().
+		Str("task_id", task.ID).
+		Str("step_name", step.Name).
+		Int64("pipeline_duration_ms", pipelineResult.DurationMs).
+		Dur("duration_ms", elapsed).
+		Msg("validation step completed")
+
+	return &domain.StepResult{
+		StepIndex:   task.CurrentStep,
+		StepName:    step.Name,
+		Status:      "success",
+		StartedAt:   startTime,
+		CompletedAt: time.Now(),
+		DurationMs:  elapsed.Milliseconds(),
+		Output:      output,
+		Metadata: map[string]any{
+			"validation_checks": validationChecks,
+			"pipeline_result":   pipelineResult,
+		},
+	}
 }
 
 // buildRunnerConfig creates a RunnerConfig from task config and executor's stored commands.
