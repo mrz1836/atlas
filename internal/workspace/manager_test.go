@@ -15,6 +15,7 @@ import (
 	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/domain"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
+	"github.com/mrz1836/atlas/internal/testutil"
 )
 
 var errGitCommandFailed = errors.New("git command failed")
@@ -849,7 +850,7 @@ func TestDefaultManager_Close_TaskListerErrorContinuesClose(t *testing.T) {
 
 	// Create a TaskLister that returns an error
 	taskLister := newMockTaskLister()
-	taskLister.listErr = atlaserrors.ErrMockTaskStoreUnavailable
+	taskLister.listErr = testutil.ErrMockTaskStoreUnavailable
 
 	mgr := NewManager(store, runner, zerolog.Nop())
 	result, err := mgr.Close(context.Background(), "test", taskLister)

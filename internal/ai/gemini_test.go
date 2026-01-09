@@ -20,6 +20,7 @@ import (
 	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/domain"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
+	"github.com/mrz1836/atlas/internal/testutil"
 )
 
 // Test error types for Gemini execution testing.
@@ -605,7 +606,7 @@ func TestGeminiRunner_RetryLogic(t *testing.T) {
 
 		// Create a mock that always fails with a retryable error
 		mockExec := &MockExecutor{
-			Err:        fmt.Errorf("connection refused: %w", atlaserrors.ErrMockNetwork),
+			Err:        fmt.Errorf("connection refused: %w", testutil.ErrMockNetwork),
 			StderrData: []byte("connection refused"),
 		}
 		cfg := &config.AIConfig{

@@ -339,24 +339,6 @@ var (
 	// ErrUpgradeAssetNotFound indicates the required binary asset was not found in the release.
 	ErrUpgradeAssetNotFound = errors.New("binary asset not found for platform")
 
-	// ErrMockFileNotFound indicates a mock file was not found (used in tests).
-	ErrMockFileNotFound = errors.New("file not found")
-
-	// ErrMockGHFailed indicates a mock gh command failed (used in tests).
-	ErrMockGHFailed = errors.New("gh command failed")
-
-	// ErrMockAPIError indicates a mock API error occurred (used in tests).
-	ErrMockAPIError = errors.New("API error")
-
-	// ErrMockNotFound indicates a mock resource was not found (used in tests).
-	ErrMockNotFound = errors.New("not found")
-
-	// ErrMockNetwork indicates a mock network error occurred (used in tests).
-	ErrMockNetwork = errors.New("network error")
-
-	// ErrMockTaskStoreUnavailable indicates a mock task store is unavailable (used in tests).
-	ErrMockTaskStoreUnavailable = errors.New("task store unavailable")
-
 	// ErrInvalidURL indicates that a URL is malformed or does not match expected format.
 	ErrInvalidURL = errors.New("invalid URL")
 

@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	atlasErrors "github.com/mrz1836/atlas/internal/errors"
+	"github.com/mrz1836/atlas/internal/testutil"
 )
 
 // mockReleaseClient is a mock implementation of ReleaseClient.
@@ -366,7 +367,7 @@ func TestDefaultReleaseClient_FallbackToHTTP(t *testing.T) {
 			"gh": "/usr/bin/gh",
 		},
 		runErrors: map[string]error{
-			"gh api repos/owner/repo/releases/latest": atlasErrors.ErrMockGHFailed,
+			"gh api repos/owner/repo/releases/latest": testutil.ErrMockGHFailed,
 		},
 	}
 
@@ -413,7 +414,7 @@ func TestAtlasReleaseUpgrader_GetLatestVersion_Error(t *testing.T) {
 	t.Parallel()
 
 	mockClient := &mockReleaseClient{
-		err: atlasErrors.ErrMockAPIError,
+		err: testutil.ErrMockAPIError,
 	}
 
 	upgrader := NewAtlasReleaseUpgraderWithDeps(mockClient, nil, nil)
@@ -442,7 +443,7 @@ func TestAtlasReleaseUpgrader_UpgradeAtlas_NoRelease(t *testing.T) {
 	t.Parallel()
 
 	mockClient := &mockReleaseClient{
-		err: atlasErrors.ErrMockNotFound,
+		err: testutil.ErrMockNotFound,
 	}
 
 	upgrader := NewAtlasReleaseUpgraderWithDeps(mockClient, nil, nil)
@@ -500,7 +501,7 @@ func TestDefaultReleaseDownloader_DownloadFile_Error(t *testing.T) {
 	t.Parallel()
 
 	mockHTTP := &mockHTTPClient{
-		err: atlasErrors.ErrMockNetwork,
+		err: testutil.ErrMockNetwork,
 	}
 
 	downloader := NewDefaultReleaseDownloaderWithHTTP(nil, mockHTTP) // nil executor to test HTTP path
