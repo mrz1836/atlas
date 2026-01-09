@@ -60,7 +60,7 @@ func (m *ciMockHubRunner) AddPRComment(_ context.Context, _ int, _ string) error
 	return nil
 }
 
-// mockCIFailureHandler implements CIFailureHandlerInterface for testing.
+// mockCIFailureHandler implements CIFailureHandler for testing.
 type mockCIFailureHandler struct {
 	hasHandler bool
 }
@@ -84,7 +84,7 @@ func TestNewCIExecutor_WithOptions(t *testing.T) {
 
 	executor := NewCIExecutor(
 		WithCIHubRunner(mockRunner),
-		WithCIFailureHandlerInterface(mockHandler),
+		WithCIFailureHandler(mockHandler),
 		WithCILogger(logger),
 	)
 
@@ -191,7 +191,7 @@ func TestCIExecutor_Execute_Failure_WithHandler(t *testing.T) {
 
 	executor := NewCIExecutor(
 		WithCIHubRunner(mockRunner),
-		WithCIFailureHandlerInterface(mockHandler),
+		WithCIFailureHandler(mockHandler),
 	)
 
 	task := &domain.Task{
@@ -714,7 +714,7 @@ func TestCIExecutor_Execute_FailureHandler_NotConfigured(t *testing.T) {
 
 	executor := NewCIExecutor(
 		WithCIHubRunner(mockRunner),
-		WithCIFailureHandlerInterface(mockHandler),
+		WithCIFailureHandler(mockHandler),
 	)
 
 	task := &domain.Task{

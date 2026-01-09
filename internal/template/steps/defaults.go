@@ -88,7 +88,7 @@ type ExecutorDeps struct {
 
 	// CIFailureHandler is used for handling CI failures.
 	// If nil, CI failures return simple error without interactive options.
-	CIFailureHandler CIFailureHandlerInterface
+	CIFailureHandler CIFailureHandler
 
 	// BaseBranch is the default base branch for PR creation.
 	// Falls back to "main" if not specified.
@@ -170,7 +170,7 @@ func NewDefaultRegistry(deps ExecutorDeps) *ExecutorRegistry {
 		ciExecutorOpts = append(ciExecutorOpts, WithCIHubRunner(deps.HubRunner))
 	}
 	if deps.CIFailureHandler != nil {
-		ciExecutorOpts = append(ciExecutorOpts, WithCIFailureHandlerInterface(deps.CIFailureHandler))
+		ciExecutorOpts = append(ciExecutorOpts, WithCIFailureHandler(deps.CIFailureHandler))
 	}
 	if deps.CIConfig != nil {
 		ciExecutorOpts = append(ciExecutorOpts, WithCIConfig(deps.CIConfig))
