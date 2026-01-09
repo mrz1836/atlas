@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -319,6 +318,7 @@ func (p *PushRunner) buildFinalError(result *PushResult) error {
 }
 
 // classifyPushError classifies a push error for retry handling.
+// Uses shared pattern matchers from error_classifier.go.
 func classifyPushError(err error) PushErrorType {
 	if err == nil {
 		return PushErrorNone
@@ -329,49 +329,18 @@ func classifyPushError(err error) PushErrorType {
 		return PushErrorTimeout
 	}
 
-	errStr := strings.ToLower(err.Error())
+	errStr := err.Error()
 
-	if isAuthError(errStr) {
+	// Use shared pattern matchers directly (they handle lowercasing)
+	if MatchesAuthError(errStr) {
 		return PushErrorAuth
 	}
-
-	if isNetworkError(errStr) {
+	if MatchesNetworkError(errStr) {
 		return PushErrorNetwork
 	}
-
-	if isNonFastForwardError(errStr) {
+	if MatchesNonFastForwardError(errStr) {
 		return PushErrorNonFastForward
 	}
 
 	return PushErrorOther
-}
-
-// isAuthError checks if the error string indicates an authentication error.
-// Uses shared pattern matcher from error_classifier.go.
-func isAuthError(errStr string) bool {
-	return MatchesAuthError(errStr)
-}
-
-// isNetworkError checks if the error string indicates a network error.
-// Uses shared pattern matcher from error_classifier.go.
-func isNetworkError(errStr string) bool {
-	return MatchesNetworkError(errStr)
-}
-
-// isNonFastForwardError checks if the error indicates a non-fast-forward rejection.
-// This occurs when the remote branch has commits that the local branch doesn't have.
-// Uses shared pattern matcher from error_classifier.go with additional context checks.
-func isNonFastForwardError(errStr string) bool {
-	// Use the shared non-fast-forward pattern matcher
-	if MatchesNonFastForwardError(errStr) {
-		return true
-	}
-
-	// Additional patterns specific to push that indicate the branch is behind
-	if strings.Contains(errStr, "tip of your current branch is behind") ||
-		strings.Contains(errStr, "rejected because the remote contains work") {
-		return true
-	}
-
-	return false
 }

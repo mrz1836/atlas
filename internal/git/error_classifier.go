@@ -135,6 +135,8 @@ var (
 		"failed to push some refs",
 		"updates were rejected",
 		"fetch first",
+		"tip of your current branch is behind",
+		"rejected because the remote contains work",
 	)
 )
 
