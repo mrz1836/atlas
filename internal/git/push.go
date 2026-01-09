@@ -11,6 +11,7 @@ import (
 
 	"github.com/rs/zerolog"
 
+	"github.com/mrz1836/atlas/internal/ctxutil"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 )
 
@@ -155,10 +156,8 @@ func WithPushRetryConfig(config RetryConfig) PushRunnerOption {
 // Push pushes commits to the remote repository with retry logic.
 func (p *PushRunner) Push(ctx context.Context, opts PushOptions) (*PushResult, error) {
 	// Check for cancellation at entry
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	default:
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return nil, err
 	}
 
 	// Validate and normalize options
@@ -205,32 +204,43 @@ func (p *PushRunner) handleConfirmation(opts PushOptions) error {
 
 // executePushWithRetry executes the push operation with retry logic.
 func (p *PushRunner) executePushWithRetry(ctx context.Context, opts PushOptions) (*PushResult, error) {
-	result := &PushResult{}
-	delay := p.config.InitialDelay
-
-	for attempt := 1; attempt <= p.config.MaxAttempts; attempt++ {
-		result.Attempts = attempt
-
-		pushResult := p.attemptPush(ctx, opts, attempt)
-		if pushResult.success {
-			return p.buildSuccessResult(result, opts, attempt), nil
-		}
-
-		result.ErrorType = pushResult.errType
-		result.FinalErr = pushResult.err
-
-		// Check if we should stop retrying
-		if !p.shouldRetry(pushResult.errType) {
-			break
-		}
-
-		// Wait before retrying (unless this is the last attempt)
-		if attempt < p.config.MaxAttempts {
-			if err := p.waitForRetry(ctx, opts, &delay, attempt); err != nil {
-				return nil, err
+	op := &SimpleRetryOperation[pushAttemptResult]{
+		AttemptFunc: func(ctx context.Context, attempt int) (pushAttemptResult, bool, error) {
+			result := p.attemptPush(ctx, opts, attempt)
+			return result, result.success, result.err
+		},
+		ShouldRetryFunc: func(err error) bool {
+			errType := classifyPushError(err)
+			return errType == PushErrorNetwork || errType == PushErrorTimeout
+		},
+		OnRetryWaitFunc: func(attempt int, delay time.Duration) {
+			p.logger.Info().
+				Int("next_attempt", attempt+1).
+				Dur("delay", delay).
+				Msg("retrying push")
+			if opts.ProgressCallback != nil {
+				opts.ProgressCallback(fmt.Sprintf("Retrying in %v...", delay))
 			}
-		}
+		},
 	}
+
+	attemptResult, attempts, err := ExecuteWithRetry(ctx, p.config, op, p.logger)
+
+	result := &PushResult{Attempts: attempts}
+	if err == nil && attemptResult.success {
+		return p.buildSuccessResult(result, opts, attempts), nil
+	}
+
+	// Handle context cancellation directly without wrapping.
+	// Check ctx.Err() to distinguish parent context cancellation from operation timeout:
+	// - If ctx.Err() != nil, the parent context was canceled/timed out
+	// - If ctx.Err() == nil but err is DeadlineExceeded, the operation itself timed out
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+
+	result.ErrorType = attemptResult.errType
+	result.FinalErr = attemptResult.err
 
 	return result, p.buildFinalError(result)
 }
@@ -287,37 +297,6 @@ func (p *PushRunner) buildSuccessResult(result *PushResult, opts PushOptions, at
 	}
 
 	return result
-}
-
-// shouldRetry determines if the error type is retryable.
-func (p *PushRunner) shouldRetry(errType PushErrorType) bool {
-	return errType == PushErrorNetwork || errType == PushErrorTimeout
-}
-
-// waitForRetry waits before the next retry attempt.
-func (p *PushRunner) waitForRetry(ctx context.Context, opts PushOptions, delay *time.Duration, attempt int) error {
-	p.logger.Info().
-		Int("next_attempt", attempt+1).
-		Dur("delay", *delay).
-		Msg("retrying push")
-
-	if opts.ProgressCallback != nil {
-		opts.ProgressCallback(fmt.Sprintf("Retrying in %v...", *delay))
-	}
-
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-time.After(*delay):
-	}
-
-	// Increase delay for next attempt
-	*delay = time.Duration(float64(*delay) * p.config.Multiplier)
-	if *delay > p.config.MaxDelay {
-		*delay = p.config.MaxDelay
-	}
-
-	return nil
 }
 
 // buildFinalError builds the appropriate error based on the error type.

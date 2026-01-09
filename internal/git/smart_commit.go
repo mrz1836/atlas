@@ -13,6 +13,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/mrz1836/atlas/internal/ai"
+	"github.com/mrz1836/atlas/internal/ctxutil"
 	"github.com/mrz1836/atlas/internal/domain"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 )
@@ -139,10 +140,8 @@ func NewSmartCommitRunner(gitRunner Runner, workDir string, aiRunner ai.Runner, 
 // Analyze inspects the current worktree and returns a commit analysis.
 func (r *SmartCommitRunner) Analyze(ctx context.Context) (*CommitAnalysis, error) {
 	// Check for cancellation at entry
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	default:
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return nil, err
 	}
 
 	r.logger.Debug().Str("work_dir", r.workDir).Msg("analyzing worktree for smart commit")
@@ -214,10 +213,8 @@ func (r *SmartCommitRunner) Analyze(ctx context.Context) (*CommitAnalysis, error
 // Commit creates one or more commits based on the analysis.
 func (r *SmartCommitRunner) Commit(ctx context.Context, opts CommitOptions) (*CommitResult, error) {
 	// Check for cancellation at entry
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	default:
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return nil, err
 	}
 
 	// Analyze and handle garbage files

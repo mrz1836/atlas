@@ -273,11 +273,9 @@ func (g *AIDescriptionGenerator) Generate(ctx context.Context, opts PRDescOption
 	return desc, nil
 }
 
-// buildPrompt constructs the AI prompt for PR description generation.
-func (g *AIDescriptionGenerator) buildPrompt(opts PRDescOptions) string {
-	var sb strings.Builder
-
-	sb.WriteString(`Generate a pull request title and body for the following changes.
+// prDescriptionPromptTemplate is the base prompt for PR description generation.
+// Extracted as a constant for clarity and to reduce function length.
+const prDescriptionPromptTemplate = `Generate a pull request title and body for the following changes.
 
 REQUIREMENTS:
 1. Title MUST follow conventional commits format: <type>(<scope>): <description>
@@ -329,8 +327,25 @@ Added new authentication endpoint for user login.
 ## Test Plan
 - Unit tests added and passing
 
-`)
+`
 
+// buildPrompt constructs the AI prompt for PR description generation.
+func (g *AIDescriptionGenerator) buildPrompt(opts PRDescOptions) string {
+	var sb strings.Builder
+
+	sb.WriteString(prDescriptionPromptTemplate)
+	g.writeTaskSection(&sb, opts)
+	g.writeCommitsSection(&sb, opts)
+	g.writeFilesSection(&sb, opts)
+	g.writeDiffSection(&sb, opts)
+	g.writeValidationSection(&sb, opts)
+	g.writeMetadataSection(&sb, opts)
+
+	return sb.String()
+}
+
+// writeTaskSection writes the task description section to the prompt.
+func (g *AIDescriptionGenerator) writeTaskSection(sb *strings.Builder, opts PRDescOptions) {
 	sb.WriteString("## Task Description\n")
 	if opts.TaskDescription != "" {
 		sb.WriteString(opts.TaskDescription)
@@ -338,7 +353,10 @@ Added new authentication endpoint for user login.
 		sb.WriteString("(Not provided)")
 	}
 	sb.WriteString("\n\n")
+}
 
+// writeCommitsSection writes the commits section to the prompt.
+func (g *AIDescriptionGenerator) writeCommitsSection(sb *strings.Builder, opts PRDescOptions) {
 	sb.WriteString("## Commits\n")
 	if len(opts.CommitMessages) > 0 {
 		for _, msg := range opts.CommitMessages {
@@ -348,29 +366,41 @@ Added new authentication endpoint for user login.
 		sb.WriteString("(No commit messages provided)\n")
 	}
 	sb.WriteString("\n")
+}
 
+// writeFilesSection writes the files changed section to the prompt.
+func (g *AIDescriptionGenerator) writeFilesSection(sb *strings.Builder, opts PRDescOptions) {
 	sb.WriteString("## Files Changed\n")
 	if len(opts.FilesChanged) > 0 {
 		for _, f := range opts.FilesChanged {
-			sb.WriteString(fmt.Sprintf("- %s (+%d, -%d)\n", f.Path, f.Insertions, f.Deletions))
+			fmt.Fprintf(sb, "- %s (+%d, -%d)\n", f.Path, f.Insertions, f.Deletions)
 		}
 	} else {
 		sb.WriteString("(No file changes provided)\n")
 	}
 	sb.WriteString("\n")
+}
 
+// writeDiffSection writes the diff summary section to the prompt if provided.
+func (g *AIDescriptionGenerator) writeDiffSection(sb *strings.Builder, opts PRDescOptions) {
 	if opts.DiffSummary != "" {
 		sb.WriteString("## Diff Summary\n")
 		sb.WriteString(opts.DiffSummary)
 		sb.WriteString("\n\n")
 	}
+}
 
+// writeValidationSection writes the validation results section to the prompt if provided.
+func (g *AIDescriptionGenerator) writeValidationSection(sb *strings.Builder, opts PRDescOptions) {
 	if opts.ValidationResults != "" {
 		sb.WriteString("## Validation Results\n")
 		sb.WriteString(opts.ValidationResults)
 		sb.WriteString("\n\n")
 	}
+}
 
+// writeMetadataSection writes template type, task ID, and workspace sections.
+func (g *AIDescriptionGenerator) writeMetadataSection(sb *strings.Builder, opts PRDescOptions) {
 	sb.WriteString("## Template Type\n")
 	sb.WriteString(opts.TemplateName)
 	sb.WriteString("\n\n")
@@ -386,8 +416,6 @@ Added new authentication endpoint for user login.
 		sb.WriteString(opts.WorkspaceName)
 		sb.WriteString("\n")
 	}
-
-	return sb.String()
 }
 
 // parseResponse extracts the PR description from AI output.

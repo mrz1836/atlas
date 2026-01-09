@@ -11,6 +11,7 @@ import (
 
 	"github.com/rs/zerolog"
 
+	"github.com/mrz1836/atlas/internal/ctxutil"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 )
 
@@ -62,10 +63,8 @@ func WithTaskStoreLogger(logger zerolog.Logger) TaskStoreArtifactOption {
 // Save saves the PR description as an artifact using the task store.
 func (s *TaskStoreArtifactSaver) Save(ctx context.Context, desc *PRDescription, opts PRDescOptions) (string, error) {
 	// Check for cancellation at entry
-	select {
-	case <-ctx.Done():
-		return "", ctx.Err()
-	default:
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return "", err
 	}
 
 	if opts.WorkspaceName == "" || opts.TaskID == "" {
@@ -118,10 +117,8 @@ func WithFileArtifactLogger(logger zerolog.Logger) FileArtifactOption {
 // Save saves the PR description directly to a file.
 func (s *FileArtifactSaver) Save(ctx context.Context, desc *PRDescription, opts PRDescOptions) (string, error) {
 	// Check for cancellation at entry
-	select {
-	case <-ctx.Done():
-		return "", ctx.Err()
-	default:
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return "", err
 	}
 
 	// Determine output path

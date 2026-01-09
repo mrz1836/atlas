@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mrz1836/atlas/internal/ctxutil"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 )
 
@@ -104,10 +105,8 @@ type BranchExistsChecker interface {
 // This is a shared utility function for use by both BranchCreator and workspace packages.
 func GenerateUniqueBranchNameWithChecker(ctx context.Context, checker BranchExistsChecker, baseName string) (string, error) {
 	// Check for cancellation at entry
-	select {
-	case <-ctx.Done():
-		return "", ctx.Err()
-	default:
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return "", err
 	}
 
 	exists, err := checker.BranchExists(ctx, baseName)
@@ -226,10 +225,8 @@ func (c *BranchCreator) GenerateUniqueBranchName(ctx context.Context, baseName s
 // and creates the branch from the specified base branch.
 func (c *BranchCreator) Create(ctx context.Context, opts BranchCreateOptions) (*BranchInfo, error) {
 	// Check for cancellation at entry
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	default:
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return nil, err
 	}
 
 	// Validate required fields

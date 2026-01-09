@@ -18,6 +18,7 @@ import (
 
 	"github.com/rs/zerolog"
 
+	"github.com/mrz1836/atlas/internal/ctxutil"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 )
 
@@ -215,10 +216,8 @@ func WithGHCommandExecutor(exec CommandExecutor) CLIGitHubRunnerOption {
 // CreatePR creates a pull request via gh CLI with retry logic.
 func (r *CLIGitHubRunner) CreatePR(ctx context.Context, opts PRCreateOptions) (*PRResult, error) {
 	// Check for cancellation at entry
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	default:
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return nil, err
 	}
 
 	// Validate and normalize options
@@ -234,10 +233,8 @@ func (r *CLIGitHubRunner) CreatePR(ctx context.Context, opts PRCreateOptions) (*
 // This is a stub for future CI monitoring (Story 6.6).
 func (r *CLIGitHubRunner) GetPRStatus(ctx context.Context, prNumber int) (*PRStatus, error) {
 	// Check for cancellation at entry
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	default:
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return nil, err
 	}
 
 	if prNumber <= 0 {
@@ -418,10 +415,8 @@ const (
 // It implements a grace period for newly created PRs where CI checks may not have started yet.
 func (r *CLIGitHubRunner) WatchPRChecks(ctx context.Context, opts CIWatchOptions) (*CIWatchResult, error) {
 	// Check for cancellation at entry
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	default:
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return nil, err
 	}
 
 	// Validate and apply defaults
@@ -456,10 +451,8 @@ func (r *CLIGitHubRunner) WatchPRChecks(ctx context.Context, opts CIWatchOptions
 // ConvertToDraft converts an open PR to draft status.
 func (r *CLIGitHubRunner) ConvertToDraft(ctx context.Context, prNumber int) error {
 	// Check for cancellation at entry
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return err
 	}
 
 	if prNumber <= 0 {
@@ -504,10 +497,8 @@ func (r *CLIGitHubRunner) ConvertToDraft(ctx context.Context, prNumber int) erro
 // MergePR merges a pull request using the specified merge method.
 func (r *CLIGitHubRunner) MergePR(ctx context.Context, prNumber int, mergeMethod string, adminBypass, deleteBranch bool) error {
 	// Check for cancellation at entry
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return err
 	}
 
 	if prNumber <= 0 {
@@ -566,10 +557,8 @@ func (r *CLIGitHubRunner) MergePR(ctx context.Context, prNumber int, mergeMethod
 // AddPRReview adds a review to a pull request using gh CLI.
 func (r *CLIGitHubRunner) AddPRReview(ctx context.Context, prNumber int, body, event string) error {
 	// Check for cancellation at entry
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return err
 	}
 
 	if prNumber <= 0 {
@@ -625,10 +614,8 @@ func (r *CLIGitHubRunner) AddPRReview(ctx context.Context, prNumber int, body, e
 // AddPRComment adds a comment to a pull request using gh CLI.
 func (r *CLIGitHubRunner) AddPRComment(ctx context.Context, prNumber int, body string) error {
 	// Check for cancellation at entry
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return err
 	}
 
 	if prNumber <= 0 {
@@ -1052,32 +1039,40 @@ func validatePROptions(opts *PRCreateOptions, logger zerolog.Logger) error {
 
 // executePRCreateWithRetry executes PR creation with retry logic.
 func (r *CLIGitHubRunner) executePRCreateWithRetry(ctx context.Context, opts PRCreateOptions) (*PRResult, error) {
-	result := &PRResult{}
-	delay := r.config.InitialDelay
-
-	for attempt := 1; attempt <= r.config.MaxAttempts; attempt++ {
-		result.Attempts = attempt
-
-		attemptResult := r.attemptPRCreate(ctx, opts, attempt)
-		if attemptResult.success {
-			return buildPRSuccessResult(result, attemptResult, opts), nil
-		}
-
-		result.ErrorType = attemptResult.errType
-		result.FinalErr = attemptResult.err
-
-		// Check if we should stop retrying
-		if !shouldRetryPR(attemptResult.errType) {
-			break
-		}
-
-		// Wait before retrying (unless this is the last attempt)
-		if attempt < r.config.MaxAttempts {
-			if err := r.waitForPRRetry(ctx, &delay, attempt); err != nil {
-				return nil, err
-			}
-		}
+	op := &SimpleRetryOperation[prAttemptResult]{
+		AttemptFunc: func(ctx context.Context, attempt int) (prAttemptResult, bool, error) {
+			result := r.attemptPRCreate(ctx, opts, attempt)
+			return result, result.success, result.err
+		},
+		ShouldRetryFunc: func(err error) bool {
+			errType := classifyGHError(err)
+			return shouldRetryPR(errType)
+		},
+		OnRetryWaitFunc: func(attempt int, delay time.Duration) {
+			r.logger.Info().
+				Int("next_attempt", attempt+1).
+				Dur("delay", delay).
+				Msg("retrying PR creation")
+		},
 	}
+
+	attemptResult, attempts, err := ExecuteWithRetry(ctx, r.config, op, r.logger)
+
+	result := &PRResult{Attempts: attempts}
+	if err == nil && attemptResult.success {
+		return buildPRSuccessResult(result, attemptResult, opts), nil
+	}
+
+	// Handle context cancellation directly without wrapping.
+	// Check ctx.Err() to distinguish parent context cancellation from operation timeout:
+	// - If ctx.Err() != nil, the parent context was canceled/timed out
+	// - If ctx.Err() == nil but err is DeadlineExceeded, the operation itself timed out
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+
+	result.ErrorType = attemptResult.errType
+	result.FinalErr = attemptResult.err
 
 	return result, buildPRFinalError(result)
 }
@@ -1130,28 +1125,6 @@ func (r *CLIGitHubRunner) attemptPRCreate(ctx context.Context, opts PRCreateOpti
 		Msg("PR created successfully")
 
 	return prAttemptResult{success: true, number: number, url: url}
-}
-
-// waitForPRRetry waits before the next retry attempt.
-func (r *CLIGitHubRunner) waitForPRRetry(ctx context.Context, delay *time.Duration, attempt int) error {
-	r.logger.Info().
-		Int("next_attempt", attempt+1).
-		Dur("delay", *delay).
-		Msg("retrying PR creation")
-
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-time.After(*delay):
-	}
-
-	// Increase delay for next attempt
-	*delay = time.Duration(float64(*delay) * r.config.Multiplier)
-	if *delay > r.config.MaxDelay {
-		*delay = r.config.MaxDelay
-	}
-
-	return nil
 }
 
 // validateCIWatchOptions validates CI watch options.
