@@ -34,6 +34,21 @@ import (
 	"github.com/mrz1836/atlas/internal/constants"
 )
 
+// Terminal width thresholds for responsive layout decisions.
+// These constants define breakpoints for compact, standard, and wide layouts.
+const (
+	// TerminalWidthNarrow is the threshold for narrow/compact mode (< 80 columns).
+	// Below this width, abbreviated headers and compact layouts are used.
+	TerminalWidthNarrow = 80
+
+	// TerminalWidthWide is the threshold for wide/expanded mode (>= 120 columns).
+	// At or above this width, expanded layouts with more detail are used.
+	TerminalWidthWide = 120
+
+	// TerminalWidthDefault is the default terminal width used when detection fails.
+	TerminalWidthDefault = 80
+)
+
 //nolint:gochecknoglobals // Intentional package-level constants for TUI styling API
 var (
 	// ColorPrimary is blue, used for active states, links, and primary actions (UX-4).
@@ -77,11 +92,12 @@ var (
 
 // StatusColors returns the semantic color definitions for workspace statuses.
 // Uses AdaptiveColor for light/dark terminal support (UX-6).
+// References the package-level color constants for consistency.
 func StatusColors() map[constants.WorkspaceStatus]lipgloss.AdaptiveColor {
 	return map[constants.WorkspaceStatus]lipgloss.AdaptiveColor{
-		constants.WorkspaceStatusActive: {Light: "#0087AF", Dark: "#00D7FF"}, // Blue
-		constants.WorkspaceStatusPaused: {Light: "#585858", Dark: "#6C6C6C"}, // Gray
-		constants.WorkspaceStatusClosed: {Light: "#585858", Dark: "#6C6C6C"}, // Dim
+		constants.WorkspaceStatusActive: ColorPrimary, // Blue - active state
+		constants.WorkspaceStatusPaused: ColorMuted,   // Gray - paused state
+		constants.WorkspaceStatusClosed: ColorMuted,   // Gray - closed state
 	}
 }
 
@@ -161,76 +177,92 @@ func HasColorSupport() bool {
 
 // TaskStatusColors returns the semantic color definitions for task statuses.
 // Uses AdaptiveColor for light/dark terminal support (UX-6).
+// References the package-level color constants for consistency.
 func TaskStatusColors() map[constants.TaskStatus]lipgloss.AdaptiveColor {
 	return map[constants.TaskStatus]lipgloss.AdaptiveColor{
 		// Active states - Blue
-		constants.TaskStatusPending:    {Light: "#0087AF", Dark: "#00D7FF"},
-		constants.TaskStatusRunning:    {Light: "#0087AF", Dark: "#00D7FF"},
-		constants.TaskStatusValidating: {Light: "#0087AF", Dark: "#00D7FF"},
+		constants.TaskStatusPending:    ColorPrimary,
+		constants.TaskStatusRunning:    ColorPrimary,
+		constants.TaskStatusValidating: ColorPrimary,
 
-		// Warning states - Yellow/Orange
-		constants.TaskStatusValidationFailed: {Light: "#D7AF00", Dark: "#FFD700"},
-		constants.TaskStatusAwaitingApproval: {Light: "#D7AF00", Dark: "#FFD700"},
-		constants.TaskStatusGHFailed:         {Light: "#D7AF00", Dark: "#FFD700"},
-		constants.TaskStatusCIFailed:         {Light: "#D7AF00", Dark: "#FFD700"},
-		constants.TaskStatusCITimeout:        {Light: "#D7AF00", Dark: "#FFD700"},
+		// Warning states - Yellow
+		constants.TaskStatusValidationFailed: ColorWarning,
+		constants.TaskStatusAwaitingApproval: ColorWarning,
+		constants.TaskStatusGHFailed:         ColorWarning,
+		constants.TaskStatusCIFailed:         ColorWarning,
+		constants.TaskStatusCITimeout:        ColorWarning,
 
 		// Success state - Green
-		constants.TaskStatusCompleted: {Light: "#00875F", Dark: "#00FF87"},
+		constants.TaskStatusCompleted: ColorSuccess,
 
 		// Terminal states - Gray/Dim
-		constants.TaskStatusRejected:  {Light: "#585858", Dark: "#6C6C6C"},
-		constants.TaskStatusAbandoned: {Light: "#585858", Dark: "#6C6C6C"},
+		constants.TaskStatusRejected:  ColorMuted,
+		constants.TaskStatusAbandoned: ColorMuted,
 	}
+}
+
+// taskStatusIcons maps task statuses to their display icons.
+// Defined at package level for performance (created once, not on every call).
+// Icons follow the spec from epic-7-tui-components-from-scenarios.md Icon Reference.
+//
+//nolint:gochecknoglobals // Intentional package-level constant for TUI styling
+var taskStatusIcons = map[constants.TaskStatus]string{
+	constants.TaskStatusPending:          "○", // Empty circle - waiting (spec: ○ or [ ])
+	constants.TaskStatusRunning:          "●", // Filled circle - active (spec: ● or ⟳)
+	constants.TaskStatusValidating:       "⟳", // Rotating - in progress (spec: ● or ⟳)
+	constants.TaskStatusValidationFailed: "⚠", // Warning - needs attention
+	constants.TaskStatusAwaitingApproval: "✓", // Checkmark - ready for user (spec: ✓ or ⚠)
+	constants.TaskStatusCompleted:        "✓", // Checkmark - success
+	constants.TaskStatusRejected:         "✗", // X mark - failed
+	constants.TaskStatusAbandoned:        "✗", // X mark - failed/abandoned
+	constants.TaskStatusGHFailed:         "✗", // X mark - failed
+	constants.TaskStatusCIFailed:         "✗", // X mark - failed
+	constants.TaskStatusCITimeout:        "⚠", // Warning - needs attention
 }
 
 // TaskStatusIcon returns the icon/symbol for a given task status.
 // Used for visual status indicators in status displays.
-// Icons follow the spec from epic-7-tui-components-from-scenarios.md Icon Reference.
 func TaskStatusIcon(status constants.TaskStatus) string {
-	icons := map[constants.TaskStatus]string{
-		constants.TaskStatusPending:          "○", // Empty circle - waiting (spec: ○ or [ ])
-		constants.TaskStatusRunning:          "●", // Filled circle - active (spec: ● or ⟳)
-		constants.TaskStatusValidating:       "⟳", // Rotating - in progress (spec: ● or ⟳)
-		constants.TaskStatusValidationFailed: "⚠", // Warning - needs attention
-		constants.TaskStatusAwaitingApproval: "✓", // Checkmark - ready for user (spec: ✓ or ⚠)
-		constants.TaskStatusCompleted:        "✓", // Checkmark - success
-		constants.TaskStatusRejected:         "✗", // X mark - failed
-		constants.TaskStatusAbandoned:        "✗", // X mark - failed/abandoned
-		constants.TaskStatusGHFailed:         "✗", // X mark - failed
-		constants.TaskStatusCIFailed:         "✗", // X mark - failed
-		constants.TaskStatusCITimeout:        "⚠", // Warning - needs attention
-	}
-	if icon, ok := icons[status]; ok {
+	if icon, ok := taskStatusIcons[status]; ok {
 		return icon
 	}
 	return "?"
 }
 
+// attentionStatuses defines task statuses that require user attention.
+// Defined at package level for performance (created once, not on every call).
+//
+//nolint:gochecknoglobals // Intentional package-level constant for TUI styling
+var attentionStatuses = map[constants.TaskStatus]bool{
+	constants.TaskStatusValidationFailed: true,
+	constants.TaskStatusAwaitingApproval: true,
+	constants.TaskStatusGHFailed:         true,
+	constants.TaskStatusCIFailed:         true,
+	constants.TaskStatusCITimeout:        true,
+}
+
 // IsAttentionStatus returns true if the task status requires user attention.
 // These statuses should be highlighted and sorted to the top of status lists.
 func IsAttentionStatus(status constants.TaskStatus) bool {
-	attentionStatuses := map[constants.TaskStatus]bool{
-		constants.TaskStatusValidationFailed: true,
-		constants.TaskStatusAwaitingApproval: true,
-		constants.TaskStatusGHFailed:         true,
-		constants.TaskStatusCIFailed:         true,
-		constants.TaskStatusCITimeout:        true,
-	}
 	return attentionStatuses[status]
+}
+
+// suggestedActions maps task statuses to their suggested CLI commands.
+// Defined at package level for performance (created once, not on every call).
+//
+//nolint:gochecknoglobals // Intentional package-level constant for TUI styling
+var suggestedActions = map[constants.TaskStatus]string{
+	constants.TaskStatusValidationFailed: "atlas recover",
+	constants.TaskStatusAwaitingApproval: "atlas approve",
+	constants.TaskStatusGHFailed:         "atlas recover",
+	constants.TaskStatusCIFailed:         "atlas recover",
+	constants.TaskStatusCITimeout:        "atlas recover",
 }
 
 // SuggestedAction returns the suggested CLI command for a given task status.
 // Returns empty string if no action is needed or available.
 func SuggestedAction(status constants.TaskStatus) string {
-	actions := map[constants.TaskStatus]string{
-		constants.TaskStatusValidationFailed: "atlas recover",
-		constants.TaskStatusAwaitingApproval: "atlas approve",
-		constants.TaskStatusGHFailed:         "atlas recover",
-		constants.TaskStatusCIFailed:         "atlas recover",
-		constants.TaskStatusCITimeout:        "atlas recover",
-	}
-	if action, ok := actions[status]; ok {
+	if action, ok := suggestedActions[status]; ok {
 		return action
 	}
 	return ""
@@ -246,15 +278,20 @@ func ActionStyle() lipgloss.Style {
 	return lipgloss.NewStyle().Foreground(ColorWarning)
 }
 
+// workspaceStatusIcons maps workspace statuses to their display icons.
+// Defined at package level for performance (created once, not on every call).
+//
+//nolint:gochecknoglobals // Intentional package-level constant for TUI styling
+var workspaceStatusIcons = map[constants.WorkspaceStatus]string{
+	constants.WorkspaceStatusActive: "●", // Filled circle - active
+	constants.WorkspaceStatusPaused: "○", // Empty circle - paused
+	constants.WorkspaceStatusClosed: "◌", // Dashed circle - closed
+}
+
 // WorkspaceStatusIcon returns the icon/symbol for a given workspace status.
 // Used for visual status indicators in status displays.
 func WorkspaceStatusIcon(status constants.WorkspaceStatus) string {
-	icons := map[constants.WorkspaceStatus]string{
-		constants.WorkspaceStatusActive: "●", // Filled circle - active
-		constants.WorkspaceStatusPaused: "○", // Empty circle - paused
-		constants.WorkspaceStatusClosed: "◌", // Dashed circle - closed
-	}
-	if icon, ok := icons[status]; ok {
+	if icon, ok := workspaceStatusIcons[status]; ok {
 		return icon
 	}
 	return "?"
@@ -558,12 +595,13 @@ func RenderStyledHeader(icon, text string, color lipgloss.TerminalColor) string 
 	return style.Render(icon + " " + text)
 }
 
-// NarrowTerminalWidth is the threshold for narrow terminal mode.
-// Terminals narrower than this value may need adjusted formatting.
-const NarrowTerminalWidth = 80
+// NarrowTerminalWidth is an alias for TerminalWidthNarrow for backwards compatibility.
+// Deprecated: Use TerminalWidthNarrow instead.
+const NarrowTerminalWidth = TerminalWidthNarrow
 
-// DefaultTerminalWidth is used when terminal width cannot be determined.
-const DefaultTerminalWidth = 80
+// DefaultTerminalWidth is an alias for TerminalWidthDefault for backwards compatibility.
+// Deprecated: Use TerminalWidthDefault instead.
+const DefaultTerminalWidth = TerminalWidthDefault
 
 // IsNarrowTerminal returns true if terminal width is below the narrow threshold.
 // Use this to adapt output format for narrow terminals.
@@ -574,5 +612,5 @@ func IsNarrowTerminal() bool {
 		// Width 0 means detection failed - treat as narrow for safety
 		return true
 	}
-	return width < NarrowTerminalWidth
+	return width < TerminalWidthNarrow
 }

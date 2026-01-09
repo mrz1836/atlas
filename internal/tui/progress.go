@@ -311,7 +311,7 @@ func WithDensityMode(mode DensityMode) DashboardOption {
 func NewProgressDashboard(rows []ProgressRow, opts ...DashboardOption) *ProgressDashboard {
 	pd := &ProgressDashboard{
 		rows:           rows,
-		width:          80, // Default width
+		width:          TerminalWidthDefault, // Default width
 		mode:           DetermineMode(len(rows)),
 		autoAdjustMode: true,
 	}
@@ -385,9 +385,9 @@ func (pd *ProgressDashboard) calculateBarWidth() int {
 	// Wide (>120): 60+
 
 	switch {
-	case pd.width < 80:
+	case pd.width < TerminalWidthNarrow:
 		return 20
-	case pd.width >= 80 && pd.width < 120:
+	case pd.width >= TerminalWidthNarrow && pd.width < TerminalWidthWide:
 		return 40
 	default:
 		return 60

@@ -517,17 +517,17 @@ func RenderApprovalSummary(summary *ApprovalSummary) string {
 type displayMode int
 
 const (
-	displayModeCompact  displayMode = iota // < 80 columns
-	displayModeStandard                    // 80-119 columns
-	displayModeExpanded                    // >= 120 columns
+	displayModeCompact  displayMode = iota // < TerminalWidthNarrow columns
+	displayModeStandard                    // TerminalWidthNarrow to TerminalWidthWide-1 columns
+	displayModeExpanded                    // >= TerminalWidthWide columns
 )
 
 // getDisplayMode determines the display mode based on terminal width.
 func getDisplayMode(width int) displayMode {
-	if width < 80 {
+	if width < TerminalWidthNarrow {
 		return displayModeCompact
 	}
-	if width >= 120 {
+	if width >= TerminalWidthWide {
 		return displayModeExpanded
 	}
 	return displayModeStandard
@@ -549,19 +549,8 @@ func RenderApprovalSummaryWithWidth(summary *ApprovalSummary, width int, verbose
 	// Respect NO_COLOR
 	CheckNoColor()
 
-	// Determine width
-	if width <= 0 {
-		width = adaptWidth(DefaultBoxWidth)
-	}
-
-	// Determine display mode based on width
-	mode := getDisplayMode(width)
-
-	// In verbose mode, override compact mode to show validation checks
-	effectiveMode := mode
-	if verbose && mode == displayModeCompact {
-		effectiveMode = displayModeStandard
-	}
+	// Determine width and display mode
+	width, mode, effectiveMode := determineApprovalDisplayMode(width, verbose)
 
 	// Build content sections
 	var content strings.Builder
@@ -607,6 +596,24 @@ func RenderApprovalSummaryWithWidth(summary *ApprovalSummary, width int, verbose
 	// Render using BoxStyle
 	box := NewBoxStyle().WithWidth(width)
 	return box.Render("Approval Summary", content.String())
+}
+
+// determineApprovalDisplayMode determines the width and display modes for approval summary.
+// Returns the effective width, display mode, and effective mode (for validation section).
+func determineApprovalDisplayMode(width int, verbose bool) (int, displayMode, displayMode) {
+	if width <= 0 {
+		width = adaptWidth(DefaultBoxWidth)
+	}
+
+	mode := getDisplayMode(width)
+
+	// In verbose mode, override compact mode to show validation checks
+	effectiveMode := mode
+	if verbose && mode == displayModeCompact {
+		effectiveMode = displayModeStandard
+	}
+
+	return width, mode, effectiveMode
 }
 
 // renderInfoLineWithMode renders a labeled info line based on display mode.

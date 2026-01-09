@@ -64,6 +64,19 @@ type ErrorRecoveryOption struct {
 	Action RecoveryAction
 }
 
+// newRecoveryOption creates an ErrorRecoveryOption with less boilerplate.
+// This helper reduces repetition when building recovery option lists.
+func newRecoveryOption(action RecoveryAction, label, description string) ErrorRecoveryOption {
+	return ErrorRecoveryOption{
+		Option: Option{
+			Label:       label,
+			Description: description,
+			Value:       string(action),
+		},
+		Action: action,
+	}
+}
+
 // ValidationFailedOptions returns the menu options for validation_failed state.
 // From UX spec:
 //
@@ -74,38 +87,10 @@ type ErrorRecoveryOption struct {
 //	    Abandon task — End task, keep branch for later
 func ValidationFailedOptions() []ErrorRecoveryOption {
 	return []ErrorRecoveryOption{
-		{
-			Option: Option{
-				Label:       "Retry with AI fix",
-				Description: "Claude attempts to fix based on errors",
-				Value:       string(RecoveryActionRetryAI),
-			},
-			Action: RecoveryActionRetryAI,
-		},
-		{
-			Option: Option{
-				Label:       "Fix manually",
-				Description: "Edit files in worktree, then resume",
-				Value:       string(RecoveryActionFixManually),
-			},
-			Action: RecoveryActionFixManually,
-		},
-		{
-			Option: Option{
-				Label:       "View errors",
-				Description: "Show detailed validation output",
-				Value:       string(RecoveryActionViewErrors),
-			},
-			Action: RecoveryActionViewErrors,
-		},
-		{
-			Option: Option{
-				Label:       "Abandon task",
-				Description: "End task, keep branch for later",
-				Value:       string(RecoveryActionAbandon),
-			},
-			Action: RecoveryActionAbandon,
-		},
+		newRecoveryOption(RecoveryActionRetryAI, "Retry with AI fix", "Claude attempts to fix based on errors"),
+		newRecoveryOption(RecoveryActionFixManually, "Fix manually", "Edit files in worktree, then resume"),
+		newRecoveryOption(RecoveryActionViewErrors, "View errors", "Show detailed validation output"),
+		newRecoveryOption(RecoveryActionAbandon, "Abandon task", "End task, keep branch for later"),
 	}
 }
 
@@ -118,30 +103,9 @@ func ValidationFailedOptions() []ErrorRecoveryOption {
 //	    Abandon task — End task, keep branch for later
 func GHFailedOptions() []ErrorRecoveryOption {
 	return []ErrorRecoveryOption{
-		{
-			Option: Option{
-				Label:       "Retry push/PR",
-				Description: "Retry the failed operation",
-				Value:       string(RecoveryActionRetryGH),
-			},
-			Action: RecoveryActionRetryGH,
-		},
-		{
-			Option: Option{
-				Label:       "Fix manually",
-				Description: "Check and fix issues, then resume",
-				Value:       string(RecoveryActionFixManually),
-			},
-			Action: RecoveryActionFixManually,
-		},
-		{
-			Option: Option{
-				Label:       "Abandon task",
-				Description: "End task, keep branch for later",
-				Value:       string(RecoveryActionAbandon),
-			},
-			Action: RecoveryActionAbandon,
-		},
+		newRecoveryOption(RecoveryActionRetryGH, "Retry push/PR", "Retry the failed operation"),
+		newRecoveryOption(RecoveryActionFixManually, "Fix manually", "Check and fix issues, then resume"),
+		newRecoveryOption(RecoveryActionAbandon, "Abandon task", "End task, keep branch for later"),
 	}
 }
 
@@ -153,14 +117,11 @@ func GHFailedOptionsForPushError(pushErrorType string) []ErrorRecoveryOption {
 
 	// For non-fast-forward errors, add rebase option as the first choice
 	if pushErrorType == "non_fast_forward" {
-		options = append(options, ErrorRecoveryOption{
-			Option: Option{
-				Label:       "Rebase and retry",
-				Description: "Integrate remote changes, then push",
-				Value:       string(RecoveryActionRebaseRetry),
-			},
-			Action: RecoveryActionRebaseRetry,
-		})
+		options = append(options, newRecoveryOption(
+			RecoveryActionRebaseRetry,
+			"Rebase and retry",
+			"Integrate remote changes, then push",
+		))
 	}
 
 	// Add standard options
@@ -178,38 +139,10 @@ func GHFailedOptionsForPushError(pushErrorType string) []ErrorRecoveryOption {
 //	    Abandon task — End task, keep PR as draft
 func CIFailedOptions() []ErrorRecoveryOption {
 	return []ErrorRecoveryOption{
-		{
-			Option: Option{
-				Label:       "View workflow logs",
-				Description: "Open GitHub Actions in browser",
-				Value:       string(RecoveryActionViewLogs),
-			},
-			Action: RecoveryActionViewLogs,
-		},
-		{
-			Option: Option{
-				Label:       "Retry from implement",
-				Description: "AI tries to fix based on CI output",
-				Value:       string(RecoveryActionRetryAI),
-			},
-			Action: RecoveryActionRetryAI,
-		},
-		{
-			Option: Option{
-				Label:       "Fix manually",
-				Description: "You fix in worktree, then resume",
-				Value:       string(RecoveryActionFixManually),
-			},
-			Action: RecoveryActionFixManually,
-		},
-		{
-			Option: Option{
-				Label:       "Abandon task",
-				Description: "End task, keep PR as draft",
-				Value:       string(RecoveryActionAbandon),
-			},
-			Action: RecoveryActionAbandon,
-		},
+		newRecoveryOption(RecoveryActionViewLogs, "View workflow logs", "Open GitHub Actions in browser"),
+		newRecoveryOption(RecoveryActionRetryAI, "Retry from implement", "AI tries to fix based on CI output"),
+		newRecoveryOption(RecoveryActionFixManually, "Fix manually", "You fix in worktree, then resume"),
+		newRecoveryOption(RecoveryActionAbandon, "Abandon task", "End task, keep PR as draft"),
 	}
 }
 
@@ -223,38 +156,10 @@ func CIFailedOptions() []ErrorRecoveryOption {
 //	    Abandon task — End task
 func CITimeoutOptions() []ErrorRecoveryOption {
 	return []ErrorRecoveryOption{
-		{
-			Option: Option{
-				Label:       "Continue waiting",
-				Description: "Resume polling with extended timeout",
-				Value:       string(RecoveryActionContinueWaiting),
-			},
-			Action: RecoveryActionContinueWaiting,
-		},
-		{
-			Option: Option{
-				Label:       "View workflow logs",
-				Description: "Check CI status in browser",
-				Value:       string(RecoveryActionViewLogs),
-			},
-			Action: RecoveryActionViewLogs,
-		},
-		{
-			Option: Option{
-				Label:       "Fix manually",
-				Description: "Check CI status and resume when ready",
-				Value:       string(RecoveryActionFixManually),
-			},
-			Action: RecoveryActionFixManually,
-		},
-		{
-			Option: Option{
-				Label:       "Abandon task",
-				Description: "End task",
-				Value:       string(RecoveryActionAbandon),
-			},
-			Action: RecoveryActionAbandon,
-		},
+		newRecoveryOption(RecoveryActionContinueWaiting, "Continue waiting", "Resume polling with extended timeout"),
+		newRecoveryOption(RecoveryActionViewLogs, "View workflow logs", "Check CI status in browser"),
+		newRecoveryOption(RecoveryActionFixManually, "Fix manually", "Check CI status and resume when ready"),
+		newRecoveryOption(RecoveryActionAbandon, "Abandon task", "End task"),
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -99,8 +100,8 @@ func NewWatchModel(ctx context.Context, wsMgr WorkspaceLister, taskStore TaskLis
 		previousRows: make(map[string]constants.TaskStatus),
 		lastUpdate:   time.Time{},
 		config:       cfg,
-		width:        80, // Default width
-		height:       24, // Default height
+		width:        TerminalWidthDefault, // Default width
+		height:       24,                   // Default height
 		quitting:     false,
 		err:          nil,
 		wsMgr:        wsMgr,
@@ -278,16 +279,11 @@ func (m *WatchModel) buildStatusRows(ctx context.Context, workspaces []*domain.W
 }
 
 // sortByStatusPriority sorts rows by status priority (attention first, then running).
+// Uses sort.SliceStable for O(n log n) performance while maintaining stable ordering.
 func (m *WatchModel) sortByStatusPriority(rows []StatusRow) {
-	// Use a simple bubble sort to maintain stability and avoid import
-	n := len(rows)
-	for i := 0; i < n-1; i++ {
-		for j := 0; j < n-i-1; j++ {
-			if m.statusPriority(rows[j].Status) < m.statusPriority(rows[j+1].Status) {
-				rows[j], rows[j+1] = rows[j+1], rows[j]
-			}
-		}
-	}
+	sort.SliceStable(rows, func(i, j int) bool {
+		return m.statusPriority(rows[i].Status) > m.statusPriority(rows[j].Status)
+	})
 }
 
 // statusPriority returns the priority level for a task status.

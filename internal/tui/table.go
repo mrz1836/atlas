@@ -183,7 +183,7 @@ type StatusRow struct {
 type StatusTableConfig struct {
 	// TerminalWidth is the detected terminal width (or forced width for testing).
 	TerminalWidth int
-	// Narrow indicates whether to use abbreviated headers (< 80 cols).
+	// Narrow indicates whether to use abbreviated headers (< TerminalWidthNarrow cols).
 	Narrow bool
 }
 
@@ -194,7 +194,7 @@ type StatusTableOption func(*StatusTable)
 func WithTerminalWidth(width int) StatusTableOption {
 	return func(t *StatusTable) {
 		t.config.TerminalWidth = width
-		t.config.Narrow = width > 0 && width < 80
+		t.config.Narrow = width > 0 && width < TerminalWidthNarrow
 	}
 }
 
@@ -218,7 +218,7 @@ func NewStatusTable(rows []StatusRow, opts ...StatusTableOption) *StatusTable {
 	}
 
 	// Apply terminal width detection first
-	t.config.Narrow = t.config.TerminalWidth > 0 && t.config.TerminalWidth < 80
+	t.config.Narrow = t.config.TerminalWidth > 0 && t.config.TerminalWidth < TerminalWidthNarrow
 
 	// Apply any options (may override width/narrow settings)
 	for _, opt := range opts {
@@ -238,7 +238,7 @@ func detectTerminalWidth() int {
 	return width
 }
 
-// IsNarrow returns true if the terminal is in narrow mode (< 80 cols) (AC: #5).
+// IsNarrow returns true if the terminal is in narrow mode (< TerminalWidthNarrow cols) (AC: #5).
 func (t *StatusTable) IsNarrow() bool {
 	return t.config.Narrow
 }
@@ -348,68 +348,9 @@ const WideTerminalThreshold = 120
 // Uses utf8.RuneCountInString for proper Unicode handling.
 // For wide terminals (120+ cols), applies proportional width expansion (Task 2.5).
 func (t *StatusTable) calculateColumnWidths() StatusColumnWidths {
-	// Start with minimum widths
-	widths := StatusColumnWidths{
-		Workspace: MinColumnWidths.Workspace,
-		Branch:    MinColumnWidths.Branch,
-		Status:    MinColumnWidths.Status,
-		Step:      MinColumnWidths.Step,
-		Action:    MinColumnWidths.Action,
-	}
-
-	// Also consider header widths
-	headers := t.Headers()
-	widthsSlice := []int{
-		max(widths.Workspace, utf8.RuneCountInString(headers[0])),
-		max(widths.Branch, utf8.RuneCountInString(headers[1])),
-		max(widths.Status, utf8.RuneCountInString(headers[2])),
-		max(widths.Step, utf8.RuneCountInString(headers[3])),
-		max(widths.Action, utf8.RuneCountInString(headers[4])),
-	}
-
-	// Calculate widths based on content
-	for _, row := range t.rows {
-		// Workspace
-		w := utf8.RuneCountInString(row.Workspace)
-		if w > widthsSlice[0] {
-			widthsSlice[0] = w
-		}
-
-		// Branch
-		w = utf8.RuneCountInString(row.Branch)
-		if w > widthsSlice[1] {
-			widthsSlice[1] = w
-		}
-
-		// Status (icon + space + status text)
-		statusCell := t.renderStatusCellPlain(row.Status)
-		w = utf8.RuneCountInString(statusCell)
-		if w > widthsSlice[2] {
-			widthsSlice[2] = w
-		}
-
-		// Step
-		stepCell := t.formatStep(row.CurrentStep, row.TotalSteps, row.StepName, row.Status)
-		w = utf8.RuneCountInString(stepCell)
-		if w > widthsSlice[3] {
-			widthsSlice[3] = w
-		}
-
-		// Action (use plain version for width calculation to avoid ANSI codes)
-		actionCell := t.renderActionCellPlain(row.Status, row.Action)
-		w = utf8.RuneCountInString(actionCell)
-		if w > widthsSlice[4] {
-			widthsSlice[4] = w
-		}
-	}
-
-	// Constrain to terminal width first to ensure all columns are visible
-	widthsSlice = t.constrainToTerminalWidth(widthsSlice)
-
-	// Apply proportional width expansion for wide terminals (120+ cols) (Task 2.5)
-	if t.config.TerminalWidth >= WideTerminalThreshold {
-		widthsSlice = t.applyProportionalExpansion(widthsSlice)
-	}
+	widthsSlice := t.initializeMinWidths()
+	t.updateWidthsFromContent(widthsSlice)
+	widthsSlice = t.applyWidthConstraints(widthsSlice)
 
 	return StatusColumnWidths{
 		Workspace: widthsSlice[0],
@@ -418,6 +359,64 @@ func (t *StatusTable) calculateColumnWidths() StatusColumnWidths {
 		Step:      widthsSlice[3],
 		Action:    widthsSlice[4],
 	}
+}
+
+// initializeMinWidths creates the initial width slice using minimum widths and headers.
+func (t *StatusTable) initializeMinWidths() []int {
+	headers := t.Headers()
+	return []int{
+		max(MinColumnWidths.Workspace, utf8.RuneCountInString(headers[0])),
+		max(MinColumnWidths.Branch, utf8.RuneCountInString(headers[1])),
+		max(MinColumnWidths.Status, utf8.RuneCountInString(headers[2])),
+		max(MinColumnWidths.Step, utf8.RuneCountInString(headers[3])),
+		max(MinColumnWidths.Action, utf8.RuneCountInString(headers[4])),
+	}
+}
+
+// updateWidthsFromContent expands widths based on actual row content.
+func (t *StatusTable) updateWidthsFromContent(widths []int) {
+	for _, row := range t.rows {
+		// Workspace
+		if w := utf8.RuneCountInString(row.Workspace); w > widths[0] {
+			widths[0] = w
+		}
+
+		// Branch
+		if w := utf8.RuneCountInString(row.Branch); w > widths[1] {
+			widths[1] = w
+		}
+
+		// Status (icon + space + status text)
+		statusCell := t.renderStatusCellPlain(row.Status)
+		if w := utf8.RuneCountInString(statusCell); w > widths[2] {
+			widths[2] = w
+		}
+
+		// Step
+		stepCell := t.formatStep(row.CurrentStep, row.TotalSteps, row.StepName, row.Status)
+		if w := utf8.RuneCountInString(stepCell); w > widths[3] {
+			widths[3] = w
+		}
+
+		// Action (use plain version for width calculation to avoid ANSI codes)
+		actionCell := t.renderActionCellPlain(row.Status, row.Action)
+		if w := utf8.RuneCountInString(actionCell); w > widths[4] {
+			widths[4] = w
+		}
+	}
+}
+
+// applyWidthConstraints constrains widths to terminal and applies proportional expansion.
+func (t *StatusTable) applyWidthConstraints(widths []int) []int {
+	// Constrain to terminal width first to ensure all columns are visible
+	widths = t.constrainToTerminalWidth(widths)
+
+	// Apply proportional width expansion for wide terminals (TerminalWidthWide+ cols) (Task 2.5)
+	if t.config.TerminalWidth >= WideTerminalThreshold {
+		widths = t.applyProportionalExpansion(widths)
+	}
+
+	return widths
 }
 
 // applyProportionalExpansion distributes extra terminal width among columns (Task 2.5).
