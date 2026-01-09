@@ -111,7 +111,7 @@ func runRecover(ctx context.Context, cmd *cobra.Command, w io.Writer, opts *reco
 	// Check context cancellation at entry
 	select {
 	case <-ctx.Done():
-		return ctx.Err()
+		return fmt.Errorf("recover command canceled: %w", ctx.Err())
 	default:
 	}
 
