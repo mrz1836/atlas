@@ -623,14 +623,39 @@ var errorInfoEntries = []errorEntry{
 	},
 }
 
+// errorInfoMap provides O(1) lookup for direct sentinel error matches.
+// Built once from errorInfoEntries during package initialization.
+//
+//nolint:gochecknoglobals // Pre-built mapping for O(1) lookup performance
+var errorInfoMap = buildErrorInfoMap()
+
+// buildErrorInfoMap creates a map from the errorInfoEntries slice.
+// This is called once during package init for O(1) direct lookups.
+func buildErrorInfoMap() map[error]ErrorInfo {
+	m := make(map[error]ErrorInfo, len(errorInfoEntries))
+	for _, entry := range errorInfoEntries {
+		m[entry.err] = entry.info
+	}
+	return m
+}
+
 // getErrorInfo looks up the ErrorInfo for a given error.
+// It first tries O(1) direct map lookup for unwrapped sentinel errors,
+// then falls back to errors.Is() traversal for wrapped errors.
 // Returns an ErrorInfo with the original error message if not found.
 func getErrorInfo(err error) ErrorInfo {
+	// Fast path: O(1) lookup for direct sentinel errors
+	if info, ok := errorInfoMap[err]; ok {
+		return info
+	}
+
+	// Slow path: errors.Is() for wrapped errors
 	for _, entry := range errorInfoEntries {
 		if errors.Is(err, entry.err) {
 			return entry.info
 		}
 	}
+
 	return ErrorInfo{Message: err.Error()}
 }
 

@@ -13,9 +13,7 @@ import "errors"
 // These allow callers to check error types with errors.Is().
 // All errors use lowercase descriptions per Go conventions.
 var (
-	// ErrValidationFailed indicates that one or more validation commands
-	// (lint, test, build) failed during task execution.
-	ErrValidationFailed = errors.New("validation failed")
+	// ========== AI Provider Errors ==========
 
 	// ErrClaudeInvocation indicates that the Claude Code CLI failed to execute
 	// or returned a non-zero exit code.
@@ -35,13 +33,26 @@ var (
 	// ErrAgentNotInstalled indicates the agent CLI is not installed.
 	ErrAgentNotInstalled = errors.New("agent CLI not installed")
 
-	// ErrGitOperation indicates that a git command (clone, worktree, commit, etc.)
-	// failed during execution.
-	ErrGitOperation = errors.New("git operation failed")
+	// ErrAIError indicates that the AI returned an error.
+	ErrAIError = errors.New("AI returned error")
 
-	// ErrGitHubOperation indicates that a GitHub API operation (PR creation,
-	// CI status check, etc.) failed.
-	ErrGitHubOperation = errors.New("github operation failed")
+	// ErrAIEmptyResponse indicates that the AI returned an empty response.
+	ErrAIEmptyResponse = errors.New("AI returned empty response")
+
+	// ErrAIInvalidFormat indicates that the AI response was not in the expected format.
+	ErrAIInvalidFormat = errors.New("AI response not in expected format")
+
+	// ErrMaxRetriesExceeded indicates the maximum retry attempts have been reached.
+	ErrMaxRetriesExceeded = errors.New("maximum retry attempts exceeded")
+
+	// ErrRetryDisabled indicates that AI retry is disabled in configuration.
+	ErrRetryDisabled = errors.New("AI retry is disabled")
+
+	// ========== Validation & CI Errors ==========
+
+	// ErrValidationFailed indicates that one or more validation commands
+	// (lint, test, build) failed during task execution.
+	ErrValidationFailed = errors.New("validation failed")
 
 	// ErrCIFailed indicates that the CI workflow completed but one or more
 	// checks did not pass.
@@ -56,6 +67,62 @@ var (
 	// may have passed, but we couldn't verify.
 	ErrCIFetchFailed = errors.New("ci status fetch failed")
 
+	// ErrCICheckNotFound indicates that a required CI check was not found.
+	ErrCICheckNotFound = errors.New("required CI check not found")
+
+	// ========== Git Operations ==========
+
+	// ErrGitOperation indicates that a git command (clone, worktree, commit, etc.)
+	// failed during execution.
+	ErrGitOperation = errors.New("git operation failed")
+
+	// ErrPushAuthFailed indicates that git push failed due to authentication.
+	ErrPushAuthFailed = errors.New("push authentication failed")
+
+	// ErrPushNetworkFailed indicates that git push failed due to network issues.
+	ErrPushNetworkFailed = errors.New("push network failed")
+
+	// ErrBranchExists indicates the branch already exists.
+	ErrBranchExists = errors.New("branch already exists")
+
+	// ErrBranchNotFound indicates the specified branch does not exist locally or remotely.
+	ErrBranchNotFound = errors.New("branch not found")
+
+	// ErrNotGitRepo indicates the path is not a git repository.
+	ErrNotGitRepo = errors.New("not a git repository")
+
+	// ErrNotInGitRepo indicates that a git repository is required but not found.
+	ErrNotInGitRepo = errors.New("not in a git repository")
+
+	// ErrRebaseConflict indicates that a rebase operation has conflicts that need manual resolution.
+	ErrRebaseConflict = errors.New("rebase has conflicts")
+
+	// ========== GitHub API Errors ==========
+
+	// ErrGitHubOperation indicates that a GitHub API operation (PR creation,
+	// CI status check, etc.) failed.
+	ErrGitHubOperation = errors.New("github operation failed")
+
+	// ErrPRCreationFailed indicates that PR creation failed.
+	ErrPRCreationFailed = errors.New("PR creation failed")
+
+	// ErrPRNotFound indicates that the requested PR was not found.
+	ErrPRNotFound = errors.New("PR not found")
+
+	// ErrPRReviewNotAllowed indicates the user cannot add a review (e.g., own PR).
+	ErrPRReviewNotAllowed = errors.New("cannot add PR review")
+
+	// ErrPRMergeFailed indicates the PR merge operation failed.
+	ErrPRMergeFailed = errors.New("PR merge failed")
+
+	// ErrGHRateLimited indicates that GitHub API rate limit was exceeded.
+	ErrGHRateLimited = errors.New("GitHub API rate limited")
+
+	// ErrGHAuthFailed indicates that GitHub authentication failed.
+	ErrGHAuthFailed = errors.New("GitHub authentication failed")
+
+	// ========== User Interaction Errors ==========
+
 	// ErrUserRejected indicates that the user explicitly rejected the current
 	// task result during the approval step.
 	ErrUserRejected = errors.New("user rejected")
@@ -64,8 +131,36 @@ var (
 	// entirely rather than retry or provide feedback.
 	ErrUserAbandoned = errors.New("user abandoned task")
 
+	// ErrOperationCanceled indicates the user canceled an operation.
+	ErrOperationCanceled = errors.New("operation canceled by user")
+
+	// ErrUserInputRequired indicates user input is required but not provided.
+	// Commands should exit with code 2 when this error is returned.
+	ErrUserInputRequired = errors.New("user input required")
+
+	// ErrApprovalRequired indicates that approval is required but --auto-approve was not provided.
+	ErrApprovalRequired = errors.New("approval required")
+
+	// ErrInteractiveRequired indicates that interactive prompts are required but not available.
+	ErrInteractiveRequired = errors.New("interactive prompt required")
+
+	// ErrNonInteractiveMode indicates that an operation requiring confirmation
+	// was attempted in non-interactive mode without the force flag.
+	ErrNonInteractiveMode = errors.New("use --force in non-interactive mode")
+
+	// ErrNoMenuOptions indicates that no options were provided to a menu.
+	ErrNoMenuOptions = errors.New("no menu options provided")
+
+	// ErrMenuCanceled indicates that the user canceled a menu operation.
+	ErrMenuCanceled = errors.New("menu canceled by user")
+
+	// ========== Configuration Errors ==========
+
 	// ErrConfigNil indicates that a nil config was passed to validation.
 	ErrConfigNil = errors.New("config is nil")
+
+	// ErrConfigNotFound indicates that the configuration file was not found.
+	ErrConfigNotFound = errors.New("config file not found")
 
 	// ErrConfigInvalidAI indicates an invalid AI configuration value.
 	ErrConfigInvalidAI = errors.New("invalid AI configuration")
@@ -82,14 +177,8 @@ var (
 	// ErrInvalidOutputFormat indicates an invalid output format was specified.
 	ErrInvalidOutputFormat = errors.New("invalid output format")
 
-	// ErrCommandNotConfigured indicates that a mock command was not configured in tests.
-	ErrCommandNotConfigured = errors.New("command not configured")
-
-	// ErrCommandFailed indicates that a command execution failed.
-	ErrCommandFailed = errors.New("command failed")
-
-	// ErrConfigNotFound indicates that the configuration file was not found.
-	ErrConfigNotFound = errors.New("config file not found")
+	// ErrUnsupportedOutputFormat indicates that an unsupported output format was specified.
+	ErrUnsupportedOutputFormat = errors.New("unsupported output format")
 
 	// ErrEmptyValue indicates that a required value was empty.
 	ErrEmptyValue = errors.New("value cannot be empty")
@@ -106,6 +195,8 @@ var (
 	// ErrInvalidModel indicates that an AI model name is invalid.
 	ErrInvalidModel = errors.New("invalid model")
 
+	// ========== Tool Detection Errors ==========
+
 	// ErrUnknownTool indicates that an unknown tool name was specified.
 	ErrUnknownTool = errors.New("unknown tool")
 
@@ -118,11 +209,7 @@ var (
 	// ErrNotInProjectDir indicates that --project flag was used but not in a project directory.
 	ErrNotInProjectDir = errors.New("not in a project directory")
 
-	// ErrNotInGitRepo indicates that a git repository is required but not found.
-	ErrNotInGitRepo = errors.New("not in a git repository")
-
-	// ErrUnsupportedOutputFormat indicates that an unsupported output format was specified.
-	ErrUnsupportedOutputFormat = errors.New("unsupported output format")
+	// ========== Workspace & Worktree Errors ==========
 
 	// ErrWorkspaceExists indicates an attempt to create a workspace that already exists.
 	ErrWorkspaceExists = errors.New("workspace already exists")
@@ -133,11 +220,14 @@ var (
 	// ErrWorkspaceCorrupted indicates the workspace state file is corrupted or unreadable.
 	ErrWorkspaceCorrupted = errors.New("workspace state corrupted")
 
-	// ErrLockTimeout indicates a file lock could not be acquired within the timeout period.
-	ErrLockTimeout = errors.New("lock acquisition timeout")
+	// ErrWorkspaceHasRunningTasks indicates the workspace has tasks still running.
+	ErrWorkspaceHasRunningTasks = errors.New("workspace has running tasks")
 
 	// ErrWorktreeExists indicates the worktree path already exists.
 	ErrWorktreeExists = errors.New("worktree already exists")
+
+	// ErrWorktreeNotFound indicates the requested worktree does not exist.
+	ErrWorktreeNotFound = errors.New("worktree not found")
 
 	// ErrNotAWorktree indicates the path is not a valid git worktree.
 	ErrNotAWorktree = errors.New("not a git worktree")
@@ -145,26 +235,13 @@ var (
 	// ErrWorktreeDirty indicates the worktree has uncommitted changes.
 	ErrWorktreeDirty = errors.New("worktree has uncommitted changes")
 
-	// ErrBranchExists indicates the branch already exists.
-	ErrBranchExists = errors.New("branch already exists")
+	// ErrWorktreeRunnerNotAvailable indicates the worktree runner is not configured.
+	ErrWorktreeRunnerNotAvailable = errors.New("worktree runner not available")
 
-	// ErrBranchNotFound indicates the specified branch does not exist locally or remotely.
-	ErrBranchNotFound = errors.New("branch not found")
+	// ErrLockTimeout indicates a file lock could not be acquired within the timeout period.
+	ErrLockTimeout = errors.New("lock acquisition timeout")
 
-	// ErrNotGitRepo indicates the path is not a git repository.
-	ErrNotGitRepo = errors.New("not a git repository")
-
-	// ErrWorkspaceHasRunningTasks indicates the workspace has tasks still running.
-	ErrWorkspaceHasRunningTasks = errors.New("workspace has running tasks")
-
-	// ErrNonInteractiveMode indicates that an operation requiring confirmation
-	// was attempted in non-interactive mode without the force flag.
-	ErrNonInteractiveMode = errors.New("use --force in non-interactive mode")
-
-	// ErrJSONErrorOutput indicates that an error has already been output as JSON.
-	// This ensures a non-zero exit code while preventing duplicate error messages.
-	// Commands should silence cobra's error printing when this is returned.
-	ErrJSONErrorOutput = errors.New("error output as JSON")
+	// ========== Task Errors ==========
 
 	// ErrNoTasksFound indicates that no tasks exist for a workspace.
 	ErrNoTasksFound = errors.New("no tasks found")
@@ -175,17 +252,26 @@ var (
 	// ErrTaskExists indicates an attempt to create a task that already exists.
 	ErrTaskExists = errors.New("task already exists")
 
-	// ErrPathTraversal indicates an attempt to use path traversal in a filename.
-	ErrPathTraversal = errors.New("path traversal detected")
-
-	// ErrTooManyVersions indicates too many versioned artifacts exist.
-	ErrTooManyVersions = errors.New("too many versions")
-
-	// ErrArtifactNotFound indicates the requested artifact file was not found.
-	ErrArtifactNotFound = errors.New("artifact not found")
+	// ErrTaskInterrupted indicates the task was interrupted by the user (Ctrl+C).
+	// The task state is saved and can be resumed with `atlas resume`.
+	ErrTaskInterrupted = errors.New("task interrupted by user")
 
 	// ErrInvalidTransition indicates an attempt to make an invalid state transition.
 	ErrInvalidTransition = errors.New("invalid state transition")
+
+	// ErrInvalidStatus indicates that a task is in an invalid status for the operation.
+	ErrInvalidStatus = errors.New("invalid task status")
+
+	// ErrUnknownStepResultStatus indicates an unknown step result status was returned.
+	ErrUnknownStepResultStatus = errors.New("unknown step result status")
+
+	// ErrExecutorNotFound indicates no executor is registered for the given step type.
+	ErrExecutorNotFound = errors.New("executor not found for step type")
+
+	// ErrResumeNotImplemented indicates the resume feature is not yet implemented.
+	ErrResumeNotImplemented = errors.New("resume not yet implemented")
+
+	// ========== Template Errors ==========
 
 	// ErrTemplateNotFound indicates the requested template does not exist in the registry.
 	ErrTemplateNotFound = errors.New("template not found")
@@ -198,15 +284,6 @@ var (
 
 	// ErrTemplateDuplicate indicates a template with the same name already exists.
 	ErrTemplateDuplicate = errors.New("template already registered")
-
-	// ErrVariableRequired indicates a required template variable was not provided.
-	ErrVariableRequired = errors.New("required variable not provided")
-
-	// ErrExecutorNotFound indicates no executor is registered for the given step type.
-	ErrExecutorNotFound = errors.New("executor not found for step type")
-
-	// ErrUnknownStepResultStatus indicates an unknown step result status was returned.
-	ErrUnknownStepResultStatus = errors.New("unknown step result status")
 
 	// ErrTemplateRequired indicates a template flag is required in non-interactive mode.
 	ErrTemplateRequired = errors.New("template flag required in non-interactive mode")
@@ -223,73 +300,45 @@ var (
 	// ErrTemplateParseError indicates the template file has invalid YAML/JSON syntax.
 	ErrTemplateParseError = errors.New("template parse error")
 
-	// ErrOperationCanceled indicates the user canceled an operation.
-	ErrOperationCanceled = errors.New("operation canceled by user")
+	// ErrVariableRequired indicates a required template variable was not provided.
+	ErrVariableRequired = errors.New("required variable not provided")
 
-	// ErrTaskInterrupted indicates the task was interrupted by the user (Ctrl+C).
-	// The task state is saved and can be resumed with `atlas resume`.
-	ErrTaskInterrupted = errors.New("task interrupted by user")
+	// ========== Artifact & File Errors ==========
 
-	// ErrResumeNotImplemented indicates the resume feature is not yet implemented.
-	ErrResumeNotImplemented = errors.New("resume not yet implemented")
+	// ErrPathTraversal indicates an attempt to use path traversal in a filename.
+	ErrPathTraversal = errors.New("path traversal detected")
 
-	// ErrUserInputRequired indicates user input is required but not provided.
-	// Commands should exit with code 2 when this error is returned.
-	ErrUserInputRequired = errors.New("user input required")
+	// ErrTooManyVersions indicates too many versioned artifacts exist.
+	ErrTooManyVersions = errors.New("too many versions")
+
+	// ErrArtifactNotFound indicates the requested artifact file was not found.
+	ErrArtifactNotFound = errors.New("artifact not found")
+
+	// ErrNotADirectory indicates that a path exists but is not a directory.
+	ErrNotADirectory = errors.New("not a directory")
+
+	// ErrInvalidURL indicates that a URL is malformed or does not match expected format.
+	ErrInvalidURL = errors.New("invalid URL")
+
+	// ========== Command & Execution Errors ==========
+
+	// ErrCommandNotConfigured indicates that a mock command was not configured in tests.
+	ErrCommandNotConfigured = errors.New("command not configured")
+
+	// ErrCommandFailed indicates that a command execution failed.
+	ErrCommandFailed = errors.New("command failed")
 
 	// ErrCommandTimeout indicates a command exceeded its timeout duration.
 	ErrCommandTimeout = errors.New("command timeout exceeded")
 
-	// ErrMaxRetriesExceeded indicates the maximum retry attempts have been reached.
-	ErrMaxRetriesExceeded = errors.New("maximum retry attempts exceeded")
-
-	// ErrRetryDisabled indicates that AI retry is disabled in configuration.
-	ErrRetryDisabled = errors.New("AI retry is disabled")
-
-	// ErrAIError indicates that the AI returned an error.
-	ErrAIError = errors.New("AI returned error")
-
-	// ErrAIEmptyResponse indicates that the AI returned an empty response.
-	ErrAIEmptyResponse = errors.New("AI returned empty response")
-
-	// ErrAIInvalidFormat indicates that the AI response was not in the expected format.
-	ErrAIInvalidFormat = errors.New("AI response not in expected format")
-
-	// ErrPushAuthFailed indicates that git push failed due to authentication.
-	ErrPushAuthFailed = errors.New("push authentication failed")
-
-	// ErrPushNetworkFailed indicates that git push failed due to network issues.
-	ErrPushNetworkFailed = errors.New("push network failed")
-
-	// ErrPRCreationFailed indicates that PR creation failed.
-	ErrPRCreationFailed = errors.New("PR creation failed")
-
-	// ErrGHRateLimited indicates that GitHub API rate limit was exceeded.
-	ErrGHRateLimited = errors.New("GitHub API rate limited")
-
-	// ErrGHAuthFailed indicates that GitHub authentication failed.
-	ErrGHAuthFailed = errors.New("GitHub authentication failed")
-
-	// ErrPRNotFound indicates that the requested PR was not found.
-	ErrPRNotFound = errors.New("PR not found")
-
-	// ErrPRReviewNotAllowed indicates the user cannot add a review (e.g., own PR).
-	ErrPRReviewNotAllowed = errors.New("cannot add PR review")
-
-	// ErrPRMergeFailed indicates the PR merge operation failed.
-	ErrPRMergeFailed = errors.New("PR merge failed")
-
-	// ErrCICheckNotFound indicates that a required CI check was not found.
-	ErrCICheckNotFound = errors.New("required CI check not found")
-
-	// ErrUnsupportedOS indicates the current operating system is not supported.
-	ErrUnsupportedOS = errors.New("unsupported operating system")
-
-	// ErrInvalidVerificationAction indicates an unknown verification action was specified.
-	ErrInvalidVerificationAction = errors.New("invalid verification action")
+	// ErrInvalidArgument indicates that an invalid argument was provided.
+	ErrInvalidArgument = errors.New("invalid argument")
 
 	// ErrConflictingFlags indicates that mutually exclusive flags were specified.
 	ErrConflictingFlags = errors.New("conflicting flags specified")
+
+	// ErrInvalidVerificationAction indicates an unknown verification action was specified.
+	ErrInvalidVerificationAction = errors.New("invalid verification action")
 
 	// ErrWatchIntervalTooShort indicates that the watch interval is below minimum.
 	ErrWatchIntervalTooShort = errors.New("watch interval too short")
@@ -297,32 +346,12 @@ var (
 	// ErrWatchModeJSONUnsupported indicates that watch mode does not support JSON output.
 	ErrWatchModeJSONUnsupported = errors.New("watch mode does not support JSON output")
 
-	// ErrNoMenuOptions indicates that no options were provided to a menu.
-	ErrNoMenuOptions = errors.New("no menu options provided")
+	// ErrJSONErrorOutput indicates that an error has already been output as JSON.
+	// This ensures a non-zero exit code while preventing duplicate error messages.
+	// Commands should silence cobra's error printing when this is returned.
+	ErrJSONErrorOutput = errors.New("error output as JSON")
 
-	// ErrMenuCanceled indicates that the user canceled a menu operation.
-	ErrMenuCanceled = errors.New("menu canceled by user")
-
-	// ErrInvalidArgument indicates that an invalid argument was provided.
-	ErrInvalidArgument = errors.New("invalid argument")
-
-	// ErrInvalidStatus indicates that a task is in an invalid status for the operation.
-	ErrInvalidStatus = errors.New("invalid task status")
-
-	// ErrApprovalRequired indicates that approval is required but --auto-approve was not provided.
-	ErrApprovalRequired = errors.New("approval required")
-
-	// ErrInteractiveRequired indicates that interactive prompts are required but not available.
-	ErrInteractiveRequired = errors.New("interactive prompt required")
-
-	// ErrWorktreeNotFound indicates the requested worktree does not exist.
-	ErrWorktreeNotFound = errors.New("worktree not found")
-
-	// ErrWorktreeRunnerNotAvailable indicates the worktree runner is not configured.
-	ErrWorktreeRunnerNotAvailable = errors.New("worktree runner not available")
-
-	// ErrRebaseConflict indicates that a rebase operation has conflicts that need manual resolution.
-	ErrRebaseConflict = errors.New("rebase has conflicts")
+	// ========== Upgrade Errors ==========
 
 	// ErrUpgradeDownloadFailed indicates the binary download failed during upgrade.
 	ErrUpgradeDownloadFailed = errors.New("upgrade download failed")
@@ -339,11 +368,10 @@ var (
 	// ErrUpgradeAssetNotFound indicates the required binary asset was not found in the release.
 	ErrUpgradeAssetNotFound = errors.New("binary asset not found for platform")
 
-	// ErrInvalidURL indicates that a URL is malformed or does not match expected format.
-	ErrInvalidURL = errors.New("invalid URL")
+	// ========== System Errors ==========
 
-	// ErrNotADirectory indicates that a path exists but is not a directory.
-	ErrNotADirectory = errors.New("not a directory")
+	// ErrUnsupportedOS indicates the current operating system is not supported.
+	ErrUnsupportedOS = errors.New("unsupported operating system")
 )
 
 // ExitCode2Error wraps an error to indicate exit code 2 should be used.
