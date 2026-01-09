@@ -28,6 +28,60 @@ var (
 	errChdirFailed       = errors.New("chdir to working directory failed")
 )
 
+func TestContainsAny(t *testing.T) {
+	tests := []struct {
+		name    string
+		s       string
+		substrs []string
+		want    bool
+	}{
+		{
+			name:    "empty string and empty substrs",
+			s:       "",
+			substrs: []string{},
+			want:    false,
+		},
+		{
+			name:    "empty substrs",
+			s:       "some error",
+			substrs: []string{},
+			want:    false,
+		},
+		{
+			name:    "contains first substr",
+			s:       "authentication failed",
+			substrs: []string{"authentication", "api key"},
+			want:    true,
+		},
+		{
+			name:    "contains second substr",
+			s:       "invalid api key",
+			substrs: []string{"authentication", "api key"},
+			want:    true,
+		},
+		{
+			name:    "contains none",
+			s:       "network timeout",
+			substrs: []string{"authentication", "api key"},
+			want:    false,
+		},
+		{
+			name:    "case sensitive - no match",
+			s:       "AUTHENTICATION",
+			substrs: []string{"authentication"},
+			want:    false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := containsAny(tt.s, tt.substrs...); got != tt.want {
+				t.Errorf("containsAny(%q, %v) = %v, want %v", tt.s, tt.substrs, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestIsRetryable(t *testing.T) {
 	tests := []struct {
 		name     string
