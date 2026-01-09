@@ -9,6 +9,8 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
+
+	"github.com/mrz1836/atlas/internal/ctxutil"
 )
 
 // ConfigNotificationFlags holds flags specific to the config notifications command.
@@ -51,10 +53,8 @@ func AddConfigNotificationCommand(configCmd *cobra.Command) {
 // runConfigNotification executes the config notifications command.
 func runConfigNotification(ctx context.Context, w io.Writer, flags *ConfigNotificationFlags) error {
 	// Check cancellation at entry
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return err
 	}
 
 	styles := newConfigNotificationStyles()

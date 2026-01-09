@@ -14,6 +14,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/mrz1836/atlas/internal/constants"
+	"github.com/mrz1836/atlas/internal/ctxutil"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 )
 
@@ -94,10 +95,8 @@ func AddConfigCommand(rootCmd *cobra.Command) {
 // runConfigAI executes the config ai command.
 func runConfigAI(ctx context.Context, w io.Writer, flags *ConfigAIFlags) error {
 	// Check cancellation at entry
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return err
 	}
 
 	styles := newConfigAIStyles()

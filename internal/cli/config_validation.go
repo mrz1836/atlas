@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/mrz1836/atlas/internal/config"
+	"github.com/mrz1836/atlas/internal/ctxutil"
 )
 
 // ConfigValidationFlags holds flags specific to the config validation command.
@@ -58,10 +59,8 @@ func AddConfigValidationCommand(configCmd *cobra.Command) {
 // runConfigValidation executes the config validation command.
 func runConfigValidation(ctx context.Context, w io.Writer, flags *ConfigValidationFlags) error {
 	// Check cancellation at entry
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return err
 	}
 
 	styles := newConfigValidationStyles()
