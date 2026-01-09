@@ -38,31 +38,16 @@ func (e *Engine) DispatchFailureByType(ctx context.Context, task *domain.Task, r
 		ciResult = r
 	}
 
+	// Each handler returns error or nil; we always return handled=true when a known type is matched
 	switch failureType {
 	case "ci_failed":
-		if err := e.handleCIFailure(ctx, task, result, ciResult); err != nil {
-			return true, err
-		}
-		return true, nil
-
+		return true, e.handleCIFailure(ctx, task, result, ciResult)
 	case "ci_timeout":
-		if err := e.handleCITimeout(ctx, task, result, ciResult); err != nil {
-			return true, err
-		}
-		return true, nil
-
+		return true, e.handleCITimeout(ctx, task, result, ciResult)
 	case "gh_failed":
-		if err := e.handleGHFailure(ctx, task, result); err != nil {
-			return true, err
-		}
-		return true, nil
-
+		return true, e.handleGHFailure(ctx, task, result)
 	case "ci_fetch_error":
-		if err := e.handleCIFetchErrorFailure(ctx, task, result); err != nil {
-			return true, err
-		}
-		return true, nil
-
+		return true, e.handleCIFetchErrorFailure(ctx, task, result)
 	default:
 		// Unknown failure type, fall back to default handling
 		return false, nil
@@ -73,7 +58,7 @@ func (e *Engine) DispatchFailureByType(ctx context.Context, task *domain.Task, r
 // It transitions the task to CIFailed state and stores failure context.
 func (e *Engine) handleCIFailure(ctx context.Context, task *domain.Task, result *domain.StepResult, ciResult *git.CIWatchResult) error {
 	if err := ctxutil.Canceled(ctx); err != nil {
-		return err
+		return fmt.Errorf("CI failure handling canceled: %w", err)
 	}
 
 	e.logger.Info().
@@ -108,7 +93,7 @@ func (e *Engine) handleCIFailure(ctx context.Context, task *domain.Task, result 
 // It transitions the task to GHFailed state.
 func (e *Engine) handleGHFailure(ctx context.Context, task *domain.Task, result *domain.StepResult) error {
 	if err := ctxutil.Canceled(ctx); err != nil {
-		return err
+		return fmt.Errorf("GitHub failure handling canceled: %w", err)
 	}
 
 	e.logger.Info().
@@ -151,7 +136,7 @@ func (e *Engine) handleGHFailure(ctx context.Context, task *domain.Task, result 
 // It transitions the task to CITimeout state.
 func (e *Engine) handleCITimeout(ctx context.Context, task *domain.Task, result *domain.StepResult, ciResult *git.CIWatchResult) error {
 	if err := ctxutil.Canceled(ctx); err != nil {
-		return err
+		return fmt.Errorf("CI timeout handling canceled: %w", err)
 	}
 
 	logger := e.logger.Info().
@@ -190,7 +175,7 @@ func (e *Engine) handleCITimeout(ctx context.Context, task *domain.Task, result 
 // Transitions to AwaitingApproval to allow user to decide how to proceed.
 func (e *Engine) handleCIFetchErrorFailure(ctx context.Context, task *domain.Task, result *domain.StepResult) error {
 	if err := ctxutil.Canceled(ctx); err != nil {
-		return err
+		return fmt.Errorf("CI fetch error handling canceled: %w", err)
 	}
 
 	e.logger.Info().
@@ -235,7 +220,7 @@ func (e *Engine) handleCIFetchErrorFailure(ctx context.Context, task *domain.Tas
 // ProcessCIFailureAction processes user's CI failure action choice.
 func (e *Engine) ProcessCIFailureAction(ctx context.Context, task *domain.Task, action CIFailureAction) error {
 	if err := ctxutil.Canceled(ctx); err != nil {
-		return err
+		return fmt.Errorf("processing CI failure action canceled: %w", err)
 	}
 
 	if e.ciFailureHandler == nil {
@@ -322,7 +307,7 @@ func (e *Engine) processCIFailureResult(ctx context.Context, task *domain.Task, 
 // ProcessGHFailureAction processes user's GitHub failure action choice.
 func (e *Engine) ProcessGHFailureAction(ctx context.Context, task *domain.Task, action GHFailureAction) error {
 	if err := ctxutil.Canceled(ctx); err != nil {
-		return err
+		return fmt.Errorf("processing GitHub failure action canceled: %w", err)
 	}
 
 	e.logger.Info().
@@ -359,7 +344,7 @@ func (e *Engine) ProcessGHFailureAction(ctx context.Context, task *domain.Task, 
 // ProcessCITimeoutAction processes user's CI timeout action choice.
 func (e *Engine) ProcessCITimeoutAction(ctx context.Context, task *domain.Task, action CITimeoutAction) error {
 	if err := ctxutil.Canceled(ctx); err != nil {
-		return err
+		return fmt.Errorf("processing CI timeout action canceled: %w", err)
 	}
 
 	e.logger.Info().
