@@ -90,15 +90,20 @@ func (h *Handler) handleSignal() {
 }
 
 // listen waits for signals and handles them.
+// It loops continuously to handle multiple signals until Stop() is called
+// or the context is canceled.
 func (h *Handler) listen() {
-	select {
-	case <-h.ctx.Done():
-		// Context was canceled externally
-		return
-	case <-h.done:
-		// Stop() was called - exit cleanly
-		return
-	case <-h.sigChan:
-		h.handleSignal()
+	for {
+		select {
+		case <-h.ctx.Done():
+			// Context was canceled externally
+			return
+		case <-h.done:
+			// Stop() was called - exit cleanly
+			return
+		case <-h.sigChan:
+			h.handleSignal()
+			// Continue listening for more signals
+		}
 	}
 }

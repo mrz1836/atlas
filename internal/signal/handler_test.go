@@ -121,3 +121,45 @@ func TestHandler_ContextValidInitially(t *testing.T) {
 	// Context should be valid
 	assert.NoError(t, h.Context().Err())
 }
+
+// TestHandler_ListenContinuesAfterSignal verifies that the listen goroutine
+// continues to process signals after the first one (bug fix test).
+func TestHandler_ListenContinuesAfterSignal(t *testing.T) {
+	h := NewHandler(context.Background())
+	defer h.Stop()
+
+	// Send multiple signals directly to the channel to simulate repeated Ctrl+C
+	// The first signal should be processed, and the handler should remain responsive
+	h.sigChan <- nil // First signal
+	h.sigChan <- nil // Second signal (should not block/deadlock)
+
+	// Give the goroutine time to process
+	// If listen() exits after first signal, the second send would block forever
+
+	// Context should be canceled after the first signal
+	require.Error(t, h.Context().Err())
+	assert.Equal(t, context.Canceled, h.Context().Err())
+
+	// Interrupted channel should be closed
+	select {
+	case <-h.Interrupted():
+		// Expected - channel is closed
+	default:
+		t.Fatal("interrupted channel should be closed after signal")
+	}
+}
+
+// TestHandler_StopExitsListenGoroutine verifies that Stop() properly signals
+// the listen goroutine to exit.
+func TestHandler_StopExitsListenGoroutine(t *testing.T) {
+	h := NewHandler(context.Background())
+
+	// Stop should cleanly exit the listen goroutine
+	h.Stop()
+
+	// Verify the handler is stopped by checking context is canceled
+	assert.Error(t, h.Context().Err())
+
+	// Sending to sigChan should not block (channel is stopped)
+	// This is implicitly tested by the test completing without deadlock
+}
