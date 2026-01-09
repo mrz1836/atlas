@@ -19,6 +19,7 @@ import (
 	"golang.org/x/text/language"
 
 	"github.com/mrz1836/atlas/internal/ai"
+	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/domain"
 	"github.com/mrz1836/atlas/internal/errors"
 	"github.com/mrz1836/atlas/internal/git"
@@ -221,7 +222,7 @@ func (e *VerifyExecutor) Execute(ctx context.Context, task *domain.Task, step *d
 		return &domain.StepResult{
 			StepIndex:   task.CurrentStep,
 			StepName:    step.Name,
-			Status:      "failed",
+			Status:      constants.StepStatusFailed,
 			StartedAt:   startTime,
 			CompletedAt: time.Now(),
 			DurationMs:  elapsed.Milliseconds(),
@@ -262,7 +263,7 @@ func (e *VerifyExecutor) Execute(ctx context.Context, task *domain.Task, step *d
 	return &domain.StepResult{
 		StepIndex:   task.CurrentStep,
 		StepName:    step.Name,
-		Status:      "success",
+		Status:      constants.StepStatusSuccess,
 		StartedAt:   startTime,
 		CompletedAt: time.Now(),
 		DurationMs:  elapsed.Milliseconds(),

@@ -829,11 +829,11 @@ func (r *CLIGitHubRunner) mapPermanentCIError(errType PRErrorType, err error) er
 		return fmt.Errorf("CI fetch failed - PR not found: %w", atlaserrors.ErrPRNotFound)
 	case PRErrorNone, PRErrorRateLimit, PRErrorNetwork, PRErrorNoChecksYet, PRErrorOther:
 		// For any other error type (including those that should have been handled earlier),
-		// return the original error
-		return err
+		// return with context
+		return fmt.Errorf("CI fetch failed: %w", err)
 	default:
 		// Fallback for any future error types
-		return err
+		return fmt.Errorf("CI fetch failed (unknown error type): %w", err)
 	}
 }
 

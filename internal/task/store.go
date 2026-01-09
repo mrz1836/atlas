@@ -654,7 +654,7 @@ func (s *FileStore) saveNextVersionedFile(artifactDir, cleanBaseName string, dat
 
 		version++
 		// Safety limit to prevent infinite loop
-		if version > 10000 {
+		if version > constants.MaxVersionNumber {
 			return "", fmt.Errorf("failed to save versioned artifact: %w", atlaserrors.ErrTooManyVersions)
 		}
 	}
@@ -734,27 +734,32 @@ func (s *FileStore) acquireLock(ctx context.Context, workspaceName, taskID strin
 		return nil, fmt.Errorf("failed to open lock file: %w", err)
 	}
 
-	// Try to acquire lock with timeout
+	// Try to acquire lock immediately first
+	if err := flock.Exclusive(f.Fd()); err == nil {
+		return f, nil
+	}
+
+	// Use ticker for retry loop - more idiomatic than sleep-based loop
+	ticker := time.NewTicker(constants.LockRetryInterval)
+	defer ticker.Stop()
+
 	deadline := time.Now().Add(LockTimeout)
 	for {
-		if err := ctxutil.Canceled(ctx); err != nil {
+		select {
+		case <-ctx.Done():
 			_ = f.Close()
-			return nil, err
-		}
+			return nil, ctx.Err()
+		case <-ticker.C:
+			// Attempt to acquire exclusive non-blocking lock
+			if err := flock.Exclusive(f.Fd()); err == nil {
+				return f, nil
+			}
 
-		// Attempt to acquire exclusive non-blocking lock
-		err := flock.Exclusive(f.Fd())
-		if err == nil {
-			return f, nil
+			if time.Now().After(deadline) {
+				_ = f.Close()
+				return nil, fmt.Errorf("failed to acquire lock: %w", atlaserrors.ErrLockTimeout)
+			}
 		}
-
-		if time.Now().After(deadline) {
-			_ = f.Close()
-			return nil, fmt.Errorf("failed to acquire lock: %w", atlaserrors.ErrLockTimeout)
-		}
-
-		// Wait a bit before retrying
-		time.Sleep(50 * time.Millisecond)
 	}
 }
 

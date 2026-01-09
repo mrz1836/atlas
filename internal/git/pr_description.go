@@ -15,6 +15,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/mrz1836/atlas/internal/ai"
+	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/ctxutil"
 	"github.com/mrz1836/atlas/internal/domain"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
@@ -702,13 +703,14 @@ func formatPRTitle(commitType, scope, description string) string {
 func summarizeDescription(taskDesc string, commits []string) string {
 	// Prefer task description
 	if taskDesc != "" {
-		// Take first sentence or first 50 chars
+		// Take first sentence or first MaxPRSummaryLength chars
 		summary := taskDesc
 		if idx := strings.Index(summary, "."); idx > 0 && idx < 60 {
 			summary = summary[:idx]
 		}
-		if len(summary) > 50 {
-			summary = summary[:47] + "..."
+		if len(summary) > constants.MaxPRSummaryLength {
+			truncLen := constants.MaxPRSummaryLength - len(constants.PRSummaryTruncationSuffix)
+			summary = summary[:truncLen] + constants.PRSummaryTruncationSuffix
 		}
 		return lowercaseFirst(strings.TrimSpace(summary))
 	}
@@ -717,11 +719,12 @@ func summarizeDescription(taskDesc string, commits []string) string {
 	if len(commits) > 0 {
 		summary := commits[0]
 		// Strip conventional commit prefix if present
-		if idx := strings.Index(summary, ": "); idx > 0 && idx < 20 {
+		if idx := strings.Index(summary, ": "); idx > 0 && idx < constants.ConventionalCommitPrefixMaxLength {
 			summary = summary[idx+2:]
 		}
-		if len(summary) > 50 {
-			summary = summary[:47] + "..."
+		if len(summary) > constants.MaxPRSummaryLength {
+			truncLen := constants.MaxPRSummaryLength - len(constants.PRSummaryTruncationSuffix)
+			summary = summary[:truncLen] + constants.PRSummaryTruncationSuffix
 		}
 		return lowercaseFirst(strings.TrimSpace(summary))
 	}

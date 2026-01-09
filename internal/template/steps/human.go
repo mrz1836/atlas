@@ -7,6 +7,7 @@ import (
 
 	"github.com/rs/zerolog"
 
+	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/domain"
 )
 
@@ -56,7 +57,7 @@ func (e *HumanExecutor) Execute(ctx context.Context, task *domain.Task, step *do
 	return &domain.StepResult{
 		StepIndex:   task.CurrentStep,
 		StepName:    step.Name,
-		Status:      "awaiting_approval",
+		Status:      constants.StepStatusAwaitingApproval,
 		StartedAt:   now,
 		CompletedAt: now,
 		DurationMs:  0,

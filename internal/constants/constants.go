@@ -194,3 +194,42 @@ const (
 	// This is used when a step is intentionally not executed (e.g., git push/PR when no changes).
 	StepStatusSkipped = "skipped"
 )
+
+// Versioning and storage limits.
+const (
+	// MaxVersionNumber is the maximum number of artifact versions before erroring.
+	// This prevents runaway version creation (e.g., infinite loops creating artifacts).
+	MaxVersionNumber = 10000
+
+	// LockRetryInterval is the interval between lock acquisition retry attempts.
+	LockRetryInterval = 50 * time.Millisecond
+)
+
+// Process management timeouts.
+const (
+	// ProcessTerminationTimeout is the duration to wait for graceful process termination
+	// before escalating to SIGKILL during force-abandon operations.
+	ProcessTerminationTimeout = 2 * time.Second
+)
+
+// PR description formatting constants.
+const (
+	// MaxPRSummaryLength is the maximum length for PR title summaries.
+	MaxPRSummaryLength = 50
+
+	// PRSummaryTruncationSuffix is the suffix added when truncating long summaries.
+	PRSummaryTruncationSuffix = "..."
+
+	// ConventionalCommitPrefixMaxLength is the maximum length to search for
+	// conventional commit prefix (e.g., "feat: ") when parsing commit messages.
+	ConventionalCommitPrefixMaxLength = 20
+)
+
+// Git operation retry counts.
+const (
+	// GitPushRetryCount is the number of retry attempts for git push operations.
+	GitPushRetryCount = 3
+
+	// GitPRRetryCount is the number of retry attempts for git PR creation operations.
+	GitPRRetryCount = 2
+)

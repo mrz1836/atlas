@@ -8,6 +8,7 @@ import (
 
 	"github.com/rs/zerolog"
 
+	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/domain"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 	"github.com/mrz1836/atlas/internal/validation"
@@ -306,7 +307,7 @@ func (e *ValidationExecutor) buildDetectOnlyResult(task *domain.Task, step *doma
 	return &domain.StepResult{
 		StepIndex:   task.CurrentStep,
 		StepName:    step.Name,
-		Status:      "success",
+		Status:      constants.StepStatusSuccess,
 		StartedAt:   startTime,
 		CompletedAt: time.Now(),
 		DurationMs:  elapsed.Milliseconds(),
@@ -330,7 +331,7 @@ func (e *ValidationExecutor) buildErrorResult(task *domain.Task, step *domain.St
 	return &domain.StepResult{
 		StepIndex:   task.CurrentStep,
 		StepName:    step.Name,
-		Status:      "failed",
+		Status:      constants.StepStatusFailed,
 		StartedAt:   startTime,
 		CompletedAt: time.Now(),
 		DurationMs:  elapsed.Milliseconds(),
@@ -352,7 +353,7 @@ func (e *ValidationExecutor) buildSuccessResult(task *domain.Task, step *domain.
 	return &domain.StepResult{
 		StepIndex:   task.CurrentStep,
 		StepName:    step.Name,
-		Status:      "success",
+		Status:      constants.StepStatusSuccess,
 		StartedAt:   startTime,
 		CompletedAt: time.Now(),
 		DurationMs:  elapsed.Milliseconds(),

@@ -315,7 +315,7 @@ func (e *CIExecutor) handleSuccess(result *git.CIWatchResult, t *domain.Task, st
 	return &domain.StepResult{
 		StepIndex:    t.CurrentStep,
 		StepName:     step.Name,
-		Status:       "success",
+		Status:       constants.StepStatusSuccess,
 		StartedAt:    startTime,
 		CompletedAt:  completedAt,
 		DurationMs:   completedAt.Sub(startTime).Milliseconds(),
@@ -339,7 +339,7 @@ func (e *CIExecutor) handleFailure(result *git.CIWatchResult, t *domain.Task, st
 		return &domain.StepResult{
 			StepIndex:    t.CurrentStep,
 			StepName:     step.Name,
-			Status:       "failed",
+			Status:       constants.StepStatusFailed,
 			StartedAt:    startTime,
 			CompletedAt:  completedAt,
 			DurationMs:   completedAt.Sub(startTime).Milliseconds(),
@@ -353,7 +353,7 @@ func (e *CIExecutor) handleFailure(result *git.CIWatchResult, t *domain.Task, st
 	return &domain.StepResult{
 		StepIndex:    t.CurrentStep,
 		StepName:     step.Name,
-		Status:       "awaiting_approval",
+		Status:       constants.StepStatusAwaitingApproval,
 		StartedAt:    startTime,
 		CompletedAt:  completedAt,
 		DurationMs:   completedAt.Sub(startTime).Milliseconds(),
@@ -372,7 +372,7 @@ func (e *CIExecutor) handleTimeout(result *git.CIWatchResult, t *domain.Task, st
 	return &domain.StepResult{
 		StepIndex:    t.CurrentStep,
 		StepName:     step.Name,
-		Status:       "awaiting_approval",
+		Status:       constants.StepStatusAwaitingApproval,
 		StartedAt:    startTime,
 		CompletedAt:  completedAt,
 		DurationMs:   completedAt.Sub(startTime).Milliseconds(),
@@ -400,7 +400,7 @@ func (e *CIExecutor) handleFetchError(result *git.CIWatchResult, t *domain.Task,
 	return &domain.StepResult{
 		StepIndex:    t.CurrentStep,
 		StepName:     step.Name,
-		Status:       "awaiting_approval",
+		Status:       constants.StepStatusAwaitingApproval,
 		StartedAt:    startTime,
 		CompletedAt:  completedAt,
 		DurationMs:   completedAt.Sub(startTime).Milliseconds(),
@@ -419,7 +419,7 @@ func (e *CIExecutor) buildErrorResult(t *domain.Task, step *domain.StepDefinitio
 	return &domain.StepResult{
 		StepIndex:   t.CurrentStep,
 		StepName:    step.Name,
-		Status:      "failed",
+		Status:      constants.StepStatusFailed,
 		StartedAt:   startTime,
 		CompletedAt: completedAt,
 		DurationMs:  completedAt.Sub(startTime).Milliseconds(),

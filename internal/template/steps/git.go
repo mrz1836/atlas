@@ -261,7 +261,7 @@ func (e *GitExecutor) executeCommit(ctx context.Context, step *domain.StepDefini
 	// The garbage file info is stored in the step output.
 	if analysis.HasGarbage {
 		return &domain.StepResult{
-			Status: "awaiting_approval",
+			Status: constants.StepStatusAwaitingApproval,
 			Output: formatGarbageWarning(analysis.GarbageFiles),
 		}, nil
 	}
@@ -307,7 +307,7 @@ func (e *GitExecutor) executeCommit(ctx context.Context, step *domain.StepDefini
 	}
 
 	return &domain.StepResult{
-		Status:       "success",
+		Status:       constants.StepStatusSuccess,
 		Output:       fmt.Sprintf("Created %d commit(s), %d files changed", len(result.Commits), result.TotalFiles),
 		FilesChanged: filesChanged,
 		ArtifactPath: joinArtifactPaths(artifactPaths),
@@ -346,7 +346,7 @@ func (e *GitExecutor) executePush(ctx context.Context, step *domain.StepDefiniti
 		// Check for permanent auth failure
 		if result != nil && result.ErrorType == git.PushErrorAuth {
 			return &domain.StepResult{
-				Status: "failed",
+				Status: constants.StepStatusFailed,
 				Output: fmt.Sprintf("Push failed (auth): %v", err),
 				Error:  fmt.Sprintf("gh_failed: %v", err),
 			}, nil
@@ -354,7 +354,7 @@ func (e *GitExecutor) executePush(ctx context.Context, step *domain.StepDefiniti
 		// Check for non-fast-forward rejection (remote has commits local doesn't)
 		if result != nil && result.ErrorType == git.PushErrorNonFastForward {
 			return &domain.StepResult{
-				Status: "failed",
+				Status: constants.StepStatusFailed,
 				Output: "Push rejected: remote branch has newer commits. Your local commits are preserved.",
 				Error:  "gh_failed: non_fast_forward",
 			}, nil
@@ -371,7 +371,7 @@ func (e *GitExecutor) executePush(ctx context.Context, step *domain.StepDefiniti
 	}
 
 	return &domain.StepResult{
-		Status:       "success",
+		Status:       constants.StepStatusSuccess,
 		Output:       output,
 		ArtifactPath: artifactPath,
 	}, nil
@@ -415,7 +415,7 @@ func (e *GitExecutor) executeCreatePR(ctx context.Context, step *domain.StepDefi
 	// Format output with PR number and URL on separate lines for better display
 	// The UI layer can detect the URL and make it clickable
 	return &domain.StepResult{
-		Status:       "success",
+		Status:       constants.StepStatusSuccess,
 		Output:       fmt.Sprintf("Created PR #%d\n%s", prResult.Number, prResult.URL),
 		ArtifactPath: joinArtifactPaths(artifactPaths),
 	}, nil
@@ -510,7 +510,7 @@ func (e *GitExecutor) handlePRCreationError(prResult *git.PRResult, err error) (
 	// Check for rate limit or auth errors
 	if prResult != nil && (prResult.ErrorType == git.PRErrorRateLimit || prResult.ErrorType == git.PRErrorAuth) {
 		return &domain.StepResult{
-			Status: "failed",
+			Status: constants.StepStatusFailed,
 			Output: fmt.Sprintf("PR creation failed: %v", err),
 			Error:  fmt.Sprintf("gh_failed: %v", err),
 		}, nil
@@ -548,7 +548,7 @@ func (e *GitExecutor) executeMergePR(ctx context.Context, step *domain.StepDefin
 	prNumber := e.getPRNumber(step.Config, task)
 	if prNumber <= 0 {
 		return &domain.StepResult{
-			Status: "failed",
+			Status: constants.StepStatusFailed,
 			Output: "PR number not found in config or task metadata",
 			Error:  "missing pr_number",
 		}, nil
@@ -584,7 +584,7 @@ func (e *GitExecutor) executeMergePR(ctx context.Context, step *domain.StepDefin
 	// Execute merge
 	if err := e.hubRunner.MergePR(ctx, prNumber, mergeMethod, adminBypass, deleteBranch); err != nil {
 		return &domain.StepResult{
-			Status: "failed",
+			Status: constants.StepStatusFailed,
 			Output: fmt.Sprintf("Failed to merge PR #%d: %v", prNumber, err),
 			Error:  err.Error(),
 		}, nil
@@ -601,7 +601,7 @@ func (e *GitExecutor) executeMergePR(ctx context.Context, step *domain.StepDefin
 	artifactPath := e.artifactHelper.SaveJSON(ctx, task, step.Name, constants.ArtifactMergeResult, result)
 
 	return &domain.StepResult{
-		Status:       "success",
+		Status:       constants.StepStatusSuccess,
 		Output:       fmt.Sprintf("Merged PR #%d using %s", prNumber, mergeMethod),
 		ArtifactPath: artifactPath,
 	}, nil
@@ -619,7 +619,7 @@ func (e *GitExecutor) executeAddReview(ctx context.Context, step *domain.StepDef
 	prNumber := e.getPRNumber(step.Config, task)
 	if prNumber <= 0 {
 		return &domain.StepResult{
-			Status: "failed",
+			Status: constants.StepStatusFailed,
 			Output: "PR number not found in config or task metadata",
 			Error:  "missing pr_number",
 		}, nil
@@ -646,7 +646,7 @@ func (e *GitExecutor) executeAddReview(ctx context.Context, step *domain.StepDef
 
 	if err := e.hubRunner.AddPRReview(ctx, prNumber, body, event); err != nil {
 		return &domain.StepResult{
-			Status: "failed",
+			Status: constants.StepStatusFailed,
 			Output: fmt.Sprintf("Failed to add review to PR #%d: %v", prNumber, err),
 			Error:  err.Error(),
 		}, nil
@@ -662,7 +662,7 @@ func (e *GitExecutor) executeAddReview(ctx context.Context, step *domain.StepDef
 	artifactPath := e.artifactHelper.SaveJSON(ctx, task, step.Name, constants.ArtifactReviewResult, result)
 
 	return &domain.StepResult{
-		Status:       "success",
+		Status:       constants.StepStatusSuccess,
 		Output:       fmt.Sprintf("Added %s review to PR #%d", event, prNumber),
 		ArtifactPath: artifactPath,
 	}, nil
@@ -680,7 +680,7 @@ func (e *GitExecutor) executeAddComment(ctx context.Context, step *domain.StepDe
 	prNumber := e.getPRNumber(step.Config, task)
 	if prNumber <= 0 {
 		return &domain.StepResult{
-			Status: "failed",
+			Status: constants.StepStatusFailed,
 			Output: "PR number not found in config or task metadata",
 			Error:  "missing pr_number",
 		}, nil
@@ -689,7 +689,7 @@ func (e *GitExecutor) executeAddComment(ctx context.Context, step *domain.StepDe
 	body, ok := step.Config["body"].(string)
 	if !ok || body == "" {
 		return &domain.StepResult{
-			Status: "failed",
+			Status: constants.StepStatusFailed,
 			Output: "Comment body is required",
 			Error:  "missing body",
 		}, nil
@@ -701,7 +701,7 @@ func (e *GitExecutor) executeAddComment(ctx context.Context, step *domain.StepDe
 
 	if err := e.hubRunner.AddPRComment(ctx, prNumber, body); err != nil {
 		return &domain.StepResult{
-			Status: "failed",
+			Status: constants.StepStatusFailed,
 			Output: fmt.Sprintf("Failed to add comment to PR #%d: %v", prNumber, err),
 			Error:  err.Error(),
 		}, nil
@@ -716,7 +716,7 @@ func (e *GitExecutor) executeAddComment(ctx context.Context, step *domain.StepDe
 	artifactPath := e.artifactHelper.SaveJSON(ctx, task, step.Name, constants.ArtifactCommentResult, result)
 
 	return &domain.StepResult{
-		Status:       "success",
+		Status:       constants.StepStatusSuccess,
 		Output:       fmt.Sprintf("Added comment to PR #%d", prNumber),
 		ArtifactPath: artifactPath,
 	}, nil

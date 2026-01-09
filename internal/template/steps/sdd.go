@@ -12,6 +12,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/mrz1836/atlas/internal/ai"
+	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/domain"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 )
@@ -125,7 +126,7 @@ func (e *SDDExecutor) Execute(ctx context.Context, task *domain.Task, step *doma
 		return &domain.StepResult{
 			StepIndex:   task.CurrentStep,
 			StepName:    step.Name,
-			Status:      "failed",
+			Status:      constants.StepStatusFailed,
 			StartedAt:   startTime,
 			CompletedAt: time.Now(),
 			DurationMs:  time.Since(startTime).Milliseconds(),
@@ -188,7 +189,7 @@ func (e *SDDExecutor) Execute(ctx context.Context, task *domain.Task, step *doma
 		return &domain.StepResult{
 			StepIndex:   task.CurrentStep,
 			StepName:    step.Name,
-			Status:      "failed",
+			Status:      constants.StepStatusFailed,
 			StartedAt:   startTime,
 			CompletedAt: time.Now(),
 			DurationMs:  elapsed.Milliseconds(),
@@ -208,7 +209,7 @@ func (e *SDDExecutor) Execute(ctx context.Context, task *domain.Task, step *doma
 		return &domain.StepResult{
 			StepIndex:   task.CurrentStep,
 			StepName:    step.Name,
-			Status:      "failed",
+			Status:      constants.StepStatusFailed,
 			StartedAt:   startTime,
 			CompletedAt: time.Now(),
 			DurationMs:  time.Since(startTime).Milliseconds(),
@@ -242,7 +243,7 @@ func (e *SDDExecutor) Execute(ctx context.Context, task *domain.Task, step *doma
 	return &domain.StepResult{
 		StepIndex:    task.CurrentStep,
 		StepName:     step.Name,
-		Status:       "success",
+		Status:       constants.StepStatusSuccess,
 		StartedAt:    startTime,
 		CompletedAt:  time.Now(),
 		DurationMs:   elapsed.Milliseconds(),

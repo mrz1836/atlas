@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"time"
 
+	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/ctxutil"
 	"github.com/mrz1836/atlas/internal/domain"
 	"github.com/mrz1836/atlas/internal/validation"
@@ -237,7 +238,7 @@ func (e *Engine) convertRetryResultToStepResult(
 	return &domain.StepResult{
 		StepIndex:   task.CurrentStep,
 		StepName:    step.Name,
-		Status:      "success",
+		Status:      constants.StepStatusSuccess,
 		StartedAt:   startTime,
 		CompletedAt: now,
 		DurationMs:  retryResult.PipelineResult.DurationMs,

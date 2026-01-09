@@ -9,6 +9,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/mrz1836/atlas/internal/ai"
+	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/domain"
 	"github.com/mrz1836/atlas/internal/validation"
 )
@@ -115,7 +116,7 @@ func (e *AIExecutor) Execute(ctx context.Context, task *domain.Task, step *domai
 		return &domain.StepResult{
 			StepIndex:   task.CurrentStep,
 			StepName:    step.Name,
-			Status:      "failed",
+			Status:      constants.StepStatusFailed,
 			StartedAt:   startTime,
 			CompletedAt: time.Now(),
 			DurationMs:  elapsed.Milliseconds(),
@@ -136,7 +137,7 @@ func (e *AIExecutor) Execute(ctx context.Context, task *domain.Task, step *domai
 	return &domain.StepResult{
 		StepIndex:    task.CurrentStep,
 		StepName:     step.Name,
-		Status:       "success",
+		Status:       constants.StepStatusSuccess,
 		StartedAt:    startTime,
 		CompletedAt:  time.Now(),
 		DurationMs:   elapsed.Milliseconds(),

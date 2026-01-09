@@ -168,7 +168,7 @@ func (e *Engine) Start(ctx context.Context, workspaceName, branch, worktreePath 
 		taskSteps[i] = domain.Step{
 			Name:     def.Name,
 			Type:     def.Type,
-			Status:   "pending",
+			Status:   constants.StepStatusPending,
 			Attempts: 0,
 		}
 	}
@@ -283,7 +283,7 @@ func (e *Engine) ExecuteStep(ctx context.Context, task *domain.Task, step *domai
 
 	// Update task step status (only for sequential execution)
 	if task.CurrentStep < len(task.Steps) {
-		task.Steps[task.CurrentStep].Status = "running"
+		task.Steps[task.CurrentStep].Status = constants.StepStatusRunning
 		now := startTime
 		task.Steps[task.CurrentStep].StartedAt = &now
 		task.Steps[task.CurrentStep].Attempts++
@@ -315,7 +315,7 @@ func (e *Engine) HandleStepResult(ctx context.Context, task *domain.Task, result
 		result = &domain.StepResult{
 			StepIndex: task.CurrentStep,
 			StepName:  step.Name,
-			Status:    "failed",
+			Status:    constants.StepStatusFailed,
 		}
 	}
 
@@ -438,7 +438,7 @@ func (e *Engine) terminateTrackedProcesses(task *domain.Task, log zerolog.Logger
 	}
 
 	pm := NewProcessManager(log)
-	terminated, errs := pm.TerminateProcesses(task.RunningProcesses, 2*time.Second)
+	terminated, errs := pm.TerminateProcesses(task.RunningProcesses, constants.ProcessTerminationTimeout)
 
 	log.Info().
 		Int("total_processes", len(task.RunningProcesses)).
@@ -906,7 +906,7 @@ func (e *Engine) handleStepError(ctx context.Context, task *domain.Task, step *d
 
 	// Update task step status
 	if task.CurrentStep < len(task.Steps) {
-		task.Steps[task.CurrentStep].Status = "failed"
+		task.Steps[task.CurrentStep].Status = constants.StepStatusFailed
 		task.Steps[task.CurrentStep].Error = err.Error()
 		now := time.Now().UTC()
 		task.Steps[task.CurrentStep].CompletedAt = &now

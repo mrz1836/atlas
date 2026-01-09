@@ -145,7 +145,7 @@ func (r *CLIRunner) CreateBranch(ctx context.Context, name, baseBranch string) e
 	// Check if branch already exists
 	exists, err := r.BranchExists(ctx, name)
 	if err != nil {
-		return err
+		return fmt.Errorf("checking branch existence: %w", err)
 	}
 	if exists {
 		return fmt.Errorf("branch '%s' already exists: %w", name, atlaserrors.ErrBranchExists)

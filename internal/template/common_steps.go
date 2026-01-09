@@ -1,8 +1,6 @@
 package template
 
 import (
-	"time"
-
 	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/domain"
 )
@@ -26,7 +24,7 @@ func newGitCommitStep(description string) domain.StepDefinition {
 		Type:        domain.StepTypeGit,
 		Description: description,
 		Required:    true,
-		Timeout:     1 * time.Minute,
+		Timeout:     constants.GitCommitTimeout,
 		Config: map[string]any{
 			"operation": domain.GitOpCommit,
 		},
@@ -41,8 +39,8 @@ func newGitPushStep() domain.StepDefinition {
 		Type:        domain.StepTypeGit,
 		Description: "Push branch to remote",
 		Required:    true,
-		Timeout:     2 * time.Minute,
-		RetryCount:  3,
+		Timeout:     constants.GitPushTimeout,
+		RetryCount:  constants.GitPushRetryCount,
 		Config: map[string]any{
 			"operation": domain.GitOpPush,
 		},
@@ -57,8 +55,8 @@ func newGitPRStep() domain.StepDefinition {
 		Type:        domain.StepTypeGit,
 		Description: "Create pull request",
 		Required:    true,
-		Timeout:     2 * time.Minute,
-		RetryCount:  2,
+		Timeout:     constants.GitPRTimeout,
+		RetryCount:  constants.GitPRRetryCount,
 		Config: map[string]any{
 			"operation": domain.GitOpCreatePR,
 		},
