@@ -14,6 +14,21 @@ import (
 	"github.com/mrz1836/atlas/internal/errors"
 )
 
+// mergeStringMaps merges src map into dst map, creating dst if nil.
+// Returns the merged map (which may be the same as dst if it was non-nil).
+func mergeStringMaps(dst, src map[string]string) map[string]string {
+	if len(src) == 0 {
+		return dst
+	}
+	if dst == nil {
+		dst = make(map[string]string, len(src))
+	}
+	for k, v := range src {
+		dst[k] = v
+	}
+	return dst
+}
+
 // newViperInstance creates a new Viper instance with standard ATLAS configuration.
 // This includes environment variable prefix (ATLAS_), key replacer, and defaults.
 func newViperInstance() *viper.Viper {
@@ -328,14 +343,7 @@ func applyAIOverrides(cfg, overrides *Config) {
 	if overrides.AI.Model != "" {
 		cfg.AI.Model = overrides.AI.Model
 	}
-	if len(overrides.AI.APIKeyEnvVars) > 0 {
-		if cfg.AI.APIKeyEnvVars == nil {
-			cfg.AI.APIKeyEnvVars = make(map[string]string)
-		}
-		for k, v := range overrides.AI.APIKeyEnvVars {
-			cfg.AI.APIKeyEnvVars[k] = v
-		}
-	}
+	cfg.AI.APIKeyEnvVars = mergeStringMaps(cfg.AI.APIKeyEnvVars, overrides.AI.APIKeyEnvVars)
 	if overrides.AI.Timeout != 0 {
 		cfg.AI.Timeout = overrides.AI.Timeout
 	}
@@ -350,14 +358,7 @@ func applyTemplatesOverrides(cfg, overrides *Config) {
 	if overrides.Templates.DefaultTemplate != "" {
 		cfg.Templates.DefaultTemplate = overrides.Templates.DefaultTemplate
 	}
-	if len(overrides.Templates.CustomTemplates) > 0 {
-		if cfg.Templates.CustomTemplates == nil {
-			cfg.Templates.CustomTemplates = make(map[string]string)
-		}
-		for k, v := range overrides.Templates.CustomTemplates {
-			cfg.Templates.CustomTemplates[k] = v
-		}
-	}
+	cfg.Templates.CustomTemplates = mergeStringMaps(cfg.Templates.CustomTemplates, overrides.Templates.CustomTemplates)
 }
 
 // applyValidationOverrides applies validation-related overrides to the config.

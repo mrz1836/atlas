@@ -421,85 +421,72 @@ func (d *DefaultToolDetector) detectTool(ctx context.Context, cfg toolConfig) To
 // Version parsing functions for each tool.
 // All functions use pre-compiled regexes defined at package level for performance.
 
-// parseGoVersion parses "go version go1.24.2 darwin/arm64" → "1.24.2"
-func parseGoVersion(output string) string {
-	if matches := goVersionRe.FindStringSubmatch(output); len(matches) >= 2 {
+// extractVersionWithRegex extracts a version string using a single regex pattern.
+// Returns the first captured group if matched, empty string otherwise.
+func extractVersionWithRegex(output string, re *regexp.Regexp) string {
+	if matches := re.FindStringSubmatch(output); len(matches) >= 2 {
 		return matches[1]
 	}
 	return ""
+}
+
+// extractVersionWithPatterns extracts a version string by trying multiple regex patterns.
+// Returns the first captured group from the first matching pattern, empty string if none match.
+func extractVersionWithPatterns(output string, patterns []*regexp.Regexp) string {
+	for _, re := range patterns {
+		if version := extractVersionWithRegex(output, re); version != "" {
+			return version
+		}
+	}
+	return ""
+}
+
+// parseGoVersion parses "go version go1.24.2 darwin/arm64" → "1.24.2"
+func parseGoVersion(output string) string {
+	return extractVersionWithRegex(output, goVersionRe)
 }
 
 // parseGitVersion parses "git version 2.39.0" → "2.39.0"
 func parseGitVersion(output string) string {
-	if matches := gitVersionRe.FindStringSubmatch(output); len(matches) >= 2 {
-		return matches[1]
-	}
-	return ""
+	return extractVersionWithRegex(output, gitVersionRe)
 }
 
 // parseGHVersion parses "gh version 2.62.0 (2024-11-06)" → "2.62.0"
 func parseGHVersion(output string) string {
-	if matches := ghVersionRe.FindStringSubmatch(output); len(matches) >= 2 {
-		return matches[1]
-	}
-	return ""
+	return extractVersionWithRegex(output, ghVersionRe)
 }
 
 // parseUVVersion parses "uv 0.5.14 (bb7af57b8 2025-01-03)" → "0.5.14"
 func parseUVVersion(output string) string {
-	if matches := uvVersionRe.FindStringSubmatch(output); len(matches) >= 2 {
-		return matches[1]
-	}
-	return ""
+	return extractVersionWithRegex(output, uvVersionRe)
 }
 
 // parseClaudeVersion parses various Claude version formats.
 // Examples: "Claude Code 2.0.76", "claude-code 2.0.76", "2.0.76"
 func parseClaudeVersion(output string) string {
-	for _, re := range claudeVersionPatterns {
-		if matches := re.FindStringSubmatch(output); len(matches) >= 2 {
-			return matches[1]
-		}
-	}
-	return ""
+	return extractVersionWithPatterns(output, claudeVersionPatterns)
 }
 
 // parseMageXVersion parses mage-x version output.
 func parseMageXVersion(output string) string {
-	if matches := mageVersionRe.FindStringSubmatch(output); len(matches) >= 2 {
-		return matches[1]
-	}
-	return ""
+	return extractVersionWithRegex(output, mageVersionRe)
 }
 
 // parseGeminiVersion parses various Gemini CLI version formats.
 // Examples: "gemini 0.22.5", "gemini-cli 0.22.5", "0.22.5"
 func parseGeminiVersion(output string) string {
-	for _, re := range geminiVersionPatterns {
-		if matches := re.FindStringSubmatch(output); len(matches) >= 2 {
-			return matches[1]
-		}
-	}
-	return ""
+	return extractVersionWithPatterns(output, geminiVersionPatterns)
 }
 
 // parseCodexVersion parses various Codex CLI version formats.
 // Examples: "codex 0.77.0", "Codex CLI v0.77.0", "0.77.0"
 func parseCodexVersion(output string) string {
-	for _, re := range codexVersionPatterns {
-		if matches := re.FindStringSubmatch(output); len(matches) >= 2 {
-			return matches[1]
-		}
-	}
-	return ""
+	return extractVersionWithPatterns(output, codexVersionPatterns)
 }
 
 // parseGenericVersion extracts a version number from generic output.
 func parseGenericVersion(output string) string {
-	if matches := genericVersionRe.FindStringSubmatch(output); len(matches) >= 2 {
-		return matches[1]
-	}
-	return ""
+	return extractVersionWithRegex(output, genericVersionRe)
 }
 
 // CompareVersions compares two semantic versions.
