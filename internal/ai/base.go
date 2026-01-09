@@ -3,12 +3,14 @@ package ai
 import (
 	"context"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/ctxutil"
 	"github.com/mrz1836/atlas/internal/domain"
+	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 )
 
 // ExecuteFunc is the function signature for provider-specific command execution.
@@ -20,6 +22,20 @@ type BaseRunner struct {
 	Config   *config.AIConfig
 	Executor CommandExecutor
 	ErrType  error // Provider-specific error type for wrapping
+}
+
+// ValidateWorkingDir checks if the working directory exists.
+// Returns nil if the directory exists or is empty (current dir).
+// This prevents wasteful retry attempts when the worktree has been deleted.
+func (b *BaseRunner) ValidateWorkingDir(workingDir string) error {
+	if workingDir == "" {
+		return nil
+	}
+	if _, err := os.Stat(workingDir); os.IsNotExist(err) {
+		return fmt.Errorf("working directory missing: %s: %w",
+			workingDir, atlaserrors.ErrWorktreeNotFound)
+	}
+	return nil
 }
 
 // ResolveTimeout determines the timeout to use for a request.

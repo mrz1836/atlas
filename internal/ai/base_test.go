@@ -272,3 +272,37 @@ func TestBaseRunner_HandleProviderExecutionError(t *testing.T) {
 		assert.Contains(t, err.Error(), "stderr output")
 	})
 }
+
+func TestBaseRunner_ValidateWorkingDir(t *testing.T) {
+	t.Parallel()
+
+	t.Run("returns nil for empty working directory", func(t *testing.T) {
+		t.Parallel()
+		b := &BaseRunner{}
+
+		err := b.ValidateWorkingDir("")
+
+		assert.NoError(t, err)
+	})
+
+	t.Run("returns nil for existing directory", func(t *testing.T) {
+		t.Parallel()
+		b := &BaseRunner{}
+
+		// Use the current test directory which definitely exists
+		err := b.ValidateWorkingDir(".")
+
+		assert.NoError(t, err)
+	})
+
+	t.Run("returns error for non-existent directory", func(t *testing.T) {
+		t.Parallel()
+		b := &BaseRunner{}
+
+		err := b.ValidateWorkingDir("/non/existent/directory/path")
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "working directory missing")
+		assert.ErrorIs(t, err, atlaserrors.ErrWorktreeNotFound)
+	})
+}

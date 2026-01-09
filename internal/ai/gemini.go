@@ -76,6 +76,11 @@ func (r *GeminiRunner) Run(ctx context.Context, req *domain.AIRequest) (*domain.
 
 // execute performs a single AI request execution.
 func (r *GeminiRunner) execute(ctx context.Context, req *domain.AIRequest) (*domain.AIResult, error) {
+	// Pre-flight check: verify working directory exists
+	if err := r.base.ValidateWorkingDir(req.WorkingDir); err != nil {
+		return nil, err
+	}
+
 	// Build the command (prompt is passed as positional argument)
 	cmd := r.buildCommand(ctx, req)
 
