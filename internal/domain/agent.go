@@ -81,13 +81,13 @@ func (a Agent) String() string {
 
 // IsValid checks if the agent is a recognized type.
 func (a Agent) IsValid() bool {
-	_, ok := agentConfigs[a]
+	_, ok := a.config()
 	return ok
 }
 
 // DefaultModel returns the default model alias for this agent.
 func (a Agent) DefaultModel() string {
-	if cfg, ok := agentConfigs[a]; ok {
+	if cfg, ok := a.config(); ok {
 		return cfg.defaultModel
 	}
 	return ""
@@ -95,7 +95,7 @@ func (a Agent) DefaultModel() string {
 
 // ModelAliases returns the valid short model aliases for this agent.
 func (a Agent) ModelAliases() []string {
-	if cfg, ok := agentConfigs[a]; ok {
+	if cfg, ok := a.config(); ok {
 		return cfg.modelAliases
 	}
 	return nil
@@ -104,7 +104,7 @@ func (a Agent) ModelAliases() []string {
 // ResolveModelAlias converts a short model alias to the full model name.
 // If the alias is not recognized, it returns the input unchanged (allowing full model names).
 func (a Agent) ResolveModelAlias(alias string) string {
-	if cfg, ok := agentConfigs[a]; ok {
+	if cfg, ok := a.config(); ok {
 		if fullName, found := cfg.modelResolution[alias]; found {
 			return fullName
 		}
@@ -115,7 +115,7 @@ func (a Agent) ResolveModelAlias(alias string) string {
 
 // APIKeyEnvVar returns the default environment variable name for the API key.
 func (a Agent) APIKeyEnvVar() string {
-	if cfg, ok := agentConfigs[a]; ok {
+	if cfg, ok := a.config(); ok {
 		return cfg.apiKeyEnvVar
 	}
 	return ""
@@ -123,7 +123,7 @@ func (a Agent) APIKeyEnvVar() string {
 
 // InstallHint returns the installation instructions for this agent's CLI.
 func (a Agent) InstallHint() string {
-	if cfg, ok := agentConfigs[a]; ok {
+	if cfg, ok := a.config(); ok {
 		return cfg.installHint
 	}
 	return "Unknown agent"
@@ -131,8 +131,15 @@ func (a Agent) InstallHint() string {
 
 // ToolName returns the CLI command name for this agent.
 func (a Agent) ToolName() string {
-	if cfg, ok := agentConfigs[a]; ok {
+	if cfg, ok := a.config(); ok {
 		return cfg.toolName
 	}
 	return ""
+}
+
+// config returns the configuration for this agent.
+// Returns the config and true if found, or zero value and false if not.
+func (a Agent) config() (agentConfig, bool) {
+	cfg, ok := agentConfigs[a]
+	return cfg, ok
 }

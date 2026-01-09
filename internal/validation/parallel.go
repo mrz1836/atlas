@@ -267,6 +267,7 @@ func (r *Runner) reportProgress(step, status string) {
 	switch status {
 	case "starting":
 		r.stepTimes.Store(step, time.Now())
+		// ElapsedMs defaults to 0 for starting status (step just began)
 	case "completed", "failed":
 		if startTimeVal, ok := r.stepTimes.Load(step); ok {
 			if startTime, ok := startTimeVal.(time.Time); ok {
@@ -274,12 +275,6 @@ func (r *Runner) reportProgress(step, status string) {
 			}
 			r.stepTimes.Delete(step)
 		}
-	}
-
-	// ElapsedMs is 0 for starting status (step just began)
-	// For completed/failed, DurationMs contains the total time
-	if status == "starting" {
-		info.ElapsedMs = 0
 	}
 
 	r.config.ProgressCallback(step, status, info)

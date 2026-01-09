@@ -598,7 +598,7 @@ func (e *GitExecutor) executeMergePR(ctx context.Context, step *domain.StepDefin
 		DeleteBranch: deleteBranch,
 		MergedAt:     time.Now(),
 	}
-	artifactPath := e.artifactHelper.SaveJSON(ctx, task, step.Name, "merge-result.json", result)
+	artifactPath := e.artifactHelper.SaveJSON(ctx, task, step.Name, constants.ArtifactMergeResult, result)
 
 	return &domain.StepResult{
 		Status:       "success",
@@ -659,7 +659,7 @@ func (e *GitExecutor) executeAddReview(ctx context.Context, step *domain.StepDef
 		Body:     body,
 		AddedAt:  time.Now(),
 	}
-	artifactPath := e.artifactHelper.SaveJSON(ctx, task, step.Name, "review-result.json", result)
+	artifactPath := e.artifactHelper.SaveJSON(ctx, task, step.Name, constants.ArtifactReviewResult, result)
 
 	return &domain.StepResult{
 		Status:       "success",
@@ -713,7 +713,7 @@ func (e *GitExecutor) executeAddComment(ctx context.Context, step *domain.StepDe
 		Body:     body,
 		AddedAt:  time.Now(),
 	}
-	artifactPath := e.artifactHelper.SaveJSON(ctx, task, step.Name, "comment-result.json", result)
+	artifactPath := e.artifactHelper.SaveJSON(ctx, task, step.Name, constants.ArtifactCommentResult, result)
 
 	return &domain.StepResult{
 		Status:       "success",
@@ -784,23 +784,23 @@ func (e *GitExecutor) saveJSONArtifact(ctx context.Context, task *domain.Task, s
 
 // saveCommitResultJSON saves commit result as a JSON artifact.
 func (e *GitExecutor) saveCommitResultJSON(ctx context.Context, task *domain.Task, stepName string, result *git.CommitResult) string {
-	return e.saveJSONArtifact(ctx, task, stepName, "commit-result.json", result)
+	return e.saveJSONArtifact(ctx, task, stepName, constants.ArtifactCommitResult, result)
 }
 
 // savePushResultJSON saves push result as a JSON artifact.
 func (e *GitExecutor) savePushResultJSON(ctx context.Context, task *domain.Task, stepName string, result *git.PushResult) string {
-	return e.saveJSONArtifact(ctx, task, stepName, "push-result.json", result)
+	return e.saveJSONArtifact(ctx, task, stepName, constants.ArtifactPushResult, result)
 }
 
 // savePRDescriptionMD saves PR description as a markdown artifact.
 func (e *GitExecutor) savePRDescriptionMD(ctx context.Context, task *domain.Task, stepName string, desc *git.PRDescription) string {
 	content := fmt.Sprintf("# %s\n\n%s", desc.Title, desc.Body)
-	return e.saveArtifact(ctx, task, stepName, "pr-description.md", []byte(content))
+	return e.saveArtifact(ctx, task, stepName, constants.ArtifactPRDescription, []byte(content))
 }
 
 // savePRResultJSON saves PR result as a JSON artifact.
 func (e *GitExecutor) savePRResultJSON(ctx context.Context, task *domain.Task, stepName string, result *git.PRResult) string {
-	return e.saveJSONArtifact(ctx, task, stepName, "pr-result.json", result)
+	return e.saveJSONArtifact(ctx, task, stepName, constants.ArtifactPRResult, result)
 }
 
 // getBranchFromConfig extracts the branch name from step config or task.

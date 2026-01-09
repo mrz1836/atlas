@@ -28,13 +28,11 @@ const CurrentSchemaVersion = 1
 // Deprecated: Use constants.WorkspaceLockTimeout instead.
 const LockTimeout = constants.WorkspaceLockTimeout
 
-// Directory and file permission constants for workspace files.
+// File permission constants are imported from constants package.
+// Deprecated: Use constants.WorkspaceDirPerm and constants.WorkspaceFilePerm directly.
 const (
-	// WorkspaceDirPerm is the permission mode for workspace directories.
-	WorkspaceDirPerm = 0o750
-
-	// WorkspaceFilePerm is the permission mode for workspace metadata files.
-	WorkspaceFilePerm = 0o600
+	WorkspaceDirPerm  = constants.WorkspaceDirPerm
+	WorkspaceFilePerm = constants.WorkspaceFilePerm
 )
 
 // validNameRegex matches valid workspace names (alphanumeric, dash, underscore).

@@ -127,6 +127,41 @@ const (
 	LogCompress = true
 )
 
+// File permission constants for workspace and task files.
+const (
+	// WorkspaceDirPerm is the permission mode for workspace directories.
+	// Owner has read/write/execute, group has read/execute.
+	WorkspaceDirPerm = 0o750
+
+	// WorkspaceFilePerm is the permission mode for workspace metadata files.
+	// Owner has read/write only.
+	WorkspaceFilePerm = 0o600
+)
+
+// Artifact filename constants for git operation results.
+const (
+	// ArtifactCommitResult is the filename for commit operation results.
+	ArtifactCommitResult = "commit-result.json"
+
+	// ArtifactPushResult is the filename for push operation results.
+	ArtifactPushResult = "push-result.json"
+
+	// ArtifactPRResult is the filename for pull request creation results.
+	ArtifactPRResult = "pr-result.json"
+
+	// ArtifactPRDescription is the filename for pull request description markdown.
+	ArtifactPRDescription = "pr-description.md"
+
+	// ArtifactMergeResult is the filename for merge operation results.
+	ArtifactMergeResult = "merge-result.json"
+
+	// ArtifactReviewResult is the filename for review operation results.
+	ArtifactReviewResult = "review-result.json"
+
+	// ArtifactCommentResult is the filename for comment operation results.
+	ArtifactCommentResult = "comment-result.json"
+)
+
 // Step result status constants used by step executors.
 const (
 	// StepStatusSuccess indicates the step completed successfully.

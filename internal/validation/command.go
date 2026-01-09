@@ -39,39 +39,28 @@ type DefaultCommandRunner struct{}
 
 // Run executes a shell command using sh -c.
 func (r *DefaultCommandRunner) Run(ctx context.Context, workDir, command string) (stdout, stderr string, exitCode int, err error) {
-	cmd := exec.CommandContext(ctx, "sh", "-c", command)
-	cmd.Dir = workDir
-
-	var outBuf, errBuf bytes.Buffer
-	cmd.Stdout = &outBuf
-	cmd.Stderr = &errBuf
-
-	err = cmd.Run()
-	stdout = outBuf.String()
-	stderr = errBuf.String()
-
-	if err != nil {
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
-			exitCode = exitErr.ExitCode()
-		} else {
-			exitCode = 1
-		}
-	}
-
-	return stdout, stderr, exitCode, err
+	return r.runCommand(ctx, workDir, command, nil)
 }
 
 // RunWithLiveOutput executes a command and streams output to liveOut while also capturing it.
 func (r *DefaultCommandRunner) RunWithLiveOutput(ctx context.Context, workDir, command string, liveOut io.Writer) (stdout, stderr string, exitCode int, err error) {
+	return r.runCommand(ctx, workDir, command, liveOut)
+}
+
+// runCommand executes a shell command with optional live output streaming.
+// If liveOut is non-nil, output is streamed to it while also being captured.
+func (r *DefaultCommandRunner) runCommand(ctx context.Context, workDir, command string, liveOut io.Writer) (stdout, stderr string, exitCode int, err error) {
 	cmd := exec.CommandContext(ctx, "sh", "-c", command)
 	cmd.Dir = workDir
 
 	var outBuf, errBuf bytes.Buffer
-
-	// Use MultiWriter to both capture and stream output
-	cmd.Stdout = io.MultiWriter(&outBuf, liveOut)
-	cmd.Stderr = io.MultiWriter(&errBuf, liveOut)
+	if liveOut != nil {
+		cmd.Stdout = io.MultiWriter(&outBuf, liveOut)
+		cmd.Stderr = io.MultiWriter(&errBuf, liveOut)
+	} else {
+		cmd.Stdout = &outBuf
+		cmd.Stderr = &errBuf
+	}
 
 	err = cmd.Run()
 	stdout = outBuf.String()

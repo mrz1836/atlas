@@ -78,7 +78,7 @@ func (e *Engine) attemptValidationRetry(
 		e.logger.Debug().
 			Str("task_id", task.ID).
 			Msg("validation retry failed: pipeline_result not found in metadata")
-		return nil, ErrPipelineResultNotFound
+		return nil, fmt.Errorf("task %s: %w", task.ID, ErrPipelineResultNotFound)
 	}
 
 	// Get work directory from task metadata
@@ -87,7 +87,7 @@ func (e *Engine) attemptValidationRetry(
 		e.logger.Debug().
 			Str("task_id", task.ID).
 			Msg("validation retry failed: worktree_dir not set in task metadata")
-		return nil, ErrWorkDirNotFound
+		return nil, fmt.Errorf("task %s: %w", task.ID, ErrWorkDirNotFound)
 	}
 
 	// Pre-flight check: verify worktree directory exists before attempting retry

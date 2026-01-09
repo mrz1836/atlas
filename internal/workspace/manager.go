@@ -35,6 +35,46 @@ type CloseResult struct {
 	BranchWarning string
 }
 
+// WarningCollector accumulates non-fatal warnings during workspace operations.
+// This allows operations to continue and report all issues at the end.
+type WarningCollector struct {
+	logger   zerolog.Logger
+	context  string // e.g., workspace name for logging context
+	warnings []error
+}
+
+// newWarningCollector creates a new warning collector with the given context.
+func newWarningCollector(logger zerolog.Logger, context string) *WarningCollector {
+	return &WarningCollector{
+		logger:  logger,
+		context: context,
+	}
+}
+
+// Add appends a warning to the collector.
+func (w *WarningCollector) Add(err error) {
+	w.warnings = append(w.warnings, err)
+}
+
+// Addf appends a formatted warning to the collector.
+//
+//nolint:err113 // Dynamic errors acceptable for warning messages
+func (w *WarningCollector) Addf(format string, args ...any) {
+	w.warnings = append(w.warnings, fmt.Errorf(format, args...))
+}
+
+// Log writes all collected warnings to the logger.
+func (w *WarningCollector) Log() {
+	for _, warn := range w.warnings {
+		w.logger.Warn().Err(warn).Str("workspace", w.context).Msg("operation warning")
+	}
+}
+
+// Warnings returns all collected warnings.
+func (w *WarningCollector) Warnings() []error {
+	return w.warnings
+}
+
 // CreateOptions contains options for creating a new workspace.
 // Using an options struct instead of positional parameters makes the API
 // clearer and easier to extend without breaking changes.
@@ -234,29 +274,27 @@ func (m *DefaultManager) Destroy(ctx context.Context, name string) error {
 	}
 
 	// Collect warnings (for logging in production)
-	var warnings []error
+	wc := newWarningCollector(m.logger, name)
 
 	// Try to load workspace (may be corrupted)
-	ws := m.loadWorkspaceForDestroy(ctx, name, &warnings)
+	ws := m.loadWorkspaceForDestroy(ctx, name, &wc.warnings)
 
 	// Try to remove worktree
-	m.removeWorktree(ctx, ws, &warnings)
+	m.removeWorktree(ctx, ws, &wc.warnings)
 
 	// Prune stale worktrees (must happen BEFORE deleteBranch so git doesn't
 	// think a stale worktree is still using the branch)
-	m.pruneWorktrees(ctx, &warnings)
+	m.pruneWorktrees(ctx, &wc.warnings)
 
 	// Try to delete branch
-	m.deleteBranch(ctx, ws, &warnings)
+	m.deleteBranch(ctx, ws, &wc.warnings)
 
 	// Delete workspace state
-	m.deleteWorkspaceState(ctx, name, &warnings)
+	m.deleteWorkspaceState(ctx, name, &wc.warnings)
 
 	// NFR18: ALWAYS succeed - warnings are collected but not returned as errors
 	// Log warnings for debugging and observability
-	for _, warn := range warnings {
-		m.logger.Warn().Err(warn).Str("workspace", name).Msg("destroy warning")
-	}
+	wc.Log()
 
 	return nil
 }
