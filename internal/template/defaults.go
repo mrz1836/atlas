@@ -27,6 +27,7 @@ func NewDefaultRegistry() *Registry {
 	mustRegister(r, NewCommitTemplate())
 	mustRegister(r, NewTaskTemplate())
 	mustRegister(r, NewFixTemplate())
+	mustRegister(r, NewHotfixTemplate())
 
 	return r
 }

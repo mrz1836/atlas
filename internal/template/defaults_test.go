@@ -20,9 +20,9 @@ func TestDefaultRegistry_ContainsAllTemplates(t *testing.T) {
 	r := NewDefaultRegistry()
 
 	templates := r.List()
-	assert.Len(t, templates, 5)
+	assert.Len(t, templates, 6)
 
-	// Verify all five templates are present
+	// Verify all six templates are present
 	names := make(map[string]bool)
 	for _, tmpl := range templates {
 		names[tmpl.Name] = true
@@ -33,6 +33,7 @@ func TestDefaultRegistry_ContainsAllTemplates(t *testing.T) {
 	assert.True(t, names["commit"], "missing commit template")
 	assert.True(t, names["task"], "missing task template")
 	assert.True(t, names["fix"], "missing fix template")
+	assert.True(t, names["hotfix"], "missing hotfix template")
 }
 
 func TestDefaultRegistry_GetBugfix(t *testing.T) {
@@ -163,8 +164,8 @@ func TestNewRegistryWithConfig_NoCustom(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, r)
 
-	// Should have all 5 built-in templates
-	assert.Len(t, r.List(), 5)
+	// Should have all 6 built-in templates
+	assert.Len(t, r.List(), 6)
 }
 
 func TestNewRegistryWithConfig_EmptyCustom(t *testing.T) {
@@ -172,8 +173,8 @@ func TestNewRegistryWithConfig_EmptyCustom(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, r)
 
-	// Should have all 5 built-in templates
-	assert.Len(t, r.List(), 5)
+	// Should have all 6 built-in templates
+	assert.Len(t, r.List(), 6)
 }
 
 func TestNewRegistryWithConfig_CustomAdded(t *testing.T) {
@@ -186,8 +187,8 @@ func TestNewRegistryWithConfig_CustomAdded(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, r)
 
-	// Should have 6 templates (5 built-in + 1 custom)
-	assert.Len(t, r.List(), 6)
+	// Should have 7 templates (6 built-in + 1 custom)
+	assert.Len(t, r.List(), 7)
 
 	// Verify custom template is available
 	custom, err := r.Get("custom-workflow")
@@ -207,8 +208,8 @@ func TestNewRegistryWithConfig_OverrideBuiltin(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, r)
 
-	// Should still have 5 templates (custom replaces built-in)
-	assert.Len(t, r.List(), 5)
+	// Should still have 6 templates (custom replaces built-in)
+	assert.Len(t, r.List(), 6)
 
 	// Verify the bugfix template was replaced
 	bugfix, err := r.Get("bugfix")
@@ -279,8 +280,8 @@ steps:
 	})
 	require.NoError(t, err)
 
-	// Should have 7 templates (5 built-in + 2 custom)
-	assert.Len(t, r.List(), 7)
+	// Should have 8 templates (6 built-in + 2 custom)
+	assert.Len(t, r.List(), 8)
 
 	// Verify both custom templates are available
 	w1, err := r.Get("workflow1")
