@@ -78,6 +78,12 @@ func (w *WarningCollector) Warnings() []error {
 // CreateOptions contains options for creating a new workspace.
 // Using an options struct instead of positional parameters makes the API
 // clearer and easier to extend without breaking changes.
+//
+// Supports two modes:
+//   - New branch mode: Set BranchType to create a new branch from BaseBranch
+//   - Existing branch mode: Set ExistingBranch to checkout an existing branch
+//
+// BranchType and ExistingBranch are mutually exclusive.
 type CreateOptions struct {
 	// Name is the workspace name (required).
 	Name string
@@ -85,16 +91,22 @@ type CreateOptions struct {
 	// RepoPath is the path to the git repository (required).
 	RepoPath string
 
-	// BranchType is the branch prefix type, e.g., "feature", "bugfix" (required).
+	// BranchType is the branch prefix type, e.g., "feature", "bugfix".
+	// Required for new branch mode, mutually exclusive with ExistingBranch.
 	BranchType string
 
 	// BaseBranch is the branch to create from. If empty, uses the default branch.
-	// Supports both local and remote branches.
+	// Supports both local and remote branches. Only used in new branch mode.
 	BaseBranch string
 
 	// UseLocal prefers local branches over remote when both exist.
 	// Default (false) prefers remote branches for safety.
 	UseLocal bool
+
+	// ExistingBranch is the name of an existing branch to checkout.
+	// Mutually exclusive with BranchType. Used for hotfix workflows
+	// where you want to work on an existing branch without creating a new one.
+	ExistingBranch string
 }
 
 // Reader provides read-only access to workspaces.
@@ -169,6 +181,11 @@ func NewManager(store Store, worktreeRunner WorktreeRunner, logger zerolog.Logge
 }
 
 // Create creates a new workspace with a git worktree.
+// Supports two modes:
+//   - New branch mode (BranchType set): Creates a new branch from BaseBranch
+//   - Existing branch mode (ExistingBranch set): Checks out an existing branch
+//
+//nolint:gocognit // Workspace creation requires sequential validation and setup steps
 func (m *DefaultManager) Create(ctx context.Context, opts CreateOptions) (*domain.Workspace, error) {
 	if err := ctxutil.Canceled(ctx); err != nil {
 		return nil, err
@@ -181,9 +198,17 @@ func (m *DefaultManager) Create(ctx context.Context, opts CreateOptions) (*domai
 	if opts.RepoPath == "" {
 		return nil, fmt.Errorf("failed to create workspace: repoPath %w", atlaserrors.ErrEmptyValue)
 	}
-	if opts.BranchType == "" {
-		return nil, fmt.Errorf("failed to create workspace: branchType %w", atlaserrors.ErrEmptyValue)
+
+	// Validate mutual exclusivity of modes
+	if opts.ExistingBranch != "" && opts.BranchType != "" {
+		return nil, fmt.Errorf("failed to create workspace: cannot specify both BranchType and ExistingBranch: %w",
+			atlaserrors.ErrConflictingFlags)
 	}
+	if opts.ExistingBranch == "" && opts.BranchType == "" {
+		return nil, fmt.Errorf("failed to create workspace: either BranchType or ExistingBranch must be specified: %w",
+			atlaserrors.ErrEmptyValue)
+	}
+
 	if m.worktreeRunner == nil {
 		return nil, fmt.Errorf("failed to create workspace: %w", atlaserrors.ErrWorktreeRunnerNotAvailable)
 	}
@@ -206,24 +231,36 @@ func (m *DefaultManager) Create(ctx context.Context, opts CreateOptions) (*domai
 		}
 	}
 
-	// Validate and resolve base branch if specified
-	resolvedBaseBranch := opts.BaseBranch
-	if opts.BaseBranch != "" {
-		var resolveErr error
-		resolved, resolveErr := m.ensureBaseBranch(ctx, opts.BaseBranch, opts.UseLocal)
-		if resolveErr != nil {
-			return nil, fmt.Errorf("failed to validate base branch '%s': %w", opts.BaseBranch, resolveErr)
+	// Build worktree options based on mode
+	wtOpts := WorktreeCreateOptions{
+		RepoPath:      opts.RepoPath,
+		WorkspaceName: opts.Name,
+	}
+
+	//nolint:nestif // Branch mode logic requires conditional nesting for validation
+	if opts.ExistingBranch != "" {
+		// Existing branch mode: checkout an existing branch
+		wtOpts.ExistingBranch = opts.ExistingBranch
+		m.logger.Info().
+			Str("workspace", opts.Name).
+			Str("existing_branch", opts.ExistingBranch).
+			Msg("creating workspace with existing branch")
+	} else {
+		// New branch mode: create a new branch from base
+		wtOpts.BranchType = opts.BranchType
+
+		// Validate and resolve base branch if specified
+		if opts.BaseBranch != "" {
+			resolved, resolveErr := m.ensureBaseBranch(ctx, opts.BaseBranch, opts.UseLocal)
+			if resolveErr != nil {
+				return nil, fmt.Errorf("failed to validate base branch '%s': %w", opts.BaseBranch, resolveErr)
+			}
+			wtOpts.BaseBranch = resolved
 		}
-		resolvedBaseBranch = resolved
 	}
 
 	// Create worktree
-	wtInfo, err := m.worktreeRunner.Create(ctx, WorktreeCreateOptions{
-		RepoPath:      opts.RepoPath,
-		WorkspaceName: opts.Name,
-		BranchType:    opts.BranchType,
-		BaseBranch:    resolvedBaseBranch,
-	})
+	wtInfo, err := m.worktreeRunner.Create(ctx, wtOpts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create worktree: %w", err)
 	}

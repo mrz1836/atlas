@@ -601,7 +601,8 @@ func TestGitWorktreeRunner_Create(t *testing.T) {
 		})
 		require.Error(t, err)
 		require.ErrorIs(t, err, atlaserrors.ErrEmptyValue)
-		assert.Contains(t, err.Error(), "branch type")
+		// Error now mentions that either BranchType or ExistingBranch must be specified
+		assert.Contains(t, err.Error(), "BranchType")
 	})
 
 	t.Run("returns error for workspace name exceeding max length", func(t *testing.T) {
@@ -1332,6 +1333,183 @@ func TestGitWorktreeRunner_CleanupOrphanedPath(t *testing.T) {
 
 		// Verify no -2 suffix was used
 		assert.NotContains(t, info.Path, "-2", "should not have -2 suffix")
+	})
+}
+
+func TestGitWorktreeRunner_Create_ExistingBranch(t *testing.T) {
+	t.Run("checks out existing local branch successfully", func(t *testing.T) {
+		repoPath := createTestRepo(t)
+		runner, err := NewGitWorktreeRunner(context.Background(), repoPath, zerolog.Nop())
+		require.NoError(t, err)
+
+		// Create a branch to use as existing
+		runGit(t, repoPath, "branch", "feat/existing-feature")
+
+		// Create worktree for existing branch
+		info, err := runner.Create(context.Background(), WorktreeCreateOptions{
+			WorkspaceName:  "hotfix-ws",
+			ExistingBranch: "feat/existing-feature",
+		})
+		require.NoError(t, err)
+
+		// Verify worktree was created
+		assert.NotEmpty(t, info.Path)
+		assert.Equal(t, "feat/existing-feature", info.Branch)
+		assert.False(t, info.CreatedAt.IsZero())
+
+		// Verify worktree directory exists
+		_, err = os.Stat(info.Path)
+		require.NoError(t, err)
+
+		// Verify the worktree is on the correct branch
+		worktrees, err := runner.List(context.Background())
+		require.NoError(t, err)
+
+		found := false
+		for _, wt := range worktrees {
+			if wt.Branch == "feat/existing-feature" {
+				found = true
+				break
+			}
+		}
+		assert.True(t, found, "worktree should be on feat/existing-feature branch")
+	})
+
+	t.Run("returns error for non-existing branch", func(t *testing.T) {
+		repoPath := createTestRepo(t)
+		runner, err := NewGitWorktreeRunner(context.Background(), repoPath, zerolog.Nop())
+		require.NoError(t, err)
+
+		_, err = runner.Create(context.Background(), WorktreeCreateOptions{
+			WorkspaceName:  "hotfix-ws",
+			ExistingBranch: "nonexistent-branch",
+		})
+		require.Error(t, err)
+		assert.ErrorIs(t, err, atlaserrors.ErrBranchNotFound)
+	})
+
+	t.Run("returns error when branch already checked out", func(t *testing.T) {
+		repoPath := createTestRepo(t)
+		runner, err := NewGitWorktreeRunner(context.Background(), repoPath, zerolog.Nop())
+		require.NoError(t, err)
+
+		// Create a branch and check it out in a worktree first
+		runGit(t, repoPath, "branch", "feat/in-use")
+		_, err = runner.Create(context.Background(), WorktreeCreateOptions{
+			WorkspaceName:  "first-ws",
+			ExistingBranch: "feat/in-use",
+		})
+		require.NoError(t, err)
+
+		// Try to create another worktree for the same branch
+		_, err = runner.Create(context.Background(), WorktreeCreateOptions{
+			WorkspaceName:  "second-ws",
+			ExistingBranch: "feat/in-use",
+		})
+		require.Error(t, err)
+		require.ErrorIs(t, err, atlaserrors.ErrBranchExists)
+		assert.Contains(t, err.Error(), "already checked out")
+	})
+
+	t.Run("returns error when both BranchType and ExistingBranch specified", func(t *testing.T) {
+		repoPath := createTestRepo(t)
+		runner, err := NewGitWorktreeRunner(context.Background(), repoPath, zerolog.Nop())
+		require.NoError(t, err)
+
+		_, err = runner.Create(context.Background(), WorktreeCreateOptions{
+			WorkspaceName:  "conflicting",
+			BranchType:     "feat",
+			ExistingBranch: "some-branch",
+		})
+		require.Error(t, err)
+		assert.ErrorIs(t, err, atlaserrors.ErrConflictingFlags)
+	})
+
+	t.Run("returns error when neither BranchType nor ExistingBranch specified", func(t *testing.T) {
+		repoPath := createTestRepo(t)
+		runner, err := NewGitWorktreeRunner(context.Background(), repoPath, zerolog.Nop())
+		require.NoError(t, err)
+
+		_, err = runner.Create(context.Background(), WorktreeCreateOptions{
+			WorkspaceName: "no-branch-info",
+		})
+		require.Error(t, err)
+		assert.ErrorIs(t, err, atlaserrors.ErrEmptyValue)
+	})
+
+	t.Run("checks out remote branch when local does not exist", func(t *testing.T) {
+		// Create a bare remote repo
+		remoteDir := t.TempDir()
+		runGit(t, remoteDir, "init", "--bare")
+
+		// Clone it
+		localDir := t.TempDir()
+		ctx := context.Background()
+		cmd := exec.CommandContext(ctx, "git", "clone", remoteDir, localDir) // #nosec G204 -- test code
+		out, err := cmd.CombinedOutput()
+		require.NoError(t, err, "clone failed: %s", out)
+
+		// Configure and create initial commit
+		runGit(t, localDir, "config", "user.email", "test@test.com")
+		runGit(t, localDir, "config", "user.name", "Test")
+		readme := filepath.Join(localDir, "README.md")
+		err = os.WriteFile(readme, []byte("# Test"), 0o600)
+		require.NoError(t, err)
+		runGit(t, localDir, "add", ".")
+		runGit(t, localDir, "commit", "-m", "Initial")
+		runGit(t, localDir, "push", "-u", "origin", "master")
+
+		// Create a remote-only branch
+		runGit(t, localDir, "checkout", "-b", "remote-only-branch")
+		remoteFile := filepath.Join(localDir, "remote.txt")
+		err = os.WriteFile(remoteFile, []byte("remote content"), 0o600)
+		require.NoError(t, err)
+		runGit(t, localDir, "add", ".")
+		runGit(t, localDir, "commit", "-m", "Remote commit")
+		runGit(t, localDir, "push", "-u", "origin", "remote-only-branch")
+
+		// Go back to master and delete local branch
+		runGit(t, localDir, "checkout", "master")
+		runGit(t, localDir, "branch", "-D", "remote-only-branch")
+
+		runner, err := NewGitWorktreeRunner(context.Background(), localDir, zerolog.Nop())
+		require.NoError(t, err)
+
+		// Create worktree for the remote-only branch
+		info, err := runner.Create(context.Background(), WorktreeCreateOptions{
+			WorkspaceName:  "hotfix-remote",
+			ExistingBranch: "remote-only-branch",
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "remote-only-branch", info.Branch)
+
+		// Verify the worktree has remote.txt (proving it came from remote)
+		_, err = os.Stat(filepath.Join(info.Path, "remote.txt"))
+		assert.NoError(t, err, "worktree should contain remote.txt from remote branch")
+	})
+}
+
+func TestGitWorktreeRunner_EnsureBranchExists(t *testing.T) {
+	t.Run("returns nil for existing local branch", func(t *testing.T) {
+		repoPath := createTestRepo(t)
+		runner, err := NewGitWorktreeRunner(context.Background(), repoPath, zerolog.Nop())
+		require.NoError(t, err)
+
+		// Create a local branch
+		runGit(t, repoPath, "branch", "local-branch")
+
+		err = runner.ensureBranchExists(context.Background(), "local-branch")
+		assert.NoError(t, err)
+	})
+
+	t.Run("returns error for non-existing branch", func(t *testing.T) {
+		repoPath := createTestRepo(t)
+		runner, err := NewGitWorktreeRunner(context.Background(), repoPath, zerolog.Nop())
+		require.NoError(t, err)
+
+		err = runner.ensureBranchExists(context.Background(), "nonexistent")
+		require.Error(t, err)
+		assert.ErrorIs(t, err, atlaserrors.ErrBranchNotFound)
 	})
 }
 

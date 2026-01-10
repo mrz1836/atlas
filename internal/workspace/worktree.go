@@ -53,10 +53,11 @@ type WorktreeRunner interface {
 
 // WorktreeCreateOptions contains options for creating a worktree.
 type WorktreeCreateOptions struct {
-	RepoPath      string // Path to the main repository
-	WorkspaceName string // Name of the workspace (used for path and branch)
-	BranchType    string // Branch type prefix (feat, fix, chore)
-	BaseBranch    string // Branch to create from (default: current branch)
+	RepoPath       string // Path to the main repository
+	WorkspaceName  string // Name of the workspace (used for path and branch)
+	BranchType     string // Branch type prefix (feat, fix, chore) - mutually exclusive with ExistingBranch
+	BaseBranch     string // Branch to create from (default: current branch)
+	ExistingBranch string // Existing branch to checkout (mutually exclusive with BranchType)
 }
 
 // WorktreeInfo contains information about a worktree.
@@ -86,6 +87,9 @@ func NewGitWorktreeRunner(ctx context.Context, repoPath string, logger zerolog.L
 }
 
 // Create creates a new worktree with the given options.
+// Supports two modes:
+//   - New branch mode (BranchType set): Creates a new branch from BaseBranch
+//   - Existing branch mode (ExistingBranch set): Checks out an existing branch
 func (r *GitWorktreeRunner) Create(ctx context.Context, opts WorktreeCreateOptions) (*WorktreeInfo, error) {
 	// Check for cancellation
 	select {
@@ -103,9 +107,12 @@ func (r *GitWorktreeRunner) Create(ctx context.Context, opts WorktreeCreateOptio
 			constants.MaxWorkspaceNameLength, atlaserrors.ErrEmptyValue)
 	}
 
-	// Validate branch type
-	if opts.BranchType == "" {
-		return nil, fmt.Errorf("branch type cannot be empty: %w", atlaserrors.ErrEmptyValue)
+	// Validate mutual exclusivity: either BranchType (new branch) or ExistingBranch (checkout existing)
+	if opts.ExistingBranch != "" && opts.BranchType != "" {
+		return nil, fmt.Errorf("cannot specify both BranchType and ExistingBranch: %w", atlaserrors.ErrConflictingFlags)
+	}
+	if opts.ExistingBranch == "" && opts.BranchType == "" {
+		return nil, fmt.Errorf("either BranchType or ExistingBranch must be specified: %w", atlaserrors.ErrEmptyValue)
 	}
 
 	// Calculate sibling path
@@ -122,17 +129,41 @@ func (r *GitWorktreeRunner) Create(ctx context.Context, opts WorktreeCreateOptio
 		return nil, err
 	}
 
-	// Generate unique branch name
-	baseBranch := generateBranchName(opts.BranchType, opts.WorkspaceName)
-	branchName, err := r.generateUniqueBranchName(ctx, baseBranch)
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate branch name: %w", err)
-	}
+	var branchName string
+	var args []string
 
-	// Build worktree add command
-	args := []string{"worktree", "add", wtPath, "-b", branchName}
-	if opts.BaseBranch != "" {
-		args = append(args, opts.BaseBranch)
+	//nolint:nestif // Branch mode logic requires conditional nesting for validation
+	if opts.ExistingBranch != "" {
+		// MODE: Checkout existing branch
+		branchName = opts.ExistingBranch
+
+		// Validate the branch exists (local or remote)
+		if branchErr := r.ensureBranchExists(ctx, opts.ExistingBranch); branchErr != nil {
+			return nil, branchErr
+		}
+
+		// Check if branch is already checked out elsewhere
+		existingPath := r.FindByBranch(ctx, opts.ExistingBranch)
+		if existingPath != "" {
+			return nil, fmt.Errorf("branch '%s' is already checked out at '%s': %w",
+				opts.ExistingBranch, existingPath, atlaserrors.ErrBranchExists)
+		}
+
+		// Build worktree add command for existing branch (no -b flag)
+		args = []string{"worktree", "add", wtPath, opts.ExistingBranch}
+	} else {
+		// MODE: Create new branch (existing behavior)
+		baseBranch := generateBranchName(opts.BranchType, opts.WorkspaceName)
+		branchName, err = r.generateUniqueBranchName(ctx, baseBranch)
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate branch name: %w", err)
+		}
+
+		// Build worktree add command with -b flag for new branch
+		args = []string{"worktree", "add", wtPath, "-b", branchName}
+		if opts.BaseBranch != "" {
+			args = append(args, opts.BaseBranch)
+		}
 	}
 
 	_, err = git.RunCommand(ctx, r.repoPath, args...)
@@ -144,19 +175,26 @@ func (r *GitWorktreeRunner) Create(ctx context.Context, opts WorktreeCreateOptio
 			Str("branch_name", branchName).
 			Str("workspace_name", opts.WorkspaceName).
 			Str("base_branch", opts.BaseBranch).
+			Str("existing_branch", opts.ExistingBranch).
 			Str("base_branch_type", determineBranchType(opts.BaseBranch)).
 			Msg("failed to create worktree")
 		return nil, fmt.Errorf("failed to create worktree: %w", err)
 	}
 
-	// Log successful branch creation
-	r.logger.Info().
+	// Log successful worktree creation
+	logEvent := r.logger.Info().
 		Str("branch_name", branchName).
-		Str("base_branch", opts.BaseBranch).
-		Str("base_branch_type", determineBranchType(opts.BaseBranch)).
 		Str("workspace_name", opts.WorkspaceName).
-		Str("worktree_path", wtPath).
-		Msg("branch created")
+		Str("worktree_path", wtPath)
+
+	if opts.ExistingBranch != "" {
+		logEvent.Msg("worktree created for existing branch")
+	} else {
+		logEvent.
+			Str("base_branch", opts.BaseBranch).
+			Str("base_branch_type", determineBranchType(opts.BaseBranch)).
+			Msg("branch created")
+	}
 
 	return &WorktreeInfo{
 		Path:      wtPath,
@@ -363,6 +401,36 @@ func (r *GitWorktreeRunner) FindByBranch(ctx context.Context, branch string) str
 	}
 
 	return ""
+}
+
+// ensureBranchExists validates that a branch exists locally or on remote.
+// If it only exists on remote, it fetches to ensure it's available.
+func (r *GitWorktreeRunner) ensureBranchExists(ctx context.Context, branch string) error {
+	// Check local first
+	localExists, err := r.BranchExists(ctx, branch)
+	if err != nil {
+		return fmt.Errorf("failed to check local branch '%s': %w", branch, err)
+	}
+	if localExists {
+		return nil
+	}
+
+	// Try fetching from remote
+	if fetchErr := r.Fetch(ctx, "origin"); fetchErr != nil {
+		r.logger.Debug().Err(fetchErr).Msg("fetch failed, continuing to check remote refs")
+	}
+
+	// Check remote
+	remoteExists, err := r.RemoteBranchExists(ctx, "origin", branch)
+	if err != nil {
+		return fmt.Errorf("failed to check remote branch '%s': %w", branch, err)
+	}
+	if !remoteExists {
+		return fmt.Errorf("branch '%s' does not exist locally or on remote 'origin': %w",
+			branch, atlaserrors.ErrBranchNotFound)
+	}
+
+	return nil
 }
 
 // generateUniqueBranchName ensures branch name is unique.

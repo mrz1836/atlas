@@ -1536,7 +1536,8 @@ func TestDefaultManager_Create_ValidatesEmptyBranchType(t *testing.T) {
 	require.Error(t, err)
 	assert.Nil(t, ws)
 	require.ErrorIs(t, err, atlaserrors.ErrEmptyValue)
-	assert.Contains(t, err.Error(), "branchType")
+	// Error now mentions that either BranchType or ExistingBranch must be specified
+	assert.Contains(t, err.Error(), "BranchType")
 }
 
 func TestDefaultManager_Create_ValidatesNilWorktreeRunner(t *testing.T) {
@@ -1832,4 +1833,239 @@ func TestClose_BranchExistenceCheckFails(t *testing.T) {
 	// Status should be updated to closed
 	ws := store.workspaces["test"]
 	assert.Equal(t, constants.WorkspaceStatusClosed, ws.Status)
+}
+
+// ============================================================================
+// ExistingBranch Mode Tests (for hotfix workflow)
+// ============================================================================
+
+func TestDefaultManager_Create_ExistingBranch_Success(t *testing.T) {
+	store := newMockStore()
+	runner := newMockWorktreeRunner()
+	runner.createResult = &WorktreeInfo{
+		Path:   "/tmp/repo-hotfix",
+		Branch: "feat/existing-feature",
+	}
+
+	mgr := NewManager(store, runner, zerolog.Nop())
+	ws, err := mgr.Create(context.Background(), CreateOptions{
+		Name:           "hotfix-ws",
+		RepoPath:       "/tmp/repo",
+		ExistingBranch: "feat/existing-feature",
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, ws)
+	assert.Equal(t, "hotfix-ws", ws.Name)
+	assert.Equal(t, "/tmp/repo-hotfix", ws.WorktreePath)
+	assert.Equal(t, "feat/existing-feature", ws.Branch)
+	assert.Equal(t, constants.WorkspaceStatusActive, ws.Status)
+}
+
+func TestDefaultManager_Create_ExistingBranch_ConflictWithBranchType(t *testing.T) {
+	store := newMockStore()
+	runner := newMockWorktreeRunner()
+
+	mgr := NewManager(store, runner, zerolog.Nop())
+	ws, err := mgr.Create(context.Background(), CreateOptions{
+		Name:           "conflicting",
+		RepoPath:       "/tmp/repo",
+		BranchType:     "feat",
+		ExistingBranch: "some-branch",
+	})
+
+	require.Error(t, err)
+	assert.Nil(t, ws)
+	assert.ErrorIs(t, err, atlaserrors.ErrConflictingFlags)
+}
+
+func TestDefaultManager_Create_NoBranchSpecified(t *testing.T) {
+	store := newMockStore()
+	runner := newMockWorktreeRunner()
+
+	mgr := NewManager(store, runner, zerolog.Nop())
+	ws, err := mgr.Create(context.Background(), CreateOptions{
+		Name:     "no-branch",
+		RepoPath: "/tmp/repo",
+		// Neither BranchType nor ExistingBranch specified
+	})
+
+	require.Error(t, err)
+	assert.Nil(t, ws)
+	assert.ErrorIs(t, err, atlaserrors.ErrEmptyValue)
+}
+
+func TestDefaultManager_Create_ExistingBranch_WorktreeError(t *testing.T) {
+	store := newMockStore()
+	runner := newMockWorktreeRunner()
+	runner.createErr = atlaserrors.ErrBranchNotFound
+
+	mgr := NewManager(store, runner, zerolog.Nop())
+	ws, err := mgr.Create(context.Background(), CreateOptions{
+		Name:           "hotfix-ws",
+		RepoPath:       "/tmp/repo",
+		ExistingBranch: "nonexistent-branch",
+	})
+
+	require.Error(t, err)
+	assert.Nil(t, ws)
+	assert.ErrorIs(t, err, atlaserrors.ErrBranchNotFound)
+}
+
+func TestDefaultManager_Create_ExistingBranch_BranchAlreadyCheckedOut(t *testing.T) {
+	store := newMockStore()
+	runner := newMockWorktreeRunner()
+	runner.createErr = atlaserrors.ErrBranchExists
+
+	mgr := NewManager(store, runner, zerolog.Nop())
+	ws, err := mgr.Create(context.Background(), CreateOptions{
+		Name:           "hotfix-ws",
+		RepoPath:       "/tmp/repo",
+		ExistingBranch: "feat/already-in-use",
+	})
+
+	require.Error(t, err)
+	assert.Nil(t, ws)
+	assert.ErrorIs(t, err, atlaserrors.ErrBranchExists)
+}
+
+func TestDefaultManager_Create_ExistingBranch_StoreError(t *testing.T) {
+	store := newMockStore()
+	store.createErr = atlaserrors.ErrWorkspaceNotFound // Simulate store error
+	runner := newMockWorktreeRunner()
+	runner.createResult = &WorktreeInfo{
+		Path:   "/tmp/repo-hotfix",
+		Branch: "feat/existing-feature",
+	}
+
+	mgr := NewManager(store, runner, zerolog.Nop())
+	ws, err := mgr.Create(context.Background(), CreateOptions{
+		Name:           "hotfix-ws",
+		RepoPath:       "/tmp/repo",
+		ExistingBranch: "feat/existing-feature",
+	})
+
+	require.Error(t, err)
+	assert.Nil(t, ws)
+	assert.ErrorIs(t, err, atlaserrors.ErrWorkspaceNotFound)
+}
+
+func TestDefaultManager_Create_ExistingBranch_ReuseClosedWorkspace(t *testing.T) {
+	store := newMockStore()
+	// Simulate a closed workspace with same name
+	store.workspaces["hotfix-ws"] = &domain.Workspace{
+		Name:   "hotfix-ws",
+		Status: constants.WorkspaceStatusClosed,
+	}
+	runner := newMockWorktreeRunner()
+	runner.createResult = &WorktreeInfo{
+		Path:   "/tmp/repo-hotfix",
+		Branch: "feat/new-branch",
+	}
+
+	mgr := NewManager(store, runner, zerolog.Nop())
+	ws, err := mgr.Create(context.Background(), CreateOptions{
+		Name:           "hotfix-ws",
+		RepoPath:       "/tmp/repo",
+		ExistingBranch: "feat/new-branch",
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, ws)
+	assert.Equal(t, "hotfix-ws", ws.Name)
+	assert.Equal(t, "feat/new-branch", ws.Branch)
+	assert.Equal(t, constants.WorkspaceStatusActive, ws.Status)
+}
+
+func TestDefaultManager_Create_ExistingBranch_WorkspaceAlreadyExists(t *testing.T) {
+	store := newMockStore()
+	// Simulate an active workspace with same name
+	store.workspaces["hotfix-ws"] = &domain.Workspace{
+		Name:   "hotfix-ws",
+		Status: constants.WorkspaceStatusActive,
+	}
+	runner := newMockWorktreeRunner()
+
+	mgr := NewManager(store, runner, zerolog.Nop())
+	ws, err := mgr.Create(context.Background(), CreateOptions{
+		Name:           "hotfix-ws",
+		RepoPath:       "/tmp/repo",
+		ExistingBranch: "feat/existing",
+	})
+
+	require.Error(t, err)
+	assert.Nil(t, ws)
+	assert.ErrorIs(t, err, atlaserrors.ErrWorkspaceExists)
+}
+
+func TestDefaultManager_Create_ExistingBranch_EmptyBranchName(t *testing.T) {
+	store := newMockStore()
+	runner := newMockWorktreeRunner()
+
+	mgr := NewManager(store, runner, zerolog.Nop())
+	ws, err := mgr.Create(context.Background(), CreateOptions{
+		Name:           "hotfix-ws",
+		RepoPath:       "/tmp/repo",
+		ExistingBranch: "", // Empty but BranchType also empty = should fail
+	})
+
+	require.Error(t, err)
+	assert.Nil(t, ws)
+	assert.ErrorIs(t, err, atlaserrors.ErrEmptyValue)
+}
+
+func TestDefaultManager_Create_ExistingBranch_ContextCanceled(t *testing.T) {
+	store := newMockStore()
+	runner := newMockWorktreeRunner()
+	runner.createResult = &WorktreeInfo{
+		Path:   "/tmp/repo-hotfix",
+		Branch: "feat/existing",
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately
+
+	mgr := NewManager(store, runner, zerolog.Nop())
+	ws, err := mgr.Create(ctx, CreateOptions{
+		Name:           "hotfix-ws",
+		RepoPath:       "/tmp/repo",
+		ExistingBranch: "feat/existing",
+	})
+
+	require.Error(t, err)
+	assert.Nil(t, ws)
+	assert.ErrorIs(t, err, context.Canceled)
+}
+
+func TestDefaultManager_Create_ExistingBranch_PreservesWorkspaceMetadata(t *testing.T) {
+	store := newMockStore()
+	runner := newMockWorktreeRunner()
+	runner.createResult = &WorktreeInfo{
+		Path:      "/tmp/repo-hotfix",
+		Branch:    "feat/existing-feature",
+		CreatedAt: time.Now(),
+	}
+
+	mgr := NewManager(store, runner, zerolog.Nop())
+	ws, err := mgr.Create(context.Background(), CreateOptions{
+		Name:           "hotfix-ws",
+		RepoPath:       "/tmp/repo",
+		ExistingBranch: "feat/existing-feature",
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, ws)
+
+	// Verify metadata is set correctly
+	assert.Equal(t, "hotfix-ws", ws.Name)
+	assert.Equal(t, "/tmp/repo-hotfix", ws.WorktreePath)
+	assert.Equal(t, "feat/existing-feature", ws.Branch)
+	assert.Equal(t, constants.WorkspaceStatusActive, ws.Status)
+	assert.False(t, ws.CreatedAt.IsZero())
+	assert.False(t, ws.UpdatedAt.IsZero())
+
+	// Verify workspace was saved in store
+	saved, err := store.Get(context.Background(), "hotfix-ws")
+	require.NoError(t, err)
+	assert.Equal(t, ws.Name, saved.Name)
 }
