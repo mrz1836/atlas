@@ -54,6 +54,7 @@ type startOptions struct {
 	agent         string
 	model         string
 	baseBranch    string
+	targetBranch  string // Existing branch to checkout (mutually exclusive with baseBranch)
 	useLocal      bool
 	noInteractive bool
 	verify        bool
@@ -92,6 +93,7 @@ func newStartCmd() *cobra.Command {
 		agent         string
 		model         string
 		baseBranch    string
+		targetBranch  string
 		useLocal      bool
 		noInteractive bool
 		verify        bool
@@ -112,7 +114,8 @@ Examples:
   atlas start "add new feature" --template feature --verify
   atlas start "quick fix" --template bugfix --no-verify
   atlas start "fix from develop" --template bugfix --branch develop
-  atlas start "review changes" --template bugfix --dry-run`,
+  atlas start "review changes" --template bugfix --dry-run
+  atlas start "fix lint errors" --template hotfix --target feat/my-feature`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runStart(cmd.Context(), cmd, cmd.OutOrStdout(), args[0], startOptions{
@@ -121,6 +124,7 @@ Examples:
 				agent:         agent,
 				model:         model,
 				baseBranch:    baseBranch,
+				targetBranch:  targetBranch,
 				useLocal:      useLocal,
 				noInteractive: noInteractive,
 				verify:        verify,
@@ -131,7 +135,7 @@ Examples:
 	}
 
 	cmd.Flags().StringVarP(&templateName, "template", "t", "",
-		"Template to use (bugfix, feature, commit)")
+		"Template to use (bugfix, feature, commit, hotfix)")
 	cmd.Flags().StringVarP(&workspaceName, "workspace", "w", "",
 		"Custom workspace name")
 	cmd.Flags().StringVarP(&agent, "agent", "a", "",
@@ -140,6 +144,8 @@ Examples:
 		"AI model to use (claude: sonnet, opus, haiku; gemini: flash, pro; codex: codex, max, mini)")
 	cmd.Flags().StringVarP(&baseBranch, "branch", "b", "",
 		"Base branch to create workspace from (fetches from remote by default)")
+	cmd.Flags().StringVar(&targetBranch, "target", "",
+		"Existing branch to checkout and work on (skips new branch creation, mutually exclusive with --branch)")
 	cmd.Flags().BoolVar(&useLocal, "use-local", false,
 		"Prefer local branch over remote when both exist")
 	cmd.Flags().BoolVar(&noInteractive, "no-interactive", false,
@@ -206,6 +212,12 @@ func runStart(ctx context.Context, cmd *cobra.Command, w io.Writer, description 
 			fmt.Errorf("%w: cannot use both --verify and --no-verify", atlaserrors.ErrConflictingFlags)))
 	}
 
+	// Validate branch flags - cannot use both --branch and --target
+	if opts.baseBranch != "" && opts.targetBranch != "" {
+		return sc.handleError("", atlaserrors.NewExitCode2Error(
+			fmt.Errorf("%w: cannot use both --branch and --target", atlaserrors.ErrConflictingFlags)))
+	}
+
 	// Validate we're in a git repository
 	repoPath, err := findGitRepository(ctx) //nolint:contextcheck // context is properly checked and used
 	if err != nil {
@@ -261,7 +273,7 @@ func runStart(ctx context.Context, cmd *cobra.Command, w io.Writer, description 
 	}
 
 	// Create and configure workspace
-	ws, err := createWorkspace(ctx, sc, wsName, repoPath, tmpl.BranchPrefix, opts.baseBranch, opts.useLocal) //nolint:contextcheck // context is properly checked and used
+	ws, err := createWorkspace(ctx, sc, wsName, repoPath, tmpl.BranchPrefix, opts.baseBranch, opts.targetBranch, opts.useLocal) //nolint:contextcheck // context is properly checked and used
 	if err != nil {
 		return fmt.Errorf("create workspace: %w", err)
 	}
@@ -501,7 +513,10 @@ func safeTaskID(t *domain.Task) string {
 // createWorkspace creates a new workspace or uses an existing one (upsert behavior).
 // If a workspace with the given name already exists and is active/paused, it will be reused.
 // If a closed workspace with the same name exists, it will be automatically cleaned up and a new workspace created.
-func createWorkspace(ctx context.Context, sc *startContext, wsName, repoPath, branchPrefix, baseBranch string, useLocal bool) (*domain.Workspace, error) {
+// Supports two modes:
+//   - New branch mode (branchPrefix set): Creates a new branch from baseBranch
+//   - Existing branch mode (targetBranch set): Checks out an existing branch
+func createWorkspace(ctx context.Context, sc *startContext, wsName, repoPath, branchPrefix, baseBranch, targetBranch string, useLocal bool) (*domain.Workspace, error) {
 	logger := Logger()
 
 	// Create workspace store
@@ -539,14 +554,28 @@ func createWorkspace(ctx context.Context, sc *startContext, wsName, repoPath, br
 			Msg("workspace is closed, creating new workspace with same name")
 	}
 
+	// Build create options based on mode
+	createOpts := workspace.CreateOptions{
+		Name:     wsName,
+		RepoPath: repoPath,
+		UseLocal: useLocal,
+	}
+
+	if targetBranch != "" {
+		// Existing branch mode: checkout an existing branch
+		createOpts.ExistingBranch = targetBranch
+		logger.Info().
+			Str("workspace_name", wsName).
+			Str("target_branch", targetBranch).
+			Msg("creating workspace with existing branch (hotfix mode)")
+	} else {
+		// New branch mode: create a new branch from base
+		createOpts.BranchType = branchPrefix
+		createOpts.BaseBranch = baseBranch
+	}
+
 	// Create new workspace
-	ws, err := wsMgr.Create(ctx, workspace.CreateOptions{
-		Name:       wsName,
-		RepoPath:   repoPath,
-		BranchType: branchPrefix,
-		BaseBranch: baseBranch,
-		UseLocal:   useLocal,
-	})
+	ws, err := wsMgr.Create(ctx, createOpts)
 	if err != nil {
 		return nil, sc.handleError(wsName, fmt.Errorf("failed to create workspace: %w", err))
 	}

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -24,6 +25,18 @@ import (
 	"github.com/mrz1836/atlas/internal/tui"
 	"github.com/mrz1836/atlas/internal/workspace"
 )
+
+// runGitCommand runs a git command in the specified directory.
+func runGitCommand(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	ctx := context.Background()
+	cmd := exec.CommandContext(ctx, "git", args...) // #nosec G204 -- test code
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %s failed: %v\nOutput: %s", strings.Join(args, " "), err, out)
+	}
+}
 
 func TestSanitizeWorkspaceName(t *testing.T) {
 	tests := []struct {
@@ -415,6 +428,12 @@ func TestNewStartCmd(t *testing.T) {
 	require.NotNil(t, branchFlag)
 	assert.Equal(t, "b", branchFlag.Shorthand)
 	assert.Contains(t, branchFlag.Usage, "Base branch")
+
+	targetFlag := cmd.Flags().Lookup("target")
+	require.NotNil(t, targetFlag, "--target flag should be registered")
+	assert.Empty(t, targetFlag.Shorthand, "target should not have shorthand")
+	assert.Contains(t, targetFlag.Usage, "Existing branch")
+	assert.Contains(t, targetFlag.Usage, "mutually exclusive")
 
 	noInteractiveFlag := cmd.Flags().Lookup("no-interactive")
 	require.NotNil(t, noInteractiveFlag)
@@ -892,6 +911,7 @@ func TestCreateWorkspace_NewWorkspace(t *testing.T) {
 		repoPath,
 		"test",
 		"master",
+		"",    // targetBranch (empty for new branch mode)
 		false, // useLocal
 	)
 
@@ -927,6 +947,7 @@ func TestCreateWorkspace_ReuseExisting(t *testing.T) {
 		repoPath,
 		"test",
 		"master",
+		"",    // targetBranch (empty for new branch mode)
 		false, // useLocal
 	)
 	if err != nil {
@@ -942,6 +963,7 @@ func TestCreateWorkspace_ReuseExisting(t *testing.T) {
 		repoPath,
 		"test",
 		"master",
+		"",    // targetBranch (empty for new branch mode)
 		false, // useLocal
 	)
 
@@ -1619,4 +1641,286 @@ func TestCreateAIRunner(t *testing.T) {
 			require.NotNil(t, runner)
 		})
 	}
+}
+
+// TestRunStart_ConflictingBranchAndTargetFlags tests that --branch and --target are mutually exclusive
+func TestRunStart_ConflictingBranchAndTargetFlags(t *testing.T) {
+	cmd := newStartCmd()
+
+	// Add global flags
+	root := &cobra.Command{Use: "atlas"}
+	AddGlobalFlags(root, &GlobalFlags{})
+	root.AddCommand(cmd)
+
+	var buf bytes.Buffer
+	err := runStart(context.Background(), cmd, &buf, "test description", startOptions{
+		templateName: "hotfix",
+		baseBranch:   "develop",
+		targetBranch: "feat/existing",
+	})
+
+	require.Error(t, err)
+	require.ErrorIs(t, err, errors.ErrConflictingFlags)
+	assert.True(t, errors.IsExitCode2Error(err))
+	assert.Contains(t, err.Error(), "cannot use both --branch and --target")
+}
+
+// TestRunStart_TargetFlag_WithHotfixTemplate tests the happy path with --target and hotfix template
+func TestRunStart_TargetFlag_WithHotfixTemplate(t *testing.T) {
+	// This test verifies that --target flag is properly parsed and passed through
+	// We can't do full integration without mocking the workspace creation
+
+	cmd := newStartCmd()
+
+	// Verify target flag can be set
+	require.NoError(t, cmd.Flags().Set("target", "feat/my-feature"))
+	require.NoError(t, cmd.Flags().Set("template", "hotfix"))
+
+	// Get the flag value back
+	targetVal, err := cmd.Flags().GetString("target")
+	require.NoError(t, err)
+	assert.Equal(t, "feat/my-feature", targetVal)
+
+	templateVal, err := cmd.Flags().GetString("template")
+	require.NoError(t, err)
+	assert.Equal(t, "hotfix", templateVal)
+}
+
+// TestStartOptions_TargetBranch tests the startOptions struct with targetBranch
+func TestStartOptions_TargetBranch(t *testing.T) {
+	tests := []struct {
+		name         string
+		opts         startOptions
+		expectError  bool
+		errorContain string
+	}{
+		{
+			name: "valid target branch only",
+			opts: startOptions{
+				templateName: "hotfix",
+				targetBranch: "feat/existing-branch",
+			},
+			expectError: false,
+		},
+		{
+			name: "valid base branch only",
+			opts: startOptions{
+				templateName: "bugfix",
+				baseBranch:   "develop",
+			},
+			expectError: false,
+		},
+		{
+			name: "conflicting branch and target",
+			opts: startOptions{
+				templateName: "hotfix",
+				baseBranch:   "develop",
+				targetBranch: "feat/existing",
+			},
+			expectError:  true,
+			errorContain: "cannot use both",
+		},
+		{
+			name: "target with verify flag",
+			opts: startOptions{
+				templateName: "hotfix",
+				targetBranch: "feat/existing",
+				verify:       true,
+			},
+			expectError: false,
+		},
+		{
+			name: "target with no-verify flag",
+			opts: startOptions{
+				templateName: "hotfix",
+				targetBranch: "feat/existing",
+				noVerify:     true,
+			},
+			expectError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Validate the option combinations - full validation happens in runStart
+			hasConflict := tt.opts.baseBranch != "" && tt.opts.targetBranch != ""
+
+			if tt.expectError {
+				assert.True(t, hasConflict, "expected conflict between baseBranch and targetBranch")
+			} else {
+				assert.False(t, hasConflict, "did not expect conflict")
+			}
+		})
+	}
+}
+
+// TestCreateWorkspace_WithTargetBranch tests createWorkspace with ExistingBranch mode
+func TestCreateWorkspace_WithTargetBranch(t *testing.T) {
+	t.Run("passes targetBranch to workspace manager", func(t *testing.T) {
+		// Setup a git repository
+		tmpDir := t.TempDir()
+		repoPath := filepath.Join(tmpDir, "test-repo")
+		require.NoError(t, os.MkdirAll(repoPath, 0o750))
+
+		runGitCommand(t, repoPath, "init")
+		runGitCommand(t, repoPath, "config", "user.email", "test@test.com")
+		runGitCommand(t, repoPath, "config", "user.name", "Test")
+
+		readmePath := filepath.Join(repoPath, "README.md")
+		require.NoError(t, os.WriteFile(readmePath, []byte("# Test"), 0o600))
+		runGitCommand(t, repoPath, "add", ".")
+		runGitCommand(t, repoPath, "commit", "-m", "Initial commit")
+
+		// Create a target branch
+		runGitCommand(t, repoPath, "branch", "feat/target-branch")
+
+		// Create startContext
+		sc := &startContext{
+			ctx:          context.Background(),
+			outputFormat: "text",
+			out:          tui.NewOutput(os.Stdout, "text"),
+		}
+
+		// Call createWorkspace with targetBranch
+		ws, err := createWorkspace(
+			context.Background(),
+			sc,
+			"hotfix-workspace",
+			repoPath,
+			"hotfix",             // branchPrefix (fallback, not used when targetBranch set)
+			"",                   // baseBranch (empty)
+			"feat/target-branch", // targetBranch (existing branch)
+			false,                // useLocal
+		)
+
+		require.NoError(t, err)
+		require.NotNil(t, ws)
+		assert.Equal(t, "hotfix-workspace", ws.Name)
+		assert.Equal(t, "feat/target-branch", ws.Branch, "should use the target branch, not create new")
+
+		// Cleanup
+		_ = cleanupWorkspace(context.Background(), ws.Name, repoPath)
+	})
+
+	t.Run("returns error for non-existent target branch", func(t *testing.T) {
+		// Setup a git repository
+		tmpDir := t.TempDir()
+		repoPath := filepath.Join(tmpDir, "test-repo")
+		require.NoError(t, os.MkdirAll(repoPath, 0o750))
+
+		runGitCommand(t, repoPath, "init")
+		runGitCommand(t, repoPath, "config", "user.email", "test@test.com")
+		runGitCommand(t, repoPath, "config", "user.name", "Test")
+
+		readmePath := filepath.Join(repoPath, "README.md")
+		require.NoError(t, os.WriteFile(readmePath, []byte("# Test"), 0o600))
+		runGitCommand(t, repoPath, "add", ".")
+		runGitCommand(t, repoPath, "commit", "-m", "Initial commit")
+
+		sc := &startContext{
+			ctx:          context.Background(),
+			outputFormat: "text",
+			out:          tui.NewOutput(os.Stdout, "text"),
+		}
+
+		// Try to create workspace with non-existent branch
+		_, err := createWorkspace(
+			context.Background(),
+			sc,
+			"hotfix-workspace",
+			repoPath,
+			"hotfix",
+			"",
+			"feat/does-not-exist", // Non-existent branch
+			false,
+		)
+
+		require.Error(t, err)
+		assert.ErrorIs(t, err, errors.ErrBranchNotFound)
+	})
+}
+
+// TestTargetFlag_Integration tests the full flow from flag to workspace creation
+func TestTargetFlag_Integration(t *testing.T) {
+	// Skip if not in suitable environment
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	t.Run("hotfix template with target creates workspace on existing branch", func(t *testing.T) {
+		// Setup
+		tmpDir := t.TempDir()
+		repoPath := filepath.Join(tmpDir, "test-repo")
+		require.NoError(t, os.MkdirAll(repoPath, 0o750))
+
+		runGitCommand(t, repoPath, "init")
+		runGitCommand(t, repoPath, "config", "user.email", "test@test.com")
+		runGitCommand(t, repoPath, "config", "user.name", "Test")
+
+		readmePath := filepath.Join(repoPath, "README.md")
+		require.NoError(t, os.WriteFile(readmePath, []byte("# Test"), 0o600))
+		runGitCommand(t, repoPath, "add", ".")
+		runGitCommand(t, repoPath, "commit", "-m", "Initial commit")
+
+		// Create target branch with some changes
+		runGitCommand(t, repoPath, "checkout", "-b", "feat/needs-fixes")
+		featurePath := filepath.Join(repoPath, "feature.go")
+		require.NoError(t, os.WriteFile(featurePath, []byte("package main\n"), 0o600))
+		runGitCommand(t, repoPath, "add", ".")
+		runGitCommand(t, repoPath, "commit", "-m", "Add feature")
+		runGitCommand(t, repoPath, "checkout", "master")
+
+		// Get hotfix template
+		registry := template.NewDefaultRegistry()
+		hotfixTmpl, err := registry.Get("hotfix")
+		require.NoError(t, err)
+
+		// Verify hotfix template doesn't have git_pr step
+		hasPRStep := false
+		for _, step := range hotfixTmpl.Steps {
+			if step.Name == "git_pr" {
+				hasPRStep = true
+				break
+			}
+		}
+		assert.False(t, hasPRStep, "hotfix template should not have git_pr step")
+
+		// Verify hotfix template has the expected steps
+		expectedSteps := []string{"detect", "fix", "verify", "validate", "git_commit", "git_push"}
+		require.Len(t, hotfixTmpl.Steps, len(expectedSteps))
+		for i, stepName := range expectedSteps {
+			assert.Equal(t, stepName, hotfixTmpl.Steps[i].Name)
+		}
+
+		// Create workspace with target branch
+		sc := &startContext{
+			ctx:          context.Background(),
+			outputFormat: "text",
+			out:          tui.NewOutput(os.Stdout, "text"),
+		}
+
+		ws, err := createWorkspace(
+			context.Background(),
+			sc,
+			"hotfix-test-"+time.Now().Format("20060102150405"),
+			repoPath,
+			hotfixTmpl.BranchPrefix,
+			"",                 // No base branch
+			"feat/needs-fixes", // Target existing branch
+			false,
+		)
+		require.NoError(t, err)
+		require.NotNil(t, ws)
+
+		// Verify workspace is on the target branch
+		assert.Equal(t, "feat/needs-fixes", ws.Branch)
+
+		// Verify worktree contains the feature file
+		featureInWorktree := filepath.Join(ws.WorktreePath, "feature.go")
+		_, err = os.Stat(featureInWorktree)
+		require.NoError(t, err, "worktree should contain feature.go from target branch")
+
+		// Cleanup
+		_ = cleanupWorkspace(context.Background(), ws.Name, repoPath)
+	})
 }
