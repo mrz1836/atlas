@@ -192,6 +192,9 @@ atlas start "add logging" -t task --branch develop
 # Use local branch explicitly (when you have local changes you want to include)
 atlas start "continue work" -t task --branch develop --use-local
 
+# Fix issues on an existing branch (e.g., a branch already in a PR)
+atlas start "fix lint errors" --template hotfix --target feat/my-feature
+
 # Enable/disable AI verification
 atlas start "simple edit" -t task --verify
 atlas start "simple edit" -t task --no-verify
@@ -210,11 +213,12 @@ atlas start "fix null pointer" --template bugfix --dry-run --output json
 
 | Flag | Short | Description | Values |
 |------|-------|-------------|--------|
-| `--template` | `-t` | Template to use | `bugfix`, `feature`, `task`, `commit` |
+| `--template` | `-t` | Template to use | `bugfix`, `feature`, `task`, `commit`, `hotfix` |
 | `--workspace` | `-w` | Custom workspace name | Any string (sanitized) |
 | `--agent` | `-a` | AI agent/CLI to use | `claude`, `gemini`, `codex` |
 | `--model` | `-m` | AI model to use | Claude: `sonnet`, `opus`, `haiku`; Gemini: `flash`, `pro`; Codex: `codex`, `max`, `mini` |
 | `--branch` | `-b` | Base branch to create workspace from (fetches from remote by default) | Branch name |
+| `--target` | | Existing branch to checkout and work on (skips new branch creation, mutually exclusive with `--branch`) | Branch name |
 | `--use-local` | | Prefer local branch over remote when both exist | |
 | `--verify` | | Enable AI verification step | |
 | `--no-verify` | | Disable AI verification step | |
@@ -856,6 +860,7 @@ ATLAS provides pre-defined workflow templates:
 | **feature** | Speckit SDD: Specify → Plan → Tasks → Implement → Validate → PR | `feat` | New features with specifications |
 | **task** | Implement → (Verify) → Validate → Commit → PR | `task` | Simple, well-defined tasks |
 | **fix** | Scan → Fix → Validate → Commit → PR | `fix` | Automated issue discovery and fixing |
+| **hotfix** | Fix issues on existing branch → Validate → Commit → Push (no PR) | `hotfix` | Quick fixes on branches already in PRs |
 | **commit** | Smart commits: Garbage detection, logical grouping, message generation | `chore` | Commit assistance |
 
 **Template Details:**
@@ -864,6 +869,7 @@ ATLAS provides pre-defined workflow templates:
 - **feature**: Full Speckit SDD workflow with specification, planning, and task breakdown. Ideal for complex features.
 - **task**: Fastest workflow for straightforward changes. Skips analysis and goes straight to implementation. Add `--verify` for optional AI cross-validation.
 - **fix**: Automated issue discovery. Runs validation commands to find lint/format/test issues, then fixes them. Best for codebase maintenance.
+- **hotfix**: Designed for fixing issues on branches that are already in PRs. Uses `--target` flag to checkout an existing branch, makes fixes, and pushes directly to that branch. No new branch or PR is created - the existing PR automatically receives the new commits.
 - **commit**: Specialized template for creating intelligent commits from existing changes.
 
 **Utility Templates:**
@@ -1201,6 +1207,45 @@ atlas status --watch
 **When to use Fix vs Bugfix:**
 - **Fix**: No known issue - discover problems via validation commands ("Fix any issues", "Clean up the codebase")
 - **Bugfix**: Known issue from user description ("fix null pointer in parseConfig")
+
+### Hotfix Workflow
+
+The **hotfix** template is designed for fixing issues on branches that are already in pull requests. Instead of creating a new branch, it checks out the existing branch, makes fixes, and pushes directly to that branch.
+
+```bash
+# Branch feat/my-feature has linter issues and already has a PR open
+atlas start "fix lint errors" --template hotfix --target feat/my-feature
+
+# Monitor progress
+atlas status --watch
+
+# Steps:
+# 1. detect - Optional: Run validation to identify issues
+# 2. fix - AI fixes the identified issues
+# 3. validate - Confirm fixes work
+# 4. git_commit - Commit changes to the existing branch
+# 5. git_push - Push to origin (the existing PR receives the commits)
+#
+# NO git_pr, ci_wait, or review steps - the PR already exists!
+
+# After completion, the existing PR automatically shows the new commits
+```
+
+**Key Features:**
+- **Uses existing branch**: Requires `--target` flag to specify the branch to checkout
+- **No new PR**: Pushes directly to the target branch
+- **Isolated worktree**: Still uses worktree isolation for safe development
+- **Fast workflow**: Skips PR creation, CI wait, and review steps
+- **Best for**: Fixing lint errors, test failures, or other issues on branches already in PRs
+
+**When to use Hotfix:**
+- Branch already has an open PR with failing CI
+- Need to quickly patch lint/format/test issues
+- Want commits to go to the same branch (not create a new one)
+
+**Hotfix vs Fix:**
+- **Hotfix**: Works on an EXISTING branch with `--target`, no new PR
+- **Fix**: Creates a NEW branch from base, opens a new PR
 
 ### Parallel Features
 
@@ -1622,5 +1667,5 @@ atlas config --help
 
 ---
 
-**Version:** 1.1.34
-**Last Updated:** 2026-01-09
+**Version:** 1.1.35
+**Last Updated:** 2026-01-10
