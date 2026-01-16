@@ -7,7 +7,10 @@
 // Only standard library imports are allowed.
 package errors
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+)
 
 // Sentinel errors for error categorization.
 // These allow callers to check error types with errors.Is().
@@ -372,7 +375,65 @@ var (
 
 	// ErrUnsupportedOS indicates the current operating system is not supported.
 	ErrUnsupportedOS = errors.New("unsupported operating system")
+
+	// ========== Loop Step Errors ==========
+
+	// ErrLoopCircuitBreaker indicates the loop terminated due to circuit breaker.
+	ErrLoopCircuitBreaker = errors.New("loop circuit breaker triggered")
+
+	// ErrLoopStagnation indicates the loop terminated due to stagnation.
+	ErrLoopStagnation = errors.New("loop stagnation detected")
+
+	// ErrLoopMaxIterations indicates the loop reached maximum iterations.
+	ErrLoopMaxIterations = errors.New("loop reached maximum iterations")
+
+	// ErrLoopCheckpointFailed indicates persistent checkpoint failures.
+	ErrLoopCheckpointFailed = errors.New("loop checkpoint persistence failing")
+
+	// ErrLoopConfigInvalid indicates invalid loop configuration.
+	ErrLoopConfigInvalid = errors.New("invalid loop configuration")
 )
+
+// LoopError provides detailed information about loop failures.
+// It wraps a base error with loop-specific context for debugging.
+type LoopError struct {
+	// Reason is a human-readable description of why the loop failed.
+	Reason string
+
+	// Iteration is the iteration number when the failure occurred.
+	Iteration int
+
+	// ConsecutiveErrs is the count of consecutive errors at failure time.
+	ConsecutiveErrs int
+
+	// StagnationCount is the number of stagnant iterations at failure time.
+	StagnationCount int
+
+	// Err is the underlying error that caused the failure.
+	Err error
+}
+
+// NewLoopError creates a new LoopError with the given parameters.
+func NewLoopError(reason string, iteration, consecutiveErrs, stagnationCount int, err error) *LoopError {
+	return &LoopError{
+		Reason:          reason,
+		Iteration:       iteration,
+		ConsecutiveErrs: consecutiveErrs,
+		StagnationCount: stagnationCount,
+		Err:             err,
+	}
+}
+
+// Error implements the error interface.
+func (e *LoopError) Error() string {
+	if e.Err != nil {
+		return fmt.Sprintf("loop failed at iteration %d: %s: %v", e.Iteration, e.Reason, e.Err)
+	}
+	return fmt.Sprintf("loop failed at iteration %d: %s", e.Iteration, e.Reason)
+}
+
+// Unwrap returns the underlying error for errors.Is/As support.
+func (e *LoopError) Unwrap() error { return e.Err }
 
 // ExitCode2Error wraps an error to indicate exit code 2 should be used.
 type ExitCode2Error struct {

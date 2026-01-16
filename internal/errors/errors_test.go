@@ -458,3 +458,116 @@ func TestActionable_CanceledErrorsHaveNoAction(t *testing.T) {
 		})
 	}
 }
+
+// ============================================================================
+// Tests for LoopError type
+// ============================================================================
+
+func TestLoopError_Error(t *testing.T) {
+	tests := []struct {
+		name     string
+		loopErr  *atlaserrors.LoopError
+		expected string
+	}{
+		{
+			name: "with underlying error",
+			loopErr: atlaserrors.NewLoopError(
+				"circuit breaker triggered",
+				5,
+				5,
+				0,
+				atlaserrors.ErrLoopCircuitBreaker,
+			),
+			expected: "loop failed at iteration 5: circuit breaker triggered: loop circuit breaker triggered",
+		},
+		{
+			name: "without underlying error",
+			loopErr: atlaserrors.NewLoopError(
+				"max iterations reached",
+				10,
+				0,
+				0,
+				nil,
+			),
+			expected: "loop failed at iteration 10: max iterations reached",
+		},
+		{
+			name: "with stagnation",
+			loopErr: atlaserrors.NewLoopError(
+				"stagnation detected",
+				7,
+				0,
+				5,
+				atlaserrors.ErrLoopStagnation,
+			),
+			expected: "loop failed at iteration 7: stagnation detected: loop stagnation detected",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.expected, tc.loopErr.Error())
+		})
+	}
+}
+
+func TestLoopError_Unwrap(t *testing.T) {
+	baseErr := atlaserrors.ErrLoopCircuitBreaker
+	loopErr := atlaserrors.NewLoopError("test reason", 1, 0, 0, baseErr)
+
+	unwrapped := loopErr.Unwrap()
+	assert.Equal(t, baseErr, unwrapped)
+}
+
+func TestLoopError_Unwrap_Nil(t *testing.T) {
+	loopErr := atlaserrors.NewLoopError("test reason", 1, 0, 0, nil)
+
+	unwrapped := loopErr.Unwrap()
+	assert.NoError(t, unwrapped)
+}
+
+func TestLoopError_ErrorsIs(t *testing.T) {
+	baseErr := atlaserrors.ErrLoopCircuitBreaker
+	loopErr := atlaserrors.NewLoopError("test reason", 5, 3, 0, baseErr)
+
+	// Standard library errors.Is should work
+	assert.ErrorIs(t, loopErr, atlaserrors.ErrLoopCircuitBreaker)
+}
+
+func TestLoopError_Fields(t *testing.T) {
+	loopErr := atlaserrors.NewLoopError(
+		"test reason",
+		10,
+		3,
+		5,
+		atlaserrors.ErrLoopStagnation,
+	)
+
+	assert.Equal(t, "test reason", loopErr.Reason)
+	assert.Equal(t, 10, loopErr.Iteration)
+	assert.Equal(t, 3, loopErr.ConsecutiveErrs)
+	assert.Equal(t, 5, loopErr.StagnationCount)
+	assert.Equal(t, atlaserrors.ErrLoopStagnation, loopErr.Err)
+}
+
+func TestLoopSentinelErrors(t *testing.T) {
+	// Verify all loop sentinel errors exist and have correct messages
+	sentinels := []struct {
+		name     string
+		err      error
+		expected string
+	}{
+		{"ErrLoopCircuitBreaker", atlaserrors.ErrLoopCircuitBreaker, "loop circuit breaker triggered"},
+		{"ErrLoopStagnation", atlaserrors.ErrLoopStagnation, "loop stagnation detected"},
+		{"ErrLoopMaxIterations", atlaserrors.ErrLoopMaxIterations, "loop reached maximum iterations"},
+		{"ErrLoopCheckpointFailed", atlaserrors.ErrLoopCheckpointFailed, "loop checkpoint persistence failing"},
+		{"ErrLoopConfigInvalid", atlaserrors.ErrLoopConfigInvalid, "invalid loop configuration"},
+	}
+
+	for _, tc := range sentinels {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Error(t, tc.err, "%s should not be nil", tc.name)
+			assert.Equal(t, tc.expected, tc.err.Error())
+		})
+	}
+}
