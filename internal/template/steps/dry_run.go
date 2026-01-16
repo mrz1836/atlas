@@ -73,6 +73,8 @@ func (p *DryRunPresenter) Plan(task *domain.Task, step *domain.StepDefinition) *
 		p.planVerify(plan, task, step)
 	case domain.StepTypeSDD:
 		p.planSDD(plan, task, step)
+	case domain.StepTypeLoop:
+		p.planLoop(plan, task, step)
 	default:
 		plan.WouldDo = append(plan.WouldDo, fmt.Sprintf("Execute unknown step type: %s", step.Type))
 	}
@@ -252,6 +254,52 @@ func (p *DryRunPresenter) planSDD(plan *DryRunPlan, task *domain.Task, _ *domain
 		"Save SDD artifacts",
 		"SDD output is non-deterministic",
 	)
+}
+
+// planLoop generates a plan for loop step execution.
+func (p *DryRunPresenter) planLoop(plan *DryRunPlan, _ *domain.Task, step *domain.StepDefinition) {
+	maxIterations := 0
+	if v, ok := step.Config["max_iterations"].(int); ok {
+		maxIterations = v
+	}
+	if v, ok := step.Config["max_iterations"].(float64); ok {
+		maxIterations = int(v)
+	}
+
+	untilSignal := false
+	if v, ok := step.Config["until_signal"].(bool); ok {
+		untilSignal = v
+	}
+
+	until := ""
+	if v, ok := step.Config["until"].(string); ok {
+		until = v
+	}
+
+	plan.Config["max_iterations"] = maxIterations
+	plan.Config["until_signal"] = untilSignal
+	plan.Config["until"] = until
+
+	plan.WouldDo = append(plan.WouldDo,
+		"Execute inner steps iteratively",
+	)
+
+	if maxIterations > 0 {
+		plan.WouldDo = append(plan.WouldDo, fmt.Sprintf("Run up to %d iterations", maxIterations))
+	}
+	if untilSignal {
+		plan.WouldDo = append(plan.WouldDo, "Exit when AI signals completion")
+	}
+	if until != "" {
+		plan.WouldDo = append(plan.WouldDo, fmt.Sprintf("Exit when condition met: %s", until))
+	}
+
+	// Add info about inner steps
+	if steps, ok := step.Config["steps"].([]any); ok {
+		plan.WouldDo = append(plan.WouldDo, fmt.Sprintf("Inner steps per iteration: %d", len(steps)))
+	}
+
+	plan.WouldDo = append(plan.WouldDo, "Loop output is non-deterministic")
 }
 
 // DryRunExecutorWrapper wraps a StepExecutor to show what would happen.

@@ -334,6 +334,7 @@ func TestValidStepTypes_ContainsAllTypes(t *testing.T) {
 		domain.StepTypeSDD:        true,
 		domain.StepTypeCI:         true,
 		domain.StepTypeVerify:     true,
+		domain.StepTypeLoop:       true,
 	}
 
 	assert.Len(t, ValidStepTypes(), len(expectedTypes), "ValidStepTypes should have all step types")
@@ -341,4 +342,435 @@ func TestValidStepTypes_ContainsAllTypes(t *testing.T) {
 	for _, stepType := range ValidStepTypes() {
 		assert.True(t, expectedTypes[stepType], "ValidStepTypes contains unexpected type: %s", stepType)
 	}
+}
+
+// ====================
+// Phase 1: Loop Validation Tests
+// ====================
+
+func TestValidateLoopStep_Valid(t *testing.T) {
+	tmpl := &domain.Template{
+		Name:        "loop-template",
+		Description: "Template with valid loop step",
+		Steps: []domain.StepDefinition{
+			{
+				Name: "fix_loop",
+				Type: domain.StepTypeLoop,
+				Config: map[string]any{
+					"max_iterations": 5,
+					"steps": []any{
+						map[string]any{"name": "fix", "type": "ai"},
+						map[string]any{"name": "validate", "type": "validation"},
+					},
+				},
+			},
+		},
+	}
+	err := ValidateTemplate(tmpl)
+	assert.NoError(t, err)
+}
+
+func TestValidateLoopStep_ValidWithUntil(t *testing.T) {
+	tmpl := &domain.Template{
+		Name:        "loop-template",
+		Description: "Template with until condition",
+		Steps: []domain.StepDefinition{
+			{
+				Name: "fix_loop",
+				Type: domain.StepTypeLoop,
+				Config: map[string]any{
+					"until": "all_tests_pass",
+					"steps": []any{
+						map[string]any{"name": "fix", "type": "ai"},
+					},
+				},
+			},
+		},
+	}
+	err := ValidateTemplate(tmpl)
+	assert.NoError(t, err)
+}
+
+func TestValidateLoopStep_ValidWithUntilSignal(t *testing.T) {
+	tmpl := &domain.Template{
+		Name:        "loop-template",
+		Description: "Template with until_signal",
+		Steps: []domain.StepDefinition{
+			{
+				Name: "fix_loop",
+				Type: domain.StepTypeLoop,
+				Config: map[string]any{
+					"until_signal": true,
+					"steps": []any{
+						map[string]any{"name": "fix", "type": "ai"},
+					},
+				},
+			},
+		},
+	}
+	err := ValidateTemplate(tmpl)
+	assert.NoError(t, err)
+}
+
+func TestValidateLoopStep_ValidWithAllTerminationConditions(t *testing.T) {
+	tmpl := &domain.Template{
+		Name:        "loop-template",
+		Description: "Template with all termination options",
+		Steps: []domain.StepDefinition{
+			{
+				Name: "fix_loop",
+				Type: domain.StepTypeLoop,
+				Config: map[string]any{
+					"max_iterations": 10,
+					"until":          "validation_passed",
+					"until_signal":   true,
+					"exit_conditions": []any{
+						"all tests passing",
+						"no lint errors",
+					},
+					"circuit_breaker": map[string]any{
+						"consecutive_errors":    5,
+						"stagnation_iterations": 3,
+					},
+					"scratchpad_file": "progress.json",
+					"steps": []any{
+						map[string]any{"name": "analyze", "type": "ai"},
+						map[string]any{"name": "fix", "type": "ai"},
+						map[string]any{"name": "validate", "type": "validation"},
+					},
+				},
+			},
+		},
+	}
+	err := ValidateTemplate(tmpl)
+	assert.NoError(t, err)
+}
+
+func TestValidateLoopStep_MissingConfig(t *testing.T) {
+	tmpl := &domain.Template{
+		Name:        "loop-template",
+		Description: "Template with missing config",
+		Steps: []domain.StepDefinition{
+			{
+				Name:   "fix_loop",
+				Type:   domain.StepTypeLoop,
+				Config: nil,
+			},
+		},
+	}
+	err := ValidateTemplate(tmpl)
+	require.Error(t, err)
+	require.ErrorIs(t, err, atlaserrors.ErrTemplateInvalid)
+	assert.Contains(t, err.Error(), "loop step requires config")
+}
+
+func TestValidateLoopStep_MissingInnerSteps(t *testing.T) {
+	tmpl := &domain.Template{
+		Name:        "loop-template",
+		Description: "Template with missing inner steps",
+		Steps: []domain.StepDefinition{
+			{
+				Name: "fix_loop",
+				Type: domain.StepTypeLoop,
+				Config: map[string]any{
+					"max_iterations": 5,
+					// No "steps" key
+				},
+			},
+		},
+	}
+	err := ValidateTemplate(tmpl)
+	require.Error(t, err)
+	require.ErrorIs(t, err, atlaserrors.ErrTemplateInvalid)
+	assert.Contains(t, err.Error(), "must have inner steps")
+}
+
+func TestValidateLoopStep_EmptyInnerSteps(t *testing.T) {
+	tmpl := &domain.Template{
+		Name:        "loop-template",
+		Description: "Template with empty inner steps",
+		Steps: []domain.StepDefinition{
+			{
+				Name: "fix_loop",
+				Type: domain.StepTypeLoop,
+				Config: map[string]any{
+					"max_iterations": 5,
+					"steps":          []any{},
+				},
+			},
+		},
+	}
+	err := ValidateTemplate(tmpl)
+	require.Error(t, err)
+	require.ErrorIs(t, err, atlaserrors.ErrTemplateInvalid)
+	assert.Contains(t, err.Error(), "at least one inner step")
+}
+
+func TestValidateLoopStep_NoTerminationCondition(t *testing.T) {
+	tmpl := &domain.Template{
+		Name:        "loop-template",
+		Description: "Template without termination condition",
+		Steps: []domain.StepDefinition{
+			{
+				Name: "fix_loop",
+				Type: domain.StepTypeLoop,
+				Config: map[string]any{
+					"steps": []any{
+						map[string]any{"name": "fix", "type": "ai"},
+					},
+					// No max_iterations, until, or until_signal
+				},
+			},
+		},
+	}
+	err := ValidateTemplate(tmpl)
+	require.Error(t, err)
+	require.ErrorIs(t, err, atlaserrors.ErrTemplateInvalid)
+	assert.Contains(t, err.Error(), "max_iterations, until, or until_signal")
+}
+
+func TestValidateLoopStep_ZeroMaxIterations(t *testing.T) {
+	// max_iterations: 0 should not count as a valid termination condition
+	tmpl := &domain.Template{
+		Name:        "loop-template",
+		Description: "Template with zero max_iterations",
+		Steps: []domain.StepDefinition{
+			{
+				Name: "fix_loop",
+				Type: domain.StepTypeLoop,
+				Config: map[string]any{
+					"max_iterations": 0,
+					"steps": []any{
+						map[string]any{"name": "fix", "type": "ai"},
+					},
+				},
+			},
+		},
+	}
+	err := ValidateTemplate(tmpl)
+	require.Error(t, err)
+	require.ErrorIs(t, err, atlaserrors.ErrTemplateInvalid)
+	assert.Contains(t, err.Error(), "max_iterations, until, or until_signal")
+}
+
+func TestValidateLoopStep_EmptyUntil(t *testing.T) {
+	// until: "" should not count as a valid termination condition
+	tmpl := &domain.Template{
+		Name:        "loop-template",
+		Description: "Template with empty until",
+		Steps: []domain.StepDefinition{
+			{
+				Name: "fix_loop",
+				Type: domain.StepTypeLoop,
+				Config: map[string]any{
+					"until": "",
+					"steps": []any{
+						map[string]any{"name": "fix", "type": "ai"},
+					},
+				},
+			},
+		},
+	}
+	err := ValidateTemplate(tmpl)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, atlaserrors.ErrTemplateInvalid)
+}
+
+func TestValidateLoopStep_FalseUntilSignal(t *testing.T) {
+	// until_signal: false should not count as a valid termination condition
+	tmpl := &domain.Template{
+		Name:        "loop-template",
+		Description: "Template with false until_signal",
+		Steps: []domain.StepDefinition{
+			{
+				Name: "fix_loop",
+				Type: domain.StepTypeLoop,
+				Config: map[string]any{
+					"until_signal": false,
+					"steps": []any{
+						map[string]any{"name": "fix", "type": "ai"},
+					},
+				},
+			},
+		},
+	}
+	err := ValidateTemplate(tmpl)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, atlaserrors.ErrTemplateInvalid)
+}
+
+func TestValidateLoopStep_InvalidInnerStep(t *testing.T) {
+	tmpl := &domain.Template{
+		Name:        "loop-template",
+		Description: "Template with invalid inner step type",
+		Steps: []domain.StepDefinition{
+			{
+				Name: "fix_loop",
+				Type: domain.StepTypeLoop,
+				Config: map[string]any{
+					"max_iterations": 5,
+					"steps": []any{
+						map[string]any{"name": "fix", "type": "invalid_type"},
+					},
+				},
+			},
+		},
+	}
+	err := ValidateTemplate(tmpl)
+	require.Error(t, err)
+	require.ErrorIs(t, err, atlaserrors.ErrTemplateInvalid)
+	assert.Contains(t, err.Error(), "invalid type")
+}
+
+func TestValidateLoopStep_InvalidInnerStepFormat(t *testing.T) {
+	tmpl := &domain.Template{
+		Name:        "loop-template",
+		Description: "Template with inner step that's not a map",
+		Steps: []domain.StepDefinition{
+			{
+				Name: "fix_loop",
+				Type: domain.StepTypeLoop,
+				Config: map[string]any{
+					"max_iterations": 5,
+					"steps": []any{
+						"not a map",
+					},
+				},
+			},
+		},
+	}
+	err := ValidateTemplate(tmpl)
+	require.Error(t, err)
+	require.ErrorIs(t, err, atlaserrors.ErrTemplateInvalid)
+	assert.Contains(t, err.Error(), "invalid format")
+}
+
+func TestValidateLoopStep_RecursiveValidation_InvalidInnerType(t *testing.T) {
+	// Test that inner steps are recursively validated
+	tmpl := &domain.Template{
+		Name:        "loop-template",
+		Description: "Template with invalid inner step type",
+		Steps: []domain.StepDefinition{
+			{
+				Name: "fix_loop",
+				Type: domain.StepTypeLoop,
+				Config: map[string]any{
+					"max_iterations": 5,
+					"steps": []any{
+						map[string]any{
+							"name": "valid_step",
+							"type": "ai",
+						},
+						map[string]any{
+							"name": "invalid_step",
+							"type": "not_a_real_type",
+						},
+					},
+				},
+			},
+		},
+	}
+	err := ValidateTemplate(tmpl)
+	require.Error(t, err)
+	require.ErrorIs(t, err, atlaserrors.ErrTemplateInvalid)
+	// The inner step validation should catch the invalid type
+	assert.Contains(t, err.Error(), "inner step")
+}
+
+func TestValidateLoopStep_InnerStepMissingName(t *testing.T) {
+	tmpl := &domain.Template{
+		Name:        "loop-template",
+		Description: "Template with inner step missing name",
+		Steps: []domain.StepDefinition{
+			{
+				Name: "fix_loop",
+				Type: domain.StepTypeLoop,
+				Config: map[string]any{
+					"max_iterations": 5,
+					"steps": []any{
+						map[string]any{"type": "ai"}, // Missing name
+					},
+				},
+			},
+		},
+	}
+	err := ValidateTemplate(tmpl)
+	require.Error(t, err)
+	require.ErrorIs(t, err, atlaserrors.ErrTemplateInvalid)
+	assert.Contains(t, err.Error(), "name is required")
+}
+
+func TestValidateLoopStep_FloatMaxIterations(t *testing.T) {
+	// JSON unmarshaling produces float64 for numbers
+	tmpl := &domain.Template{
+		Name:        "loop-template",
+		Description: "Template with float max_iterations (from JSON)",
+		Steps: []domain.StepDefinition{
+			{
+				Name: "fix_loop",
+				Type: domain.StepTypeLoop,
+				Config: map[string]any{
+					"max_iterations": float64(5),
+					"steps": []any{
+						map[string]any{"name": "fix", "type": "ai"},
+					},
+				},
+			},
+		},
+	}
+	err := ValidateTemplate(tmpl)
+	assert.NoError(t, err)
+}
+
+func TestValidateLoopStep_MultipleLoopsInTemplate(t *testing.T) {
+	tmpl := &domain.Template{
+		Name:        "multi-loop-template",
+		Description: "Template with multiple loop steps",
+		Steps: []domain.StepDefinition{
+			{
+				Name: "first_loop",
+				Type: domain.StepTypeLoop,
+				Config: map[string]any{
+					"max_iterations": 3,
+					"steps": []any{
+						map[string]any{"name": "analyze", "type": "ai"},
+					},
+				},
+			},
+			{
+				Name: "second_loop",
+				Type: domain.StepTypeLoop,
+				Config: map[string]any{
+					"until_signal": true,
+					"steps": []any{
+						map[string]any{"name": "fix", "type": "ai"},
+						map[string]any{"name": "validate", "type": "validation"},
+					},
+				},
+			},
+		},
+	}
+	err := ValidateTemplate(tmpl)
+	assert.NoError(t, err)
+}
+
+func TestValidateLoopStep_StepsNotSlice(t *testing.T) {
+	tmpl := &domain.Template{
+		Name:        "loop-template",
+		Description: "Template with steps that's not a slice",
+		Steps: []domain.StepDefinition{
+			{
+				Name: "fix_loop",
+				Type: domain.StepTypeLoop,
+				Config: map[string]any{
+					"max_iterations": 5,
+					"steps":          "not a slice",
+				},
+			},
+		},
+	}
+	err := ValidateTemplate(tmpl)
+	require.Error(t, err)
+	require.ErrorIs(t, err, atlaserrors.ErrTemplateInvalid)
+	assert.Contains(t, err.Error(), "at least one inner step")
 }

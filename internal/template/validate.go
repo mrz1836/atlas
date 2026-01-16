@@ -20,6 +20,7 @@ func ValidStepTypes() []domain.StepType {
 		domain.StepTypeSDD,
 		domain.StepTypeCI,
 		domain.StepTypeVerify,
+		domain.StepTypeLoop,
 	}
 }
 
@@ -74,7 +75,141 @@ func validateStep(step *domain.StepDefinition, index int) error {
 		return fmt.Errorf("%w: step %d (%s): retry_count cannot be negative", atlaserrors.ErrTemplateInvalid, index, step.Name)
 	}
 
+	// Validate loop-specific configuration
+	if step.Type == domain.StepTypeLoop {
+		if err := validateLoopStep(step, index); err != nil {
+			return err
+		}
+	}
+
 	return nil
+}
+
+// validateLoopStep validates loop-specific configuration.
+func validateLoopStep(step *domain.StepDefinition, index int) error {
+	if step.Config == nil {
+		return fmt.Errorf("%w: step %d (%s): loop step requires config",
+			atlaserrors.ErrTemplateInvalid, index, step.Name)
+	}
+
+	stepsSlice, err := validateLoopInnerSteps(step, index)
+	if err != nil {
+		return err
+	}
+
+	if !hasLoopTerminationCondition(step.Config) {
+		return fmt.Errorf("%w: step %d (%s): loop must have max_iterations, until, or until_signal",
+			atlaserrors.ErrTemplateInvalid, index, step.Name)
+	}
+
+	return validateInnerStepsRecursively(stepsSlice, step, index)
+}
+
+// validateLoopInnerSteps checks that inner steps exist and are valid.
+func validateLoopInnerSteps(step *domain.StepDefinition, index int) ([]any, error) {
+	steps, hasSteps := step.Config["steps"]
+	if !hasSteps {
+		return nil, fmt.Errorf("%w: step %d (%s): loop step must have inner steps",
+			atlaserrors.ErrTemplateInvalid, index, step.Name)
+	}
+
+	stepsSlice, isSlice := steps.([]any)
+	if !isSlice || len(stepsSlice) == 0 {
+		return nil, fmt.Errorf("%w: step %d (%s): loop step must have at least one inner step",
+			atlaserrors.ErrTemplateInvalid, index, step.Name)
+	}
+
+	return stepsSlice, nil
+}
+
+// hasLoopTerminationCondition checks if any termination condition is set.
+func hasLoopTerminationCondition(config map[string]any) bool {
+	if hasPositiveInt(config, "max_iterations") {
+		return true
+	}
+	if hasNonEmptyString(config, "until") {
+		return true
+	}
+	if hasTrueBool(config, "until_signal") {
+		return true
+	}
+	return false
+}
+
+// hasPositiveInt checks if a config key has a positive integer value.
+func hasPositiveInt(config map[string]any, key string) bool {
+	v, ok := config[key]
+	if !ok {
+		return false
+	}
+	switch val := v.(type) {
+	case int:
+		return val > 0
+	case float64:
+		return val > 0
+	}
+	return false
+}
+
+// hasNonEmptyString checks if a config key has a non-empty string value.
+func hasNonEmptyString(config map[string]any, key string) bool {
+	v, ok := config[key]
+	if !ok {
+		return false
+	}
+	s, ok := v.(string)
+	return ok && s != ""
+}
+
+// hasTrueBool checks if a config key has a true boolean value.
+func hasTrueBool(config map[string]any, key string) bool {
+	v, ok := config[key]
+	if !ok {
+		return false
+	}
+	b, ok := v.(bool)
+	return ok && b
+}
+
+// validateInnerStepsRecursively validates each inner step.
+func validateInnerStepsRecursively(stepsSlice []any, step *domain.StepDefinition, index int) error {
+	for i, innerStep := range stepsSlice {
+		innerMap, ok := innerStep.(map[string]any)
+		if !ok {
+			return fmt.Errorf("%w: step %d (%s): inner step %d has invalid format",
+				atlaserrors.ErrTemplateInvalid, index, step.Name, i)
+		}
+
+		innerDef := parseInnerStepDefinition(innerMap)
+		if err := validateStep(&innerDef, i); err != nil {
+			return fmt.Errorf("%w: step %d (%s) inner step %d: %w",
+				atlaserrors.ErrTemplateInvalid, index, step.Name, i, err)
+		}
+	}
+	return nil
+}
+
+// parseInnerStepDefinition converts a map to a StepDefinition for validation.
+func parseInnerStepDefinition(m map[string]any) domain.StepDefinition {
+	step := domain.StepDefinition{}
+
+	if v, ok := m["name"].(string); ok {
+		step.Name = v
+	}
+	if v, ok := m["type"].(string); ok {
+		step.Type = domain.StepType(v)
+	}
+	if v, ok := m["description"].(string); ok {
+		step.Description = v
+	}
+	if v, ok := m["required"].(bool); ok {
+		step.Required = v
+	}
+	if v, ok := m["config"].(map[string]any); ok {
+		step.Config = v
+	}
+
+	return step
 }
 
 // IsValidStepType checks if the step type is a known valid type.
