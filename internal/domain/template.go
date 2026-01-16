@@ -29,6 +29,9 @@ const (
 
 	// StepTypeVerify indicates the step performs AI verification of implementation.
 	StepTypeVerify StepType = "verify"
+
+	// StepTypeLoop indicates the step executes inner steps iteratively.
+	StepTypeLoop StepType = "loop"
 )
 
 // String returns the string representation of the StepType.
@@ -132,6 +135,51 @@ type TemplateVariable struct {
 
 	// Required indicates whether this variable must be provided.
 	Required bool `json:"required"`
+}
+
+// LoopConfig defines iteration behavior for loop steps.
+// Loop steps execute their inner steps repeatedly until an exit condition
+// is met (count-based, condition-based, or signal-based termination).
+type LoopConfig struct {
+	// MaxIterations is the hard cap on iteration count.
+	// When set, the loop will stop after this many iterations.
+	MaxIterations int `json:"max_iterations,omitempty"`
+
+	// Until is a condition name that must evaluate to true to exit.
+	// Built-in conditions: "all_tests_pass", "validation_passed", "no_changes".
+	Until string `json:"until,omitempty"`
+
+	// UntilSignal enables AI-driven exit via {"exit": true} in output.
+	// When true, the loop exits when AI signals completion AND all
+	// ExitConditions are met (dual-gate pattern).
+	UntilSignal bool `json:"until_signal,omitempty"`
+
+	// ExitConditions are patterns that must be present in output for signal exit.
+	// Used only when UntilSignal is true - all conditions must be met.
+	ExitConditions []string `json:"exit_conditions,omitempty"`
+
+	// CircuitBreaker contains safety settings to prevent infinite loops.
+	CircuitBreaker CircuitBreakerConfig `json:"circuit_breaker,omitempty"`
+
+	// FreshContext spawns a new AI context for each iteration.
+	// Prevents context bloat over long loops.
+	FreshContext bool `json:"fresh_context,omitempty"`
+
+	// ScratchpadFile is the filename for cross-iteration memory (JSON format).
+	// Stored in the task artifacts directory.
+	ScratchpadFile string `json:"scratchpad_file,omitempty"`
+
+	// Steps are the inner steps to execute each iteration.
+	Steps []StepDefinition `json:"steps,omitempty"`
+}
+
+// CircuitBreakerConfig defines safety thresholds for loop termination.
+type CircuitBreakerConfig struct {
+	// StagnationIterations stops the loop if no files changed for this many iterations.
+	StagnationIterations int `json:"stagnation_iterations,omitempty"`
+
+	// ConsecutiveErrors stops the loop after this many consecutive failures.
+	ConsecutiveErrors int `json:"consecutive_errors,omitempty"`
 }
 
 // Clone creates a deep copy of the template.

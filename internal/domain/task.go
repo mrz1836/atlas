@@ -232,3 +232,69 @@ type Transition struct {
 	// Reason optionally describes why the transition happened.
 	Reason string `json:"reason,omitempty"`
 }
+
+// LoopState tracks the current state of a loop step execution.
+// This enables checkpointing and resumption of iterative workflows.
+type LoopState struct {
+	// StepName identifies the loop step.
+	StepName string `json:"step_name"`
+
+	// CurrentIteration is the iteration currently executing (1-indexed).
+	CurrentIteration int `json:"current_iteration"`
+
+	// MaxIterations is the configured maximum (0 = unlimited).
+	MaxIterations int `json:"max_iterations"`
+
+	// CurrentInnerStep is the index within the current iteration.
+	CurrentInnerStep int `json:"current_inner_step"`
+
+	// CompletedIterations holds results from finished iterations.
+	CompletedIterations []IterationResult `json:"completed_iterations"`
+
+	// ExitReason explains why the loop terminated.
+	// Values: "max_iterations_reached", "exit_signal", "condition_met",
+	// "circuit_breaker_stagnation", "circuit_breaker_errors", "context_canceled".
+	ExitReason string `json:"exit_reason,omitempty"`
+
+	// ScratchpadPath is the full path to the scratchpad file.
+	ScratchpadPath string `json:"scratchpad_path,omitempty"`
+
+	// StagnationCount tracks consecutive iterations with no file changes.
+	StagnationCount int `json:"stagnation_count"`
+
+	// ConsecutiveErrors tracks consecutive iteration failures.
+	ConsecutiveErrors int `json:"consecutive_errors"`
+
+	// StartedAt is when the loop step started.
+	StartedAt time.Time `json:"started_at"`
+
+	// LastCheckpoint is when state was last saved.
+	LastCheckpoint time.Time `json:"last_checkpoint"`
+}
+
+// IterationResult captures the outcome of a single loop iteration.
+type IterationResult struct {
+	// Iteration is the 1-indexed iteration number.
+	Iteration int `json:"iteration"`
+
+	// StepResults contains results from each inner step.
+	StepResults []StepResult `json:"step_results"`
+
+	// FilesChanged lists files modified during this iteration.
+	FilesChanged []string `json:"files_changed"`
+
+	// ExitSignal indicates if AI signaled completion.
+	ExitSignal bool `json:"exit_signal"`
+
+	// Duration is how long the iteration took.
+	Duration time.Duration `json:"duration"`
+
+	// StartedAt is when the iteration started.
+	StartedAt time.Time `json:"started_at"`
+
+	// CompletedAt is when the iteration finished.
+	CompletedAt time.Time `json:"completed_at"`
+
+	// Error contains any error message from the iteration.
+	Error string `json:"error,omitempty"`
+}
