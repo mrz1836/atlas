@@ -969,6 +969,60 @@ steps:
 | `sdd` | Speckit spec-driven development |
 | `ci` | CI pipeline monitoring |
 | `verify` | AI cross-model verification |
+| `loop` | Iterative execution with exit conditions |
+
+**Loop Step Configuration:**
+
+The `loop` step type executes inner steps repeatedly until an exit condition is met. It supports count-based, condition-based, and AI signal-based termination with circuit breakers for safety.
+
+```yaml
+steps:
+  - name: iterative_fix
+    type: loop
+    description: Iteratively fix issues until all pass
+    timeout: 1h
+    config:
+      # Iteration control (pick one mode)
+      max_iterations: 10          # Hard cap on iterations
+      until: "all_tests_pass"     # Exit when condition is true
+      until_signal: true          # Exit when AI outputs {"exit": true}
+
+      # Exit conditions (for signal mode - dual-gate pattern)
+      exit_conditions:
+        - "all tests passing"
+        - "no lint errors"
+
+      # Circuit breakers (safety)
+      circuit_breaker:
+        stagnation_iterations: 3  # Stop if no files changed for 3 iterations
+        consecutive_errors: 5     # Stop on repeated failures
+
+      # Context management
+      fresh_context: true         # New AI context per iteration
+      scratchpad_file: "loop-progress.json"  # Cross-iteration memory
+
+      # Inner steps to execute each iteration
+      steps:
+        - name: fix
+          type: ai
+          config:
+            prompt_template: analyze_and_fix
+
+        - name: validate
+          type: validation
+```
+
+| Config Key | Description | Default |
+|------------|-------------|---------|
+| `max_iterations` | Maximum number of iterations | Required if no other exit |
+| `until` | Built-in condition name (`all_tests_pass`, `validation_passed`, `no_changes`) | - |
+| `until_signal` | Exit when AI outputs `{"exit": true}` | `false` |
+| `exit_conditions` | Patterns that must appear in output for signal exit | `[]` |
+| `circuit_breaker.stagnation_iterations` | Stop after N iterations with no file changes | Disabled |
+| `circuit_breaker.consecutive_errors` | Stop after N consecutive failures | `5` |
+| `fresh_context` | Spawn new AI context per iteration | `false` |
+| `scratchpad_file` | JSON file for cross-iteration memory | - |
+| `steps` | Inner steps to execute each iteration | Required |
 
 **Git Step Operations:**
 
