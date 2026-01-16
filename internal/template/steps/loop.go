@@ -13,6 +13,7 @@ import (
 
 	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/domain"
+	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 )
 
 // InnerStepRunner executes inner steps within a loop iteration.
@@ -81,6 +82,8 @@ func WithLoopArtifactDir(dir string) LoopExecutorOption {
 }
 
 // Execute runs the loop step, iterating until an exit condition is met.
+//
+//nolint:gocognit // Loop orchestration inherently requires handling multiple exit conditions and states.
 func (e *LoopExecutor) Execute(ctx context.Context, task *domain.Task, step *domain.StepDefinition) (*domain.StepResult, error) {
 	select {
 	case <-ctx.Done():
@@ -88,10 +91,20 @@ func (e *LoopExecutor) Execute(ctx context.Context, task *domain.Task, step *dom
 	default:
 	}
 
-	startTime := time.Now()
-	cfg := e.parseLoopConfig(step.Config)
+	// Get enriched logger from context (set by Engine.injectLoggerContext)
+	// This provides task_id and workspace_name fields automatically.
+	logger := zerolog.Ctx(ctx)
+	if logger.GetLevel() == zerolog.Disabled {
+		logger = &e.logger // Fallback to injected logger
+	}
 
-	e.logger.Info().
+	startTime := time.Now()
+	cfg, err := e.parseLoopConfig(step.Config)
+	if err != nil {
+		return nil, fmt.Errorf("invalid loop configuration: %w", err)
+	}
+
+	logger.Info().
 		Str("task_id", task.ID).
 		Str("step_name", step.Name).
 		Int("max_iterations", cfg.MaxIterations).
@@ -109,7 +122,12 @@ func (e *LoopExecutor) Execute(ctx context.Context, task *domain.Task, step *dom
 
 	// Set up scratchpad if configured
 	if err := e.setupScratchpad(task, step, cfg, state); err != nil {
-		e.logger.Warn().Err(err).Msg("failed to set up scratchpad, continuing without it")
+		logger.Warn().Err(err).Msg("failed to set up scratchpad, continuing without it")
+		// Store error in metadata so caller can detect scratchpad failure
+		if task.Metadata == nil {
+			task.Metadata = make(map[string]any)
+		}
+		task.Metadata["scratchpad_setup_error"] = err.Error()
 	}
 
 	// Main loop
@@ -118,8 +136,7 @@ func (e *LoopExecutor) Execute(ctx context.Context, task *domain.Task, step *dom
 		state.CurrentInnerStep = 0
 
 		iterStart := time.Now()
-		e.logger.Info().
-			Str("task_id", task.ID).
+		logger.Info().
 			Int("iteration", state.CurrentIteration).
 			Msg("starting iteration")
 
@@ -129,7 +146,7 @@ func (e *LoopExecutor) Execute(ctx context.Context, task *domain.Task, step *dom
 			state.ConsecutiveErrors++
 			iterResult.Error = err.Error()
 
-			e.logger.Warn().
+			logger.Warn().
 				Err(err).
 				Int("iteration", state.CurrentIteration).
 				Int("consecutive_errors", state.ConsecutiveErrors).
@@ -140,7 +157,10 @@ func (e *LoopExecutor) Execute(ctx context.Context, task *domain.Task, step *dom
 				break
 			}
 			// Save state and continue to next iteration
-			e.saveCheckpoint(ctx, task, state)
+			if checkpointErr := e.saveCheckpoint(ctx, task, state); checkpointErr != nil {
+				state.ExitReason = "checkpoint_failure"
+				return nil, checkpointErr
+			}
 			continue
 		}
 
@@ -167,14 +187,17 @@ func (e *LoopExecutor) Execute(ctx context.Context, task *domain.Task, step *dom
 		// Check exit signal
 		if cfg.UntilSignal && iterResult.ExitSignal {
 			state.ExitReason = "exit_signal"
-			e.logger.Info().
+			logger.Info().
 				Int("iteration", state.CurrentIteration).
 				Msg("exit signal received")
 			break
 		}
 
 		// Checkpoint after each iteration
-		e.saveCheckpoint(ctx, task, state)
+		if checkpointErr := e.saveCheckpoint(ctx, task, state); checkpointErr != nil {
+			state.ExitReason = "checkpoint_failure"
+			return nil, checkpointErr
+		}
 	}
 
 	// Set exit reason if not already set
@@ -191,9 +214,10 @@ func (e *LoopExecutor) Type() domain.StepType {
 }
 
 // parseLoopConfig extracts LoopConfig from step config map.
-func (e *LoopExecutor) parseLoopConfig(config map[string]any) *domain.LoopConfig {
+// Returns an error if the configuration contains invalid values.
+func (e *LoopExecutor) parseLoopConfig(config map[string]any) (*domain.LoopConfig, error) {
 	if config == nil {
-		return &domain.LoopConfig{}
+		return &domain.LoopConfig{}, nil
 	}
 
 	cfg := &domain.LoopConfig{
@@ -207,7 +231,32 @@ func (e *LoopExecutor) parseLoopConfig(config map[string]any) *domain.LoopConfig
 		Steps:          e.parseInnerSteps(config),
 	}
 
-	return cfg
+	// Validate configuration
+	if err := e.validateLoopConfig(cfg); err != nil {
+		return nil, err
+	}
+
+	return cfg, nil
+}
+
+// validateLoopConfig checks for invalid configuration values.
+func (e *LoopExecutor) validateLoopConfig(cfg *domain.LoopConfig) error {
+	if cfg.MaxIterations < 0 {
+		return fmt.Errorf("%w: max_iterations cannot be negative: %d",
+			atlaserrors.ErrLoopConfigInvalid, cfg.MaxIterations)
+	}
+
+	if cfg.CircuitBreaker.ConsecutiveErrors < 0 {
+		return fmt.Errorf("%w: circuit_breaker.consecutive_errors cannot be negative: %d",
+			atlaserrors.ErrLoopConfigInvalid, cfg.CircuitBreaker.ConsecutiveErrors)
+	}
+
+	if cfg.CircuitBreaker.StagnationIterations < 0 {
+		return fmt.Errorf("%w: circuit_breaker.stagnation_iterations cannot be negative: %d",
+			atlaserrors.ErrLoopConfigInvalid, cfg.CircuitBreaker.StagnationIterations)
+	}
+
+	return nil
 }
 
 // getIntFromConfig extracts an int value from config, handling both int and float64.
@@ -506,19 +555,34 @@ func (e *LoopExecutor) stagnationTripped(state *domain.LoopState, cfg *domain.Lo
 }
 
 // saveCheckpoint persists the current loop state.
-func (e *LoopExecutor) saveCheckpoint(ctx context.Context, task *domain.Task, state *domain.LoopState) {
+// Returns an error if checkpoint failures exceed threshold (3 consecutive).
+func (e *LoopExecutor) saveCheckpoint(ctx context.Context, task *domain.Task, state *domain.LoopState) error {
 	if e.stateStore == nil {
-		return
+		return nil
 	}
 
 	state.LastCheckpoint = time.Now()
 	if err := e.stateStore.SaveLoopState(ctx, task, state); err != nil {
-		e.logger.Warn().Err(err).Msg("failed to save loop checkpoint")
-	} else {
-		e.logger.Debug().
-			Int("iteration", state.CurrentIteration).
-			Msg("saved loop checkpoint")
+		state.ConsecutiveCheckpointErrors++
+		e.logger.Warn().
+			Err(err).
+			Int("consecutive_failures", state.ConsecutiveCheckpointErrors).
+			Msg("failed to save loop checkpoint")
+
+		// Fail after 3 consecutive checkpoint errors to prevent data loss
+		if state.ConsecutiveCheckpointErrors >= 3 {
+			return fmt.Errorf("checkpoint persistence failing after %d attempts: %w",
+				state.ConsecutiveCheckpointErrors, err)
+		}
+		return nil
 	}
+
+	// Reset counter on success
+	state.ConsecutiveCheckpointErrors = 0
+	e.logger.Debug().
+		Int("iteration", state.CurrentIteration).
+		Msg("saved loop checkpoint")
+	return nil
 }
 
 // buildResult creates the final StepResult for the loop.

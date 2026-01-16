@@ -434,7 +434,8 @@ func TestLoopExecutor_ParseLoopConfig(t *testing.T) {
 		},
 	}
 
-	cfg := executor.parseLoopConfig(config)
+	cfg, err := executor.parseLoopConfig(config)
+	require.NoError(t, err)
 
 	assert.Equal(t, 5, cfg.MaxIterations)
 	assert.Equal(t, "all_tests_pass", cfg.Until)
@@ -463,7 +464,8 @@ func TestLoopExecutor_ParseLoopConfig_FloatConversion(t *testing.T) {
 		},
 	}
 
-	cfg := executor.parseLoopConfig(config)
+	cfg, err := executor.parseLoopConfig(config)
+	require.NoError(t, err)
 
 	assert.Equal(t, 10, cfg.MaxIterations)
 	assert.Equal(t, 3, cfg.CircuitBreaker.StagnationIterations)
@@ -635,7 +637,8 @@ func TestLoopExecutor_CheckpointSaving(t *testing.T) {
 
 func TestLoopExecutor_EmptyConfig(t *testing.T) {
 	executor := &LoopExecutor{}
-	cfg := executor.parseLoopConfig(nil)
+	cfg, err := executor.parseLoopConfig(nil)
+	require.NoError(t, err)
 
 	assert.NotNil(t, cfg)
 	assert.Equal(t, 0, cfg.MaxIterations)
@@ -2069,4 +2072,274 @@ func TestLoopExecutor_DefaultCircuitBreakerThreshold(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "circuit_breaker_errors", result.Metadata["exit_reason"])
 	assert.Equal(t, 5, mockRunner.ExecuteCalls)
+}
+
+// ============================================================================
+// Tests for QW-1, QW-2, QW-3: Error handling improvements
+// ============================================================================
+
+func TestLoopExecutor_ScratchpadErrorStoredInMetadata(t *testing.T) {
+	ctx := context.Background()
+	logger := zerolog.Nop()
+
+	mockRunner := &MockInnerStepRunner{
+		Results: []*domain.StepResult{
+			{Status: constants.StepStatusSuccess},
+		},
+	}
+	mockStore := &MockLoopStateStore{}
+
+	// Create a scratchpad that fails on write
+	mockScratchpad := &MockScratchpad{
+		WriteError: atlaserrors.Wrap(atlaserrors.ErrCommandFailed, "scratchpad write failed"),
+	}
+
+	executor := NewLoopExecutor(
+		mockRunner,
+		mockStore,
+		WithLoopLogger(logger),
+		WithLoopScratchpad(mockScratchpad),
+	)
+
+	task := &domain.Task{ID: "task-123", CurrentStep: 0}
+	step := &domain.StepDefinition{
+		Name: "test_loop",
+		Type: domain.StepTypeLoop,
+		Config: map[string]any{
+			"max_iterations":  1,
+			"scratchpad_file": "test_scratchpad.json",
+			"steps": []any{
+				map[string]any{"name": "inner", "type": "ai"},
+			},
+		},
+	}
+
+	_, err := executor.Execute(ctx, task, step)
+
+	require.NoError(t, err) // Scratchpad error doesn't fail execution
+	// But the error should be stored in metadata
+	assert.NotNil(t, task.Metadata)
+	assert.Contains(t, task.Metadata, "scratchpad_setup_error")
+}
+
+func TestLoopExecutor_CheckpointFailureAfterThreshold(t *testing.T) {
+	ctx := context.Background()
+	logger := zerolog.Nop()
+
+	// Create a runner that succeeds
+	mockRunner := &MockInnerStepRunner{
+		Results: []*domain.StepResult{
+			{Status: constants.StepStatusSuccess},
+			{Status: constants.StepStatusSuccess},
+			{Status: constants.StepStatusSuccess},
+			{Status: constants.StepStatusSuccess},
+		},
+	}
+
+	// Create a store that always fails on save
+	mockStore := &MockLoopStateStore{
+		SaveError: atlaserrors.Wrap(atlaserrors.ErrCommandFailed, "checkpoint save failed"),
+	}
+
+	executor := NewLoopExecutor(mockRunner, mockStore, WithLoopLogger(logger))
+
+	task := &domain.Task{ID: "task-123", CurrentStep: 0}
+	step := &domain.StepDefinition{
+		Name: "test_loop",
+		Type: domain.StepTypeLoop,
+		Config: map[string]any{
+			"max_iterations": 10,
+			"steps": []any{
+				map[string]any{"name": "inner", "type": "ai"},
+			},
+		},
+	}
+
+	_, err := executor.Execute(ctx, task, step)
+
+	// Should fail after 3 consecutive checkpoint failures
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "checkpoint persistence failing")
+}
+
+func TestLoopExecutor_ParseLoopConfigValidation(t *testing.T) {
+	logger := zerolog.Nop()
+
+	tests := []struct {
+		name        string
+		config      map[string]any
+		expectError bool
+		errorMsg    string
+	}{
+		{
+			name: "negative max_iterations",
+			config: map[string]any{
+				"max_iterations": -1,
+				"steps":          []any{},
+			},
+			expectError: true,
+			errorMsg:    "max_iterations cannot be negative",
+		},
+		{
+			name: "negative consecutive_errors",
+			config: map[string]any{
+				"max_iterations": 1,
+				"circuit_breaker": map[string]any{
+					"consecutive_errors": -5,
+				},
+				"steps": []any{},
+			},
+			expectError: true,
+			errorMsg:    "consecutive_errors cannot be negative",
+		},
+		{
+			name: "negative stagnation_iterations",
+			config: map[string]any{
+				"max_iterations": 1,
+				"circuit_breaker": map[string]any{
+					"stagnation_iterations": -3,
+				},
+				"steps": []any{},
+			},
+			expectError: true,
+			errorMsg:    "stagnation_iterations cannot be negative",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// Create fresh executor for each test
+			mockRunner := &MockInnerStepRunner{}
+			mockStore := &MockLoopStateStore{}
+			executor := NewLoopExecutor(mockRunner, mockStore, WithLoopLogger(logger))
+
+			// Use timeout context to prevent hanging
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			task := &domain.Task{ID: "task-123", CurrentStep: 0}
+			step := &domain.StepDefinition{
+				Name:   "test_loop",
+				Type:   domain.StepTypeLoop,
+				Config: tc.config,
+			}
+
+			_, err := executor.Execute(ctx, task, step)
+
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.errorMsg)
+		})
+	}
+}
+
+func TestLoopExecutor_ParseLoopConfigValid(t *testing.T) {
+	logger := zerolog.Nop()
+
+	// Create fresh executor for this test
+	mockRunner := &MockInnerStepRunner{}
+	mockStore := &MockLoopStateStore{}
+	executor := NewLoopExecutor(mockRunner, mockStore, WithLoopLogger(logger))
+
+	// Use timeout context
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	task := &domain.Task{ID: "task-123", CurrentStep: 0}
+	step := &domain.StepDefinition{
+		Name: "test_loop",
+		Type: domain.StepTypeLoop,
+		Config: map[string]any{
+			"max_iterations": 2,
+			"circuit_breaker": map[string]any{
+				"consecutive_errors":    3,
+				"stagnation_iterations": 2,
+			},
+			"steps": []any{}, // Empty steps - should complete quickly
+		},
+	}
+
+	// With empty steps and max_iterations: 2, should complete immediately
+	_, err := executor.Execute(ctx, task, step)
+	require.NoError(t, err)
+}
+
+func TestLoopExecutor_ParseLoopConfigNil(t *testing.T) {
+	logger := zerolog.Nop()
+
+	// Create fresh executor for this test
+	mockRunner := &MockInnerStepRunner{}
+	mockStore := &MockLoopStateStore{}
+	executor := NewLoopExecutor(mockRunner, mockStore, WithLoopLogger(logger))
+
+	// Use timeout context
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	task := &domain.Task{ID: "task-123", CurrentStep: 0}
+	step := &domain.StepDefinition{
+		Name:   "test_loop",
+		Type:   domain.StepTypeLoop,
+		Config: nil,
+	}
+
+	// Nil config should use defaults and complete
+	_, err := executor.Execute(ctx, task, step)
+	require.NoError(t, err)
+}
+
+func TestLoopExecutor_ConsecutiveCheckpointErrorReset(t *testing.T) {
+	ctx := context.Background()
+	logger := zerolog.Nop()
+
+	mockRunner := &MockInnerStepRunner{
+		Results: []*domain.StepResult{
+			{Status: constants.StepStatusSuccess},
+			{Status: constants.StepStatusSuccess},
+			{Status: constants.StepStatusSuccess},
+		},
+	}
+
+	// Override to fail first 2 saves, then succeed
+	customStore := &failThenSucceedStore{
+		failUntil: 2,
+	}
+
+	executor := NewLoopExecutor(mockRunner, customStore, WithLoopLogger(logger))
+
+	task := &domain.Task{ID: "task-123", CurrentStep: 0}
+	step := &domain.StepDefinition{
+		Name: "test_loop",
+		Type: domain.StepTypeLoop,
+		Config: map[string]any{
+			"max_iterations": 5,
+			"steps": []any{
+				map[string]any{"name": "inner", "type": "ai"},
+			},
+		},
+	}
+
+	// Should succeed because consecutive errors reset after a successful save
+	_, err := executor.Execute(ctx, task, step)
+	require.NoError(t, err)
+}
+
+// failThenSucceedStore fails saves until failUntil count, then succeeds.
+type failThenSucceedStore struct {
+	failUntil  int
+	callCount  int
+	savedState *domain.LoopState
+}
+
+func (s *failThenSucceedStore) SaveLoopState(_ context.Context, _ *domain.Task, state *domain.LoopState) error {
+	s.callCount++
+	if s.callCount <= s.failUntil {
+		return atlaserrors.Wrapf(atlaserrors.ErrCommandFailed, "simulated checkpoint failure %d", s.callCount)
+	}
+	s.savedState = state
+	return nil
+}
+
+func (s *failThenSucceedStore) LoadLoopState(_ context.Context, _ *domain.Task, _ string) (*domain.LoopState, error) {
+	// Return nil state to indicate no saved state exists (not an error condition for resumption)
+	return nil, nil //nolint:nilnil // nil state means no state to resume from, which is valid
 }
