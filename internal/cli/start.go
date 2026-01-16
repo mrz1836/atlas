@@ -1366,6 +1366,8 @@ func getSideEffectForStepType(step domain.StepDefinition) string {
 		return "CI execution"
 	case domain.StepTypeHuman:
 		return ""
+	case domain.StepTypeLoop:
+		return "Loop execution (iterative steps)"
 	default:
 		return ""
 	}
