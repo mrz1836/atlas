@@ -265,6 +265,10 @@ type LoopState struct {
 	// ConsecutiveErrors tracks consecutive iteration failures.
 	ConsecutiveErrors int `json:"consecutive_errors"`
 
+	// ConsecutiveCheckpointErrors tracks consecutive checkpoint save failures.
+	// If this exceeds a threshold, the loop should fail to prevent data loss.
+	ConsecutiveCheckpointErrors int `json:"consecutive_checkpoint_errors"`
+
 	// StartedAt is when the loop step started.
 	StartedAt time.Time `json:"started_at"`
 
