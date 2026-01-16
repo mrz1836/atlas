@@ -2,7 +2,7 @@
 
 **ATLAS** (AI Task Lifecycle Automation System) is a CLI tool that orchestrates AI-assisted development workflows for Go projects. It automates the cycle of analyzing issues, implementing fixes, validating code, and creating pull requests—while keeping humans in control at every decision point.
 
----
+<br>
 
 ## Table of Contents
 
@@ -34,7 +34,7 @@
 10. [File Structure](#file-structure)
 11. [Troubleshooting](#troubleshooting)
 
----
+<br>
 
 ## Quick Start
 
@@ -57,7 +57,7 @@ atlas init
 
 # 4. Run your first task
 cd /path/to/your/go/project
-atlas start "fix the null pointer in parseConfig" --template bugfix
+atlas start "this is just a test task. say hi!" --template task
 
 # 5. Monitor progress
 atlas status --watch
@@ -66,7 +66,7 @@ atlas status --watch
 atlas approve
 ```
 
----
+<br>
 
 ## Prerequisites
 
@@ -87,7 +87,7 @@ ATLAS manages additional tools automatically:
 - **go-pre-commit** - Pre-commit hooks
 - **Speckit** - Specification-driven development framework
 
----
+<br>
 
 ## Installation
 
@@ -108,7 +108,7 @@ The `atlas init` wizard will:
 3. Configure AI provider settings
 4. Set up default templates
 
----
+<br>
 
 ## Global Flags
 
@@ -135,7 +135,7 @@ export ATLAS_OUTPUT=json
 export ATLAS_VERBOSE=true
 ```
 
----
+<br>
 
 ## CLI Commands Reference
 
@@ -170,7 +170,7 @@ atlas init --project
 - Validation commands (format, lint, test, pre-commit)
 - Notification preferences (bell, events)
 
----
+<br>
 
 ### atlas start
 
@@ -266,7 +266,7 @@ Run without --dry-run to execute.
 - Override with `--workspace <name>`
 - Branch format: `<prefix>/<workspace-name>` (e.g., `fix/null-pointer-config`)
 
----
+<br>
 
 ### atlas status
 
@@ -307,7 +307,7 @@ atlas status --watch --progress
 - Timestamp of last update
 - Ctrl+C to exit
 
----
+<br>
 
 ### atlas approve
 
@@ -357,7 +357,7 @@ The **Approve + Merge + Close** option performs:
 3. Approves the task in ATLAS
 4. Closes the workspace
 
----
+<br>
 
 ### atlas reject
 
@@ -394,7 +394,7 @@ atlas reject --output json --done
 | `--step <N>` | Step number to resume from |
 | `--done` | Reject and end task |
 
----
+<br>
 
 ### atlas resume
 
@@ -445,7 +445,7 @@ When you press Ctrl+C:
 - All progress and artifacts are retained
 - You can resume exactly where you left off
 
----
+<br>
 
 ### atlas abandon
 
@@ -471,7 +471,7 @@ atlas abandon my-workspace --force
 - `ci_failed`
 - `ci_timeout`
 
----
+<br>
 
 ### atlas recover
 
@@ -515,7 +515,7 @@ atlas recover --output json --continue
 - `ci_failed`
 - `ci_timeout`
 
----
+<br>
 
 ### atlas validate
 
@@ -540,7 +540,7 @@ atlas validate --quiet
 - `magex lint`
 - `magex test`
 
----
+<br>
 
 ### atlas format
 
@@ -552,7 +552,7 @@ atlas format
 
 **Default Command:** `magex format:fix`
 
----
+<br>
 
 ### atlas lint
 
@@ -564,7 +564,7 @@ atlas lint
 
 **Default Command:** `magex lint`
 
----
+<br>
 
 ### atlas test
 
@@ -576,7 +576,7 @@ atlas test
 
 **Default Command:** `magex test`
 
----
+<br>
 
 ### atlas upgrade
 
@@ -610,7 +610,7 @@ atlas upgrade go-pre-commit
 - go-pre-commit
 - Speckit
 
----
+<br>
 
 ### atlas config
 
@@ -692,7 +692,7 @@ atlas config notifications --no-interactive
 - Bell notifications (on/off)
 - Events that trigger notifications
 
----
+<br>
 
 ### atlas workspace
 
@@ -792,7 +792,7 @@ atlas workspace logs my-workspace --follow --step validate --tail 100
 - JSON-lines format
 - Filterable by step and task
 
----
+<br>
 
 ### atlas completion
 
@@ -848,7 +848,7 @@ source <(atlas completion bash)
 atlas completion fish | source
 ```
 
----
+<br>
 
 ## Templates
 
@@ -1082,7 +1082,7 @@ templates:
     bugfix: ./templates/my-bugfix.yaml  # Overrides built-in bugfix
 ```
 
----
+<br>
 
 ## Task States
 
@@ -1152,7 +1152,7 @@ templates:
 - `ci_failed` - CI pipeline failed
 - `ci_timeout` - CI exceeded timeout
 
----
+<br>
 
 ## Workflows
 
@@ -1347,7 +1347,7 @@ atlas recover my-workspace
 atlas resume my-workspace
 ```
 
----
+<br>
 
 ## Configuration
 
@@ -1600,7 +1600,7 @@ verify:
     # - security
 ```
 
----
+<br>
 
 ## File Structure
 
@@ -1662,7 +1662,7 @@ ls ~/.atlas/workspaces/auth/tasks/ | tail -1
 cat ~/.atlas/workspaces/*/tasks/*/task.log | jq 'select(.event=="model_complete")'
 ```
 
----
+<br>
 
 ## Troubleshooting
 
@@ -1714,6 +1714,8 @@ atlas start --help
 atlas workspace --help
 atlas config --help
 ```
+
+<br>
 
 ---
 
