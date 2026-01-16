@@ -4,7 +4,19 @@
 // through templates. The engine coordinates step executors, state transitions,
 // and checkpointing.
 //
-// Import rules:
+// # Concurrency Model
+//
+// Task objects are NOT safe for concurrent modification. The Engine processes
+// steps sequentially, updating task state (Steps, StepResults, CurrentStep)
+// after each step completes. When parallel step execution is needed, use
+// executeStepInternal which does not modify shared task state.
+//
+// The Engine itself is safe for concurrent use across different tasks -
+// each task maintains its own state. However, a single task instance
+// must not be processed by multiple goroutines simultaneously.
+//
+// # Import rules
+//
 //   - CAN import: internal/constants, internal/domain, internal/errors, internal/template/steps, std lib
 //   - MUST NOT import: internal/workspace, internal/ai, internal/cli
 package task
@@ -92,6 +104,7 @@ type Engine struct {
 	ciFailureHandler       *CIFailureHandler
 	notifier               *StateChangeNotifier
 	validationRetryHandler ValidationRetryHandler
+	metrics                Metrics
 }
 
 // EngineOption configures an Engine.
@@ -120,6 +133,15 @@ func WithNotifier(notifier *StateChangeNotifier) EngineOption {
 func WithValidationRetryHandler(handler ValidationRetryHandler) EngineOption {
 	return func(e *Engine) {
 		e.validationRetryHandler = handler
+	}
+}
+
+// WithMetrics sets the metrics collector for observability.
+// When configured, the engine will report task and step execution metrics.
+// Use NoopMetrics{} if metrics collection is not needed.
+func WithMetrics(m Metrics) EngineOption {
+	return func(e *Engine) {
+		e.metrics = m
 	}
 }
 
@@ -181,8 +203,8 @@ func (e *Engine) Start(ctx context.Context, workspaceName, branch, worktreePath 
 		Status:      constants.TaskStatusPending,
 		CurrentStep: 0,
 		Steps:       taskSteps,
-		StepResults: make([]domain.StepResult, 0),
-		Transitions: make([]domain.Transition, 0),
+		StepResults: make([]domain.StepResult, 0, len(template.Steps)), // Pre-allocate for expected steps
+		Transitions: make([]domain.Transition, 0, 8),                   // Pre-allocate for typical transition count
 		CreatedAt:   now,
 		UpdatedAt:   now,
 		Config: domain.TaskConfig{
@@ -215,6 +237,9 @@ func (e *Engine) Start(ctx context.Context, workspaceName, branch, worktreePath 
 
 	// Inject logger with task context for step executors
 	ctx = e.injectLoggerContext(ctx, workspaceName, taskID)
+
+	// Record task start for metrics
+	e.recordTaskStarted(taskID, template.Name)
 
 	// Execute steps - pass template for step definitions
 	if err := e.runSteps(ctx, task, template); err != nil {
@@ -537,11 +562,13 @@ func (e *Engine) executeStepInternal(ctx context.Context, task *domain.Task, ste
 	if err != nil {
 		e.buildStepLogEvent(task, step, zerolog.ErrorLevel, duration.Milliseconds()).
 			Err(err).Msg("step execution failed")
+		e.recordStepExecuted(task.ID, step.Name, step.Type, duration, false)
 		return result, err
 	}
 
 	e.buildStepLogEvent(task, step, zerolog.InfoLevel, duration.Milliseconds()).
 		Str("status", result.Status).Msg("step completed")
+	e.recordStepExecuted(task.ID, step.Name, step.Type, duration, true)
 
 	return result, nil
 }
@@ -955,6 +982,9 @@ func (e *Engine) completeTask(ctx context.Context, task *domain.Task) error {
 		return fmt.Errorf("failed to save completed state: %w", err)
 	}
 
+	// Record task completion for metrics
+	e.recordTaskCompleted(task.ID, time.Since(task.CreatedAt), string(task.Status))
+
 	e.logger.Info().
 		Str("task_id", task.ID).
 		Str("status", string(task.Status)).
@@ -1175,4 +1205,25 @@ func (e *Engine) notifyStepComplete(task *domain.Task, step *domain.StepDefiniti
 	event.FilesChangedCount = len(result.FilesChanged)
 
 	e.config.ProgressCallback(event)
+}
+
+// recordTaskStarted reports task start to metrics collector if configured.
+func (e *Engine) recordTaskStarted(taskID, templateName string) {
+	if e.metrics != nil {
+		e.metrics.TaskStarted(taskID, templateName)
+	}
+}
+
+// recordTaskCompleted reports task completion to metrics collector if configured.
+func (e *Engine) recordTaskCompleted(taskID string, duration time.Duration, status string) {
+	if e.metrics != nil {
+		e.metrics.TaskCompleted(taskID, duration, status)
+	}
+}
+
+// recordStepExecuted reports step execution to metrics collector if configured.
+func (e *Engine) recordStepExecuted(taskID, stepName string, stepType domain.StepType, duration time.Duration, success bool) {
+	if e.metrics != nil {
+		e.metrics.StepExecuted(taskID, stepName, stepType, duration, success)
+	}
 }
