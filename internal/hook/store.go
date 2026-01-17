@@ -190,22 +190,25 @@ func (fs *FileStore) Get(_ context.Context, taskID string) (*domain.Hook, error)
 	return &hook, nil
 }
 
-// Save persists the hook state atomically.
-//
-// Note: This does NOT take a lock on read, so it's susceptible to overwriting concurrent changes
-// if not used carefully. Prefer Update for read-modify-write cycles.
-//
-//nolint:godox // Note explains intentional behavior
+// Save persists the hook state atomically with full locking.
+// The lock is acquired before any operations to ensure thread-safety.
 func (fs *FileStore) Save(_ context.Context, hook *domain.Hook) error {
 	hookPath := fs.hookPath(hook.TaskID)
 
-	// Ensure directory exists
+	// Ensure directory exists BEFORE acquiring lock (lock file needs the directory)
 	dir := filepath.Dir(hookPath)
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return fmt.Errorf("failed to create directory: %w", err)
 	}
 
-	// Update timestamp
+	// Acquire lock BEFORE modifying timestamp to ensure thread-safety
+	lock := newFileLock(hookPath + ".lock")
+	if err := lock.LockWithTimeout(fs.lockTimeout); err != nil {
+		return fmt.Errorf("failed to acquire lock: %w", err)
+	}
+	defer func() { _ = lock.Unlock() }()
+
+	// Now safe to modify timestamp
 	hook.UpdatedAt = time.Now().UTC()
 
 	// Marshal to JSON
@@ -214,20 +217,18 @@ func (fs *FileStore) Save(_ context.Context, hook *domain.Hook) error {
 		return fmt.Errorf("failed to marshal hook: %w", err)
 	}
 
-	// Write atomically with lock
-	if err := fs.writeWithLock(hookPath, data); err != nil {
+	// Use atomicWrite directly (we already hold the lock)
+	if err := fs.atomicWrite(hookPath, data); err != nil {
 		return fmt.Errorf("failed to write hook file: %w", err)
 	}
 
-	// Regenerate HOOK.md if generator is available
+	// Regenerate HOOK.md inside lock for consistency
 	if fs.markdownGenerator != nil {
 		mdPath := fs.markdownPath(hook.TaskID)
 		mdContent, genErr := fs.markdownGenerator.Generate(hook)
 		if genErr == nil {
-			// Only attempt write if generation succeeded
 			_ = fs.atomicWrite(mdPath, mdContent) // Ignore error - markdown is non-critical
 		}
-		// Intentionally ignore errors - markdown generation is non-critical for hook persistence
 	}
 
 	return nil
