@@ -603,6 +603,9 @@ func startTaskExecution(ctx context.Context, ws *domain.Workspace, tmpl *domain.
 		return nil, err
 	}
 
+	// Install git hooks for checkpoint creation
+	installGitHooks(ctx, ws.WorktreePath, ws.Name, logger)
+
 	// Create executor registry
 	execRegistry := createExecutorRegistry(RegistryDeps{
 		WorkDir:     ws.WorktreePath,
@@ -703,6 +706,32 @@ func createGitServices(ctx context.Context, worktreePath string, cfg *config.Con
 		PRDescGen:        prDescGen,
 		CIFailureHandler: ciFailureHandler,
 	}, nil
+}
+
+// installGitHooks installs git hooks for automatic checkpoint creation.
+// It sets up post-commit hooks that create checkpoints on each commit.
+// Failures are logged but do not stop task execution.
+func installGitHooks(ctx context.Context, worktreePath, workspaceName string, logger zerolog.Logger) {
+	installer, err := git.NewGitHookInstaller(ctx, worktreePath)
+	if err != nil {
+		logger.Warn().Err(err).
+			Str("worktree_path", worktreePath).
+			Msg("failed to create git hook installer, checkpoints will not be auto-created on commits")
+		return
+	}
+
+	// Install post-commit hook for checkpoint creation
+	// Task ID is not known yet, but the checkpoint command will find the active hook
+	if err := installer.Install(ctx, git.HookPostCommit, "", workspaceName); err != nil {
+		logger.Warn().Err(err).
+			Str("hook_type", string(git.HookPostCommit)).
+			Msg("failed to install post-commit hook, checkpoints will not be auto-created on commits")
+		return
+	}
+
+	logger.Debug().
+		Str("worktree_path", worktreePath).
+		Msg("git post-commit hook installed for checkpoint creation")
 }
 
 // createExecutorRegistry creates the step executor registry with all dependencies.

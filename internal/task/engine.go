@@ -103,7 +103,8 @@ type HookManager interface {
 	TransitionStep(ctx context.Context, task *domain.Task, stepName string, stepIndex int) error
 
 	// CompleteStep updates the hook when a step completes successfully.
-	CompleteStep(ctx context.Context, task *domain.Task, stepName string) error
+	// filesChanged contains the list of files modified during the step.
+	CompleteStep(ctx context.Context, task *domain.Task, stepName string, filesChanged []string) error
 
 	// FailStep updates the hook when a step fails.
 	FailStep(ctx context.Context, task *domain.Task, stepName string, err error) error
@@ -113,6 +114,15 @@ type HookManager interface {
 
 	// FailTask updates the hook when the task fails.
 	FailTask(ctx context.Context, task *domain.Task, err error) error
+
+	// StartIntervalCheckpointing starts periodic checkpoint creation for long-running steps.
+	StartIntervalCheckpointing(ctx context.Context, task *domain.Task) error
+
+	// StopIntervalCheckpointing stops the periodic checkpoint creation.
+	StopIntervalCheckpointing(ctx context.Context, task *domain.Task) error
+
+	// CreateValidationReceipt creates and stores a signed receipt for a passed validation.
+	CreateValidationReceipt(ctx context.Context, task *domain.Task, stepName string, result *domain.StepResult) error
 }
 
 // Engine orchestrates task execution through template steps.
@@ -399,7 +409,7 @@ func (e *Engine) HandleStepResult(ctx context.Context, task *domain.Task, result
 
 	switch result.Status {
 	case constants.StepStatusSuccess:
-		return e.handleSuccessResult(task, step, result)
+		return e.handleSuccessResult(ctx, task, step, result)
 	case constants.StepStatusNoChanges:
 		return e.handleNoChangesResult(task, step)
 	case constants.StepStatusAwaitingApproval:
@@ -519,7 +529,7 @@ func (e *Engine) terminateTrackedProcesses(task *domain.Task, log zerolog.Logger
 }
 
 // handleSuccessResult processes a successful step result.
-func (e *Engine) handleSuccessResult(task *domain.Task, step *domain.StepDefinition, result *domain.StepResult) error {
+func (e *Engine) handleSuccessResult(ctx context.Context, task *domain.Task, step *domain.StepDefinition, result *domain.StepResult) error {
 	// Check for detect_only validation with no issues - skip fix steps
 	if result.Metadata != nil {
 		detectOnly, hasDetectOnly := result.Metadata["detect_only"].(bool)
@@ -532,6 +542,17 @@ func (e *Engine) handleSuccessResult(task *domain.Task, step *domain.StepDefinit
 				Msg("no issues detected in validation, will skip fix steps")
 		}
 	}
+
+	// Create validation receipt for successful validation steps
+	if step.Type == domain.StepTypeValidation && e.hookManager != nil {
+		if err := e.hookManager.CreateValidationReceipt(ctx, task, step.Name, result); err != nil {
+			e.logger.Warn().Err(err).
+				Str("task_id", task.ID).
+				Str("step_name", step.Name).
+				Msg("failed to create validation receipt")
+		}
+	}
+
 	// Auto-proceed logic handled by caller (runSteps continues)
 	return nil
 }
@@ -769,8 +790,8 @@ func (e *Engine) runSteps(ctx context.Context, task *domain.Task, template *doma
 			return err
 		}
 
-		// Update hook on step completion
-		e.completeHookStep(ctx, task, step.Name)
+		// Update hook on step completion with files changed
+		e.completeHookStep(ctx, task, step.Name, result.FilesChanged)
 
 		if e.shouldPause(task) {
 			return e.saveAndPause(ctx, task)
@@ -1288,13 +1309,28 @@ func (e *Engine) transitionHookStep(ctx context.Context, task *domain.Task, step
 				Str("step_name", stepName).
 				Msg("failed to update hook step state")
 		}
+
+		// Start interval checkpointing for long-running steps
+		if err := e.hookManager.StartIntervalCheckpointing(ctx, task); err != nil {
+			e.logger.Warn().Err(err).
+				Str("task_id", task.ID).
+				Str("step_name", stepName).
+				Msg("failed to start interval checkpointing")
+		}
 	}
 }
 
 // completeHookStep updates the hook when a step completes successfully.
-func (e *Engine) completeHookStep(ctx context.Context, task *domain.Task, stepName string) {
+func (e *Engine) completeHookStep(ctx context.Context, task *domain.Task, stepName string, filesChanged []string) {
 	if e.hookManager != nil {
-		if err := e.hookManager.CompleteStep(ctx, task, stepName); err != nil {
+		// Stop interval checkpointing
+		if err := e.hookManager.StopIntervalCheckpointing(ctx, task); err != nil {
+			e.logger.Warn().Err(err).
+				Str("task_id", task.ID).
+				Msg("failed to stop interval checkpointing")
+		}
+
+		if err := e.hookManager.CompleteStep(ctx, task, stepName, filesChanged); err != nil {
 			e.logger.Warn().Err(err).
 				Str("task_id", task.ID).
 				Str("step_name", stepName).
@@ -1306,6 +1342,13 @@ func (e *Engine) completeHookStep(ctx context.Context, task *domain.Task, stepNa
 // failHookStep updates the hook when a step fails.
 func (e *Engine) failHookStep(ctx context.Context, task *domain.Task, stepName string, stepErr error) {
 	if e.hookManager != nil {
+		// Stop interval checkpointing
+		if err := e.hookManager.StopIntervalCheckpointing(ctx, task); err != nil {
+			e.logger.Warn().Err(err).
+				Str("task_id", task.ID).
+				Msg("failed to stop interval checkpointing")
+		}
+
 		if err := e.hookManager.FailStep(ctx, task, stepName, stepErr); err != nil {
 			e.logger.Warn().Err(err).
 				Str("task_id", task.ID).

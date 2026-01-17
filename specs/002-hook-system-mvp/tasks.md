@@ -118,7 +118,7 @@
 - [X] T046 [US1] Modify atlas start command to create hook on task start in internal/cli/start.go
 - [X] T047 [US1] Modify atlas resume command to check for HOOK.md and show recovery context in internal/cli/resume.go
 - [X] T048 [US1] Add recovery mode prompt "Continue? [Y/n]" in resume command in internal/cli/resume.go
-- [ ] T048a [US1] Implement FilesTouched tracking: update StepContext.FilesTouched during step execution in internal/task/engine.go (FR-015)
+- [X] T048a [US1] Implement FilesTouched tracking: update StepContext.FilesTouched during step execution in internal/task/engine.go (FR-015)
 
 **Checkpoint**: User Story 1 complete - crash recovery detection and resume works independently
 
@@ -153,12 +153,12 @@
 - [X] T058 [US2] Implement Checkpointer.GetLatestCheckpoint in internal/hook/checkpoint.go
 - [X] T059 [US2] Implement Checkpointer.GetCheckpointByID in internal/hook/checkpoint.go
 - [X] T060 [US2] Implement IntervalCheckpointer with cancellable goroutine in internal/hook/checkpoint.go
-- [ ] T061 [US2] Implement GitHookInstaller.Install (wrapper approach, chain existing) in internal/git/hooks.go
-- [ ] T062 [US2] Implement GitHookInstaller.Uninstall (restore .original) in internal/git/hooks.go
-- [ ] T063 [US2] Implement GitHookInstaller.IsInstalled in internal/git/hooks.go
-- [ ] T064 [US2] Create post-commit hook wrapper script template in internal/git/hooks.go
-- [ ] T065 [US2] Integrate git hook installation into atlas start command in internal/cli/start.go
-- [ ] T066 [US2] Integrate interval checkpointer start into task engine step execution in internal/task/engine.go
+- [X] T061 [US2] Implement GitHookInstaller.Install (wrapper approach, chain existing) in internal/git/hooks.go
+- [X] T062 [US2] Implement GitHookInstaller.Uninstall (restore .original) in internal/git/hooks.go
+- [X] T063 [US2] Implement GitHookInstaller.IsInstalled in internal/git/hooks.go
+- [X] T064 [US2] Create post-commit hook wrapper script template in internal/git/hooks.go
+- [X] T065 [US2] Integrate git hook installation into atlas start command in internal/cli/start.go
+- [X] T066 [US2] Integrate interval checkpointer start into task engine step execution in internal/task/engine.go
   - Note: T066, T048a, and T091 all modify engine.go - run sequentially (T048a → T066 → T091)
 
 **Checkpoint**: User Story 2 complete - automatic checkpoints work independently
@@ -217,7 +217,7 @@
 - [X] T088 [US4] Implement HDReceiptSigner.Verify in internal/hook/signer_hd.go
 - [X] T089 [US4] Implement HDReceiptSigner.KeyPath in internal/hook/signer_hd.go
 - [X] T090 [US4] Implement signature message format (pipe-delimited) in internal/hook/signer_hd.go
-- [ ] T091 [US4] Create validation receipt on validation pass in task engine in internal/task/engine.go
+- [X] T091 [US4] Create validation receipt on validation pass in task engine in internal/task/engine.go
   - Note: Depends on T048a and T066 completing first (same file constraint)
 - [X] T092 [US4] Implement atlas hook verify-receipt command in internal/cli/hook.go
 

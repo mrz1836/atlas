@@ -27,7 +27,9 @@ func AddCheckpointCommand(root *cobra.Command) {
 
 // newCheckpointCmd creates the checkpoint command for manual checkpoint creation.
 func newCheckpointCmd() *cobra.Command {
-	return &cobra.Command{
+	var trigger string
+
+	cmd := &cobra.Command{
 		Use:   "checkpoint [description]",
 		Short: "Create a manual checkpoint of current task state",
 		Long: `Create a manual checkpoint for the current task.
@@ -40,9 +42,19 @@ Checkpoints capture the current state of task execution, including:
 Manual checkpoints are useful for marking significant milestones
 during task execution. They can be used for recovery if needed.
 
+Trigger types:
+  manual       - User-initiated checkpoint (default)
+  git_commit   - Triggered by git post-commit hook
+  git_push     - Triggered by git post-push hook
+  pr_created   - Triggered after PR creation
+  validation   - Triggered after validation pass
+  step_complete - Triggered on step completion
+  interval     - Triggered by interval timer
+
 Examples:
   atlas checkpoint "Completed initial analysis"
   atlas checkpoint "Ready for review"
+  atlas checkpoint --trigger git_commit
 
 Exit codes:
   0: Checkpoint created successfully
@@ -54,13 +66,17 @@ Exit codes:
 			if len(args) > 0 {
 				description = args[0]
 			}
-			return runCheckpoint(cmd.Context(), cmd, os.Stdout, description)
+			return runCheckpoint(cmd.Context(), cmd, os.Stdout, description, trigger)
 		},
 	}
+
+	cmd.Flags().StringVar(&trigger, "trigger", "manual", "Checkpoint trigger type (manual, git_commit, git_push, pr_created, validation, step_complete, interval)")
+
+	return cmd
 }
 
 // runCheckpoint executes the checkpoint command.
-func runCheckpoint(ctx context.Context, cmd *cobra.Command, w io.Writer, description string) error {
+func runCheckpoint(ctx context.Context, cmd *cobra.Command, w io.Writer, description, trigger string) error {
 	outputFormat := cmd.Flag("output").Value.String()
 	out := tui.NewOutput(w, outputFormat)
 
@@ -96,15 +112,19 @@ func runCheckpoint(ctx context.Context, cmd *cobra.Command, w io.Writer, descrip
 	now := time.Now().UTC()
 	checkpointID := "ckpt-" + uuid.New().String()[:8]
 
+	// Parse trigger type
+	triggerType := parseTriggerType(trigger)
+
+	// Set default description based on trigger
 	if description == "" {
-		description = "Manual checkpoint"
+		description = defaultCheckpointDescription(triggerType)
 	}
 
 	checkpoint := domain.StepCheckpoint{
 		CheckpointID: checkpointID,
 		CreatedAt:    now,
 		Description:  description,
-		Trigger:      domain.CheckpointTriggerManual,
+		Trigger:      triggerType,
 	}
 
 	// Add current step info if available
@@ -211,4 +231,46 @@ func outputCheckpointErrorJSON(w io.Writer, errMsg string) error {
 		return fmt.Errorf("failed to encode JSON: %w", err)
 	}
 	return atlaserrors.ErrJSONErrorOutput
+}
+
+// parseTriggerType converts a string trigger to CheckpointTrigger.
+func parseTriggerType(trigger string) domain.CheckpointTrigger {
+	switch trigger {
+	case "git_commit":
+		return domain.CheckpointTriggerCommit
+	case "git_push":
+		return domain.CheckpointTriggerPush
+	case "pr_created":
+		return domain.CheckpointTriggerPR
+	case "validation":
+		return domain.CheckpointTriggerValidation
+	case "step_complete":
+		return domain.CheckpointTriggerStepComplete
+	case "interval":
+		return domain.CheckpointTriggerInterval
+	default:
+		return domain.CheckpointTriggerManual
+	}
+}
+
+// defaultCheckpointDescription returns a default description for the trigger type.
+func defaultCheckpointDescription(trigger domain.CheckpointTrigger) string {
+	switch trigger {
+	case domain.CheckpointTriggerCommit:
+		return "Git commit checkpoint"
+	case domain.CheckpointTriggerPush:
+		return "Git push checkpoint"
+	case domain.CheckpointTriggerPR:
+		return "Pull request created"
+	case domain.CheckpointTriggerValidation:
+		return "Validation passed"
+	case domain.CheckpointTriggerStepComplete:
+		return "Step completed"
+	case domain.CheckpointTriggerInterval:
+		return "Interval checkpoint"
+	case domain.CheckpointTriggerManual:
+		return "Manual checkpoint"
+	default:
+		return "Manual checkpoint"
+	}
 }

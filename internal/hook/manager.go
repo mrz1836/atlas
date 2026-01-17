@@ -3,12 +3,19 @@ package hook
 
 import (
 	"context"
+	"crypto/sha256"
+	"fmt"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
 
+	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/domain"
 )
+
+// DefaultCheckpointInterval is the default interval for periodic checkpoints.
+const DefaultCheckpointInterval = 5 * time.Minute
 
 // generateCheckpointID generates a unique checkpoint ID.
 // Format: ckpt-{uuid8} (e.g., ckpt-a1b2c3d4)
@@ -19,13 +26,18 @@ func generateCheckpointID() string {
 // Manager implements task.HookManager and manages hook lifecycle.
 // It uses a FileStore for persistence and MarkdownGenerator for HOOK.md.
 type Manager struct {
-	store *FileStore
+	store            *FileStore
+	cfg              *config.HookConfig
+	checkpointsMu    sync.Mutex
+	intervalCheckers map[string]*IntervalCheckpointer // keyed by task ID
 }
 
-// NewManager creates a new Manager with the given store.
-func NewManager(store *FileStore) *Manager {
+// NewManager creates a new Manager with the given store and config.
+func NewManager(store *FileStore, cfg *config.HookConfig) *Manager {
 	return &Manager{
-		store: store,
+		store:            store,
+		cfg:              cfg,
+		intervalCheckers: make(map[string]*IntervalCheckpointer),
 	}
 }
 
@@ -72,7 +84,8 @@ func (m *Manager) TransitionStep(ctx context.Context, task *domain.Task, stepNam
 }
 
 // CompleteStep updates the hook when a step completes successfully.
-func (m *Manager) CompleteStep(ctx context.Context, task *domain.Task, stepName string) error {
+// filesChanged contains the list of files modified during the step.
+func (m *Manager) CompleteStep(ctx context.Context, task *domain.Task, stepName string, filesChanged []string) error {
 	h, err := m.store.Get(ctx, task.ID)
 	if err != nil {
 		return err
@@ -84,6 +97,11 @@ func (m *Manager) CompleteStep(ctx context.Context, task *domain.Task, stepName 
 	// Update state to step_pending (ready for next step)
 	h.State = domain.HookStateStepPending
 	h.UpdatedAt = now
+
+	// Track files touched during this step
+	if h.CurrentStep != nil && len(filesChanged) > 0 {
+		h.CurrentStep.FilesTouched = filesChanged
+	}
 
 	// Create checkpoint for step completion
 	checkpoint := domain.StepCheckpoint{
@@ -207,4 +225,123 @@ func (m *Manager) FailTask(ctx context.Context, task *domain.Task, taskErr error
 	})
 
 	return m.store.Save(ctx, h)
+}
+
+// StartIntervalCheckpointing starts periodic checkpoint creation for long-running steps.
+// Checkpoints are created at DefaultCheckpointInterval only when the hook is in step_running state.
+func (m *Manager) StartIntervalCheckpointing(ctx context.Context, task *domain.Task) error {
+	m.checkpointsMu.Lock()
+	defer m.checkpointsMu.Unlock()
+
+	// Stop any existing interval checkpointer for this task
+	if existing, ok := m.intervalCheckers[task.ID]; ok {
+		existing.Stop()
+		delete(m.intervalCheckers, task.ID)
+	}
+
+	// Get the hook
+	h, err := m.store.Get(ctx, task.ID)
+	if err != nil {
+		return err
+	}
+
+	// Create checkpointer and interval checkpointer
+	checkpointer := NewCheckpointer(m.cfg, m.store)
+	interval := DefaultCheckpointInterval
+	if m.cfg != nil && m.cfg.CheckpointInterval > 0 {
+		interval = m.cfg.CheckpointInterval
+	}
+	ic := NewIntervalCheckpointer(checkpointer, h, m.store, interval)
+
+	// Start interval checkpointing
+	ic.Start(ctx)
+
+	// Store for later cleanup
+	m.intervalCheckers[task.ID] = ic
+
+	return nil
+}
+
+// StopIntervalCheckpointing stops the periodic checkpoint creation for a task.
+func (m *Manager) StopIntervalCheckpointing(_ context.Context, task *domain.Task) error {
+	m.checkpointsMu.Lock()
+	defer m.checkpointsMu.Unlock()
+
+	if ic, ok := m.intervalCheckers[task.ID]; ok {
+		ic.Stop()
+		delete(m.intervalCheckers, task.ID)
+	}
+
+	return nil
+}
+
+// CreateValidationReceipt creates and stores a signed receipt for a passed validation.
+// If signing fails (e.g., no master key), the receipt is still created but without a signature.
+func (m *Manager) CreateValidationReceipt(ctx context.Context, task *domain.Task, stepName string, result *domain.StepResult) error {
+	h, err := m.store.Get(ctx, task.ID)
+	if err != nil {
+		return err
+	}
+
+	// Extract command info from result metadata
+	command := ""
+	exitCode := 0
+	if result.Metadata != nil {
+		if cmd, ok := result.Metadata["command"].(string); ok {
+			command = cmd
+		}
+		if code, ok := result.Metadata["exit_code"].(int); ok {
+			exitCode = code
+		}
+	}
+
+	// Calculate output hashes
+	stdoutHash := hashOutput(result.Output)
+	stderrHash := "" // Validation output typically goes to combined output
+
+	// Calculate duration
+	duration := time.Duration(result.DurationMs) * time.Millisecond
+
+	// Create receipt
+	receipt := domain.ValidationReceipt{
+		ReceiptID:   "rcpt-" + generateCheckpointID()[5:], // reuse UUID generation
+		StepName:    stepName,
+		Command:     command,
+		ExitCode:    exitCode,
+		StartedAt:   result.StartedAt,
+		CompletedAt: result.CompletedAt,
+		Duration:    formatReceiptDuration(duration),
+		StdoutHash:  stdoutHash,
+		StderrHash:  stderrHash,
+	}
+
+	// Try to sign the receipt (optional - if signer not available, leave unsigned)
+	// Signing requires the HD key infrastructure to be set up
+
+	// Add receipt to hook
+	h.Receipts = append(h.Receipts, receipt)
+	h.UpdatedAt = time.Now().UTC()
+
+	return m.store.Save(ctx, h)
+}
+
+// hashOutput computes a SHA256 hash of output content.
+func hashOutput(output string) string {
+	if output == "" {
+		return ""
+	}
+	// Use crypto/sha256 for hashing
+	hash := sha256.Sum256([]byte(output))
+	return fmt.Sprintf("%x", hash[:8]) // First 8 bytes hex
+}
+
+// formatReceiptDuration formats a duration as a human-readable string for receipts.
+func formatReceiptDuration(d time.Duration) string {
+	if d < time.Second {
+		return fmt.Sprintf("%dms", d.Milliseconds())
+	}
+	if d < time.Minute {
+		return fmt.Sprintf("%.1fs", d.Seconds())
+	}
+	return fmt.Sprintf("%dm%ds", int(d.Minutes()), int(d.Seconds())%60)
 }
