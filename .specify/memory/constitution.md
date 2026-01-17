@@ -212,6 +212,7 @@ section of implementation plans.
 For runtime development guidance, see:
 - `.github/AGENTS.md` — Technical conventions index
 - `.github/CLAUDE.md` — ATLAS-specific patterns and architecture
-- `.github/tech-conventions/` — Detailed standards by topic
+- `.github/tech-conventions/` — Detailed standards by topic (for this project and other projects)
+- `docs/internal/quick-start.md` — User-facing documentation (Keep this updated!)
 
 **Version**: 1.0.0 | **Ratified**: 2026-01-17 | **Last Amended**: 2026-01-17
