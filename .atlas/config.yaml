@@ -227,3 +227,10 @@ verify:
     # - test_coverage    # Enable for test coverage checks
     # - garbage_files    # Enable for garbage file detection (redundant with smart_commit)
     # - security         # Enable for security vulnerability scanning
+
+hooks:
+  # Cryptographic provider configuration
+  crypto:
+    # Provider selection: "native" (fast, simple) or other future providers
+    # Default: "native"
+    provider: native
