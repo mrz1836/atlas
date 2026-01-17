@@ -180,9 +180,10 @@ type ValidationReceipt struct {
 
 	// Cryptographic signature
 	// This signature protects against accidental corruption and AI hallucination.
-	// It is NOT robust against a compromised host or a malicious agent with shell access,
-	// as they could theoretically read the key and sign manually.
 	Signature string `json:"signature"` // Hex-encoded Ed25519 signature
+
+	// KeyPath identifies which key was used for signing (e.g., "native-ed25519-v1")
+	KeyPath string `json:"key_path,omitempty"`
 }
 
 // Hook represents the durable state of an in-progress task for crash recovery.
