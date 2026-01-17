@@ -391,19 +391,6 @@ func (fs *FileStore) readWithLock(path string) ([]byte, error) {
 	return os.ReadFile(path) //nolint:gosec // path is validated by caller through hookPath/markdownPath methods
 }
 
-// writeWithLock writes a file atomically with an exclusive lock.
-func (fs *FileStore) writeWithLock(path string, data []byte) error {
-	lock := newFileLock(path + ".lock")
-	if err := lock.LockWithTimeout(fs.lockTimeout); err != nil {
-		return fmt.Errorf("failed to acquire lock: %w", err)
-	}
-	defer func() {
-		_ = lock.Unlock()
-	}()
-
-	return fs.atomicWrite(path, data)
-}
-
 // atomicWrite writes data to a file atomically using temp file + rename.
 func (fs *FileStore) atomicWrite(path string, data []byte) error {
 	dir := filepath.Dir(path)
