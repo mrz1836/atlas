@@ -69,189 +69,181 @@ func (m *Manager) CreateHook(ctx context.Context, task *domain.Task) error {
 
 // TransitionStep updates the hook when entering a step.
 func (m *Manager) TransitionStep(ctx context.Context, task *domain.Task, stepName string, stepIndex int) error {
-	h, err := m.store.Get(ctx, task.ID)
-	if err != nil {
-		return err
-	}
+	return m.store.Update(ctx, task.ID, func(h *domain.Hook) error {
+		now := time.Now().UTC()
+		oldState := h.State
 
-	now := time.Now().UTC()
-	oldState := h.State
+		// Update state to step_running
+		h.State = domain.HookStateStepRunning
+		h.UpdatedAt = now
 
-	// Update state to step_running
-	h.State = domain.HookStateStepRunning
-	h.UpdatedAt = now
+		// Update current step context
+		h.CurrentStep = &domain.StepContext{
+			StepName:    stepName,
+			StepIndex:   stepIndex,
+			StartedAt:   now,
+			Attempt:     1,
+			MaxAttempts: 3, // Default, could be made configurable
+		}
 
-	// Update current step context
-	h.CurrentStep = &domain.StepContext{
-		StepName:    stepName,
-		StepIndex:   stepIndex,
-		StartedAt:   now,
-		Attempt:     1,
-		MaxAttempts: 3, // Default, could be made configurable
-	}
+		// Record transition
+		h.History = append(h.History, domain.HookEvent{
+			Timestamp: now,
+			FromState: oldState,
+			ToState:   domain.HookStateStepRunning,
+			Trigger:   "step_started",
+			StepName:  stepName,
+		})
 
-	// Record transition
-	h.History = append(h.History, domain.HookEvent{
-		Timestamp: now,
-		FromState: oldState,
-		ToState:   domain.HookStateStepRunning,
-		Trigger:   "step_started",
-		StepName:  stepName,
+		return nil
 	})
-
-	return m.store.Save(ctx, h)
 }
 
 // CompleteStep updates the hook when a step completes successfully.
 // filesChanged contains the list of files modified during the step.
 func (m *Manager) CompleteStep(ctx context.Context, task *domain.Task, stepName string, filesChanged []string) error {
-	h, err := m.store.Get(ctx, task.ID)
-	if err != nil {
-		return err
-	}
+	return m.store.Update(ctx, task.ID, func(h *domain.Hook) error {
+		now := time.Now().UTC()
+		oldState := h.State
 
-	now := time.Now().UTC()
-	oldState := h.State
+		// Update state to step_pending (ready for next step)
+		h.State = domain.HookStateStepPending
+		h.UpdatedAt = now
 
-	// Update state to step_pending (ready for next step)
-	h.State = domain.HookStateStepPending
-	h.UpdatedAt = now
-
-	// Track files touched during this step
-	if h.CurrentStep != nil && len(filesChanged) > 0 {
-		h.CurrentStep.FilesTouched = filesChanged
-	}
-
-	// Create checkpoint for step completion
-	checkpoint := domain.StepCheckpoint{
-		CheckpointID: generateCheckpointID(),
-		CreatedAt:    now,
-		StepName:     stepName,
-		StepIndex:    h.CurrentStep.StepIndex,
-		Description:  "Step completed: " + stepName,
-		Trigger:      domain.CheckpointTriggerStepComplete,
-	}
-
-	// Add git state if available from task metadata
-	if task.Metadata != nil {
-		if branch, ok := task.Metadata["branch"].(string); ok {
-			checkpoint.GitBranch = branch
+		// Track files touched during this step
+		if h.CurrentStep != nil && len(filesChanged) > 0 {
+			h.CurrentStep.FilesTouched = filesChanged
 		}
-	}
 
-	h.Checkpoints = append(h.Checkpoints, checkpoint)
+		// Create checkpoint for step completion
+		checkpoint := domain.StepCheckpoint{
+			CheckpointID: generateCheckpointID(),
+			CreatedAt:    now,
+			StepName:     stepName,
+			StepIndex:    h.CurrentStep.StepIndex,
+			Description:  "Step completed: " + stepName,
+			Trigger:      domain.CheckpointTriggerStepComplete,
+		}
 
-	// Prune checkpoints if over limit (keep most recent 50)
-	if len(h.Checkpoints) > 50 {
-		h.Checkpoints = h.Checkpoints[len(h.Checkpoints)-50:]
-	}
+		// Add git state if available from task metadata
+		if task.Metadata != nil {
+			if branch, ok := task.Metadata["branch"].(string); ok {
+				checkpoint.GitBranch = branch
+			}
+		}
 
-	// Capture file snapshots
-	if len(filesChanged) > 0 {
-		checkpoint.FilesSnapshot = snapshotFiles(filesChanged)
-	} else if h.CurrentStep != nil && len(h.CurrentStep.FilesTouched) > 0 {
-		// If explicit filesChanged not provided, fall back to accumulated files touched
-		checkpoint.FilesSnapshot = snapshotFiles(h.CurrentStep.FilesTouched)
-	}
+		h.Checkpoints = append(h.Checkpoints, checkpoint)
 
-	// Record transition
-	h.History = append(h.History, domain.HookEvent{
-		Timestamp: now,
-		FromState: oldState,
-		ToState:   domain.HookStateStepPending,
-		Trigger:   "step_completed",
-		StepName:  stepName,
+		// Prune checkpoints if over limit (keep most recent 50)
+		if len(h.Checkpoints) > 50 {
+			h.Checkpoints = h.Checkpoints[len(h.Checkpoints)-50:]
+		}
+
+		// Capture file snapshots
+		if len(filesChanged) > 0 {
+			checkpoint.FilesSnapshot = snapshotFiles(filesChanged)
+		} else if h.CurrentStep != nil && len(h.CurrentStep.FilesTouched) > 0 {
+			// If explicit filesChanged not provided, fall back to accumulated files touched
+			checkpoint.FilesSnapshot = snapshotFiles(h.CurrentStep.FilesTouched)
+		}
+
+		// Record transition
+		h.History = append(h.History, domain.HookEvent{
+			Timestamp: now,
+			FromState: oldState,
+			ToState:   domain.HookStateStepPending,
+			Trigger:   "step_completed",
+			StepName:  stepName,
+		})
+
+		// Update current step checkpoint reference
+		if h.CurrentStep != nil {
+			h.CurrentStep.CurrentCheckpointID = checkpoint.CheckpointID
+		}
+
+		return nil
 	})
-
-	// Update current step checkpoint reference
-	if h.CurrentStep != nil {
-		h.CurrentStep.CurrentCheckpointID = checkpoint.CheckpointID
-	}
-
-	return m.store.Save(ctx, h)
 }
 
 // FailStep updates the hook when a step fails.
 func (m *Manager) FailStep(ctx context.Context, task *domain.Task, stepName string, stepErr error) error {
-	h, err := m.store.Get(ctx, task.ID)
-	if err != nil {
-		return err
-	}
+	return m.store.Update(ctx, task.ID, func(h *domain.Hook) error {
+		now := time.Now().UTC()
+		oldState := h.State
 
-	now := time.Now().UTC()
-	oldState := h.State
+		// Update state to awaiting_human (needs manual intervention)
+		h.State = domain.HookStateAwaitingHuman
+		h.UpdatedAt = now
 
-	// Update state to awaiting_human (needs manual intervention)
-	h.State = domain.HookStateAwaitingHuman
-	h.UpdatedAt = now
-
-	// Record transition with error details
-	h.History = append(h.History, domain.HookEvent{
-		Timestamp: now,
-		FromState: oldState,
-		ToState:   domain.HookStateAwaitingHuman,
-		Trigger:   "step_failed",
-		StepName:  stepName,
-		Details: map[string]any{
-			"error": stepErr.Error(),
-		},
+		// Record transition with error details
+		h.History = append(h.History, domain.HookEvent{
+			Timestamp: now,
+			FromState: oldState,
+			ToState:   domain.HookStateAwaitingHuman,
+			Trigger:   "step_failed",
+			StepName:  stepName,
+			Details: map[string]any{
+				"error": stepErr.Error(),
+			},
+		})
+		return nil
 	})
-
-	return m.store.Save(ctx, h)
 }
 
 // CompleteTask finalizes the hook when the task completes.
 func (m *Manager) CompleteTask(ctx context.Context, task *domain.Task) error {
-	h, err := m.store.Get(ctx, task.ID)
-	if err != nil {
-		return err
-	}
+	// Always stop the interval checkpointer when the task is done
+	defer func() {
+		_ = m.StopIntervalCheckpointing(ctx, task)
+	}()
 
-	now := time.Now().UTC()
-	oldState := h.State
+	return m.store.Update(ctx, task.ID, func(h *domain.Hook) error {
+		now := time.Now().UTC()
+		oldState := h.State
 
-	// Update state to completed
-	h.State = domain.HookStateCompleted
-	h.UpdatedAt = now
-	h.CurrentStep = nil
+		// Update state to completed
+		h.State = domain.HookStateCompleted
+		h.UpdatedAt = now
+		h.CurrentStep = nil
 
-	// Record transition
-	h.History = append(h.History, domain.HookEvent{
-		Timestamp: now,
-		FromState: oldState,
-		ToState:   domain.HookStateCompleted,
-		Trigger:   "task_completed",
+		// Record transition
+		h.History = append(h.History, domain.HookEvent{
+			Timestamp: now,
+			FromState: oldState,
+			ToState:   domain.HookStateCompleted,
+			Trigger:   "task_completed",
+		})
+		return nil
 	})
-
-	return m.store.Save(ctx, h)
 }
 
 // FailTask updates the hook when the task fails.
 func (m *Manager) FailTask(ctx context.Context, task *domain.Task, taskErr error) error {
-	h, err := m.store.Get(ctx, task.ID)
-	if err != nil {
-		return err
-	}
+	// Always stop the interval checkpointer when the task is done
+	defer func() {
+		_ = m.StopIntervalCheckpointing(ctx, task)
+	}()
 
-	now := time.Now().UTC()
-	oldState := h.State
+	return m.store.Update(ctx, task.ID, func(h *domain.Hook) error {
+		now := time.Now().UTC()
+		oldState := h.State
 
-	// Update state to failed
-	h.State = domain.HookStateFailed
-	h.UpdatedAt = now
+		// Update state to failed
+		h.State = domain.HookStateFailed
+		h.UpdatedAt = now
 
-	// Record transition
-	h.History = append(h.History, domain.HookEvent{
-		Timestamp: now,
-		FromState: oldState,
-		ToState:   domain.HookStateFailed,
-		Trigger:   "task_failed",
-		Details: map[string]any{
-			"error": taskErr.Error(),
-		},
+		// Record transition
+		h.History = append(h.History, domain.HookEvent{
+			Timestamp: now,
+			FromState: oldState,
+			ToState:   domain.HookStateFailed,
+			Trigger:   "task_failed",
+			Details: map[string]any{
+				"error": taskErr.Error(),
+			},
+		})
+		return nil
 	})
-
-	return m.store.Save(ctx, h)
 }
 
 // StartIntervalCheckpointing starts periodic checkpoint creation for long-running steps.
@@ -306,53 +298,50 @@ func (m *Manager) StopIntervalCheckpointing(_ context.Context, task *domain.Task
 // If signing fails (e.g., no master key), the receipt is still created but without a signature.
 // The taskIndex for key derivation is computed from the number of existing receipts.
 func (m *Manager) CreateValidationReceipt(ctx context.Context, task *domain.Task, stepName string, result *domain.StepResult) error {
-	h, err := m.store.Get(ctx, task.ID)
-	if err != nil {
-		return err
-	}
-
-	// Extract command info from result metadata
-	command := ""
-	exitCode := 0
-	if result.Metadata != nil {
-		if cmd, ok := result.Metadata["command"].(string); ok {
-			command = cmd
+	return m.store.Update(ctx, task.ID, func(h *domain.Hook) error {
+		// Extract command info from result metadata
+		command := ""
+		exitCode := 0
+		if result.Metadata != nil {
+			if cmd, ok := result.Metadata["command"].(string); ok {
+				command = cmd
+			}
+			if code, ok := result.Metadata["exit_code"].(int); ok {
+				exitCode = code
+			}
 		}
-		if code, ok := result.Metadata["exit_code"].(int); ok {
-			exitCode = code
+
+		// Calculate output hashes
+		stdoutHash := hashOutput(result.Output)
+		stderrHash := "" // Validation output typically goes to combined output
+
+		// Calculate duration
+		duration := time.Duration(result.DurationMs) * time.Millisecond
+
+		// Create receipt
+		receipt := domain.ValidationReceipt{
+			ReceiptID:   "rcpt-" + generateCheckpointID()[5:], // reuse UUID generation
+			StepName:    stepName,
+			Command:     command,
+			ExitCode:    exitCode,
+			StartedAt:   result.StartedAt,
+			CompletedAt: result.CompletedAt,
+			Duration:    formatReceiptDuration(duration),
+			StdoutHash:  stdoutHash,
+			StderrHash:  stderrHash,
 		}
-	}
 
-	// Calculate output hashes
-	stdoutHash := hashOutput(result.Output)
-	stderrHash := "" // Validation output typically goes to combined output
+		// Sign the receipt if a signer is available.
+		// Signing provides cryptographic proof that validation actually ran.
+		// If signing fails, we still save the receipt (integrity is nice-to-have, not blocking).
+		m.signReceiptIfAvailable(ctx, &receipt, len(h.Receipts))
 
-	// Calculate duration
-	duration := time.Duration(result.DurationMs) * time.Millisecond
+		// Add receipt to hook
+		h.Receipts = append(h.Receipts, receipt)
+		h.UpdatedAt = time.Now().UTC()
 
-	// Create receipt
-	receipt := domain.ValidationReceipt{
-		ReceiptID:   "rcpt-" + generateCheckpointID()[5:], // reuse UUID generation
-		StepName:    stepName,
-		Command:     command,
-		ExitCode:    exitCode,
-		StartedAt:   result.StartedAt,
-		CompletedAt: result.CompletedAt,
-		Duration:    formatReceiptDuration(duration),
-		StdoutHash:  stdoutHash,
-		StderrHash:  stderrHash,
-	}
-
-	// Sign the receipt if a signer is available.
-	// Signing provides cryptographic proof that validation actually ran.
-	// If signing fails, we still save the receipt (integrity is nice-to-have, not blocking).
-	m.signReceiptIfAvailable(ctx, &receipt, len(h.Receipts))
-
-	// Add receipt to hook
-	h.Receipts = append(h.Receipts, receipt)
-	h.UpdatedAt = time.Now().UTC()
-
-	return m.store.Save(ctx, h)
+		return nil
+	})
 }
 
 // signReceiptIfAvailable signs the receipt if a signer is available.
