@@ -14,7 +14,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/mrz1836/atlas/internal/constants"
-	"github.com/mrz1836/atlas/internal/crypto/hd"
+	"github.com/mrz1836/atlas/internal/crypto/native"
 	"github.com/mrz1836/atlas/internal/domain"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 	"github.com/mrz1836/atlas/internal/hook"
@@ -227,22 +227,19 @@ func runHookVerifyReceipt(ctx context.Context, cmd *cobra.Command, w io.Writer, 
 	if err != nil {
 		return fmt.Errorf("failed to get home directory: %w", err)
 	}
-	keyPath := filepath.Join(homeDir, ".atlas", "master.key")
+	keyDir := filepath.Join(homeDir, ".atlas", "keys")
 
 	// Load key manager
-	keyMgr := hd.NewFileKeyManager(keyPath)
+	keyMgr := native.NewKeyManager(keyDir)
 	if loadErr := keyMgr.Load(ctx); loadErr != nil {
 		return fmt.Errorf("failed to load key manager: %w", loadErr)
 	}
 
-	// Create signer
-	hdSigner, signerErr := keyMgr.NewSigner()
+	// Create receipt signer and verify
+	signer, signerErr := hook.NewNativeReceiptSigner(keyMgr)
 	if signerErr != nil {
 		return fmt.Errorf("failed to create signer: %w", signerErr)
 	}
-
-	// Create receipt signer and verify
-	signer := hook.NewHDReceiptSigner(hdSigner)
 	verifyErr := signer.VerifyReceipt(ctx, receipt)
 
 	result := map[string]any{
@@ -251,7 +248,6 @@ func runHookVerifyReceipt(ctx context.Context, cmd *cobra.Command, w io.Writer, 
 		"command":    receipt.Command,
 		"exit_code":  receipt.ExitCode,
 		"duration":   receipt.Duration,
-		"key_path":   receipt.KeyPath,
 		"valid":      verifyErr == nil,
 	}
 
@@ -469,7 +465,7 @@ func displayReceiptVerification(out tui.Output, receipt *domain.ValidationReceip
 	out.Info(fmt.Sprintf("Command: %s", receipt.Command))
 	out.Info(fmt.Sprintf("Exit Code: %d", receipt.ExitCode))
 	out.Info(fmt.Sprintf("Duration: %s", receipt.Duration))
-	out.Info(fmt.Sprintf("Key Path: %s", receipt.KeyPath))
+	// KeyPath is no longer available in receipt
 
 	if verifyErr == nil {
 		out.Success("Signature: VALID")

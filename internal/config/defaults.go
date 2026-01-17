@@ -152,13 +152,6 @@ func DefaultConfig() *Config {
 			// StaleThreshold: 5 minutes before considering a hook stale (potential crash).
 			StaleThreshold: 5 * time.Minute,
 
-			// KeyDerivation: BIP44-style path for HD key derivation.
-			KeyDerivation: KeyDerivationConfig{
-				Purpose:  44,  // BIP44 purpose
-				CoinType: 236, // ATLAS-specific coin type
-				Account:  0,   // Default account
-			},
-
 			// Retention: How long to keep hook files per terminal state.
 			Retention: RetentionConfig{
 				Completed: 720 * time.Hour, // 30 days

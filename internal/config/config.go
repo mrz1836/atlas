@@ -327,27 +327,8 @@ type HookConfig struct {
 	// Default: 5m
 	StaleThreshold time.Duration `yaml:"stale_threshold" mapstructure:"stale_threshold"`
 
-	// KeyDerivation contains HD key derivation settings for receipt signing.
-	KeyDerivation KeyDerivationConfig `yaml:"key_derivation" mapstructure:"key_derivation"`
-
 	// Retention specifies how long to keep hook files per terminal state.
 	Retention RetentionConfig `yaml:"retention" mapstructure:"retention"`
-}
-
-// KeyDerivationConfig contains HD key derivation settings.
-// Used for deriving keys to sign validation receipts.
-type KeyDerivationConfig struct {
-	// Purpose is the BIP44 purpose for key derivation.
-	// Default: 44
-	Purpose uint32 `yaml:"purpose" mapstructure:"purpose"`
-
-	// CoinType is the coin type for key derivation.
-	// Default: 236 (ATLAS-specific)
-	CoinType uint32 `yaml:"coin_type" mapstructure:"coin_type"`
-
-	// Account is the account index for key derivation.
-	// Default: 0
-	Account uint32 `yaml:"account" mapstructure:"account"`
 }
 
 // RetentionConfig specifies how long to keep hook files per terminal state.
