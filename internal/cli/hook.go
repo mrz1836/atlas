@@ -17,6 +17,7 @@ import (
 	"github.com/mrz1836/atlas/internal/crypto/native"
 	"github.com/mrz1836/atlas/internal/domain"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
+	"github.com/mrz1836/atlas/internal/git"
 	"github.com/mrz1836/atlas/internal/hook"
 	"github.com/mrz1836/atlas/internal/tui"
 	"github.com/mrz1836/atlas/internal/workspace"
@@ -42,6 +43,7 @@ Examples:
 
 	hookCmd.AddCommand(newHookStatusCmd())
 	hookCmd.AddCommand(newHookCheckpointsCmd())
+	hookCmd.AddCommand(newHookInstallCmd())
 	hookCmd.AddCommand(newHookVerifyReceiptCmd())
 	hookCmd.AddCommand(newHookRegenerateCmd())
 	hookCmd.AddCommand(newHookExportCmd())
@@ -143,6 +145,30 @@ Exit codes:
   1: No active hook found`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runHookExport(cmd.Context(), cmd, os.Stdout)
+		},
+	}
+}
+
+// newHookInstallCmd creates the hook install command.
+func newHookInstallCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "install",
+		Short: "Show instructions for installing git hooks",
+		Long: `Print the git hook wrapper script and installation instructions.
+
+This command does NOT modify your .git directory. It outputs a script that you
+can manually add to your .git/hooks/post-commit (or post-push) file to enable
+automatic checkpoints.
+
+Example:
+  atlas hook install > .git/hooks/post-commit
+  chmod +x .git/hooks/post-commit
+
+Exit codes:
+  0: Success
+  1: No active hook found`,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return runHookInstall(cmd.Context(), cmd, os.Stdout)
 		},
 	}
 }
@@ -331,6 +357,45 @@ func runHookExport(ctx context.Context, cmd *cobra.Command, w io.Writer) error {
 	encoder := json.NewEncoder(w)
 	encoder.SetIndent("", "  ")
 	return encoder.Encode(h)
+}
+
+// runHookInstall executes the hook install command.
+func runHookInstall(ctx context.Context, cmd *cobra.Command, w io.Writer) error {
+	outputFormat := cmd.Flag("output").Value.String()
+	out := tui.NewOutput(w, outputFormat)
+
+	h, err := getActiveHook(ctx)
+	if err != nil {
+		if outputFormat == OutputJSON {
+			return outputHookErrorJSON(w, "install", err.Error())
+		}
+		return err
+	}
+
+	// Generate the script content
+	script := git.GenerateHookScript(git.HookPostCommit, h.TaskID, h.WorkspaceID)
+
+	if outputFormat == OutputJSON {
+		return out.JSON(map[string]string{
+			"script":       script,
+			"instructions": "Copy the script to .git/hooks/post-commit and make it executable.",
+		})
+	}
+
+	// Print script and instructions
+	out.Info("# ------------------------------------------------------------------")
+	out.Info("# Add the following to your .git/hooks/post-commit file:")
+	out.Info("# ------------------------------------------------------------------")
+	out.Info("")
+	if _, err := fmt.Fprint(w, script); err != nil {
+		return fmt.Errorf("failed to print script: %w", err)
+	}
+	out.Info("")
+	out.Info("# ------------------------------------------------------------------")
+	out.Info("# Then run: chmod +x .git/hooks/post-commit")
+	out.Info("# ------------------------------------------------------------------")
+
+	return nil
 }
 
 // getActiveHook finds and returns the active hook for the current workspace.
