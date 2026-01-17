@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/charmbracelet/huh"
 	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/mrz1836/atlas/internal/domain"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 	"github.com/mrz1836/atlas/internal/git"
+	"github.com/mrz1836/atlas/internal/hook"
 	"github.com/mrz1836/atlas/internal/signal"
 	"github.com/mrz1836/atlas/internal/task"
 	"github.com/mrz1836/atlas/internal/template"
@@ -75,92 +77,123 @@ func runResume(ctx context.Context, cmd *cobra.Command, w io.Writer, workspaceNa
 
 	logger := Logger()
 	outputFormat := cmd.Flag("output").Value.String()
-
-	// Respect NO_COLOR environment variable
 	tui.CheckNoColor()
-
 	out := tui.NewOutput(w, outputFormat)
 
-	// Create signal handler for graceful shutdown on Ctrl+C
+	// Setup signal handler
 	sigHandler := signal.NewHandler(ctx)
 	defer sigHandler.Stop()
 	ctx = sigHandler.Context()
 
-	// Setup workspace manager and get workspace
-	_, ws, err := setupWorkspace(ctx, workspaceName, "", outputFormat, w, logger) //nolint:contextcheck // ctx inherits from parent via signal.NewHandler
+	// Setup workspace and task
+	ws, currentTask, taskStore, wsStore, err := setupResumeWorkspaceAndTask(ctx, workspaceName, outputFormat, w, out, logger) //nolint:contextcheck // ctx inherits from parent via signal.NewHandler
 	if err != nil {
-		return fmt.Errorf("setup workspace: %w", err)
+		return err
+	}
+
+	// Get template and check AI fix option
+	tmpl, err := prepareResumeTemplate(currentTask, opts, outputFormat, w, workspaceName)
+	if err != nil {
+		return err
+	}
+
+	// Create engine and execute resume
+	engine, err := createResumeEngine(ctx, ws, taskStore, logger, out) //nolint:contextcheck // ctx inherits from parent via signal.NewHandler
+	if err != nil {
+		return handleResumeError(outputFormat, w, workspaceName, currentTask.ID, err)
+	}
+
+	// Display info and prepare task
+	displayResumeInfo(out, workspaceName, currentTask)
+	if currentTask.Metadata == nil {
+		currentTask.Metadata = make(map[string]any)
+	}
+	currentTask.Metadata["worktree_dir"] = ws.WorktreePath
+
+	// Execute resume and handle result
+	return executeResumeAndHandleResult(ctx, engine, currentTask, tmpl, sigHandler, out, ws, wsStore, outputFormat, w, workspaceName, logger) //nolint:contextcheck // ctx inherits from parent via signal.NewHandler
+}
+
+// setupResumeWorkspaceAndTask sets up the workspace, task, and stores for resume.
+func setupResumeWorkspaceAndTask(ctx context.Context, workspaceName, outputFormat string, w io.Writer, out tui.Output, logger zerolog.Logger) (*domain.Workspace, *domain.Task, *task.FileStore, workspace.Store, error) {
+	// Setup workspace
+	_, ws, err := setupWorkspace(ctx, workspaceName, "", outputFormat, w, logger)
+	if err != nil {
+		return nil, nil, nil, nil, fmt.Errorf("setup workspace: %w", err)
 	}
 
 	// Get task store and latest task
-	taskStore, currentTask, err := getLatestTask(ctx, workspaceName, "", outputFormat, w, logger) //nolint:contextcheck // ctx inherits from parent via signal.NewHandler
+	taskStore, currentTask, err := getLatestTask(ctx, workspaceName, "", outputFormat, w, logger)
 	if err != nil {
-		return fmt.Errorf("get latest task: %w", err)
+		return nil, nil, nil, nil, fmt.Errorf("get latest task: %w", err)
 	}
 
 	// Validate task is in resumable state
 	if !isResumableStatus(currentTask.Status) {
-		return handleResumeError(outputFormat, w, workspaceName, currentTask.ID,
+		return nil, nil, nil, nil, handleResumeError(outputFormat, w, workspaceName, currentTask.ID,
 			fmt.Errorf("%w: task status %s is not resumable", atlaserrors.ErrInvalidTransition, currentTask.Status))
 	}
 
-	// Check if worktree exists and recreate if needed
-	ws, err = ensureWorktreeExists(ctx, ws, out, logger) //nolint:contextcheck // ctx inherits from parent via signal.NewHandler
+	// Check for hook-based recovery context
+	if shouldShowRecoveryContext(ctx, currentTask, out, outputFormat, logger) {
+		proceed, recoveryErr := showRecoveryContextAndPrompt(ctx, currentTask, out, logger)
+		if recoveryErr != nil {
+			logger.Warn().Err(recoveryErr).Msg("failed to show recovery context")
+		}
+		if !proceed {
+			return nil, nil, nil, nil, atlaserrors.ErrOperationCanceled
+		}
+	}
+
+	// Ensure worktree exists
+	ws, err = ensureWorktreeExists(ctx, ws, out, logger)
 	if err != nil {
-		return handleResumeError(outputFormat, w, workspaceName, currentTask.ID,
+		return nil, nil, nil, nil, handleResumeError(outputFormat, w, workspaceName, currentTask.ID,
 			fmt.Errorf("failed to ensure worktree exists: %w", err))
 	}
 
-	// Create workspace store for status updates (used for both active and paused states)
+	// Create workspace store and update status
 	wsStore, wsStoreErr := workspace.NewFileStore("")
 	if wsStoreErr != nil {
 		logger.Warn().Err(wsStoreErr).Msg("failed to create workspace store for status updates")
 	}
 
-	// Update workspace status to active since we're resuming
 	ws.Status = constants.WorkspaceStatusActive
 	if wsStore != nil {
-		if updateErr := wsStore.Update(ctx, ws); updateErr != nil { //nolint:contextcheck // ctx inherits from parent via signal.NewHandler
+		if updateErr := wsStore.Update(ctx, ws); updateErr != nil {
 			logger.Warn().Err(updateErr).
 				Str("workspace_name", ws.Name).
 				Msg("failed to update workspace status to active")
 		}
 	}
 
-	// Get template
+	return ws, currentTask, taskStore, wsStore, nil
+}
+
+// prepareResumeTemplate gets the template and checks AI fix option.
+func prepareResumeTemplate(currentTask *domain.Task, opts resumeOptions, outputFormat string, w io.Writer, workspaceName string) (*domain.Template, error) {
 	registry := template.NewDefaultRegistry()
 	tmpl, err := registry.Get(currentTask.TemplateID)
 	if err != nil {
-		return handleResumeError(outputFormat, w, workspaceName, currentTask.ID, fmt.Errorf("failed to get template: %w", err))
+		return nil, handleResumeError(outputFormat, w, workspaceName, currentTask.ID, fmt.Errorf("failed to get template: %w", err))
 	}
 
-	// If AI fix requested, show not yet implemented
 	if opts.aiFix {
-		return handleResumeError(outputFormat, w, workspaceName, currentTask.ID,
+		return nil, handleResumeError(outputFormat, w, workspaceName, currentTask.ID,
 			fmt.Errorf("--ai-fix not yet implemented: %w", atlaserrors.ErrResumeNotImplemented))
 	}
 
-	// Create engine with all dependencies
-	engine, err := createResumeEngine(ctx, ws, taskStore, logger, out) //nolint:contextcheck // ctx inherits from parent via signal.NewHandler
-	if err != nil {
-		return handleResumeError(outputFormat, w, workspaceName, currentTask.ID, err)
-	}
+	return tmpl, nil
+}
 
-	// Display resume information
-	displayResumeInfo(out, workspaceName, currentTask)
-
-	// Ensure worktree_dir is set in task metadata for validation retry
-	if currentTask.Metadata == nil {
-		currentTask.Metadata = make(map[string]any)
-	}
-	currentTask.Metadata["worktree_dir"] = ws.WorktreePath
-
+// executeResumeAndHandleResult executes the resume and handles the result/interruption.
+func executeResumeAndHandleResult(ctx context.Context, engine *task.Engine, currentTask *domain.Task, tmpl *domain.Template, sigHandler *signal.Handler, out tui.Output, ws *domain.Workspace, wsStore workspace.Store, outputFormat string, w io.Writer, workspaceName string, logger zerolog.Logger) error {
 	// Resume task execution
-	if err := engine.Resume(ctx, currentTask, tmpl); err != nil { //nolint:contextcheck // ctx inherits from parent via signal.NewHandler
+	if err := engine.Resume(ctx, currentTask, tmpl); err != nil {
 		// Check if we were interrupted by Ctrl+C
 		select {
 		case <-sigHandler.Interrupted():
-			return handleResumeInterruption(ctx, out, ws, currentTask, wsStore, logger) //nolint:contextcheck // ctx inherits from parent via signal.NewHandler
+			return handleResumeInterruption(ctx, out, ws, currentTask, wsStore, logger)
 		default:
 		}
 
@@ -173,7 +206,7 @@ func runResume(ctx context.Context, cmd *cobra.Command, w io.Writer, workspaceNa
 	// Check if we were interrupted by Ctrl+C (even if no error)
 	select {
 	case <-sigHandler.Interrupted():
-		return handleResumeInterruption(ctx, out, ws, currentTask, wsStore, logger) //nolint:contextcheck // ctx inherits from parent via signal.NewHandler
+		return handleResumeInterruption(ctx, out, ws, currentTask, wsStore, logger)
 	default:
 	}
 
@@ -517,4 +550,80 @@ func createWorktreeForBranch(ctx context.Context, repoPath, worktreePath, branch
 	}
 
 	return nil
+}
+
+// shouldShowRecoveryContext checks if hook-based recovery context should be displayed.
+func shouldShowRecoveryContext(ctx context.Context, t *domain.Task, _ tui.Output, outputFormat string, _ zerolog.Logger) bool {
+	// Skip for JSON output
+	if outputFormat == OutputJSON {
+		return false
+	}
+
+	// Get base path for hook store
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return false
+	}
+	baseDir := filepath.Join(homeDir, constants.AtlasHome)
+
+	// Try to get the hook
+	hookStore := hook.NewFileStore(baseDir)
+	exists, _ := hookStore.Exists(ctx, t.ID)
+	return exists
+}
+
+// showRecoveryContextAndPrompt displays recovery context from hook and prompts for confirmation.
+func showRecoveryContextAndPrompt(ctx context.Context, t *domain.Task, out tui.Output, _ zerolog.Logger) (bool, error) {
+	// Get base path for hook store
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return true, err
+	}
+	baseDir := filepath.Join(homeDir, constants.AtlasHome)
+
+	// Get the hook
+	hookStore := hook.NewFileStore(baseDir)
+	h, err := hookStore.Get(ctx, t.ID)
+	if err != nil {
+		return true, err // Continue without hook context
+	}
+
+	// Load config for stale threshold
+	cfg, err := config.Load(ctx)
+	if err != nil {
+		cfg = config.DefaultConfig()
+	}
+
+	// Create recovery detector and get recommendation
+	detector := hook.NewRecoveryDetector(&cfg.Hooks)
+	_ = detector.DiagnoseAndRecommend(ctx, h)
+
+	// Display recovery context
+	out.Info("")
+	out.Info("Recovery Context (from HOOK.md):")
+	out.Info(fmt.Sprintf("  State: %s", h.State))
+	if h.CurrentStep != nil {
+		out.Info(fmt.Sprintf("  Step: %s (index %d)", h.CurrentStep.StepName, h.CurrentStep.StepIndex+1))
+		out.Info(fmt.Sprintf("  Attempt: %d/%d", h.CurrentStep.Attempt, h.CurrentStep.MaxAttempts))
+	}
+	out.Info(fmt.Sprintf("  Checkpoints: %d", len(h.Checkpoints)))
+	if h.Recovery != nil {
+		out.Info(fmt.Sprintf("  Recommendation: %s", h.Recovery.RecommendedAction))
+		out.Info(fmt.Sprintf("  Reason: %s", h.Recovery.Reason))
+	}
+	out.Info("")
+
+	// Prompt for confirmation
+	var proceed bool
+	err = huh.NewConfirm().
+		Title("Continue with resume?").
+		Affirmative("Yes").
+		Negative("No").
+		Value(&proceed).
+		Run()
+	if err != nil {
+		return true, err // On error (e.g., non-interactive), return error
+	}
+
+	return proceed, nil
 }
