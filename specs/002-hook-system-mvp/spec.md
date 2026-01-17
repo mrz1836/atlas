@@ -152,7 +152,7 @@ As a developer, I want old hook files to be automatically cleaned up based on re
 **Checkpoint System**
 
 - **FR-006**: System MUST automatically create checkpoints on git commit, git push, PR creation, validation pass, and step completion
-- **FR-006a**: System MUST install git hooks using a wrapper approach that chains to existing hooks (non-destructive)
+- **FR-006a**: System MUST provide a command (`atlas hook install`) to generate a manual git hook script (non-destructive, user-installed)
 - **FR-007**: System MUST support interval-based checkpoints during long-running steps (interval configured via `hooks.checkpoint_interval`, default: 5 minutes)
 - **FR-008**: System MUST capture version control state (branch, commit, dirty status) at each checkpoint
 - **FR-009**: System MUST support manual checkpoint creation with user-provided descriptions
@@ -251,5 +251,5 @@ All hook system functionality MUST have comprehensive unit tests. This is non-ne
 - Q: HD key derivation path structure? → A: Two-level: master → task (each task gets derived key, receipts share task key); path configured via `hooks.key_derivation` in config
 - Q: Hook storage format? → A: JSON state (hook.json) + generated Markdown recovery (hook.md)
 - Q: Maximum checkpoint retention count? → A: Configured via `hooks.max_checkpoints` (default: 50), oldest pruned when exceeded
-- Q: Git hooks integration approach? → A: Wrapper approach (chain to existing hooks, non-destructive)
+- Q: Git hooks integration approach? → A: Manual installation via `atlas hook install` (prints script for user to add)
 - Q: Where are tunable settings stored? → A: All configurable values (timeouts, intervals, key paths, retention) stored in `~/.atlas/config.yaml` under `hooks` key; see data-model.md for full schema

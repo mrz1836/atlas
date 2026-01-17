@@ -135,13 +135,10 @@
 - [X] T049 [P] [US2] Write checkpoint creation tests (each trigger type, git state capture, file snapshot) in internal/hook/checkpoint_test.go
 - [X] T050 [P] [US2] Write checkpoint pruning tests (50 limit, oldest removed) in internal/hook/checkpoint_test.go
 - [X] T051 [P] [US2] Write interval checkpointer tests (start/stop, ticker, state check) in internal/hook/checkpoint_test.go
-- [ ] T052 [P] [US2] Write git hook wrapper tests in internal/git/hooks_test.go:
-  - Fresh install (no existing hooks) creates wrapper
-  - **Existing hook preserved**: pre-existing `post-commit` renamed to `post-commit.original`
-  - **Chaining works**: wrapper executes both ATLAS checkpoint AND original hook
-  - **Failure isolation**: if ATLAS checkpoint fails, original hook still runs
-  - **Uninstall restores**: `post-commit.original` renamed back, wrapper removed
-  - Hook permissions preserved (executable bit)
+- [ ] T052 [P] [US2] Write git hook script generation tests in internal/git/hooks_test.go:
+  - Verify script content matches template
+  - Verify script creation (print-only) logic
+  - Ensure invasive file operations are NOT present
 
 ### Implementation for User Story 2
 
@@ -153,11 +150,11 @@
 - [X] T058 [US2] Implement Checkpointer.GetLatestCheckpoint in internal/hook/checkpoint.go
 - [X] T059 [US2] Implement Checkpointer.GetCheckpointByID in internal/hook/checkpoint.go
 - [X] T060 [US2] Implement IntervalCheckpointer with cancellable goroutine in internal/hook/checkpoint.go
-- [X] T061 [US2] Implement GitHookInstaller.Install (wrapper approach, chain existing) in internal/git/hooks.go
-- [X] T062 [US2] Implement GitHookInstaller.Uninstall (restore .original) in internal/git/hooks.go
-- [X] T063 [US2] Implement GitHookInstaller.IsInstalled in internal/git/hooks.go
-- [X] T064 [US2] Create post-commit hook wrapper script template in internal/git/hooks.go
-- [X] T065 [US2] Integrate git hook installation into atlas start command in internal/cli/start.go
+- [X] T061 [US2] Implement manual hook script generator (`GenerateHookScript`) in internal/git/hooks.go
+- [X] T062 [US2] Remove invasive hook installation logic (Install/Uninstall) from internal/git/hooks.go
+- [X] T063 [US2] Ensure no auto-installation in internal/cli/start.go
+- [X] T064 [US2] Update helper to print manual installation instructions
+- [X] T065 [US2] Implement `atlas hook install` command in internal/cli/hook.go
 - [X] T066 [US2] Integrate interval checkpointer start into task engine step execution in internal/task/engine.go
   - Note: T066, T048a, and T091 all modify engine.go - run sequentially (T048a → T066 → T091)
 
