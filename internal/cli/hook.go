@@ -530,7 +530,10 @@ func displayReceiptVerification(out tui.Output, receipt *domain.ValidationReceip
 	out.Info(fmt.Sprintf("Command: %s", receipt.Command))
 	out.Info(fmt.Sprintf("Exit Code: %d", receipt.ExitCode))
 	out.Info(fmt.Sprintf("Duration: %s", receipt.Duration))
-	// KeyPath is no longer available in receipt
+	// KeyPath is available if signed
+	if receipt.KeyPath != "" {
+		out.Info(fmt.Sprintf("Key Path: %s", receipt.KeyPath))
+	}
 
 	if verifyErr == nil {
 		out.Success("Signature: VALID")

@@ -90,9 +90,8 @@ type Store interface {
 	// Exists checks if a hook exists for the given task.
 	Exists(ctx context.Context, taskID string) (bool, error)
 
-	// ListStale returns all hooks that haven't been updated within threshold.
-	// Used by cleanup and crash detection.
-	ListStale(ctx context.Context, threshold time.Duration) ([]*domain.Hook, error)
+	// Update performs an atomic read-modify-write operation.
+	Update(ctx context.Context, taskID string, modifier func(*domain.Hook) error) error
 }
 
 // FileStore implements Store with file-based persistence.
@@ -118,7 +117,7 @@ func WithMarkdownGenerator(gen MarkdownGenerator) FileStoreOption {
 	}
 }
 
-// WithLockTimeout sets the lock timeout.
+// WithLockTimeout sets a custom lock timeout.
 func WithLockTimeout(timeout time.Duration) FileStoreOption {
 	return func(fs *FileStore) {
 		fs.lockTimeout = timeout
@@ -174,14 +173,12 @@ func (fs *FileStore) Create(ctx context.Context, taskID, workspaceID string) (*d
 func (fs *FileStore) Get(_ context.Context, taskID string) (*domain.Hook, error) {
 	hookPath := fs.hookPath(taskID)
 
-	// Check if file exists
-	if _, err := os.Stat(hookPath); os.IsNotExist(err) {
-		return nil, ErrHookNotFound
-	}
-
 	// Read file with lock
 	data, err := fs.readWithLock(hookPath)
 	if err != nil {
+		if os.IsNotExist(err) || errors.Is(err, os.ErrNotExist) {
+			return nil, ErrHookNotFound
+		}
 		return nil, fmt.Errorf("failed to read hook file: %w", err)
 	}
 
@@ -194,6 +191,11 @@ func (fs *FileStore) Get(_ context.Context, taskID string) (*domain.Hook, error)
 }
 
 // Save persists the hook state atomically.
+//
+// Note: This does NOT take a lock on read, so it's susceptible to overwriting concurrent changes
+// if not used carefully. Prefer Update for read-modify-write cycles.
+//
+//nolint:godox // Note explains intentional behavior
 func (fs *FileStore) Save(_ context.Context, hook *domain.Hook) error {
 	hookPath := fs.hookPath(hook.TaskID)
 
@@ -226,6 +228,65 @@ func (fs *FileStore) Save(_ context.Context, hook *domain.Hook) error {
 			_ = fs.atomicWrite(mdPath, mdContent) // Ignore error - markdown is non-critical
 		}
 		// Intentionally ignore errors - markdown generation is non-critical for hook persistence
+	}
+
+	return nil
+}
+
+// Update performs an atomic read-modify-write operation.
+func (fs *FileStore) Update(_ context.Context, taskID string, modifier func(*domain.Hook) error) error {
+	hookPath := fs.hookPath(taskID)
+
+	// Acquire lock for the duration of read-modify-write
+	lock := newFileLock(hookPath + ".lock")
+	if err := lock.LockWithTimeout(fs.lockTimeout); err != nil {
+		return fmt.Errorf("failed to acquire lock: %w", err)
+	}
+	defer func() { _ = lock.Unlock() }()
+
+	// Read
+	//nolint:gosec // G304: Path is constructed from trusted taskID
+	data, err := os.ReadFile(hookPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return ErrHookNotFound
+		}
+		return fmt.Errorf("failed to read hook file: %w", err)
+	}
+
+	var hook domain.Hook
+	if unmarshalErr := json.Unmarshal(data, &hook); unmarshalErr != nil {
+		return fmt.Errorf("%w: %w", ErrInvalidHook, unmarshalErr)
+	}
+
+	// Modify
+	if modErr := modifier(&hook); modErr != nil {
+		return modErr
+	}
+
+	// Update timestamp
+	hook.UpdatedAt = time.Now().UTC()
+
+	// Write
+	updatedData, err := json.MarshalIndent(&hook, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal hook: %w", err)
+	}
+
+	// Use atomicWrite directly since we already hold the lock
+	if err := fs.atomicWrite(hookPath, updatedData); err != nil {
+		return fmt.Errorf("failed to write hook file: %w", err)
+	}
+
+	// Regenerate HOOK.md if generator is available
+	//nolint:godox // Note explains intentional behavior
+	// Note: We do this inside the lock to ensure consistency, though it might slow down slightly
+	if fs.markdownGenerator != nil {
+		mdPath := fs.markdownPath(hook.TaskID)
+		mdContent, genErr := fs.markdownGenerator.Generate(&hook)
+		if genErr == nil {
+			_ = fs.atomicWrite(mdPath, mdContent)
+		}
 	}
 
 	return nil
