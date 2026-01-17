@@ -144,6 +144,9 @@ func newRootCmd(flags *GlobalFlags, info BuildInfo) *cobra.Command {
 	AddRejectCommand(cmd)
 	AddRecoverCommand(cmd)
 	AddCompletionCommand(cmd)
+	AddHookCommand(cmd)
+	AddCheckpointCommand(cmd)
+	AddCleanupCommand(cmd)
 
 	return cmd
 }

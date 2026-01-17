@@ -24,10 +24,10 @@
 
 **Purpose**: Project initialization, dependencies, and constants
 
-- [ ] T001 Add `github.com/bsv-blockchain/go-sdk` dependency to go.mod
-- [ ] T002 Create hook constants in internal/constants/hook.go (HookFileName, HookMarkdownFileName, HookSchemaVersion, MaxLastOutputLength)
-- [ ] T003 [P] Create HookConfig, KeyDerivationConfig, RetentionConfig structs in internal/config/config.go
-- [ ] T004 [P] Create test fixtures directory structure at internal/hook/testdata/hooks/
+- [X] T001 Add `github.com/bsv-blockchain/go-sdk` dependency to go.mod
+- [X] T002 Create hook constants in internal/constants/hook.go (HookFileName, HookMarkdownFileName, HookSchemaVersion, MaxLastOutputLength)
+- [X] T003 [P] Create HookConfig, KeyDerivationConfig, RetentionConfig structs in internal/config/config.go
+- [X] T004 [P] Create test fixtures directory structure at internal/hook/testdata/hooks/
 
 ---
 
@@ -39,59 +39,59 @@
 
 ### Domain Types (internal/domain/hook.go)
 
-- [ ] T005 Define HookState enum with all 9 states (initializing, step_pending, step_running, step_validating, awaiting_human, recovering, completed, failed, abandoned) in internal/domain/hook.go
-- [ ] T006 Define CheckpointTrigger enum with all 7 triggers (manual, git_commit, git_push, pr_created, validation, step_complete, interval) in internal/domain/hook.go
-- [ ] T007 Define StepContext struct in internal/domain/hook.go
-- [ ] T008 Define StepCheckpoint struct with FileSnapshot embedded in internal/domain/hook.go
-- [ ] T009 Define FileSnapshot struct in internal/domain/hook.go
-- [ ] T010 Define HookEvent struct in internal/domain/hook.go
-- [ ] T011 Define RecoveryContext struct in internal/domain/hook.go
-- [ ] T012 Define ValidationReceipt struct in internal/domain/hook.go
-- [ ] T013 Define Hook struct (primary entity) in internal/domain/hook.go
-- [ ] T014 Define ValidHookTransitions map in internal/domain/hook.go
-- [ ] T015 Add IsTerminalState helper function in internal/domain/hook.go
-- [ ] T016 [P] Write domain type tests (serialization round-trip, enum validation) in internal/domain/hook_test.go
+- [X] T005 Define HookState enum with all 9 states (initializing, step_pending, step_running, step_validating, awaiting_human, recovering, completed, failed, abandoned) in internal/domain/hook.go
+- [X] T006 Define CheckpointTrigger enum with all 7 triggers (manual, git_commit, git_push, pr_created, validation, step_complete, interval) in internal/domain/hook.go
+- [X] T007 Define StepContext struct in internal/domain/hook.go
+- [X] T008 Define StepCheckpoint struct with FileSnapshot embedded in internal/domain/hook.go
+- [X] T009 Define FileSnapshot struct in internal/domain/hook.go
+- [X] T010 Define HookEvent struct in internal/domain/hook.go
+- [X] T011 Define RecoveryContext struct in internal/domain/hook.go
+- [X] T012 Define ValidationReceipt struct in internal/domain/hook.go
+- [X] T013 Define Hook struct (primary entity) in internal/domain/hook.go
+- [X] T014 Define ValidHookTransitions map in internal/domain/hook.go
+- [X] T015 Add IsTerminalState helper function in internal/domain/hook.go
+- [X] T016 [P] Write domain type tests (serialization round-trip, enum validation) in internal/domain/hook_test.go
 
 ### Shared Crypto Interfaces (internal/crypto/)
 
-- [ ] T017a Define Signer interface (Sign, Verify methods) in internal/crypto/signer.go
-- [ ] T017b Define Verifier interface (Verify method only, for read-only consumers) in internal/crypto/signer.go
-- [ ] T017c [P] Write crypto interface contract tests in internal/crypto/signer_test.go
+- [X] T017a Define Signer interface (Sign, Verify methods) in internal/crypto/signer.go
+- [X] T017b Define Verifier interface (Verify method only, for read-only consumers) in internal/crypto/signer.go
+- [X] T017c [P] Write crypto interface contract tests in internal/crypto/signer_test.go
 
 ### Hook-Specific Interfaces (internal/hook/)
 
-- [ ] T017 Define ReceiptSigner interface (embeds crypto.Signer, adds KeyPath) in internal/hook/signer.go
-- [ ] T018 Define KeyManager interface in internal/hook/signer.go
-- [ ] T019 [P] Create MockSigner implementation for testing in internal/hook/signer_mock.go
-- [ ] T020 [P] Write signer interface contract tests in internal/hook/signer_test.go
+- [X] T017 Define ReceiptSigner interface (embeds crypto.Signer, adds KeyPath) in internal/hook/signer.go
+- [X] T018 Define KeyManager interface in internal/hook/signer.go
+- [X] T019 [P] Create MockSigner implementation for testing in internal/hook/signer_mock.go
+- [X] T020 [P] Write signer interface contract tests in internal/hook/signer_test.go
 
 ### Hook Store (internal/hook/store.go)
 
-- [ ] T021 Define HookStore interface in internal/hook/store.go
-- [ ] T022 Implement FileStore struct with atomic write pattern (temp+rename) in internal/hook/store.go
-- [ ] T023 Implement FileStore.Create method in internal/hook/store.go
-- [ ] T024 Implement FileStore.Get method in internal/hook/store.go
-- [ ] T025 Implement FileStore.Save method with file locking in internal/hook/store.go
-- [ ] T026 Implement FileStore.Delete method in internal/hook/store.go
-- [ ] T027 Implement FileStore.Exists method in internal/hook/store.go
-- [ ] T028 Implement FileStore.ListStale method in internal/hook/store.go
-- [ ] T029 Write store tests (CRUD, atomic writes, concurrent access, corrupted file handling) in internal/hook/store_test.go
+- [X] T021 Define HookStore interface in internal/hook/store.go
+- [X] T022 Implement FileStore struct with atomic write pattern (temp+rename) in internal/hook/store.go
+- [X] T023 Implement FileStore.Create method in internal/hook/store.go
+- [X] T024 Implement FileStore.Get method in internal/hook/store.go
+- [X] T025 Implement FileStore.Save method with file locking in internal/hook/store.go
+- [X] T026 Implement FileStore.Delete method in internal/hook/store.go
+- [X] T027 Implement FileStore.Exists method in internal/hook/store.go
+- [X] T028 Implement FileStore.ListStale method in internal/hook/store.go
+- [X] T029 Write store tests (CRUD, atomic writes, concurrent access, corrupted file handling) in internal/hook/store_test.go
 
 ### State Machine (internal/hook/state.go)
 
-- [ ] T030 Implement HookTransitioner with Transition method in internal/hook/state.go
-- [ ] T031 Implement IsValidTransition method in internal/hook/state.go
-- [ ] T032 Add helper to append HookEvent to history on transition in internal/hook/state.go
-- [ ] T033 Write state machine tests (all valid transitions, all invalid transitions, terminal state rejection, history append) in internal/hook/state_test.go
+- [X] T030 Implement HookTransitioner with Transition method in internal/hook/state.go
+- [X] T031 Implement IsValidTransition method in internal/hook/state.go
+- [X] T032 Add helper to append HookEvent to history on transition in internal/hook/state.go
+- [X] T033 Write state machine tests (all valid transitions, all invalid transitions, terminal state rejection, history append) in internal/hook/state_test.go
 
 ### Test Fixtures
 
-- [ ] T034 [P] Create valid_initializing.json fixture in internal/hook/testdata/hooks/
-- [ ] T035 [P] Create valid_step_running.json fixture in internal/hook/testdata/hooks/
-- [ ] T036 [P] Create valid_completed.json fixture in internal/hook/testdata/hooks/
-- [ ] T037 [P] Create with_checkpoints.json fixture in internal/hook/testdata/hooks/
-- [ ] T038 [P] Create corrupted.json fixture in internal/hook/testdata/hooks/
-- [ ] T039 [P] Create stale.json fixture in internal/hook/testdata/hooks/
+- [X] T034 [P] Create valid_initializing.json fixture in internal/hook/testdata/hooks/
+- [X] T035 [P] Create valid_step_running.json fixture in internal/hook/testdata/hooks/
+- [X] T036 [P] Create valid_completed.json fixture in internal/hook/testdata/hooks/
+- [X] T037 [P] Create with_checkpoints.json fixture in internal/hook/testdata/hooks/
+- [X] T038 [P] Create corrupted.json fixture in internal/hook/testdata/hooks/
+- [X] T039 [P] Create stale.json fixture in internal/hook/testdata/hooks/
 
 **Checkpoint**: Foundation ready - user story implementation can now begin
 
@@ -105,19 +105,19 @@
 
 ### Tests for User Story 1
 
-- [ ] T040 [US1] Write recovery detection tests (stale hook detection, terminal state exclusion) in internal/hook/recovery_test.go
-- [ ] T041 [US1] Write recovery recommendation tests (retry_step for idempotent, manual for implement, retry_from_checkpoint) in internal/hook/recovery_test.go
+- [X] T040 [US1] Write recovery detection tests (stale hook detection, terminal state exclusion) in internal/hook/recovery_test.go
+- [X] T041 [US1] Write recovery recommendation tests (retry_step for idempotent, manual for implement, retry_from_checkpoint) in internal/hook/recovery_test.go
   - Note: T040 and T041 target same file - run sequentially
 
 ### Implementation for User Story 1
 
-- [ ] T042 [US1] Implement RecoveryDetector.DetectRecoveryNeeded in internal/hook/recovery.go
-- [ ] T043 [US1] Implement RecoveryDetector.DiagnoseAndRecommend with decision tree logic in internal/hook/recovery.go
-- [ ] T044 [US1] Implement isStaleHook helper using config threshold in internal/hook/recovery.go
-- [ ] T045 [US1] Add idempotent step detection (analyze, plan, validate vs implement, commit, pr) in internal/hook/recovery.go
-- [ ] T046 [US1] Modify atlas start command to create hook on task start in internal/cli/start.go
-- [ ] T047 [US1] Modify atlas resume command to check for HOOK.md and show recovery context in internal/cli/resume.go
-- [ ] T048 [US1] Add recovery mode prompt "Continue? [Y/n]" in resume command in internal/cli/resume.go
+- [X] T042 [US1] Implement RecoveryDetector.DetectRecoveryNeeded in internal/hook/recovery.go
+- [X] T043 [US1] Implement RecoveryDetector.DiagnoseAndRecommend with decision tree logic in internal/hook/recovery.go
+- [X] T044 [US1] Implement isStaleHook helper using config threshold in internal/hook/recovery.go
+- [X] T045 [US1] Add idempotent step detection (analyze, plan, validate vs implement, commit, pr) in internal/hook/recovery.go
+- [X] T046 [US1] Modify atlas start command to create hook on task start in internal/cli/start.go
+- [X] T047 [US1] Modify atlas resume command to check for HOOK.md and show recovery context in internal/cli/resume.go
+- [X] T048 [US1] Add recovery mode prompt "Continue? [Y/n]" in resume command in internal/cli/resume.go
 - [ ] T048a [US1] Implement FilesTouched tracking: update StepContext.FilesTouched during step execution in internal/task/engine.go (FR-015)
 
 **Checkpoint**: User Story 1 complete - crash recovery detection and resume works independently
@@ -132,9 +132,9 @@
 
 ### Tests for User Story 2
 
-- [ ] T049 [P] [US2] Write checkpoint creation tests (each trigger type, git state capture, file snapshot) in internal/hook/checkpoint_test.go
-- [ ] T050 [P] [US2] Write checkpoint pruning tests (50 limit, oldest removed) in internal/hook/checkpoint_test.go
-- [ ] T051 [P] [US2] Write interval checkpointer tests (start/stop, ticker, state check) in internal/hook/checkpoint_test.go
+- [X] T049 [P] [US2] Write checkpoint creation tests (each trigger type, git state capture, file snapshot) in internal/hook/checkpoint_test.go
+- [X] T050 [P] [US2] Write checkpoint pruning tests (50 limit, oldest removed) in internal/hook/checkpoint_test.go
+- [X] T051 [P] [US2] Write interval checkpointer tests (start/stop, ticker, state check) in internal/hook/checkpoint_test.go
 - [ ] T052 [P] [US2] Write git hook wrapper tests in internal/git/hooks_test.go:
   - Fresh install (no existing hooks) creates wrapper
   - **Existing hook preserved**: pre-existing `post-commit` renamed to `post-commit.original`
@@ -145,14 +145,14 @@
 
 ### Implementation for User Story 2
 
-- [ ] T053 [US2] Implement Checkpointer.CreateCheckpoint in internal/hook/checkpoint.go
-- [ ] T054 [US2] Implement checkpoint ID generation (ckpt-{uuid8}) in internal/hook/checkpoint.go
-- [ ] T055 [US2] Implement git state capture (branch, commit, dirty status) in internal/hook/checkpoint.go
-- [ ] T056 [US2] Implement file snapshot capture (path, size, modtime, sha256 prefix) in internal/hook/checkpoint.go
-- [ ] T057 [US2] Implement checkpoint pruning (FIFO when exceeds max_checkpoints config) in internal/hook/checkpoint.go
-- [ ] T058 [US2] Implement Checkpointer.GetLatestCheckpoint in internal/hook/checkpoint.go
-- [ ] T059 [US2] Implement Checkpointer.GetCheckpointByID in internal/hook/checkpoint.go
-- [ ] T060 [US2] Implement IntervalCheckpointer with cancellable goroutine in internal/hook/checkpoint.go
+- [X] T053 [US2] Implement Checkpointer.CreateCheckpoint in internal/hook/checkpoint.go
+- [X] T054 [US2] Implement checkpoint ID generation (ckpt-{uuid8}) in internal/hook/checkpoint.go
+- [X] T055 [US2] Implement git state capture (branch, commit, dirty status) in internal/hook/checkpoint.go
+- [X] T056 [US2] Implement file snapshot capture (path, size, modtime, sha256 prefix) in internal/hook/checkpoint.go
+- [X] T057 [US2] Implement checkpoint pruning (FIFO when exceeds max_checkpoints config) in internal/hook/checkpoint.go
+- [X] T058 [US2] Implement Checkpointer.GetLatestCheckpoint in internal/hook/checkpoint.go
+- [X] T059 [US2] Implement Checkpointer.GetCheckpointByID in internal/hook/checkpoint.go
+- [X] T060 [US2] Implement IntervalCheckpointer with cancellable goroutine in internal/hook/checkpoint.go
 - [ ] T061 [US2] Implement GitHookInstaller.Install (wrapper approach, chain existing) in internal/git/hooks.go
 - [ ] T062 [US2] Implement GitHookInstaller.Uninstall (restore .original) in internal/git/hooks.go
 - [ ] T063 [US2] Implement GitHookInstaller.IsInstalled in internal/git/hooks.go
@@ -173,20 +173,20 @@
 
 ### Tests for User Story 3
 
-- [ ] T067 [US3] Write HOOK.md generation tests (fresh task, mid-step crash, completed steps, with checkpoints) in internal/hook/markdown_test.go
-- [ ] T068 [US3] Write regeneration test (overwrite from hook.json) in internal/hook/markdown_test.go
+- [X] T067 [US3] Write HOOK.md generation tests (fresh task, mid-step crash, completed steps, with checkpoints) in internal/hook/markdown_test.go
+- [X] T068 [US3] Write regeneration test (overwrite from hook.json) in internal/hook/markdown_test.go
   - Note: T067 and T068 target same file - run sequentially
 
 ### Implementation for User Story 3
 
-- [ ] T069 [US3] Define HOOK.md template structure (header, current state, what to do now, do not, completed steps, timeline) in internal/hook/markdown.go
-- [ ] T070 [US3] Implement MarkdownGenerator.Generate in internal/hook/markdown.go
-- [ ] T071 [US3] Implement "What To Do Now" section generation based on recovery recommendations in internal/hook/markdown.go
-- [ ] T072 [US3] Implement "DO NOT REPEAT" section with completed steps table in internal/hook/markdown.go
-- [ ] T073 [US3] Implement checkpoint timeline section in internal/hook/markdown.go
-- [ ] T074 [US3] Implement validation receipts table section in internal/hook/markdown.go
-- [ ] T075 [US3] Integrate HOOK.md regeneration into FileStore.Save in internal/hook/store.go
-- [ ] T076 [US3] Implement atlas hook regenerate command in internal/cli/hook.go
+- [X] T069 [US3] Define HOOK.md template structure (header, current state, what to do now, do not, completed steps, timeline) in internal/hook/markdown.go
+- [X] T070 [US3] Implement MarkdownGenerator.Generate in internal/hook/markdown.go
+- [X] T071 [US3] Implement "What To Do Now" section generation based on recovery recommendations in internal/hook/markdown.go
+- [X] T072 [US3] Implement "DO NOT REPEAT" section with completed steps table in internal/hook/markdown.go
+- [X] T073 [US3] Implement checkpoint timeline section in internal/hook/markdown.go
+- [X] T074 [US3] Implement validation receipts table section in internal/hook/markdown.go
+- [X] T075 [US3] Integrate HOOK.md regeneration into FileStore.Save in internal/hook/store.go
+- [X] T076 [US3] Implement atlas hook regenerate command in internal/cli/hook.go
 
 **Checkpoint**: User Story 3 complete - human-readable recovery files work independently
 
@@ -200,26 +200,26 @@
 
 ### Tests for User Story 4
 
-- [ ] T077 [P] [US4] Write HD key derivation tests (path format, config-driven path) in internal/crypto/hd/signer_test.go
-- [ ] T078 [P] [US4] Write key file permission tests (0600) in internal/crypto/hd/signer_test.go
-- [ ] T079 [P] [US4] Write signing determinism tests (same input = same signature) in internal/hook/signer_hd_test.go
-- [ ] T080 [P] [US4] Write verification tests (valid passes, tampered fails) in internal/hook/signer_hd_test.go
-- [ ] T081 [P] [US4] Write missing key handling tests (graceful error) in internal/hook/signer_hd_test.go
+- [X] T077 [P] [US4] Write HD key derivation tests (path format, config-driven path) in internal/crypto/hd/signer_test.go
+- [X] T078 [P] [US4] Write key file permission tests (0600) in internal/crypto/hd/signer_test.go
+- [X] T079 [P] [US4] Write signing determinism tests (same input = same signature) in internal/hook/signer_hd_test.go
+- [X] T080 [P] [US4] Write verification tests (valid passes, tampered fails) in internal/hook/signer_hd_test.go
+- [X] T081 [P] [US4] Write missing key handling tests (graceful error) in internal/hook/signer_hd_test.go
 
 ### Implementation for User Story 4
 
-- [ ] T082 [US4] Implement FileKeyManager with key generation and 0600 permissions in internal/crypto/hd/signer.go
-- [ ] T083 [US4] Implement FileKeyManager.Load (generate if not exists) in internal/crypto/hd/signer.go
-- [ ] T084 [US4] Implement FileKeyManager.Exists in internal/crypto/hd/signer.go
-- [ ] T085 [US4] Implement FileKeyManager.NewSigner in internal/crypto/hd/signer.go
-- [ ] T086 [US4] Implement HDReceiptSigner using go-sdk in internal/hook/signer_hd.go
-- [ ] T087 [US4] Implement HDReceiptSigner.Sign with HD key derivation in internal/hook/signer_hd.go
-- [ ] T088 [US4] Implement HDReceiptSigner.Verify in internal/hook/signer_hd.go
-- [ ] T089 [US4] Implement HDReceiptSigner.KeyPath in internal/hook/signer_hd.go
-- [ ] T090 [US4] Implement signature message format (pipe-delimited) in internal/hook/signer_hd.go
+- [X] T082 [US4] Implement FileKeyManager with key generation and 0600 permissions in internal/crypto/hd/signer.go
+- [X] T083 [US4] Implement FileKeyManager.Load (generate if not exists) in internal/crypto/hd/signer.go
+- [X] T084 [US4] Implement FileKeyManager.Exists in internal/crypto/hd/signer.go
+- [X] T085 [US4] Implement FileKeyManager.NewSigner in internal/crypto/hd/signer.go
+- [X] T086 [US4] Implement HDReceiptSigner using go-sdk in internal/hook/signer_hd.go
+- [X] T087 [US4] Implement HDReceiptSigner.Sign with HD key derivation in internal/hook/signer_hd.go
+- [X] T088 [US4] Implement HDReceiptSigner.Verify in internal/hook/signer_hd.go
+- [X] T089 [US4] Implement HDReceiptSigner.KeyPath in internal/hook/signer_hd.go
+- [X] T090 [US4] Implement signature message format (pipe-delimited) in internal/hook/signer_hd.go
 - [ ] T091 [US4] Create validation receipt on validation pass in task engine in internal/task/engine.go
   - Note: Depends on T048a and T066 completing first (same file constraint)
-- [ ] T092 [US4] Implement atlas hook verify-receipt command in internal/cli/hook.go
+- [X] T092 [US4] Implement atlas hook verify-receipt command in internal/cli/hook.go
 
 **Checkpoint**: User Story 4 complete - validation receipts are cryptographically verifiable
 
@@ -239,10 +239,10 @@
 
 ### Implementation for User Story 5
 
-- [ ] T096 [US5] Implement atlas hook status command (text and JSON output) in internal/cli/hook.go
-- [ ] T097 [US5] Implement atlas hook checkpoints command (table and JSON output) in internal/cli/hook.go
-- [ ] T098 [US5] Implement atlas hook export command in internal/cli/hook.go
-- [ ] T099 [US5] Add relative time formatting helper ("2 minutes ago") in internal/cli/hook.go
+- [X] T096 [US5] Implement atlas hook status command (text and JSON output) in internal/cli/hook.go
+- [X] T097 [US5] Implement atlas hook checkpoints command (table and JSON output) in internal/cli/hook.go
+- [X] T098 [US5] Implement atlas hook export command in internal/cli/hook.go
+- [X] T099 [US5] Add relative time formatting helper ("2 minutes ago") in internal/cli/hook.go
 
 **Checkpoint**: User Story 5 complete - task state visibility works independently
 
@@ -260,8 +260,8 @@
 
 ### Implementation for User Story 6
 
-- [ ] T101 [US6] Implement atlas checkpoint "description" command in internal/cli/checkpoint.go
-- [ ] T102 [US6] Validate task is in step_running state before creating checkpoint in internal/cli/checkpoint.go
+- [X] T101 [US6] Implement atlas checkpoint "description" command in internal/cli/checkpoint.go
+- [X] T102 [US6] Validate task is in step_running state before creating checkpoint in internal/cli/checkpoint.go
 
 **Checkpoint**: User Story 6 complete - manual checkpoints work independently
 
@@ -279,10 +279,10 @@
 
 ### Implementation for User Story 7
 
-- [ ] T104 [US7] Add --hooks flag to atlas cleanup command in internal/cli/cleanup.go
-- [ ] T105 [US7] Implement retention policy logic (completed: 30d, failed: 7d, abandoned: 7d) in internal/cli/cleanup.go
-- [ ] T106 [US7] Implement --dry-run support for hooks cleanup in internal/cli/cleanup.go
-- [ ] T107 [US7] Use HookStore.ListStale and Delete for cleanup implementation in internal/cli/cleanup.go
+- [X] T104 [US7] Add --hooks flag to atlas cleanup command in internal/cli/cleanup.go
+- [X] T105 [US7] Implement retention policy logic (completed: 30d, failed: 7d, abandoned: 7d) in internal/cli/cleanup.go
+- [X] T106 [US7] Implement --dry-run support for hooks cleanup in internal/cli/cleanup.go
+- [X] T107 [US7] Use HookStore.ListStale and Delete for cleanup implementation in internal/cli/cleanup.go
 
 **Checkpoint**: User Story 7 complete - hook cleanup works independently
 
