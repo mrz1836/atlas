@@ -22,10 +22,7 @@ func NewNativeReceiptSigner(km *native.KeyManager) (*NativeReceiptSigner, error)
 
 // Sign implements crypto.Signer.
 func (s *NativeReceiptSigner) Sign(ctx context.Context, message []byte) ([]byte, error) {
-	// Delegate to the key manager's internal signer mechanism
-	// We need to access the private key, which is simpler to do by exposing a Signer method on KeyManager
-	// or creating a transient signer.
-	// For now, let's create a transient signer from the KeyManager.
+	// Create a new signer from the key manager (which holds the master private key)
 	signer, err := s.km.NewSigner()
 	if err != nil {
 		return nil, err
@@ -43,11 +40,11 @@ func (s *NativeReceiptSigner) Verify(ctx context.Context, message, signature []b
 }
 
 // SignReceipt signs the receipt and populates the Signature field.
+// taskIndex is ignored in this simple implementation (no HD keys).
 func (s *NativeReceiptSigner) SignReceipt(ctx context.Context, receipt *domain.ValidationReceipt, _ uint32) error {
 	msg := formatReceiptMessage(receipt)
 
-	// Create hash of the message to sign (standard practice, though Ed25519 hashes internally too)
-	// We sign the SHA256 of the pipe-delimited string to keep payload small and uniform
+	// Create hash of the message to sign
 	hash := sha256.Sum256([]byte(msg))
 
 	sig, err := s.Sign(ctx, hash[:])
@@ -74,6 +71,8 @@ func (s *NativeReceiptSigner) VerifyReceipt(ctx context.Context, receipt *domain
 
 // KeyPath returns a static identifier for native keys since we don't use HD paths.
 func (s *NativeReceiptSigner) KeyPath(_ uint32) string {
+	// Return a static identifier since we are using a single master key
+	// This helps identify which key was used if we ever rotate
 	return "native-ed25519-v1"
 }
 

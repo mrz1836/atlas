@@ -329,6 +329,9 @@ type HookConfig struct {
 
 	// Retention specifies how long to keep hook files per terminal state.
 	Retention RetentionConfig `yaml:"retention" mapstructure:"retention"`
+
+	// Crypto holds cryptographic configuration.
+	Crypto CryptoConfig `yaml:"crypto" mapstructure:"crypto"`
 }
 
 // RetentionConfig specifies how long to keep hook files per terminal state.
