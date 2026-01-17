@@ -93,6 +93,28 @@ func DefaultEngineConfig() EngineConfig {
 	}
 }
 
+// HookManager provides an interface for managing task recovery hooks.
+// Implementations handle hook lifecycle events: creation, step transitions, and completion.
+type HookManager interface {
+	// CreateHook initializes a hook for a new task.
+	CreateHook(ctx context.Context, task *domain.Task) error
+
+	// TransitionStep updates the hook when entering a step.
+	TransitionStep(ctx context.Context, task *domain.Task, stepName string, stepIndex int) error
+
+	// CompleteStep updates the hook when a step completes successfully.
+	CompleteStep(ctx context.Context, task *domain.Task, stepName string) error
+
+	// FailStep updates the hook when a step fails.
+	FailStep(ctx context.Context, task *domain.Task, stepName string, err error) error
+
+	// CompleteTask finalizes the hook when the task completes.
+	CompleteTask(ctx context.Context, task *domain.Task) error
+
+	// FailTask updates the hook when the task fails.
+	FailTask(ctx context.Context, task *domain.Task, err error) error
+}
+
 // Engine orchestrates task execution through template steps.
 // It coordinates step executors, manages state transitions, and
 // provides checkpointing after each step.
@@ -105,6 +127,7 @@ type Engine struct {
 	notifier               *StateChangeNotifier
 	validationRetryHandler ValidationRetryHandler
 	metrics                Metrics
+	hookManager            HookManager
 }
 
 // EngineOption configures an Engine.
@@ -142,6 +165,14 @@ func WithValidationRetryHandler(handler ValidationRetryHandler) EngineOption {
 func WithMetrics(m Metrics) EngineOption {
 	return func(e *Engine) {
 		e.metrics = m
+	}
+}
+
+// WithHookManager sets the hook manager for crash recovery hooks.
+// When configured, the engine will create and update hooks during task execution.
+func WithHookManager(hm HookManager) EngineOption {
+	return func(e *Engine) {
+		e.hookManager = hm
 	}
 }
 
@@ -233,6 +264,15 @@ func (e *Engine) Start(ctx context.Context, workspaceName, branch, worktreePath 
 	// Create task in store (initial persistence)
 	if err := e.store.Create(ctx, workspaceName, task); err != nil {
 		return nil, fmt.Errorf("failed to save task: %w", err)
+	}
+
+	// Create hook for crash recovery (if hook manager is configured)
+	if e.hookManager != nil {
+		if err := e.hookManager.CreateHook(ctx, task); err != nil {
+			e.logger.Warn().Err(err).
+				Str("task_id", taskID).
+				Msg("failed to create hook, continuing without crash recovery")
+		}
 	}
 
 	// Inject logger with task context for step executors
@@ -711,6 +751,9 @@ func (e *Engine) runSteps(ctx context.Context, task *domain.Task, template *doma
 		// Notify step start for UI feedback
 		e.notifyStepStart(task, step, totalSteps)
 
+		// Update hook state to step_running (if hook manager is configured)
+		e.transitionHookStep(ctx, task, step.Name, task.CurrentStep)
+
 		result, err := e.executeCurrentStep(ctx, task, template)
 		result, err = e.handleStepExecutionResult(ctx, task, step, result, err, totalSteps)
 		if err != nil {
@@ -721,8 +764,13 @@ func (e *Engine) runSteps(ctx context.Context, task *domain.Task, template *doma
 		e.notifyStepComplete(task, step, result, totalSteps)
 
 		if err := e.processStepResult(ctx, task, result, step); err != nil {
+			// Update hook on step failure
+			e.failHookStep(ctx, task, step.Name, err)
 			return err
 		}
+
+		// Update hook on step completion
+		e.completeHookStep(ctx, task, step.Name)
 
 		if e.shouldPause(task) {
 			return e.saveAndPause(ctx, task)
@@ -982,6 +1030,9 @@ func (e *Engine) completeTask(ctx context.Context, task *domain.Task) error {
 		return fmt.Errorf("failed to save completed state: %w", err)
 	}
 
+	// Finalize hook on task completion
+	e.completeHookTask(ctx, task)
+
 	// Record task completion for metrics
 	e.recordTaskCompleted(task.ID, time.Since(task.CreatedAt), string(task.Status))
 
@@ -1225,5 +1276,52 @@ func (e *Engine) recordTaskCompleted(taskID string, duration time.Duration, stat
 func (e *Engine) recordStepExecuted(taskID, stepName string, stepType domain.StepType, duration time.Duration, success bool) {
 	if e.metrics != nil {
 		e.metrics.StepExecuted(taskID, stepName, stepType, duration, success)
+	}
+}
+
+// transitionHookStep updates the hook when entering a step.
+func (e *Engine) transitionHookStep(ctx context.Context, task *domain.Task, stepName string, stepIndex int) {
+	if e.hookManager != nil {
+		if err := e.hookManager.TransitionStep(ctx, task, stepName, stepIndex); err != nil {
+			e.logger.Warn().Err(err).
+				Str("task_id", task.ID).
+				Str("step_name", stepName).
+				Msg("failed to update hook step state")
+		}
+	}
+}
+
+// completeHookStep updates the hook when a step completes successfully.
+func (e *Engine) completeHookStep(ctx context.Context, task *domain.Task, stepName string) {
+	if e.hookManager != nil {
+		if err := e.hookManager.CompleteStep(ctx, task, stepName); err != nil {
+			e.logger.Warn().Err(err).
+				Str("task_id", task.ID).
+				Str("step_name", stepName).
+				Msg("failed to update hook step completion")
+		}
+	}
+}
+
+// failHookStep updates the hook when a step fails.
+func (e *Engine) failHookStep(ctx context.Context, task *domain.Task, stepName string, stepErr error) {
+	if e.hookManager != nil {
+		if err := e.hookManager.FailStep(ctx, task, stepName, stepErr); err != nil {
+			e.logger.Warn().Err(err).
+				Str("task_id", task.ID).
+				Str("step_name", stepName).
+				Msg("failed to update hook step failure")
+		}
+	}
+}
+
+// completeHookTask finalizes the hook when the task completes.
+func (e *Engine) completeHookTask(ctx context.Context, task *domain.Task) {
+	if e.hookManager != nil {
+		if err := e.hookManager.CompleteTask(ctx, task); err != nil {
+			e.logger.Warn().Err(err).
+				Str("task_id", task.ID).
+				Msg("failed to finalize hook on task completion")
+		}
 	}
 }

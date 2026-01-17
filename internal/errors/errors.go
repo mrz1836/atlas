@@ -392,6 +392,44 @@ var (
 
 	// ErrLoopConfigInvalid indicates invalid loop configuration.
 	ErrLoopConfigInvalid = errors.New("invalid loop configuration")
+
+	// ========== Hook System Errors ==========
+
+	// ErrHookNotFound indicates no active hook was found for the workspace.
+	ErrHookNotFound = errors.New("hook not found")
+
+	// ErrHookInvalidState indicates the hook is in an invalid state for the operation.
+	ErrHookInvalidState = errors.New("hook in invalid state")
+
+	// ErrHookStale indicates the hook hasn't been updated within the stale threshold.
+	ErrHookStale = errors.New("hook is stale")
+
+	// ErrReceiptInvalid indicates a validation receipt signature is invalid.
+	ErrReceiptInvalid = errors.New("receipt signature invalid")
+
+	// ErrReceiptNotFound indicates a validation receipt was not found.
+	ErrReceiptNotFound = errors.New("receipt not found")
+
+	// ErrReceiptMissingSignature indicates a receipt is missing its signature.
+	ErrReceiptMissingSignature = errors.New("receipt missing signature")
+
+	// ErrSignatureEmpty indicates an empty signature was provided.
+	ErrSignatureEmpty = errors.New("empty signature")
+
+	// ErrSignatureVerificationFailed indicates signature verification failed.
+	ErrSignatureVerificationFailed = errors.New("signature verification failed")
+
+	// ErrKeyNotLoaded indicates the signing key is not loaded.
+	ErrKeyNotLoaded = errors.New("key not loaded")
+
+	// ErrInvalidKeyPath indicates an invalid key derivation path format.
+	ErrInvalidKeyPath = errors.New("invalid key path format")
+
+	// ErrLockTimedOut indicates a file lock acquisition timed out.
+	ErrLockTimedOut = errors.New("lock timeout")
+
+	// ErrMockVerificationFailed indicates mock signature verification failed (for testing).
+	ErrMockVerificationFailed = errors.New("mock verification failed")
 )
 
 // LoopError provides detailed information about loop failures.

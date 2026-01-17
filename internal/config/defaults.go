@@ -142,5 +142,29 @@ func DefaultConfig() *Config {
 			// e.g., "haiku" for faster/cheaper PR description generation.
 			Model: "",
 		},
+		Hooks: HookConfig{
+			// MaxCheckpoints: 50 provides good history without excessive storage.
+			MaxCheckpoints: 50,
+
+			// CheckpointInterval: 5 minutes for periodic checkpoints during long steps.
+			CheckpointInterval: 5 * time.Minute,
+
+			// StaleThreshold: 5 minutes before considering a hook stale (potential crash).
+			StaleThreshold: 5 * time.Minute,
+
+			// KeyDerivation: BIP44-style path for HD key derivation.
+			KeyDerivation: KeyDerivationConfig{
+				Purpose:  44,  // BIP44 purpose
+				CoinType: 236, // ATLAS-specific coin type
+				Account:  0,   // Default account
+			},
+
+			// Retention: How long to keep hook files per terminal state.
+			Retention: RetentionConfig{
+				Completed: 720 * time.Hour, // 30 days
+				Failed:    168 * time.Hour, // 7 days
+				Abandoned: 168 * time.Hour, // 7 days
+			},
+		},
 	}
 }
