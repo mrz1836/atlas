@@ -289,15 +289,15 @@
 
 **Purpose**: Integration testing, documentation, and final validation
 
-- [ ] T108 [P] Write integration test: happy path recovery (start → run 2 steps → crash → resume at step 3) in internal/hook/integration_test.go
-- [ ] T109 [P] Write integration test: checkpoint recovery (start → checkpoint → crash → resume with checkpoint info) in internal/hook/integration_test.go
-- [ ] T110 [P] Write integration test: validation receipt chain (run validation → verify signature) in internal/hook/integration_test.go
-- [ ] T111 [P] Write integration test: stale detection (start → wait 6 min → check status) in internal/hook/integration_test.go
-- [ ] T112 [P] Write integration test: HOOK.md accuracy (various states → generate → verify content) in internal/hook/integration_test.go
-- [ ] T113 Run `magex test:race` to verify all tests pass with race detection
-- [ ] T114 Run `go-pre-commit run --all-files` to verify gitleaks compliance
-- [ ] T115 Verify minimum 80% line coverage for internal/hook/ package
-- [ ] T116 Run quickstart.md CLI commands to validate documented behavior
+- [X] T108 [P] Write integration test: happy path recovery (start → run 2 steps → crash → resume at step 3) in internal/hook/integration_test.go
+- [X] T109 [P] Write integration test: checkpoint recovery (start → checkpoint → crash → resume with checkpoint info) in internal/hook/integration_test.go
+- [X] T110 [P] Write integration test: validation receipt chain (run validation → verify signature) in internal/hook/integration_test.go
+- [X] T111 [P] Write integration test: stale detection (start → wait 6 min → check status) in internal/hook/integration_test.go
+- [X] T112 [P] Write integration test: HOOK.md accuracy (various states → generate → verify content) in internal/hook/integration_test.go
+- [X] T113 Run `magex test:race` to verify all tests pass with race detection
+- [X] T114 Run `go-pre-commit run --all-files` to verify gitleaks compliance
+- [X] T115 Verify minimum 80% line coverage for internal/hook/ package (achieved 88.1%)
+- [X] T116 Run quickstart.md CLI commands to validate documented behavior
 
 ---
 
