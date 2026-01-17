@@ -14,8 +14,7 @@ When an AI agent (such as Claude Code) crashes mid-task, it loses all working me
 3. **Retry Confusion**: AI might repeat completed work or skip incomplete work
 4. **Progress Opacity**: Human can't easily see exactly what the AI was doing at failure time
 
-**Core Principle**: The AI agent should be able to crash, restart, lose all memory, and still resume work exactly where it left off by reading a single file.
-
+**Core Principle**: The AI agent should be able to crash, restart, lose all memory, and still resume work exactly where it left off by reading a single file. Validation receipts provide tamper-evidence against accidental corruption.
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Resume After Crash (Priority: P1)
@@ -172,10 +171,10 @@ As a developer, I want old hook files to be automatically cleaned up based on re
 
 - **FR-016**: System MUST create validation receipts with command, exit code, timestamps, and duration
 - **FR-017**: System MUST hash validation output for integrity verification
-- **FR-018**: System MUST sign receipts using two-level HD keys (master → task-derived key; derivation path configured via `hooks.key_derivation`; all receipts within a task share the task key)
+- **FR-018**: System MUST sign receipts using native Ed25519 keys (stored in `~/.atlas/keys/master.key`)
 - **FR-019**: System MUST support receipt signature verification
 - **FR-020**: System MUST store signing key securely with restricted file permissions
-- **FR-020a**: Cryptographic operations MUST be abstracted behind `ReceiptSigner` and `KeyManager` interfaces to allow swapping implementations (e.g., replacing `go-sdk` with another library) without modifying hook business logic
+- **FR-020a**: Cryptographic operations MUST be abstracted behind `ReceiptSigner` and `KeyManager` interfaces to allow swapping implementations without modifying hook business logic
 
 **Cleanup & Maintenance**
 
@@ -234,7 +233,7 @@ All hook system functionality MUST have comprehensive unit tests. This is non-ne
 
 - Existing ATLAS task management system (task metadata and execution logs)
 - Existing ATLAS template system for step definitions
-- go-sdk for HD (Hierarchical Deterministic) key derivation and cryptographic signing
+- Standard Go `crypto/ed25519` for cryptographic signing
 - Version control hooks capability for automatic checkpoint triggers
 
 ## Out of Scope
