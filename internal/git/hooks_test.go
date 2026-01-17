@@ -165,6 +165,14 @@ func TestResolveHooksDir_Worktree(t *testing.T) {
 		t.Fatalf("failed to init git repo: %v", err)
 	}
 
+	// Configure git user for CI environments
+	if _, err := RunCommand(ctx, tmpDir, "config", "user.email", "test@example.com"); err != nil {
+		t.Fatalf("failed to configure git user.email: %v", err)
+	}
+	if _, err := RunCommand(ctx, tmpDir, "config", "user.name", "Test User"); err != nil {
+		t.Fatalf("failed to configure git user.name: %v", err)
+	}
+
 	// Create an initial commit (required for worktrees)
 	if _, err := RunCommand(ctx, tmpDir, "commit", "--allow-empty", "-m", "initial"); err != nil {
 		t.Fatalf("failed to create initial commit: %v", err)
