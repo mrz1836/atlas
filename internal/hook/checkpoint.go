@@ -162,9 +162,11 @@ func (c *Checkpointer) pruneCheckpoints(hook *domain.Hook) {
 }
 
 // IntervalCheckpointer manages periodic checkpoints during long-running steps.
+// It fetches the hook fresh from the store on each interval tick to avoid data races.
+// This design ensures thread-safety when other goroutines modify the hook state.
 type IntervalCheckpointer struct {
 	checkpointer *Checkpointer
-	hook         *domain.Hook
+	taskID       string // Store taskID instead of hook pointer to avoid data races
 	store        Store
 	interval     time.Duration
 
@@ -174,10 +176,11 @@ type IntervalCheckpointer struct {
 }
 
 // NewIntervalCheckpointer creates a new interval checkpointer.
-func NewIntervalCheckpointer(checkpointer *Checkpointer, hook *domain.Hook, store Store, interval time.Duration) *IntervalCheckpointer {
+// It stores the taskID rather than a hook pointer to ensure thread-safe access.
+func NewIntervalCheckpointer(checkpointer *Checkpointer, taskID string, store Store, interval time.Duration) *IntervalCheckpointer {
 	return &IntervalCheckpointer{
 		checkpointer: checkpointer,
-		hook:         hook,
+		taskID:       taskID,
 		store:        store,
 		interval:     interval,
 	}
@@ -226,20 +229,24 @@ func (ic *IntervalCheckpointer) Stop() {
 }
 
 // createIntervalCheckpoint creates a checkpoint if the hook is in step_running state.
+// It uses Update to perform an atomic read-modify-write operation, ensuring thread-safety
+// against concurrent modifications from other goroutines.
 func (ic *IntervalCheckpointer) createIntervalCheckpoint(ctx context.Context) {
-	// Only create checkpoints when running
-	if ic.hook.State != domain.HookStateStepRunning {
+	err := ic.store.Update(ctx, ic.taskID, func(hook *domain.Hook) error {
+		// Only create checkpoints when running
+		if hook.State != domain.HookStateStepRunning {
+			return nil // No-op, not an error
+		}
+
+		// Create checkpoint on the hook instance
+		// This modifies the hook in-place
+		return ic.checkpointer.CreateCheckpoint(ctx, hook, domain.CheckpointTriggerInterval, "Periodic checkpoint")
+	})
+	if err != nil {
+		// Log error in production
+		// fmt.Printf("Error creating interval checkpoint: %v\n", err)
 		return
 	}
-
-	// Create checkpoint
-	err := ic.checkpointer.CreateCheckpoint(ctx, ic.hook, domain.CheckpointTriggerInterval, "Periodic checkpoint")
-	if err != nil {
-		return // Log error in production
-	}
-
-	// Save the hook
-	_ = ic.store.Save(ctx, ic.hook)
 }
 
 // CaptureFileSnapshot creates a snapshot for a single file.
