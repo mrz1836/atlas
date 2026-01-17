@@ -53,7 +53,7 @@ func (m *MockSigner) Verify(ctx context.Context, message, signature []byte) erro
 }
 
 // SignReceipt signs a validation receipt with mock values.
-func (m *MockSigner) SignReceipt(ctx context.Context, receipt *domain.ValidationReceipt, taskIndex uint32) error {
+func (m *MockSigner) SignReceipt(ctx context.Context, receipt *domain.ValidationReceipt, _ uint32) error {
 	// Build signature message
 	msg := m.buildSignatureMessage(receipt)
 
@@ -63,7 +63,6 @@ func (m *MockSigner) SignReceipt(ctx context.Context, receipt *domain.Validation
 	}
 
 	receipt.Signature = fmt.Sprintf("%x", sig)
-	receipt.KeyPath = m.KeyPath(taskIndex)
 
 	// Track signed receipts for assertions
 	m.SignedReceipts = append(m.SignedReceipts, receipt)
@@ -82,8 +81,8 @@ func (m *MockSigner) VerifyReceipt(ctx context.Context, receipt *domain.Validati
 }
 
 // KeyPath returns a mock key path.
-func (m *MockSigner) KeyPath(taskIndex uint32) string {
-	return fmt.Sprintf("m/44'/236'/0'/%d/0", taskIndex)
+func (m *MockSigner) KeyPath(_ uint32) string {
+	return "native-ed25519-v1"
 }
 
 // buildSignatureMessage creates the message to sign for a receipt.

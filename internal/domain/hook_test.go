@@ -170,7 +170,6 @@ func TestHook_JSONRoundTrip(t *testing.T) {
 				Duration:    "12.3s",
 				StdoutHash:  "a1b2c3d4",
 				StderrHash:  "00000000",
-				KeyPath:     "m/44'/236'/0'/0/0",
 				Signature:   "3045022100",
 			},
 		},
@@ -295,7 +294,6 @@ func TestValidationReceipt_JSONRoundTrip(t *testing.T) {
 		Duration:    "12.3s",
 		StdoutHash:  "a1b2c3d4e5f6a7b8",
 		StderrHash:  "0000000000000000",
-		KeyPath:     "m/44'/236'/0'/0/0",
 		Signature:   "3045022100abcdef",
 	}
 

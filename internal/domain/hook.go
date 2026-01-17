@@ -179,8 +179,10 @@ type ValidationReceipt struct {
 	StderrHash string `json:"stderr_hash"` // SHA256 of stderr
 
 	// Cryptographic signature
-	KeyPath   string `json:"key_path"`  // HD derivation path used
-	Signature string `json:"signature"` // Hex-encoded ECDSA signature
+	// This signature protects against accidental corruption and AI hallucination.
+	// It is NOT robust against a compromised host or a malicious agent with shell access,
+	// as they could theoretically read the key and sign manually.
+	Signature string `json:"signature"` // Hex-encoded Ed25519 signature
 }
 
 // Hook represents the durable state of an in-progress task for crash recovery.

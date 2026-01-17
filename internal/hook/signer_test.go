@@ -63,10 +63,8 @@ func TestMockSigner_SignReceipt(t *testing.T) {
 	err := signer.SignReceipt(ctx, receipt, 0)
 	require.NoError(t, err)
 
-	// Verify signature and key path are populated
+	// Verify signature is populated
 	assert.NotEmpty(t, receipt.Signature)
-	assert.NotEmpty(t, receipt.KeyPath)
-	assert.Equal(t, "m/44'/236'/0'/0/0", receipt.KeyPath)
 
 	// Verify receipt was tracked
 	assert.Len(t, signer.SignedReceipts, 1)
@@ -121,10 +119,10 @@ func TestMockSigner_KeyPath(t *testing.T) {
 		taskIndex uint32
 		expected  string
 	}{
-		{0, "m/44'/236'/0'/0/0"},
-		{1, "m/44'/236'/0'/1/0"},
-		{5, "m/44'/236'/0'/5/0"},
-		{100, "m/44'/236'/0'/100/0"},
+		{0, "native-ed25519-v1"},
+		{1, "native-ed25519-v1"},
+		{5, "native-ed25519-v1"},
+		{100, "native-ed25519-v1"},
 	}
 
 	for _, tt := range tests {
