@@ -135,7 +135,7 @@
 - [X] T049 [P] [US2] Write checkpoint creation tests (each trigger type, git state capture, file snapshot) in internal/hook/checkpoint_test.go
 - [X] T050 [P] [US2] Write checkpoint pruning tests (50 limit, oldest removed) in internal/hook/checkpoint_test.go
 - [X] T051 [P] [US2] Write interval checkpointer tests (start/stop, ticker, state check) in internal/hook/checkpoint_test.go
-- [ ] T052 [P] [US2] Write git hook script generation tests in internal/git/hooks_test.go:
+- [X] T052 [P] [US2] Write git hook script generation tests in internal/git/hooks_test.go:
   - Verify script content matches template
   - Verify script creation (print-only) logic
   - Ensure invasive file operations are NOT present
@@ -230,9 +230,9 @@
 
 ### Tests for User Story 5
 
-- [ ] T093 [P] [US5] Write hook status command tests (text output, JSON output, no hook, error state) in internal/cli/hook_test.go
-- [ ] T094 [P] [US5] Write hook checkpoints command tests (list, empty, JSON format) in internal/cli/hook_test.go
-- [ ] T095 [P] [US5] Write hook export command tests in internal/cli/hook_test.go
+- [X] T093 [P] [US5] Write hook status command tests (text output, JSON output, no hook, error state) in internal/cli/hook_test.go
+- [X] T094 [P] [US5] Write hook checkpoints command tests (list, empty, JSON format) in internal/cli/hook_test.go
+- [X] T095 [P] [US5] Write hook export command tests in internal/cli/hook_test.go
 
 ### Implementation for User Story 5
 
@@ -253,7 +253,7 @@
 
 ### Tests for User Story 6
 
-- [ ] T100 [P] [US6] Write manual checkpoint command tests (success, not running, description saved) in internal/cli/checkpoint_test.go
+- [X] T100 [P] [US6] Write manual checkpoint command tests (success, not running, description saved) in internal/cli/checkpoint_test.go
 
 ### Implementation for User Story 6
 
@@ -272,7 +272,7 @@
 
 ### Tests for User Story 7
 
-- [ ] T103 [P] [US7] Write cleanup command tests (retention policy, dry-run, per-state retention) in internal/cli/cleanup_test.go
+- [X] T103 [P] [US7] Write cleanup command tests (retention policy, dry-run, per-state retention) in internal/cli/cleanup_test.go
 
 ### Implementation for User Story 7
 
