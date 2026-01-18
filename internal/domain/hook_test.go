@@ -434,9 +434,11 @@ func TestHook_EmptyOptionalFields(t *testing.T) {
 }
 
 func TestHook_DeepCopy(t *testing.T) {
-	t.Run("returns nil for nil hook", func(t *testing.T) {
+	t.Run("returns error for nil hook", func(t *testing.T) {
 		var hook *Hook
-		result := hook.DeepCopy()
+		result, err := hook.DeepCopy()
+		require.Error(t, err)
+		require.ErrorIs(t, err, ErrNilHook)
 		assert.Nil(t, result)
 	})
 
@@ -455,7 +457,8 @@ func TestHook_DeepCopy(t *testing.T) {
 			SchemaVersion: "1.0",
 		}
 
-		copyHook := original.DeepCopy()
+		copyHook, err := original.DeepCopy()
+		require.NoError(t, err)
 		require.NotNil(t, copyHook)
 
 		// Verify fields are equal
@@ -500,7 +503,8 @@ func TestHook_DeepCopy(t *testing.T) {
 			SchemaVersion: "1.0",
 		}
 
-		copyHook := original.DeepCopy()
+		copyHook, err := original.DeepCopy()
+		require.NoError(t, err)
 		require.NotNil(t, copyHook)
 
 		// Verify nested structures are equal but independent
@@ -547,7 +551,8 @@ func TestHook_DeepCopy(t *testing.T) {
 			SchemaVersion: "1.0",
 		}
 
-		copyHook := original.DeepCopy()
+		copyHook, err := original.DeepCopy()
+		require.NoError(t, err)
 		require.NotNil(t, copyHook)
 		require.NotNil(t, copyHook.Recovery)
 

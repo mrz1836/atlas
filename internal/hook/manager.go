@@ -10,8 +10,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
-
 	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/domain"
 )
@@ -22,11 +20,8 @@ const DefaultCheckpointInterval = 5 * time.Minute
 // ErrNoCurrentStepContext is returned when attempting to complete a step without a current step context.
 var ErrNoCurrentStepContext = errors.New("no current step context")
 
-// generateCheckpointID generates a unique checkpoint ID.
-// Format: ckpt-{uuid8} (e.g., ckpt-a1b2c3d4)
-func generateCheckpointID() string {
-	return "ckpt-" + uuid.New().String()[:8]
-}
+// ErrStepMismatch is returned when attempting to complete a step that doesn't match the current step.
+var ErrStepMismatch = errors.New("step name mismatch")
 
 // Manager implements task.HookManager and manages hook lifecycle.
 // It uses a FileStore for persistence and MarkdownGenerator for HOOK.md.
@@ -117,6 +112,11 @@ func (m *Manager) CompleteStep(ctx context.Context, task *domain.Task, stepName 
 			return fmt.Errorf("cannot complete step %q: %w (state: %s)", stepName, ErrNoCurrentStepContext, h.State)
 		}
 
+		// Guard: stepName must match current step to prevent completing wrong step
+		if h.CurrentStep.StepName != stepName {
+			return fmt.Errorf("%w: cannot complete step %q: current step is %q", ErrStepMismatch, stepName, h.CurrentStep.StepName)
+		}
+
 		// Validate transition before applying
 		if err := domain.ValidateTransition(h.State, domain.HookStateStepPending); err != nil {
 			return fmt.Errorf("transition to step_pending: %w", err)
@@ -136,7 +136,7 @@ func (m *Manager) CompleteStep(ctx context.Context, task *domain.Task, stepName 
 
 		// Create checkpoint for step completion
 		checkpoint := domain.StepCheckpoint{
-			CheckpointID: generateCheckpointID(),
+			CheckpointID: GenerateCheckpointID(),
 			CreatedAt:    now,
 			StepName:     stepName,
 			StepIndex:    h.CurrentStep.StepIndex,
@@ -162,10 +162,8 @@ func (m *Manager) CompleteStep(ctx context.Context, task *domain.Task, stepName 
 		// Append the fully-populated checkpoint to the slice
 		h.Checkpoints = append(h.Checkpoints, checkpoint)
 
-		// Prune checkpoints if over limit (keep most recent 50)
-		if len(h.Checkpoints) > 50 {
-			h.Checkpoints = h.Checkpoints[len(h.Checkpoints)-50:]
-		}
+		// Prune checkpoints if over limit (uses shared constant for consistency)
+		PruneCheckpoints(h, 0) // 0 means use DefaultMaxCheckpoints
 
 		// Record transition
 		h.History = append(h.History, domain.HookEvent{
@@ -353,7 +351,7 @@ func (m *Manager) CreateValidationReceipt(ctx context.Context, task *domain.Task
 
 		// Create receipt
 		receipt := domain.ValidationReceipt{
-			ReceiptID:   "rcpt-" + generateCheckpointID()[5:], // reuse UUID generation
+			ReceiptID:   "rcpt-" + GenerateCheckpointID()[5:], // reuse UUID generation
 			StepName:    stepName,
 			Command:     command,
 			ExitCode:    exitCode,

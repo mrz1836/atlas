@@ -13,6 +13,9 @@ import (
 	"time"
 )
 
+// ErrNilHook is returned when attempting to perform operations on a nil hook.
+var ErrNilHook = errors.New("hook is nil")
+
 // HookState represents the state machine position for crash recovery.
 type HookState string
 
@@ -252,23 +255,23 @@ type Hook struct {
 // accidental modifications that could lead to race conditions.
 //
 // The copy is created via JSON round-trip which handles all nested
-// structures correctly. Returns nil if the hook is nil or if
-// marshaling/unmarshaling fails.
-func (h *Hook) DeepCopy() *Hook {
+// structures correctly. Returns ErrNilHook if the hook is nil, or
+// an error if marshaling/unmarshaling fails.
+func (h *Hook) DeepCopy() (*Hook, error) {
 	if h == nil {
-		return nil
+		return nil, ErrNilHook
 	}
 
 	// Use JSON round-trip for simplicity (acceptable for read-only copies)
 	data, err := json.Marshal(h)
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("failed to marshal hook for deep copy: %w", err)
 	}
 
 	var copyHook Hook
 	if err := json.Unmarshal(data, &copyHook); err != nil {
-		return nil
+		return nil, fmt.Errorf("failed to unmarshal hook for deep copy: %w", err)
 	}
 
-	return &copyHook
+	return &copyHook, nil
 }

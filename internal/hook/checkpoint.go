@@ -23,6 +23,10 @@ import (
 // memory exhaustion and long blocking operations during checkpointing.
 const maxFileSizeForHash = 10 * 1024 * 1024 // 10MB
 
+// DefaultMaxCheckpoints is the default maximum number of checkpoints to retain.
+// Used when config.HookConfig.MaxCheckpoints is not set or <= 0.
+const DefaultMaxCheckpoints = 50
+
 // Checkpointer manages checkpoint creation and retrieval.
 type Checkpointer struct {
 	cfg   *config.HookConfig
@@ -42,7 +46,7 @@ func NewCheckpointer(cfg *config.HookConfig, store Store) *Checkpointer {
 // Prunes oldest checkpoints if limit exceeded.
 func (c *Checkpointer) CreateCheckpoint(ctx context.Context, hook *domain.Hook, trigger domain.CheckpointTrigger, description string) error {
 	checkpoint := domain.StepCheckpoint{
-		CheckpointID: c.generateCheckpointID(),
+		CheckpointID: GenerateCheckpointID(),
 		CreatedAt:    time.Now().UTC(),
 		Description:  description,
 		Trigger:      trigger,
@@ -96,10 +100,10 @@ func (c *Checkpointer) GetCheckpointByID(hook *domain.Hook, checkpointID string)
 	return nil
 }
 
-// generateCheckpointID creates a unique checkpoint ID.
-func (c *Checkpointer) generateCheckpointID() string {
-	id := uuid.New().String()
-	return "ckpt-" + id[:8]
+// GenerateCheckpointID creates a unique checkpoint ID.
+// Format: ckpt-{uuid8} (e.g., ckpt-a1b2c3d4)
+func GenerateCheckpointID() string {
+	return "ckpt-" + uuid.New().String()[:8]
 }
 
 // gitCommandTimeout is the maximum time allowed for git commands to complete.
@@ -193,7 +197,19 @@ func hashFileStreaming(filePath string) (string, error) {
 func (c *Checkpointer) pruneCheckpoints(hook *domain.Hook) {
 	maxCheckpoints := c.cfg.MaxCheckpoints
 	if maxCheckpoints <= 0 {
-		maxCheckpoints = 50 // Default
+		maxCheckpoints = DefaultMaxCheckpoints
+	}
+
+	if len(hook.Checkpoints) > maxCheckpoints {
+		hook.Checkpoints = hook.Checkpoints[len(hook.Checkpoints)-maxCheckpoints:]
+	}
+}
+
+// PruneCheckpoints removes oldest checkpoints if over the default limit.
+// This is a package-level function for use in manager.go where there's no Checkpointer instance.
+func PruneCheckpoints(hook *domain.Hook, maxCheckpoints int) {
+	if maxCheckpoints <= 0 {
+		maxCheckpoints = DefaultMaxCheckpoints
 	}
 
 	if len(hook.Checkpoints) > maxCheckpoints {
@@ -241,6 +257,14 @@ func (ic *IntervalCheckpointer) Start(ctx context.Context) {
 
 	go func() {
 		defer close(ic.done)
+		defer func() {
+			if r := recover(); r != nil {
+				// Panic recovered - checkpointing has stopped.
+				// The done channel is closed by the outer defer, allowing Stop() to complete.
+				// In production, this would be logged: log.Error("interval checkpointer panic", "recover", r)
+				_ = r // Explicitly ignored - recovery is sufficient
+			}
+		}()
 
 		ticker := time.NewTicker(ic.interval)
 		defer ticker.Stop()
@@ -256,16 +280,21 @@ func (ic *IntervalCheckpointer) Start(ctx context.Context) {
 	}()
 }
 
-// Stop cancels the interval checkpointer.
+// Stop cancels the interval checkpointer and waits for the goroutine to finish.
+// The lock is released before waiting on the done channel to prevent deadlock.
 func (ic *IntervalCheckpointer) Stop() {
 	ic.mu.Lock()
-	defer ic.mu.Unlock()
-
-	if ic.cancel != nil {
-		ic.cancel()
-		ic.cancel = nil
-		<-ic.done // Wait for goroutine to finish
+	if ic.cancel == nil {
+		ic.mu.Unlock()
+		return
 	}
+	cancel := ic.cancel
+	ic.cancel = nil
+	done := ic.done
+	ic.mu.Unlock() // Release lock BEFORE blocking wait
+
+	cancel() // Signal cancellation
+	<-done   // Wait for goroutine WITHOUT holding lock
 }
 
 // createIntervalCheckpoint creates a checkpoint if the hook is in step_running state.
