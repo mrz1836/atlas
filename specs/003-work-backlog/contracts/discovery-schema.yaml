@@ -1,0 +1,156 @@
+# Discovery YAML Schema
+# Version: 1.0
+#
+# This schema defines the structure of discovery files stored in .atlas/backlog/
+# Each discovery is stored as an individual YAML file: disc-<id>.yaml
+
+$schema: "http://json-schema.org/draft-07/schema#"
+$id: "https://atlas.dev/schemas/discovery/1.0"
+title: Discovery
+description: A captured issue or observation found during development
+
+type: object
+required:
+  - schema_version
+  - id
+  - title
+  - status
+  - content
+  - context
+
+properties:
+  schema_version:
+    type: string
+    const: "1.0"
+    description: Schema version for forward compatibility
+
+  id:
+    type: string
+    pattern: "^disc-[a-z0-9]{6}$"
+    description: Unique identifier (e.g., disc-a1b2c3)
+    examples:
+      - disc-a1b2c3
+      - disc-x9y8z7
+
+  title:
+    type: string
+    minLength: 1
+    maxLength: 200
+    description: Brief summary of the discovery
+
+  status:
+    type: string
+    enum:
+      - pending
+      - promoted
+      - dismissed
+    description: Current lifecycle status
+
+  content:
+    type: object
+    required:
+      - category
+      - severity
+    properties:
+      description:
+        type: string
+        description: Detailed explanation (multi-line allowed)
+      category:
+        type: string
+        enum:
+          - bug
+          - security
+          - performance
+          - maintainability
+          - testing
+          - documentation
+        description: Classification of the discovery
+      severity:
+        type: string
+        enum:
+          - low
+          - medium
+          - high
+          - critical
+        description: Priority level
+      tags:
+        type: array
+        maxItems: 10
+        items:
+          type: string
+          pattern: "^[a-z0-9][a-z0-9_-]{0,49}$"
+          minLength: 1
+          maxLength: 50
+        description: Optional labels for organization
+
+  location:
+    type: object
+    description: Code location if applicable
+    properties:
+      file:
+        type: string
+        description: Relative path from project root
+      line:
+        type: integer
+        minimum: 1
+        description: Line number (1-indexed)
+    dependencies:
+      line:
+        - file  # line requires file to be present
+
+  context:
+    type: object
+    required:
+      - discovered_at
+      - discovered_by
+    properties:
+      discovered_at:
+        type: string
+        format: date-time
+        description: ISO 8601 UTC timestamp
+        examples:
+          - "2026-01-18T14:32:15Z"
+      discovered_during_task:
+        type: string
+        description: ATLAS task ID if discovered during automated task
+        examples:
+          - task-20260118-143022
+      discovered_by:
+        type: string
+        pattern: "^(ai:[a-z0-9-]+:[a-z0-9-]+|human:[a-z0-9_-]+)$"
+        description: |
+          Discoverer identifier:
+          - AI agent: ai:<agent>:<model> (e.g., ai:claude-code:claude-sonnet-4)
+          - Human: human:<github-username> (e.g., human:mrz1836)
+        examples:
+          - "ai:claude-code:claude-sonnet-4"
+          - "ai:gemini:flash"
+          - "human:mrz1836"
+      git:
+        type: object
+        description: Git repository state at discovery time
+        properties:
+          branch:
+            type: string
+            description: Git branch name
+          commit:
+            type: string
+            pattern: "^[a-f0-9]{7,40}$"
+            description: Git commit SHA (short or full)
+
+  lifecycle:
+    type: object
+    description: Status transition metadata
+    properties:
+      promoted_to_task:
+        type: string
+        description: ATLAS task ID if promoted
+      dismissed_reason:
+        type: string
+        description: Reason if dismissed
+
+# Additional validation rules (not expressible in JSON Schema):
+# - If status is "promoted", lifecycle.promoted_to_task should be set
+# - If status is "dismissed", lifecycle.dismissed_reason should be set
+# - ID in filename must match ID in file content
+# - No duplicate IDs across .atlas/backlog/ directory
