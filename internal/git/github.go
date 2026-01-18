@@ -129,18 +129,23 @@ type CIWatchResult struct {
 	Error error
 }
 
-// HubRunner defines operations for GitHub via gh CLI.
-// Named HubRunner (not GitHubRunner) to avoid stutter with package name (git.GitHubRunner).
-type HubRunner interface {
+// PRCreator handles pull request creation.
+type PRCreator interface {
 	// CreatePR creates a pull request and returns the result.
 	CreatePR(ctx context.Context, opts PRCreateOptions) (*PRResult, error)
+}
 
+// PRStatusReader provides read-only PR status operations.
+type PRStatusReader interface {
 	// GetPRStatus gets the current status of a PR.
 	GetPRStatus(ctx context.Context, prNumber int) (*PRStatus, error)
 
 	// WatchPRChecks monitors CI checks until completion or timeout.
 	WatchPRChecks(ctx context.Context, opts CIWatchOptions) (*CIWatchResult, error)
+}
 
+// PRModifier handles PR state modifications.
+type PRModifier interface {
 	// ConvertToDraft converts an open PR to draft status.
 	ConvertToDraft(ctx context.Context, prNumber int) error
 
@@ -149,13 +154,27 @@ type HubRunner interface {
 	// adminBypass: if true, attempts merge with admin privileges (bypasses branch protection)
 	// deleteBranch: if true, deletes the source branch after successful merge
 	MergePR(ctx context.Context, prNumber int, mergeMethod string, adminBypass, deleteBranch bool) error
+}
 
+// PRReviewer handles PR review operations.
+type PRReviewer interface {
 	// AddPRReview adds a review to a pull request.
 	// event: "APPROVE", "REQUEST_CHANGES", or "COMMENT"
 	AddPRReview(ctx context.Context, prNumber int, body, event string) error
 
 	// AddPRComment adds a comment to a pull request.
 	AddPRComment(ctx context.Context, prNumber int, body string) error
+}
+
+// HubRunner combines all GitHub operations.
+// Deprecated: Prefer using specific interfaces (PRCreator, PRStatusReader, etc.)
+// for better interface segregation. This composite interface is retained
+// for backward compatibility.
+type HubRunner interface {
+	PRCreator
+	PRStatusReader
+	PRModifier
+	PRReviewer
 }
 
 // Compile-time interface check.
