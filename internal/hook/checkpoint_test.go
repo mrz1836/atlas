@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -244,7 +245,7 @@ func TestIntervalCheckpointer(t *testing.T) {
 		require.NoError(t, store.Save(ctx, hook))
 
 		// Create interval checkpointer
-		ic := NewIntervalCheckpointer(cp, taskID, store, 50*time.Millisecond)
+		ic := NewIntervalCheckpointer(cp, taskID, store, 50*time.Millisecond, zerolog.Nop())
 
 		ic.Start(ctx)
 		time.Sleep(10 * time.Millisecond) // Let it start
@@ -289,7 +290,7 @@ func TestIntervalCheckpointer(t *testing.T) {
 		require.NoError(t, os.MkdirAll(taskDir, 0o750))
 		require.NoError(t, store.Save(ctx, hook))
 
-		ic := NewIntervalCheckpointer(cp, taskID, store, 50*time.Millisecond)
+		ic := NewIntervalCheckpointer(cp, taskID, store, 50*time.Millisecond, zerolog.Nop())
 
 		ic.Start(ctx)
 		time.Sleep(10 * time.Millisecond)
@@ -304,7 +305,7 @@ func TestIntervalCheckpointer(t *testing.T) {
 		// Calling Stop() without Start() should be a no-op
 		taskID := "test-stop-never-started"
 
-		ic := NewIntervalCheckpointer(cp, taskID, store, 50*time.Millisecond)
+		ic := NewIntervalCheckpointer(cp, taskID, store, 50*time.Millisecond, zerolog.Nop())
 
 		// Should not panic or hang
 		ic.Stop()
@@ -325,7 +326,7 @@ func TestIntervalCheckpointer(t *testing.T) {
 		require.NoError(t, store.Save(ctx, hook))
 
 		// Now create interval checkpointer with taskID (not hook pointer)
-		ic := NewIntervalCheckpointer(cp, taskID, store, 50*time.Millisecond)
+		ic := NewIntervalCheckpointer(cp, taskID, store, 50*time.Millisecond, zerolog.Nop())
 
 		ic.Start(ctx)
 		time.Sleep(10 * time.Millisecond) // Let it start
@@ -348,7 +349,7 @@ func TestIntervalCheckpointer(t *testing.T) {
 		require.NoError(t, store.Save(ctx, hook))
 
 		// Create interval checkpointer with taskID
-		ic := NewIntervalCheckpointer(cp, taskID, store, 20*time.Millisecond)
+		ic := NewIntervalCheckpointer(cp, taskID, store, 20*time.Millisecond, zerolog.Nop())
 
 		ic.Start(ctx)
 		time.Sleep(100 * time.Millisecond) // Allow multiple intervals
@@ -377,7 +378,7 @@ func TestIntervalCheckpointer(t *testing.T) {
 		require.NoError(t, store.Save(ctx, hook))
 
 		// Create interval checkpointer with taskID
-		ic := NewIntervalCheckpointer(cp, taskID, store, 20*time.Millisecond)
+		ic := NewIntervalCheckpointer(cp, taskID, store, 20*time.Millisecond, zerolog.Nop())
 
 		ic.Start(ctx)
 		time.Sleep(100 * time.Millisecond)
@@ -413,7 +414,7 @@ func TestIntervalCheckpointer(t *testing.T) {
 
 		// Start interval checkpointer with longer interval to reduce lock contention
 		// during test (git commands can be slow under race detector)
-		ic := NewIntervalCheckpointer(cp, taskID, store, 200*time.Millisecond)
+		ic := NewIntervalCheckpointer(cp, taskID, store, 200*time.Millisecond, zerolog.Nop())
 		ic.Start(ctx)
 
 		// Give the interval checkpointer time to create at least one checkpoint

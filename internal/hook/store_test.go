@@ -419,7 +419,7 @@ func TestFileStore_ContextCancellation(t *testing.T) {
 		lockPath := hookPath + ".lock"
 
 		// Acquire the lock externally to block the store operation
-		externalLock := newFileLock(lockPath)
+		externalLock := newFileLock(lockPath, nil)
 		err = externalLock.LockWithTimeout(time.Second)
 		require.NoError(t, err)
 		defer func() { _ = externalLock.Unlock() }()
@@ -473,7 +473,7 @@ func TestFileStore_ContextCancellation(t *testing.T) {
 		lockPath := hookPath + ".lock"
 
 		// Acquire the lock externally
-		externalLock := newFileLock(lockPath)
+		externalLock := newFileLock(lockPath, nil)
 		err = externalLock.LockWithTimeout(time.Second)
 		require.NoError(t, err)
 		defer func() { _ = externalLock.Unlock() }()
@@ -522,7 +522,7 @@ func TestFileStore_ContextCancellation(t *testing.T) {
 		lockPath := hookPath + ".lock"
 
 		// Acquire the lock externally
-		externalLock := newFileLock(lockPath)
+		externalLock := newFileLock(lockPath, nil)
 		err = externalLock.LockWithTimeout(time.Second)
 		require.NoError(t, err)
 		defer func() { _ = externalLock.Unlock() }()
@@ -561,13 +561,13 @@ func TestFileLock_LockWithContext(t *testing.T) {
 		lockPath := filepath.Join(tmpDir, "test.lock")
 
 		// Acquire lock with first instance
-		lock1 := newFileLock(lockPath)
+		lock1 := newFileLock(lockPath, nil)
 		err := lock1.LockWithTimeout(time.Second)
 		require.NoError(t, err)
 		defer func() { _ = lock1.Unlock() }()
 
 		// Try to acquire with second instance using canceled context
-		lock2 := newFileLock(lockPath)
+		lock2 := newFileLock(lockPath, nil)
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel() // Cancel immediately
 
@@ -581,13 +581,13 @@ func TestFileLock_LockWithContext(t *testing.T) {
 		lockPath := filepath.Join(tmpDir, "test2.lock")
 
 		// Acquire lock with first instance
-		lock1 := newFileLock(lockPath)
+		lock1 := newFileLock(lockPath, nil)
 		err := lock1.LockWithTimeout(time.Second)
 		require.NoError(t, err)
 		defer func() { _ = lock1.Unlock() }()
 
 		// Try to acquire with second instance
-		lock2 := newFileLock(lockPath)
+		lock2 := newFileLock(lockPath, nil)
 		ctx, cancel := context.WithCancel(context.Background())
 
 		done := make(chan error, 1)
@@ -613,12 +613,12 @@ func TestFileLock_LockWithContext(t *testing.T) {
 		lockPath := filepath.Join(tmpDir, "test3.lock")
 
 		// Acquire lock briefly
-		lock1 := newFileLock(lockPath)
+		lock1 := newFileLock(lockPath, nil)
 		err := lock1.LockWithTimeout(time.Second)
 		require.NoError(t, err)
 
 		// Start waiting for lock in goroutine
-		lock2 := newFileLock(lockPath)
+		lock2 := newFileLock(lockPath, nil)
 		ctx := context.Background()
 
 		done := make(chan error, 1)

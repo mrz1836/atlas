@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 
 	"github.com/mrz1836/atlas/internal/config"
@@ -622,7 +623,7 @@ func TestIntegration_ConcurrentCheckpoints(t *testing.T) {
 	require.NoError(t, err)
 
 	// Start interval checkpointer
-	intervalChkpt := hook.NewIntervalCheckpointer(checkpointer, taskID, store, 100*time.Millisecond)
+	intervalChkpt := hook.NewIntervalCheckpointer(checkpointer, taskID, store, 100*time.Millisecond, zerolog.Nop())
 	intervalChkpt.Start(ctx)
 
 	// Let it run for a bit
