@@ -90,12 +90,20 @@ func DefaultEngineConfig() EngineConfig {
 	}
 }
 
-// HookManager provides an interface for managing task recovery hooks.
-// Implementations handle hook lifecycle events: creation, step transitions, and completion.
-type HookManager interface {
+// HookLifecycleManager handles hook creation and task-level state transitions.
+type HookLifecycleManager interface {
 	// CreateHook initializes a hook for a new task.
 	CreateHook(ctx context.Context, task *domain.Task) error
 
+	// CompleteTask finalizes the hook when the task completes.
+	CompleteTask(ctx context.Context, task *domain.Task) error
+
+	// FailTask updates the hook when the task fails.
+	FailTask(ctx context.Context, task *domain.Task, err error) error
+}
+
+// HookStepManager handles step-level hook operations.
+type HookStepManager interface {
 	// TransitionStep updates the hook when entering a step.
 	TransitionStep(ctx context.Context, task *domain.Task, stepName string, stepIndex int) error
 
@@ -105,21 +113,31 @@ type HookManager interface {
 
 	// FailStep updates the hook when a step fails.
 	FailStep(ctx context.Context, task *domain.Task, stepName string, err error) error
+}
 
-	// CompleteTask finalizes the hook when the task completes.
-	CompleteTask(ctx context.Context, task *domain.Task) error
-
-	// FailTask updates the hook when the task fails.
-	FailTask(ctx context.Context, task *domain.Task, err error) error
-
+// HookCheckpointManager handles checkpoint operations.
+type HookCheckpointManager interface {
 	// StartIntervalCheckpointing starts periodic checkpoint creation for long-running steps.
 	StartIntervalCheckpointing(ctx context.Context, task *domain.Task) error
 
 	// StopIntervalCheckpointing stops the periodic checkpoint creation.
 	StopIntervalCheckpointing(ctx context.Context, task *domain.Task) error
+}
 
+// HookReceiptManager handles validation receipt operations.
+type HookReceiptManager interface {
 	// CreateValidationReceipt creates and stores a signed receipt for a passed validation.
 	CreateValidationReceipt(ctx context.Context, task *domain.Task, stepName string, result *domain.StepResult) error
+}
+
+// HookManager provides a composed interface for managing task recovery hooks.
+// It combines all hook management capabilities for backwards compatibility.
+// Implementations handle hook lifecycle events: creation, step transitions, and completion.
+type HookManager interface {
+	HookLifecycleManager
+	HookStepManager
+	HookCheckpointManager
+	HookReceiptManager
 }
 
 // Engine orchestrates task execution through template steps.
@@ -605,10 +623,11 @@ func (e *Engine) processStepResult(ctx context.Context, task *domain.Task, resul
 	if err := e.HandleStepResult(ctx, task, result, step); err != nil {
 		// Save state before returning error (best-effort, log if fails)
 		if saveErr := e.store.Update(ctx, task.WorkspaceID, task); saveErr != nil {
-			e.logger.Warn().
+			e.logger.Error().
 				Err(saveErr).
+				AnErr("original_error", err).
 				Str("task_id", task.ID).
-				Msg("failed to save task state during error handling")
+				Msg("failed to save task state during error handling - potential state loss")
 		}
 		return err
 	}

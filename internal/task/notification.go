@@ -4,7 +4,7 @@
 // It emits terminal bell notifications when tasks transition to attention-required states.
 //
 // Import rules:
-//   - CAN import: internal/constants, std lib
+//   - CAN import: internal/constants, internal/contracts, std lib
 //   - MUST NOT import: internal/tui, internal/workspace, internal/ai, internal/cli
 package task
 
@@ -13,26 +13,8 @@ import (
 	"os"
 
 	"github.com/mrz1836/atlas/internal/constants"
+	"github.com/mrz1836/atlas/internal/contracts"
 )
-
-// attentionStatuses defines task statuses that require user attention.
-// These states should trigger a bell notification when transitioned to.
-// This mirrors tui.IsAttentionStatus() but avoids an import cycle.
-//
-//nolint:gochecknoglobals // Read-only lookup table for attention status checks
-var attentionStatuses = map[constants.TaskStatus]bool{
-	constants.TaskStatusValidationFailed: true,
-	constants.TaskStatusAwaitingApproval: true,
-	constants.TaskStatusGHFailed:         true,
-	constants.TaskStatusCIFailed:         true,
-	constants.TaskStatusCITimeout:        true,
-}
-
-// isAttentionStatus returns true if the status requires user attention.
-// This function is package-local to avoid duplicating tui.IsAttentionStatus.
-func isAttentionStatus(status constants.TaskStatus) bool {
-	return attentionStatuses[status]
-}
 
 // NotificationConfig holds configuration for bell notifications.
 type NotificationConfig struct {
@@ -99,12 +81,12 @@ func (n *StateChangeNotifier) NotifyStateChange(oldStatus, newStatus constants.T
 	}
 
 	// Only bell on transitions TO attention states (not within attention states)
-	if !isAttentionStatus(newStatus) {
+	if !contracts.IsAttentionStatus(newStatus) {
 		return
 	}
 
 	// Don't bell if we were already in an attention state
-	if isAttentionStatus(oldStatus) {
+	if contracts.IsAttentionStatus(oldStatus) {
 		return
 	}
 
