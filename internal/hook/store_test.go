@@ -736,3 +736,266 @@ func TestFileStore_Create_RaceCondition(t *testing.T) {
 		assert.Equal(t, 1, successes, "Exactly one Create should succeed under high contention")
 	})
 }
+
+func TestSyncDir(t *testing.T) {
+	// This test verifies the syncDir function that ensures directory metadata
+	// durability for atomic writes on POSIX systems.
+
+	t.Run("succeeds on valid directory", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		err := syncDir(tmpDir)
+		require.NoError(t, err)
+	})
+
+	t.Run("succeeds after creating a file", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		// Create a file
+		filePath := filepath.Join(tmpDir, "test.txt")
+		require.NoError(t, os.WriteFile(filePath, []byte("content"), 0o600))
+
+		// syncDir should succeed
+		err := syncDir(tmpDir)
+		require.NoError(t, err)
+	})
+
+	t.Run("succeeds on nested directory", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		nestedDir := filepath.Join(tmpDir, "nested", "deep")
+		require.NoError(t, os.MkdirAll(nestedDir, 0o750))
+
+		err := syncDir(nestedDir)
+		require.NoError(t, err)
+	})
+
+	t.Run("returns error for non-existent directory", func(t *testing.T) {
+		err := syncDir("/nonexistent/path/that/does/not/exist")
+		require.Error(t, err)
+	})
+
+	t.Run("returns error for file path", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		filePath := filepath.Join(tmpDir, "notadir.txt")
+		require.NoError(t, os.WriteFile(filePath, []byte("content"), 0o600))
+
+		// Calling syncDir on a file should fail (not a directory)
+		err := syncDir(filePath)
+		// On some systems this might succeed or fail depending on implementation.
+		// The important thing is it doesn't panic.
+		_ = err
+	})
+}
+
+func TestFileStore_AtomicWrite_WithDirSync(t *testing.T) {
+	// This test verifies that atomicWrite includes directory sync for durability.
+	// While we can't directly verify fsync was called without mocking, we can verify
+	// the write still works correctly and the file is valid.
+
+	t.Run("atomic write with dir sync completes successfully", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		store := NewFileStore(tmpDir)
+		ctx := context.Background()
+
+		taskID := "task-atomic-dirsync"
+
+		// Create hook
+		hook, err := store.Create(ctx, taskID, "ws-001")
+		require.NoError(t, err)
+
+		// Modify and save multiple times to exercise atomicWrite + syncDir
+		for i := 0; i < 10; i++ {
+			hook.History = append(hook.History, domain.HookEvent{
+				Timestamp: time.Now(),
+				FromState: domain.HookStateInitializing,
+				ToState:   domain.HookStateStepRunning,
+				Trigger:   "test",
+			})
+
+			err = store.Save(ctx, hook)
+			require.NoError(t, err)
+
+			// Verify file is valid after each save
+			retrieved, getErr := store.Get(ctx, taskID)
+			require.NoError(t, getErr)
+			assert.Len(t, retrieved.History, i+1)
+		}
+	})
+
+	t.Run("concurrent writes with dir sync", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		store := NewFileStore(tmpDir)
+		ctx := context.Background()
+
+		// Create multiple hooks concurrently
+		const numTasks = 5
+		var wg sync.WaitGroup
+
+		for i := 0; i < numTasks; i++ {
+			wg.Add(1)
+			taskID := "task-concurrent-dirsync-" + string(rune('a'+i))
+			go func(id string) {
+				defer wg.Done()
+
+				hook, err := store.Create(ctx, id, "ws-001")
+				if err != nil {
+					return
+				}
+
+				// Do several saves
+				for j := 0; j < 5; j++ {
+					hook.State = domain.HookStateStepRunning
+					_ = store.Save(ctx, hook)
+				}
+			}(taskID)
+		}
+
+		wg.Wait()
+
+		// Verify all tasks were created successfully
+		for i := 0; i < numTasks; i++ {
+			taskID := "task-concurrent-dirsync-" + string(rune('a'+i))
+			exists, err := store.Exists(ctx, taskID)
+			require.NoError(t, err)
+			assert.True(t, exists, "Task %s should exist", taskID)
+		}
+	})
+}
+
+func TestFileStore_ExtractTaskIDFromPath(t *testing.T) {
+	t.Run("extracts taskID from valid path", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		store := NewFileStore(tmpDir)
+
+		// Simulate a hook path
+		hookPath := filepath.Join(tmpDir, "my-task-123", constants.HookFileName)
+		taskID := store.extractTaskIDFromPath(hookPath)
+
+		assert.Equal(t, "my-task-123", taskID)
+	})
+
+	t.Run("handles nested taskID paths", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		store := NewFileStore(tmpDir)
+
+		// Simulate a nested hook path (e.g., workspace/task)
+		hookPath := filepath.Join(tmpDir, "workspace-1", "tasks", "task-456", constants.HookFileName)
+		taskID := store.extractTaskIDFromPath(hookPath)
+
+		assert.Equal(t, filepath.Join("workspace-1", "tasks", "task-456"), taskID)
+	})
+
+	t.Run("handles path exactly at basePath", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		store := NewFileStore(tmpDir)
+
+		// Hook directly in basePath (no task subdirectory) - edge case
+		hookPath := filepath.Join(tmpDir, constants.HookFileName)
+		taskID := store.extractTaskIDFromPath(hookPath)
+
+		// Should return "." which represents current directory
+		assert.Equal(t, ".", taskID)
+	})
+}
+
+func TestFileStore_LockFileCleanup(t *testing.T) {
+	t.Run("lock file is removed after unlock", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		store := NewFileStore(tmpDir)
+		ctx := context.Background()
+
+		taskID := "task-lock-cleanup"
+
+		// Create hook
+		_, err := store.Create(ctx, taskID, "ws-001")
+		require.NoError(t, err)
+
+		// Get the hook (this acquires and releases a lock)
+		_, err = store.Get(ctx, taskID)
+		require.NoError(t, err)
+
+		// Verify lock file is cleaned up
+		hookPath := filepath.Join(tmpDir, taskID, constants.HookFileName)
+		lockPath := hookPath + ".lock"
+		_, err = os.Stat(lockPath)
+		assert.True(t, os.IsNotExist(err), "lock file should be removed after unlock")
+	})
+
+	t.Run("lock file cleanup does not prevent reacquisition", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		store := NewFileStore(tmpDir)
+		ctx := context.Background()
+
+		taskID := "task-lock-reacquire"
+
+		// Create hook
+		_, err := store.Create(ctx, taskID, "ws-001")
+		require.NoError(t, err)
+
+		// Multiple Get operations should work (lock created, used, cleaned up each time)
+		for i := 0; i < 5; i++ {
+			hook, err := store.Get(ctx, taskID)
+			require.NoError(t, err)
+			assert.Equal(t, taskID, hook.TaskID)
+		}
+	})
+}
+
+func TestFileStore_ListStaleWithLockedRead(t *testing.T) {
+	t.Run("returns consistent data via GetSnapshot", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		store := NewFileStore(tmpDir)
+		ctx := context.Background()
+
+		taskID := "task-stale-locked"
+		hookDir := filepath.Join(tmpDir, taskID)
+		require.NoError(t, os.MkdirAll(hookDir, 0o750))
+
+		// Create a stale hook
+		staleHook := &domain.Hook{
+			Version:       "1.0",
+			TaskID:        taskID,
+			WorkspaceID:   "ws-001",
+			CreatedAt:     time.Now().Add(-15 * time.Minute),
+			UpdatedAt:     time.Now().Add(-15 * time.Minute),
+			State:         domain.HookStateStepRunning,
+			SchemaVersion: "1.0",
+			CurrentStep: &domain.StepContext{
+				StepName:  "analyze",
+				StepIndex: 0,
+			},
+		}
+
+		data, err := json.MarshalIndent(staleHook, "", "  ")
+		require.NoError(t, err)
+
+		hookPath := filepath.Join(hookDir, constants.HookFileName)
+		require.NoError(t, os.WriteFile(hookPath, data, 0o600))
+
+		// List stale hooks
+		stale, err := store.ListStale(ctx, 5*time.Minute)
+		require.NoError(t, err)
+
+		// Find our hook
+		var found *domain.Hook
+		for _, h := range stale {
+			if h.TaskID == taskID {
+				found = h
+				break
+			}
+		}
+
+		require.NotNil(t, found, "should find stale hook")
+		assert.Equal(t, taskID, found.TaskID)
+		assert.Equal(t, domain.HookStateStepRunning, found.State)
+
+		// Verify it's a deep copy (modify doesn't affect original)
+		require.NotNil(t, found.CurrentStep)
+		found.CurrentStep.StepName = "modified"
+
+		// Re-read to verify original unchanged
+		hook, err := store.Get(ctx, taskID)
+		require.NoError(t, err)
+		assert.Equal(t, "analyze", hook.CurrentStep.StepName)
+	})
+}

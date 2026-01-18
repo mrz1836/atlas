@@ -682,6 +682,79 @@ func TestManager_CompleteStep_NilCurrentStep(t *testing.T) {
 	})
 }
 
+func TestManager_CompleteStep_StepNameMismatch(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("returns error when stepName does not match CurrentStep", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		store := NewFileStore(tmpDir)
+		cfg := &config.HookConfig{}
+		m := NewManager(store, cfg)
+
+		taskID := "test-step-mismatch"
+		task := &domain.Task{ID: taskID}
+
+		taskDir := filepath.Join(tmpDir, taskID)
+		require.NoError(t, os.MkdirAll(taskDir, 0o750))
+
+		// Create hook with CurrentStep set to "analyze"
+		hook := &domain.Hook{
+			TaskID: taskID,
+			State:  domain.HookStateStepRunning,
+			CurrentStep: &domain.StepContext{
+				StepName:  "analyze",
+				StepIndex: 0,
+				StartedAt: time.Now(),
+			},
+			Checkpoints: []domain.StepCheckpoint{},
+		}
+		require.NoError(t, store.Save(ctx, hook))
+
+		// Attempt to complete with wrong step name - should fail
+		err := m.CompleteStep(ctx, task, "implement", []string{"file.go"})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "cannot complete step")
+		assert.Contains(t, err.Error(), "implement")
+		assert.Contains(t, err.Error(), "current step is")
+		assert.Contains(t, err.Error(), "analyze")
+	})
+
+	t.Run("succeeds when stepName matches CurrentStep", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		store := NewFileStore(tmpDir)
+		cfg := &config.HookConfig{}
+		m := NewManager(store, cfg)
+
+		taskID := "test-step-match"
+		task := &domain.Task{ID: taskID}
+
+		taskDir := filepath.Join(tmpDir, taskID)
+		require.NoError(t, os.MkdirAll(taskDir, 0o750))
+
+		// Create hook with CurrentStep set to "analyze"
+		hook := &domain.Hook{
+			TaskID: taskID,
+			State:  domain.HookStateStepRunning,
+			CurrentStep: &domain.StepContext{
+				StepName:  "analyze",
+				StepIndex: 0,
+				StartedAt: time.Now(),
+			},
+			Checkpoints: []domain.StepCheckpoint{},
+		}
+		require.NoError(t, store.Save(ctx, hook))
+
+		// Complete with matching step name - should succeed
+		err := m.CompleteStep(ctx, task, "analyze", []string{"file.go"})
+		require.NoError(t, err)
+
+		// Verify state transition
+		updated, err := store.Get(ctx, taskID)
+		require.NoError(t, err)
+		assert.Equal(t, domain.HookStateStepPending, updated.State)
+	})
+}
+
 func TestManager_FailStep(t *testing.T) {
 	ctx := context.Background()
 

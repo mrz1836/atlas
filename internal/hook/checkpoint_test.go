@@ -228,6 +228,89 @@ func TestIntervalCheckpointer(t *testing.T) {
 	cp := NewCheckpointer(cfg, store)
 	ctx := context.Background()
 
+	t.Run("concurrent Stop calls do not deadlock", func(t *testing.T) {
+		// This test verifies the fix for the deadlock pattern where Stop()
+		// would hold the mutex while waiting on the done channel.
+		taskID := "test-concurrent-stop"
+
+		// Create and save hook to disk
+		hook := &domain.Hook{
+			TaskID:      taskID,
+			State:       domain.HookStateStepRunning,
+			Checkpoints: []domain.StepCheckpoint{},
+		}
+		taskDir := filepath.Join(tmpDir, taskID)
+		require.NoError(t, os.MkdirAll(taskDir, 0o750))
+		require.NoError(t, store.Save(ctx, hook))
+
+		// Create interval checkpointer
+		ic := NewIntervalCheckpointer(cp, taskID, store, 50*time.Millisecond)
+
+		ic.Start(ctx)
+		time.Sleep(10 * time.Millisecond) // Let it start
+
+		// Call Stop() from multiple goroutines concurrently
+		// This would deadlock with the old implementation if the goroutine
+		// tried to acquire the mutex while Stop() was holding it and waiting.
+		var wg sync.WaitGroup
+		for i := 0; i < 5; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				ic.Stop()
+			}()
+		}
+
+		// Use a timeout to detect deadlock
+		done := make(chan struct{})
+		go func() {
+			wg.Wait()
+			close(done)
+		}()
+
+		select {
+		case <-done:
+			// Success - no deadlock
+		case <-time.After(5 * time.Second):
+			t.Fatal("Deadlock detected: concurrent Stop() calls did not complete")
+		}
+	})
+
+	t.Run("Stop is idempotent", func(t *testing.T) {
+		// Verify that calling Stop() multiple times is safe
+		taskID := "test-idempotent-stop"
+
+		hook := &domain.Hook{
+			TaskID:      taskID,
+			State:       domain.HookStateStepRunning,
+			Checkpoints: []domain.StepCheckpoint{},
+		}
+		taskDir := filepath.Join(tmpDir, taskID)
+		require.NoError(t, os.MkdirAll(taskDir, 0o750))
+		require.NoError(t, store.Save(ctx, hook))
+
+		ic := NewIntervalCheckpointer(cp, taskID, store, 50*time.Millisecond)
+
+		ic.Start(ctx)
+		time.Sleep(10 * time.Millisecond)
+
+		// Call Stop multiple times - should not panic or hang
+		ic.Stop()
+		ic.Stop()
+		ic.Stop()
+	})
+
+	t.Run("Stop on never-started checkpointer", func(_ *testing.T) {
+		// Calling Stop() without Start() should be a no-op
+		taskID := "test-stop-never-started"
+
+		ic := NewIntervalCheckpointer(cp, taskID, store, 50*time.Millisecond)
+
+		// Should not panic or hang
+		ic.Stop()
+		ic.Stop()
+	})
+
 	t.Run("starts and stops cleanly", func(t *testing.T) {
 		taskID := "test-task-start-stop"
 
@@ -632,4 +715,120 @@ func TestFindFilesInCheckpoints(t *testing.T) {
 	assert.Contains(t, files, "file1.go")
 	assert.Contains(t, files, "file2.go")
 	assert.Contains(t, files, "file3.go")
+}
+
+func TestPruneCheckpoints(t *testing.T) {
+	t.Run("prunes when over custom limit", func(t *testing.T) {
+		hook := &domain.Hook{
+			Checkpoints: make([]domain.StepCheckpoint, 60),
+		}
+		for i := 0; i < 60; i++ {
+			hook.Checkpoints[i] = domain.StepCheckpoint{
+				CheckpointID: GenerateCheckpointID(),
+				Description:  "checkpoint " + string(rune('A'+i%26)),
+			}
+		}
+
+		// Prune with custom limit of 30
+		PruneCheckpoints(hook, 30)
+
+		assert.Len(t, hook.Checkpoints, 30)
+	})
+
+	t.Run("uses default when maxCheckpoints is 0", func(t *testing.T) {
+		hook := &domain.Hook{
+			Checkpoints: make([]domain.StepCheckpoint, 60),
+		}
+		for i := 0; i < 60; i++ {
+			hook.Checkpoints[i] = domain.StepCheckpoint{
+				CheckpointID: GenerateCheckpointID(),
+			}
+		}
+
+		// Prune with 0 should use DefaultMaxCheckpoints
+		PruneCheckpoints(hook, 0)
+
+		assert.Len(t, hook.Checkpoints, DefaultMaxCheckpoints)
+	})
+
+	t.Run("uses default when maxCheckpoints is negative", func(t *testing.T) {
+		hook := &domain.Hook{
+			Checkpoints: make([]domain.StepCheckpoint, 60),
+		}
+		for i := 0; i < 60; i++ {
+			hook.Checkpoints[i] = domain.StepCheckpoint{
+				CheckpointID: GenerateCheckpointID(),
+			}
+		}
+
+		// Prune with negative should use DefaultMaxCheckpoints
+		PruneCheckpoints(hook, -5)
+
+		assert.Len(t, hook.Checkpoints, DefaultMaxCheckpoints)
+	})
+
+	t.Run("keeps most recent checkpoints", func(t *testing.T) {
+		hook := &domain.Hook{
+			Checkpoints: make([]domain.StepCheckpoint, 60),
+		}
+		// Create checkpoints with identifiable IDs
+		for i := 0; i < 60; i++ {
+			hook.Checkpoints[i] = domain.StepCheckpoint{
+				CheckpointID: "ckpt-" + string(rune('a'+i%26)) + string(rune('0'+i/26)),
+				Description:  "checkpoint-" + string(rune('A'+i%26)),
+			}
+		}
+
+		// Remember the last 30 checkpoints
+		expected := make([]string, 30)
+		for i := 0; i < 30; i++ {
+			expected[i] = hook.Checkpoints[30+i].CheckpointID
+		}
+
+		PruneCheckpoints(hook, 30)
+
+		assert.Len(t, hook.Checkpoints, 30)
+		// Verify we kept the most recent ones
+		for i, cp := range hook.Checkpoints {
+			assert.Equal(t, expected[i], cp.CheckpointID)
+		}
+	})
+
+	t.Run("does nothing when under limit", func(t *testing.T) {
+		hook := &domain.Hook{
+			Checkpoints: make([]domain.StepCheckpoint, 10),
+		}
+		for i := 0; i < 10; i++ {
+			hook.Checkpoints[i] = domain.StepCheckpoint{
+				CheckpointID: GenerateCheckpointID(),
+			}
+		}
+
+		PruneCheckpoints(hook, 50)
+
+		assert.Len(t, hook.Checkpoints, 10)
+	})
+}
+
+func TestDefaultMaxCheckpoints(t *testing.T) {
+	t.Run("constant has expected value", func(t *testing.T) {
+		assert.Equal(t, 50, DefaultMaxCheckpoints)
+	})
+}
+
+func TestGenerateCheckpointID(t *testing.T) {
+	t.Run("generates unique IDs", func(t *testing.T) {
+		ids := make(map[string]bool)
+		for i := 0; i < 100; i++ {
+			id := GenerateCheckpointID()
+			assert.False(t, ids[id], "duplicate ID generated: %s", id)
+			ids[id] = true
+		}
+	})
+
+	t.Run("has correct format", func(t *testing.T) {
+		id := GenerateCheckpointID()
+		assert.True(t, strings.HasPrefix(id, "ckpt-"))
+		assert.Len(t, id, 13) // "ckpt-" + 8 chars
+	})
 }
