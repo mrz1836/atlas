@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,6 +17,11 @@ import (
 	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/domain"
 )
+
+// maxFileSizeForHash is the maximum file size for computing SHA256 hash.
+// Files larger than this limit will have an empty SHA256 field to prevent
+// memory exhaustion and long blocking operations during checkpointing.
+const maxFileSizeForHash = 10 * 1024 * 1024 // 10MB
 
 // Checkpointer manages checkpoint creation and retrieval.
 type Checkpointer struct {
@@ -96,22 +102,33 @@ func (c *Checkpointer) generateCheckpointID() string {
 	return "ckpt-" + id[:8]
 }
 
+// gitCommandTimeout is the maximum time allowed for git commands to complete.
+// This prevents the interval checkpointer from hanging indefinitely if git
+// operations are slow (e.g., large repo, network issues, corrupted index).
+const gitCommandTimeout = 5 * time.Second
+
 // captureGitState gets the current git branch, commit, and dirty status.
+// Uses a dedicated timeout to prevent blocking the checkpointer goroutine
+// if git operations hang.
 func (c *Checkpointer) captureGitState(ctx context.Context) (branch, commit string, dirty bool) {
+	// Use a dedicated timeout for git operations to prevent hangs
+	gitCtx, cancel := context.WithTimeout(ctx, gitCommandTimeout)
+	defer cancel()
+
 	// Get current branch
-	branchCmd := exec.CommandContext(ctx, "git", "rev-parse", "--abbrev-ref", "HEAD")
+	branchCmd := exec.CommandContext(gitCtx, "git", "rev-parse", "--abbrev-ref", "HEAD")
 	if out, err := branchCmd.Output(); err == nil {
 		branch = strings.TrimSpace(string(out))
 	}
 
 	// Get current commit
-	commitCmd := exec.CommandContext(ctx, "git", "rev-parse", "--short", "HEAD")
+	commitCmd := exec.CommandContext(gitCtx, "git", "rev-parse", "--short", "HEAD")
 	if out, err := commitCmd.Output(); err == nil {
 		commit = strings.TrimSpace(string(out))
 	}
 
 	// Check if dirty
-	statusCmd := exec.CommandContext(ctx, "git", "status", "--porcelain")
+	statusCmd := exec.CommandContext(gitCtx, "git", "status", "--porcelain")
 	if out, err := statusCmd.Output(); err == nil {
 		dirty = len(strings.TrimSpace(string(out))) > 0
 	}
@@ -120,6 +137,7 @@ func (c *Checkpointer) captureGitState(ctx context.Context) (branch, commit stri
 }
 
 // captureFileSnapshots creates snapshots for the given files.
+// Uses streaming hash with size limit to prevent memory exhaustion on large files.
 func (c *Checkpointer) captureFileSnapshots(files []string) []domain.FileSnapshot {
 	snapshots := make([]domain.FileSnapshot, 0, len(files))
 
@@ -131,22 +149,44 @@ func (c *Checkpointer) captureFileSnapshots(files []string) []domain.FileSnapsho
 		info, err := os.Stat(filePath)
 		if err != nil {
 			snapshot.Exists = false
-		} else {
-			snapshot.Exists = true
-			snapshot.Size = info.Size()
-			snapshot.ModTime = info.ModTime().UTC().Format(time.RFC3339)
+			snapshots = append(snapshots, snapshot)
+			continue
+		}
 
-			// Calculate SHA256 prefix (first 16 chars)
-			if data, err := os.ReadFile(filePath); err == nil { //nolint:gosec // filePath is from task execution context, validated by caller
-				hash := sha256.Sum256(data)
-				snapshot.SHA256 = hex.EncodeToString(hash[:])[:16]
+		snapshot.Exists = true
+		snapshot.Size = info.Size()
+		snapshot.ModTime = info.ModTime().UTC().Format(time.RFC3339)
+
+		// Only hash files under the size limit to prevent memory exhaustion
+		if info.Size() <= maxFileSizeForHash {
+			if hash, err := hashFileStreaming(filePath); err == nil {
+				snapshot.SHA256 = hash[:16] // First 16 chars
 			}
 		}
+		// For large files, SHA256 remains empty (intentional - indicates "too large")
 
 		snapshots = append(snapshots, snapshot)
 	}
 
 	return snapshots
+}
+
+// hashFileStreaming computes SHA256 without loading entire file into memory.
+// Returns the full hex-encoded hash string.
+func hashFileStreaming(filePath string) (string, error) {
+	//nolint:gosec // G304: filePath is from task execution context, validated by caller
+	f, err := os.Open(filePath)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = f.Close() }()
+
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 // pruneCheckpoints removes oldest checkpoints if over the configured limit.
@@ -250,6 +290,7 @@ func (ic *IntervalCheckpointer) createIntervalCheckpoint(ctx context.Context) {
 }
 
 // CaptureFileSnapshot creates a snapshot for a single file.
+// Uses streaming hash with size limit to prevent memory exhaustion on large files.
 func CaptureFileSnapshot(filePath string) domain.FileSnapshot {
 	snapshot := domain.FileSnapshot{
 		Path: filePath,
@@ -265,11 +306,13 @@ func CaptureFileSnapshot(filePath string) domain.FileSnapshot {
 	snapshot.Size = info.Size()
 	snapshot.ModTime = info.ModTime().UTC().Format(time.RFC3339)
 
-	// Calculate SHA256 prefix (first 16 chars)
-	if data, err := os.ReadFile(filePath); err == nil { //nolint:gosec // filePath is from task execution context, validated by caller
-		hash := sha256.Sum256(data)
-		snapshot.SHA256 = hex.EncodeToString(hash[:])[:16]
+	// Only hash files under the size limit to prevent memory exhaustion
+	if info.Size() <= maxFileSizeForHash {
+		if hash, err := hashFileStreaming(filePath); err == nil {
+			snapshot.SHA256 = hash[:16] // First 16 chars
+		}
 	}
+	// For large files, SHA256 remains empty (intentional - indicates "too large")
 
 	return snapshot
 }

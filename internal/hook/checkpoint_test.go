@@ -390,6 +390,41 @@ func TestIntervalCheckpointer(t *testing.T) {
 	})
 }
 
+func TestGitCommandTimeout(t *testing.T) {
+	// Verify that gitCommandTimeout is set to a reasonable value (5 seconds)
+	// This ensures git commands won't block the checkpointer indefinitely
+	assert.Equal(t, 5*time.Second, gitCommandTimeout,
+		"gitCommandTimeout should be 5 seconds to prevent infinite hangs")
+}
+
+func TestCaptureGitState_ReturnsWithinTimeout(t *testing.T) {
+	// This test verifies that captureGitState returns within a reasonable time
+	// even when called in a non-git directory (which should fail fast)
+	cfg := &config.HookConfig{}
+	store := NewFileStore(t.TempDir())
+	cp := NewCheckpointer(cfg, store)
+
+	// Use a context with a timeout longer than gitCommandTimeout
+	// to ensure we're not relying on the parent context
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	start := time.Now()
+	branch, commit, dirty := cp.captureGitState(ctx)
+	elapsed := time.Since(start)
+
+	// The function should return within gitCommandTimeout + small buffer
+	// In a non-git directory, git commands fail immediately
+	assert.Less(t, elapsed, gitCommandTimeout+time.Second,
+		"captureGitState should return within timeout")
+
+	// In a non-git directory, we expect empty/default values
+	// (or actual values if we're in the atlas repo)
+	_ = branch
+	_ = commit
+	_ = dirty
+}
+
 func TestCaptureFileSnapshot(t *testing.T) {
 	t.Run("captures existing file", func(t *testing.T) {
 		tmpDir := t.TempDir()
@@ -412,6 +447,104 @@ func TestCaptureFileSnapshot(t *testing.T) {
 		assert.Equal(t, "/non/existent/file.txt", snapshot.Path)
 		assert.False(t, snapshot.Exists)
 		assert.Equal(t, int64(0), snapshot.Size)
+	})
+}
+
+func TestCaptureFileSnapshot_LargeFile(t *testing.T) {
+	// This test verifies the fix for unbounded file reads.
+	// Large files should be captured but without SHA256 hash to prevent OOM.
+
+	t.Run("skips hash for files over size limit", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		largeFile := filepath.Join(tmpDir, "large.bin")
+
+		// Create a file larger than maxFileSizeForHash (10MB)
+		// We use a sparse file approach: create file and seek to make it large
+		f, err := os.Create(largeFile) // #nosec G304 -- Test file in temp directory
+		require.NoError(t, err)
+
+		// Write a small header so the file has some content
+		_, err = f.WriteString("header data")
+		require.NoError(t, err)
+
+		// Seek to 11MB and write a byte to create a "large" file
+		// This creates a sparse file that doesn't actually use 11MB of disk
+		_, err = f.Seek(11*1024*1024, 0)
+		require.NoError(t, err)
+		_, err = f.WriteString("x")
+		require.NoError(t, err)
+		require.NoError(t, f.Close())
+
+		snapshot := CaptureFileSnapshot(largeFile)
+
+		assert.True(t, snapshot.Exists)
+		assert.Greater(t, snapshot.Size, int64(10*1024*1024), "File should be larger than 10MB")
+		assert.Empty(t, snapshot.SHA256, "Large files should not have SHA256 computed")
+		assert.NotEmpty(t, snapshot.ModTime, "ModTime should still be captured")
+	})
+
+	t.Run("computes hash for files at size limit", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		testFile := filepath.Join(tmpDir, "limit.bin")
+
+		// Create a file exactly at the limit (10MB)
+		f, err := os.Create(testFile) // #nosec G304 -- Test file in temp directory
+		require.NoError(t, err)
+
+		// Write exactly 10MB of data
+		data := make([]byte, 1024) // 1KB block
+		for i := 0; i < 10*1024; i++ {
+			_, err = f.Write(data)
+			require.NoError(t, err)
+		}
+		require.NoError(t, f.Close())
+
+		snapshot := CaptureFileSnapshot(testFile)
+
+		assert.True(t, snapshot.Exists)
+		assert.Equal(t, int64(10*1024*1024), snapshot.Size)
+		assert.Len(t, snapshot.SHA256, 16, "Files at the limit should have SHA256 computed")
+	})
+}
+
+func TestMaxFileSizeForHash(t *testing.T) {
+	// Verify the constant is set to 10MB as specified
+	assert.Equal(t, int64(10*1024*1024), int64(maxFileSizeForHash),
+		"maxFileSizeForHash should be 10MB")
+}
+
+func TestHashFileStreaming(t *testing.T) {
+	t.Run("computes correct hash", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		testFile := filepath.Join(tmpDir, "test.txt")
+		content := []byte("Hello, World!")
+		require.NoError(t, os.WriteFile(testFile, content, 0o600))
+
+		hash, err := hashFileStreaming(testFile)
+		require.NoError(t, err)
+
+		// Verify hash length (SHA256 = 64 hex chars)
+		assert.Len(t, hash, 64)
+
+		// Verify hash is consistent
+		hash2, err := hashFileStreaming(testFile)
+		require.NoError(t, err)
+		assert.Equal(t, hash, hash2)
+	})
+
+	t.Run("returns error for non-existent file", func(t *testing.T) {
+		_, err := hashFileStreaming("/non/existent/file.txt")
+		assert.Error(t, err)
+	})
+
+	t.Run("handles empty file", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		emptyFile := filepath.Join(tmpDir, "empty.txt")
+		require.NoError(t, os.WriteFile(emptyFile, []byte{}, 0o600))
+
+		hash, err := hashFileStreaming(emptyFile)
+		require.NoError(t, err)
+		assert.Len(t, hash, 64) // SHA256 of empty = e3b0c44...
 	})
 }
 
