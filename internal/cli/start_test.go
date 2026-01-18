@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/mrz1836/atlas/internal/ai"
+	"github.com/mrz1836/atlas/internal/cli/workflow"
 	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/domain"
@@ -113,7 +114,7 @@ func TestSanitizeWorkspaceName(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			result := sanitizeWorkspaceName(tc.input)
+			result := workflow.SanitizeWorkspaceName(tc.input)
 			assert.Equal(t, tc.expected, result)
 		})
 	}
@@ -144,10 +145,10 @@ func TestGenerateWorkspaceName(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			result := generateWorkspaceName(tc.description)
+			result := workflow.GenerateWorkspaceName(tc.description)
 			assert.NotEmpty(t, result, "workspace name should never be empty")
 
-			if tc.description == "" || sanitizeWorkspaceName(tc.description) == "" {
+			if tc.description == "" || workflow.SanitizeWorkspaceName(tc.description) == "" {
 				// Should be a timestamp-based name
 				assert.True(t, strings.HasPrefix(result, "task-"),
 					"empty description should generate task-TIMESTAMP name")
@@ -158,44 +159,49 @@ func TestGenerateWorkspaceName(t *testing.T) {
 
 func TestSelectTemplate_WithFlag(t *testing.T) {
 	registry := template.NewDefaultRegistry()
+	prompter := workflow.NewPrompter(tui.NewTTYOutput(os.Stdout))
 
-	tmpl, err := selectTemplate(context.Background(), registry, "bugfix", false, "text")
+	tmpl, err := prompter.SelectTemplate(context.Background(), registry, "bugfix", false, "text")
 	require.NoError(t, err)
 	assert.Equal(t, "bugfix", tmpl.Name)
 }
 
 func TestSelectTemplate_InvalidTemplate(t *testing.T) {
 	registry := template.NewDefaultRegistry()
+	prompter := workflow.NewPrompter(tui.NewTTYOutput(os.Stdout))
 
-	_, err := selectTemplate(context.Background(), registry, "nonexistent", false, "text")
+	_, err := prompter.SelectTemplate(context.Background(), registry, "nonexistent", false, "text")
 	require.Error(t, err)
 	assert.ErrorIs(t, err, errors.ErrTemplateNotFound)
 }
 
 func TestSelectTemplate_NonInteractiveMode(t *testing.T) {
 	registry := template.NewDefaultRegistry()
+	prompter := workflow.NewPrompter(tui.NewTTYOutput(os.Stdout))
 
 	// No template specified in non-interactive mode
-	_, err := selectTemplate(context.Background(), registry, "", true, "text")
+	_, err := prompter.SelectTemplate(context.Background(), registry, "", true, "text")
 	require.Error(t, err)
 	assert.ErrorIs(t, err, errors.ErrTemplateRequired)
 }
 
 func TestSelectTemplate_JSONOutputMode(t *testing.T) {
 	registry := template.NewDefaultRegistry()
+	prompter := workflow.NewPrompter(tui.NewTTYOutput(os.Stdout))
 
 	// No template specified with JSON output
-	_, err := selectTemplate(context.Background(), registry, "", false, "json")
+	_, err := prompter.SelectTemplate(context.Background(), registry, "", false, "json")
 	require.Error(t, err)
 	assert.ErrorIs(t, err, errors.ErrTemplateRequired)
 }
 
 func TestSelectTemplate_ContextCancellation(t *testing.T) {
 	registry := template.NewDefaultRegistry()
+	prompter := workflow.NewPrompter(tui.NewTTYOutput(os.Stdout))
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately
 
-	_, err := selectTemplate(ctx, registry, "bugfix", false, "text")
+	_, err := prompter.SelectTemplate(ctx, registry, "bugfix", false, "text")
 	require.Error(t, err)
 	assert.ErrorIs(t, err, context.Canceled)
 }
@@ -205,10 +211,11 @@ func TestFindGitRepository(t *testing.T) {
 	origDir, err := os.Getwd()
 	require.NoError(t, err)
 	defer func() { _ = os.Chdir(origDir) }()
+	initializer := workflow.NewInitializer(zerolog.Nop())
 
 	t.Run("in git repo", func(t *testing.T) {
 		// We're already in a git repo (the atlas project)
-		repoPath, err := findGitRepository(context.Background())
+		repoPath, err := initializer.FindGitRepository(context.Background())
 		require.NoError(t, err)
 		assert.NotEmpty(t, repoPath)
 
@@ -223,7 +230,7 @@ func TestFindGitRepository(t *testing.T) {
 		tmpDir := t.TempDir()
 		require.NoError(t, os.Chdir(tmpDir))
 
-		_, err := findGitRepository(context.Background())
+		_, err := initializer.FindGitRepository(context.Background())
 		require.Error(t, err)
 		assert.ErrorIs(t, err, errors.ErrNotGitRepo)
 	})
@@ -234,16 +241,16 @@ func TestHandleWorkspaceConflict_NoConflict(t *testing.T) {
 	store, err := workspace.NewFileStore(tmpDir)
 	require.NoError(t, err)
 	mgr := workspace.NewManager(store, nil, zerolog.Nop())
+	prompter := workflow.NewPrompter(tui.NewTTYOutput(os.Stdout))
 
 	var buf bytes.Buffer
 
-	result, err := handleWorkspaceConflict(
+	result, err := prompter.ResolveWorkspaceConflict(
 		context.Background(),
 		mgr,
 		"new-workspace",
 		false,
 		"text",
-		nil,
 		&buf,
 	)
 	require.NoError(t, err)
@@ -265,16 +272,16 @@ func TestHandleWorkspaceConflict_ExistsNonInteractive(t *testing.T) {
 	require.NoError(t, store.Create(context.Background(), ws))
 
 	mgr := workspace.NewManager(store, nil, zerolog.Nop())
+	prompter := workflow.NewPrompter(tui.NewTTYOutput(os.Stdout))
 	var buf bytes.Buffer
 
 	// Non-interactive mode should fail
-	_, err = handleWorkspaceConflict(
+	_, err = prompter.ResolveWorkspaceConflict(
 		context.Background(),
 		mgr,
 		"existing-ws",
 		true,
 		"text",
-		nil,
 		&buf,
 	)
 	require.Error(t, err)
@@ -296,25 +303,20 @@ func TestHandleWorkspaceConflict_ExistsJSONOutput(t *testing.T) {
 	require.NoError(t, store.Create(context.Background(), ws))
 
 	mgr := workspace.NewManager(store, nil, zerolog.Nop())
+	prompter := workflow.NewPrompter(tui.NewTTYOutput(os.Stdout))
 	var buf bytes.Buffer
 
-	// JSON output mode should output JSON error
-	_, _ = handleWorkspaceConflict(
+	// JSON output mode should return error (no longer writes to buffer)
+	_, err = prompter.ResolveWorkspaceConflict(
 		context.Background(),
 		mgr,
 		"existing-ws",
 		false,
 		"json",
-		nil,
 		&buf,
 	)
-
-	// Verify JSON error was output
-	var resp startResponse
-	err = json.Unmarshal(buf.Bytes(), &resp)
-	require.NoError(t, err)
-	assert.False(t, resp.Success)
-	assert.Contains(t, resp.Error, "existing-ws")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "existing-ws")
 }
 
 func TestHandleWorkspaceConflict_ContextCancellation(t *testing.T) {
@@ -322,12 +324,13 @@ func TestHandleWorkspaceConflict_ContextCancellation(t *testing.T) {
 	store, err := workspace.NewFileStore(tmpDir)
 	require.NoError(t, err)
 	mgr := workspace.NewManager(store, nil, zerolog.Nop())
+	prompter := workflow.NewPrompter(tui.NewTTYOutput(os.Stdout))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately
 
 	var buf bytes.Buffer
-	_, err = handleWorkspaceConflict(ctx, mgr, "any-ws", false, "text", nil, &buf)
+	_, err = prompter.ResolveWorkspaceConflict(ctx, mgr, "any-ws", false, "text", &buf)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, context.Canceled)
 }
@@ -475,7 +478,7 @@ func TestValidateWorkspaceName(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			err := validateWorkspaceName(tc.input)
+			err := workflow.ValidateWorkspaceName(tc.input)
 			if tc.wantErr {
 				require.Error(t, err)
 				require.ErrorIs(t, err, errors.ErrEmptyValue)
@@ -549,16 +552,16 @@ func TestRunStart_ContextCancellation(t *testing.T) {
 func TestWorkspaceNameMaxLength(t *testing.T) {
 	// Generate a very long string
 	longDesc := strings.Repeat("a", 100)
-	result := sanitizeWorkspaceName(longDesc)
+	result := workflow.SanitizeWorkspaceName(longDesc)
 
-	assert.LessOrEqual(t, len(result), maxWorkspaceNameLen,
+	assert.LessOrEqual(t, len(result), workflow.MaxWorkspaceNameLen,
 		"workspace name should be truncated to max length")
 }
 
 func TestWorkspaceNameNoTrailingHyphen(t *testing.T) {
 	// Create a description that would result in trailing hyphen after truncation
 	desc := strings.Repeat("word-", 15) // Will be truncated with trailing hyphen
-	result := sanitizeWorkspaceName(desc)
+	result := workflow.SanitizeWorkspaceName(desc)
 
 	assert.False(t, strings.HasSuffix(result, "-"),
 		"workspace name should not end with hyphen")
@@ -632,7 +635,7 @@ func TestExitCode2Error_Integration(t *testing.T) {
 	registry := template.NewDefaultRegistry()
 
 	// Test that non-interactive mode without template returns exit code 2 error
-	_, err := selectTemplate(context.Background(), registry, "", true, "text")
+	_, err := workflow.SelectTemplate(context.Background(), registry, "", true, "text")
 	require.Error(t, err)
 	assert.True(t, errors.IsExitCode2Error(err),
 		"missing template in non-interactive mode should return ExitCode2Error")
@@ -749,7 +752,7 @@ steps:
 	require.NoError(t, err)
 
 	// Verify custom template is selectable
-	tmpl, err := selectTemplate(context.Background(), registry, "custom-deploy", false, "text")
+	tmpl, err := workflow.SelectTemplate(context.Background(), registry, "custom-deploy", false, "text")
 	require.NoError(t, err)
 	assert.Equal(t, "custom-deploy", tmpl.Name)
 }
@@ -775,7 +778,7 @@ steps:
 	require.NoError(t, err)
 
 	// Select bugfix - should get custom version
-	tmpl, err := selectTemplate(context.Background(), registry, "bugfix", false, "text")
+	tmpl, err := workflow.SelectTemplate(context.Background(), registry, "bugfix", false, "text")
 	require.NoError(t, err)
 	assert.Equal(t, "bugfix", tmpl.Name)
 	assert.Equal(t, "hotfix", tmpl.BranchPrefix) // Custom uses "hotfix", built-in uses "fix"
@@ -819,11 +822,11 @@ func TestCleanupWorkspace_Success(t *testing.T) {
 	require.NoError(t, wsStore.Create(context.Background(), ws))
 
 	// Get current git repo path
-	repoPath, err := findGitRepository(context.Background())
+	repoPath, err := workflow.FindGitRepository(context.Background())
 	require.NoError(t, err)
 
 	// Cleanup should not error (though it may not actually destroy worktree if not created)
-	err = cleanupWorkspace(context.Background(), "test-cleanup-ws", repoPath)
+	err = workflow.CleanupWorkspace(context.Background(), "test-cleanup-ws", repoPath)
 	// May error if worktree doesn't exist, but should not panic
 	_ = err
 }
@@ -842,7 +845,7 @@ func TestHandleTaskStartError_WithNilTask(t *testing.T) {
 	}
 	require.NoError(t, wsStore.Create(context.Background(), ws))
 
-	repoPath, err := findGitRepository(context.Background())
+	repoPath, err := workflow.FindGitRepository(context.Background())
 	require.NoError(t, err)
 
 	sc := &startContext{outputFormat: "text"}
@@ -868,7 +871,7 @@ func TestHandleTaskStartError_WithExistingTask(t *testing.T) {
 	}
 	require.NoError(t, wsStore.Create(context.Background(), ws))
 
-	repoPath, err := findGitRepository(context.Background())
+	repoPath, err := workflow.FindGitRepository(context.Background())
 	require.NoError(t, err)
 
 	// Create a mock task
@@ -894,19 +897,12 @@ func TestHandleTaskStartError_WithExistingTask(t *testing.T) {
 
 func TestCreateWorkspace_NewWorkspace(t *testing.T) {
 	// This test requires being in a git repository
-	repoPath, err := findGitRepository(context.Background())
+	repoPath, err := workflow.FindGitRepository(context.Background())
 	require.NoError(t, err)
 
-	tmpDir := t.TempDir()
-	sc := &startContext{
-		outputFormat: "text",
-		out:          tui.NewOutput(os.Stdout, "text"),
-	}
-
 	// Create new workspace
-	ws, err := createWorkspace(
+	ws, err := workflow.CreateWorkspaceSimple(
 		context.Background(),
-		sc,
 		"test-new-ws-"+time.Now().Format("20060102150405"),
 		repoPath,
 		"test",
@@ -920,29 +916,20 @@ func TestCreateWorkspace_NewWorkspace(t *testing.T) {
 		assert.NotNil(t, ws)
 		assert.NotEmpty(t, ws.Name)
 		// Cleanup
-		_ = cleanupWorkspace(context.Background(), ws.Name, repoPath)
+		_ = workflow.CleanupWorkspace(context.Background(), ws.Name, repoPath)
 	}
-	// Store error in tmpDir to prevent unused variable warning
-	_ = tmpDir
 }
 
 func TestCreateWorkspace_ReuseExisting(t *testing.T) {
 	// This test requires being in a git repository
-	repoPath, err := findGitRepository(context.Background())
+	repoPath, err := workflow.FindGitRepository(context.Background())
 	require.NoError(t, err)
 
-	tmpDir := t.TempDir()
 	wsName := "test-reuse-ws-" + time.Now().Format("20060102150405")
 
-	sc := &startContext{
-		outputFormat: "text",
-		out:          tui.NewOutput(os.Stdout, "text"),
-	}
-
 	// Create first workspace
-	ws1, err := createWorkspace(
+	ws1, err := workflow.CreateWorkspaceSimple(
 		context.Background(),
-		sc,
 		wsName,
 		repoPath,
 		"test",
@@ -956,9 +943,8 @@ func TestCreateWorkspace_ReuseExisting(t *testing.T) {
 	require.NotNil(t, ws1)
 
 	// Try to create again with same name - should reuse
-	ws2, err := createWorkspace(
+	ws2, err := workflow.CreateWorkspaceSimple(
 		context.Background(),
-		sc,
 		wsName,
 		repoPath,
 		"test",
@@ -971,8 +957,7 @@ func TestCreateWorkspace_ReuseExisting(t *testing.T) {
 	assert.Equal(t, ws1.Name, ws2.Name)
 
 	// Cleanup
-	_ = cleanupWorkspace(context.Background(), wsName, repoPath)
-	_ = tmpDir
+	_ = workflow.CleanupWorkspace(context.Background(), wsName, repoPath)
 }
 
 func TestStartTaskExecution_ContextCanceled(t *testing.T) {
@@ -1057,7 +1042,7 @@ func TestApplyVerifyOverrides(t *testing.T) {
 				},
 			}
 
-			applyVerifyOverrides(tmpl, tt.verifyFlag, tt.noVerifyFlag)
+			workflow.ApplyVerifyOverrides(tmpl, tt.verifyFlag, tt.noVerifyFlag)
 
 			assert.Equal(t, tt.wantVerify, tmpl.Verify)
 			// Verify step's Required field should match
@@ -1080,7 +1065,7 @@ func TestApplyVerifyOverrides_WithVerifyModel(t *testing.T) {
 		},
 	}
 
-	applyVerifyOverrides(tmpl, false, false)
+	workflow.ApplyVerifyOverrides(tmpl, false, false)
 
 	// Verify model should be propagated to step config
 	require.NotNil(t, tmpl.Steps[0].Config)
@@ -1101,7 +1086,7 @@ func TestApplyVerifyOverrides_NoVerifyStep(t *testing.T) {
 
 	// Should not panic when no verify step exists
 	require.NotPanics(t, func() {
-		applyVerifyOverrides(tmpl, false, true)
+		workflow.ApplyVerifyOverrides(tmpl, false, true)
 	})
 
 	assert.False(t, tmpl.Verify)
@@ -1127,7 +1112,7 @@ func TestApplyVerifyOverrides_DifferentAgentIgnoresVerifyModel(t *testing.T) {
 		},
 	}
 
-	applyVerifyOverrides(tmpl, false, false)
+	workflow.ApplyVerifyOverrides(tmpl, false, false)
 
 	// VerifyModel should NOT be applied because step uses different agent
 	// The empty model should remain empty (step executor will use agent's default)
@@ -1155,7 +1140,7 @@ func TestApplyVerifyOverrides_SameAgentAppliesVerifyModel(t *testing.T) {
 		},
 	}
 
-	applyVerifyOverrides(tmpl, false, false)
+	workflow.ApplyVerifyOverrides(tmpl, false, false)
 
 	// VerifyModel SHOULD be applied because step uses same agent
 	assert.Equal(t, "opus", tmpl.Steps[0].Config["model"])
@@ -1178,7 +1163,7 @@ func TestApplyVerifyOverrides_NoAgentOverrideAppliesVerifyModel(t *testing.T) {
 		},
 	}
 
-	applyVerifyOverrides(tmpl, false, false)
+	workflow.ApplyVerifyOverrides(tmpl, false, false)
 
 	// VerifyModel should be applied (step uses template's default agent)
 	require.NotNil(t, tmpl.Steps[0].Config)
@@ -1204,7 +1189,7 @@ func TestApplyVerifyOverrides_ExplicitModelNotOverwritten(t *testing.T) {
 		},
 	}
 
-	applyVerifyOverrides(tmpl, false, false)
+	workflow.ApplyVerifyOverrides(tmpl, false, false)
 
 	// Explicit model should be preserved
 	assert.Equal(t, "sonnet", tmpl.Steps[0].Config["model"])
@@ -1230,7 +1215,7 @@ func TestApplyVerifyOverrides_DifferentAgentWithExplicitModel(t *testing.T) {
 		},
 	}
 
-	applyVerifyOverrides(tmpl, false, false)
+	workflow.ApplyVerifyOverrides(tmpl, false, false)
 
 	// Explicit model should be preserved
 	assert.Equal(t, "pro", tmpl.Steps[0].Config["model"])
@@ -1520,7 +1505,7 @@ func TestApplyAgentModelOverrides(t *testing.T) {
 				DefaultModel: "",
 			}
 
-			applyAgentModelOverrides(tmpl, tt.agent, tt.model)
+			workflow.ApplyAgentModelOverrides(tmpl, tt.agent, tt.model)
 
 			assert.Equal(t, tt.expectAgent, tmpl.DefaultAgent)
 			assert.Equal(t, tt.expectModel, tmpl.DefaultModel)
@@ -1561,9 +1546,8 @@ func TestCreateValidationRetryHandler(t *testing.T) {
 				},
 			}
 			aiRunner := &mockAIRunner{}
-			logger := zerolog.Nop()
 
-			handler := createValidationRetryHandler(aiRunner, cfg, logger)
+			handler := workflow.CreateValidationRetryHandler(aiRunner, cfg)
 
 			if tt.expectNil {
 				assert.Nil(t, handler)
@@ -1599,7 +1583,7 @@ func TestCreateNotifiers(t *testing.T) {
 				},
 			}
 
-			notifier, stateNotifier := createNotifiers(cfg)
+			notifier, stateNotifier := workflow.CreateNotifiers(cfg)
 
 			require.NotNil(t, notifier)
 			require.NotNil(t, stateNotifier)
@@ -1634,9 +1618,7 @@ func TestCreateAIRunner(t *testing.T) {
 					Agent: tt.agent,
 				},
 			}
-			logger := zerolog.Nop()
-
-			runner := createAIRunner(cfg, logger)
+			runner := workflow.CreateAIRunner(cfg)
 
 			require.NotNil(t, runner)
 		})
@@ -1775,16 +1757,9 @@ func TestCreateWorkspace_WithTargetBranch(t *testing.T) {
 		runGitCommand(t, repoPath, "branch", "feat/target-branch")
 
 		// Create startContext
-		sc := &startContext{
-			ctx:          context.Background(),
-			outputFormat: "text",
-			out:          tui.NewOutput(os.Stdout, "text"),
-		}
-
 		// Call createWorkspace with targetBranch
-		ws, err := createWorkspace(
+		ws, err := workflow.CreateWorkspaceSimple(
 			context.Background(),
-			sc,
 			"hotfix-workspace",
 			repoPath,
 			"hotfix",             // branchPrefix (fallback, not used when targetBranch set)
@@ -1799,7 +1774,7 @@ func TestCreateWorkspace_WithTargetBranch(t *testing.T) {
 		assert.Equal(t, "feat/target-branch", ws.Branch, "should use the target branch, not create new")
 
 		// Cleanup
-		_ = cleanupWorkspace(context.Background(), ws.Name, repoPath)
+		_ = workflow.CleanupWorkspace(context.Background(), ws.Name, repoPath)
 	})
 
 	t.Run("returns error for non-existent target branch", func(t *testing.T) {
@@ -1817,16 +1792,9 @@ func TestCreateWorkspace_WithTargetBranch(t *testing.T) {
 		runGitCommand(t, repoPath, "add", ".")
 		runGitCommand(t, repoPath, "commit", "-m", "Initial commit")
 
-		sc := &startContext{
-			ctx:          context.Background(),
-			outputFormat: "text",
-			out:          tui.NewOutput(os.Stdout, "text"),
-		}
-
 		// Try to create workspace with non-existent branch
-		_, err := createWorkspace(
+		_, err := workflow.CreateWorkspaceSimple(
 			context.Background(),
-			sc,
 			"hotfix-workspace",
 			repoPath,
 			"hotfix",
@@ -1893,15 +1861,8 @@ func TestTargetFlag_Integration(t *testing.T) {
 		}
 
 		// Create workspace with target branch
-		sc := &startContext{
-			ctx:          context.Background(),
-			outputFormat: "text",
-			out:          tui.NewOutput(os.Stdout, "text"),
-		}
-
-		ws, err := createWorkspace(
+		ws, err := workflow.CreateWorkspaceSimple(
 			context.Background(),
-			sc,
 			"hotfix-test-"+time.Now().Format("20060102150405"),
 			repoPath,
 			hotfixTmpl.BranchPrefix,
@@ -1921,6 +1882,6 @@ func TestTargetFlag_Integration(t *testing.T) {
 		require.NoError(t, err, "worktree should contain feature.go from target branch")
 
 		// Cleanup
-		_ = cleanupWorkspace(context.Background(), ws.Name, repoPath)
+		_ = workflow.CleanupWorkspace(context.Background(), ws.Name, repoPath)
 	})
 }
