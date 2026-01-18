@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/rs/zerolog"
+
 	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/domain"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
@@ -76,13 +78,21 @@ func (fl *fileLock) LockWithContext(ctx context.Context, timeout time.Duration) 
 	}
 }
 
-// Unlock releases the lock and closes the file.
+// Unlock releases the lock, closes the file, and cleans up the lock file.
+// Lock file removal is best-effort to prevent accumulation of stale lock files.
 func (fl *fileLock) Unlock() error {
 	if fl.file == nil {
 		return nil
 	}
 	_ = flock.Unlock(fl.file.Fd())
-	return fl.file.Close()
+	err := fl.file.Close()
+
+	// Clean up lock file (best-effort, ignore errors)
+	// This prevents accumulation of stale .lock files over time.
+	// Other processes waiting for the lock will recreate it via O_CREATE.
+	_ = os.Remove(fl.path)
+
+	return err
 }
 
 // ErrHookNotFound is returned when a hook file does not exist.
@@ -137,6 +147,9 @@ type FileStore struct {
 
 	// lockTimeout is the timeout for acquiring file locks.
 	lockTimeout time.Duration
+
+	// logger for diagnostic messages (optional).
+	logger *zerolog.Logger
 }
 
 // FileStoreOption configures a FileStore.
@@ -153,6 +166,14 @@ func WithMarkdownGenerator(gen MarkdownGenerator) FileStoreOption {
 func WithLockTimeout(timeout time.Duration) FileStoreOption {
 	return func(fs *FileStore) {
 		fs.lockTimeout = timeout
+	}
+}
+
+// WithLogger sets a logger for diagnostic messages.
+// If not set, markdown generation errors are silently ignored.
+func WithLogger(logger *zerolog.Logger) FileStoreOption {
+	return func(fs *FileStore) {
+		fs.logger = logger
 	}
 }
 
@@ -220,14 +241,8 @@ func (fs *FileStore) Create(ctx context.Context, taskID, workspaceID string) (*d
 		return nil, fmt.Errorf("failed to write hook file: %w", err)
 	}
 
-	// Generate markdown if available
-	if fs.markdownGenerator != nil {
-		mdPath := fs.markdownPath(taskID)
-		mdContent, genErr := fs.markdownGenerator.Generate(hook)
-		if genErr == nil {
-			_ = fs.atomicWrite(mdPath, mdContent)
-		}
-	}
+	// Generate markdown if available (non-critical, log errors but don't fail)
+	fs.writeMarkdown(hook)
 
 	return hook, nil
 }
@@ -271,7 +286,11 @@ func (fs *FileStore) GetSnapshot(ctx context.Context, taskID string) (*domain.Ho
 	if err != nil {
 		return nil, err
 	}
-	return hook.DeepCopy(), nil
+	snapshot, err := hook.DeepCopy()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create hook snapshot: %w", err)
+	}
+	return snapshot, nil
 }
 
 // Save persists the hook state atomically with full locking.
@@ -306,14 +325,8 @@ func (fs *FileStore) Save(ctx context.Context, hook *domain.Hook) error {
 		return fmt.Errorf("failed to write hook file: %w", err)
 	}
 
-	// Regenerate HOOK.md inside lock for consistency
-	if fs.markdownGenerator != nil {
-		mdPath := fs.markdownPath(hook.TaskID)
-		mdContent, genErr := fs.markdownGenerator.Generate(hook)
-		if genErr == nil {
-			_ = fs.atomicWrite(mdPath, mdContent) // Ignore error - markdown is non-critical
-		}
-	}
+	// Regenerate HOOK.md inside lock for consistency (non-critical, log errors but don't fail)
+	fs.writeMarkdown(hook)
 
 	return nil
 }
@@ -363,34 +376,47 @@ func (fs *FileStore) Update(ctx context.Context, taskID string, modifier func(*d
 		return fmt.Errorf("failed to write hook file: %w", err)
 	}
 
-	// Regenerate HOOK.md if generator is available
-	//nolint:godox // Note explains intentional behavior
-	// Note: We do this inside the lock to ensure consistency, though it might slow down slightly
-	if fs.markdownGenerator != nil {
-		mdPath := fs.markdownPath(hook.TaskID)
-		mdContent, genErr := fs.markdownGenerator.Generate(&hook)
-		if genErr == nil {
-			_ = fs.atomicWrite(mdPath, mdContent)
-		}
-	}
+	// Regenerate HOOK.md if generator is available (non-critical, log errors but don't fail)
+	// We do this inside the lock to ensure consistency, though it might slow down slightly
+	fs.writeMarkdown(&hook)
 
 	return nil
 }
 
 // Delete removes the hook files.
-func (fs *FileStore) Delete(_ context.Context, taskID string) error {
+// The lock is acquired to prevent race conditions with concurrent read/write operations.
+func (fs *FileStore) Delete(ctx context.Context, taskID string) error {
 	hookPath := fs.hookPath(taskID)
-	mdPath := fs.markdownPath(taskID)
 
-	// Remove hook.json
+	// Check if hook exists before trying to acquire lock.
+	// This handles the common case of deleting non-existent hooks without
+	// requiring the directory to exist for the lock file.
+	if _, err := os.Stat(hookPath); os.IsNotExist(err) {
+		// Hook doesn't exist, nothing to delete - this is success
+		return nil
+	}
+
+	// Acquire lock to prevent race with concurrent read/write operations
+	lock := newFileLock(hookPath + ".lock")
+	if err := lock.LockWithContext(ctx, fs.lockTimeout); err != nil {
+		return fmt.Errorf("failed to acquire lock for delete: %w", err)
+	}
+	defer func() { _ = lock.Unlock() }()
+
+	// Remove hook.json (under lock)
+	// Re-check with IsNotExist in case it was deleted between stat and lock
 	if err := os.Remove(hookPath); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("failed to delete hook file: %w", err)
 	}
 
-	// Remove HOOK.md
+	// Remove HOOK.md (under lock)
+	mdPath := fs.markdownPath(taskID)
 	if err := os.Remove(mdPath); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("failed to delete markdown file: %w", err)
 	}
+
+	// Clean up lock file
+	_ = os.Remove(hookPath + ".lock")
 
 	return nil
 }
@@ -409,10 +435,11 @@ func (fs *FileStore) Exists(_ context.Context, taskID string) (bool, error) {
 }
 
 // ListStale returns all hooks that haven't been updated within threshold.
-func (fs *FileStore) ListStale(_ context.Context, threshold time.Duration) ([]*domain.Hook, error) {
+// Uses GetSnapshot for each hook to ensure consistent, locked reads.
+func (fs *FileStore) ListStale(ctx context.Context, threshold time.Duration) ([]*domain.Hook, error) {
 	var staleHooks []*domain.Hook
 
-	// Walk through all hook files
+	// Walk through all hook files to discover taskIDs
 	err := filepath.WalkDir(fs.basePath, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -423,20 +450,22 @@ func (fs *FileStore) ListStale(_ context.Context, threshold time.Duration) ([]*d
 			return nil
 		}
 
-		// Read the hook
-		data, readErr := os.ReadFile(path) //nolint:gosec // path is from filepath.WalkDir, safe within basePath
-		if readErr != nil {
-			return nil //nolint:nilerr // Skip unreadable files in WalkDir, continue processing others
+		// Extract taskID from path for proper locking
+		taskID := fs.extractTaskIDFromPath(path)
+		if taskID == "" {
+			return nil // Skip if we can't determine taskID
 		}
 
-		var hook domain.Hook
-		if unmarshalErr := json.Unmarshal(data, &hook); unmarshalErr != nil {
-			return nil //nolint:nilerr // Skip invalid hook files in WalkDir, continue processing others
+		// Use GetSnapshot for locked, consistent read
+		hook, getErr := fs.GetSnapshot(ctx, taskID)
+		if getErr != nil {
+			// Skip unreadable hooks (may have been deleted between walk and read)
+			return nil //nolint:nilerr // Continue processing other hooks
 		}
 
 		// Check if stale and not terminal
 		if !domain.IsTerminalState(hook.State) && time.Since(hook.UpdatedAt) > threshold {
-			staleHooks = append(staleHooks, &hook)
+			staleHooks = append(staleHooks, hook)
 		}
 
 		return nil
@@ -446,6 +475,21 @@ func (fs *FileStore) ListStale(_ context.Context, threshold time.Duration) ([]*d
 	}
 
 	return staleHooks, nil
+}
+
+// extractTaskIDFromPath extracts the taskID from a hook.json path.
+// Path format: basePath/taskID/hook.json
+func (fs *FileStore) extractTaskIDFromPath(hookPath string) string {
+	// Remove the hook.json filename to get the task directory
+	taskDir := filepath.Dir(hookPath)
+
+	// Get the relative path from basePath
+	relPath, err := filepath.Rel(fs.basePath, taskDir)
+	if err != nil {
+		return ""
+	}
+
+	return relPath
 }
 
 // hookPath returns the path to hook.json for a task.
@@ -476,6 +520,7 @@ func (fs *FileStore) readWithLock(ctx context.Context, path string) ([]byte, err
 }
 
 // atomicWrite writes data to a file atomically using temp file + rename.
+// After the rename, the parent directory is synced to ensure durability on POSIX systems.
 func (fs *FileStore) atomicWrite(path string, data []byte) error {
 	dir := filepath.Dir(path)
 
@@ -510,7 +555,54 @@ func (fs *FileStore) atomicWrite(path string, data []byte) error {
 		return fmt.Errorf("failed to rename temp file: %w", err)
 	}
 
+	// Sync parent directory to ensure rename is durable on POSIX systems.
+	// This ensures the directory metadata (which records the rename) is on disk.
+	// Failure here is logged but not fatal - the data is likely safe.
+	_ = syncDir(dir)
+
 	return nil
+}
+
+// syncDir ensures directory metadata is flushed to disk.
+// This is required for durable atomic file operations on POSIX systems,
+// as os.Rename() may only update kernel buffer cache without persisting
+// the directory entry change to disk.
+func syncDir(dirPath string) error {
+	d, err := os.Open(dirPath) // #nosec G304 -- dirPath is controlled by the application
+	if err != nil {
+		return err
+	}
+	defer func() { _ = d.Close() }()
+	return d.Sync()
+}
+
+// writeMarkdown generates and writes HOOK.md for the given hook.
+// Errors are logged but don't cause operation failure (markdown is non-critical).
+func (fs *FileStore) writeMarkdown(hook *domain.Hook) {
+	if fs.markdownGenerator == nil {
+		return
+	}
+
+	mdPath := fs.markdownPath(hook.TaskID)
+	mdContent, genErr := fs.markdownGenerator.Generate(hook)
+	if genErr != nil {
+		if fs.logger != nil {
+			fs.logger.Warn().
+				Str("task_id", hook.TaskID).
+				Err(genErr).
+				Msg("failed to generate HOOK.md")
+		}
+		return
+	}
+
+	if writeErr := fs.atomicWrite(mdPath, mdContent); writeErr != nil {
+		if fs.logger != nil {
+			fs.logger.Warn().
+				Str("task_id", hook.TaskID).
+				Err(writeErr).
+				Msg("failed to write HOOK.md")
+		}
+	}
 }
 
 // MarkdownGenerator generates HOOK.md content from hook state.
