@@ -7,7 +7,6 @@
 package domain
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -15,6 +14,10 @@ import (
 
 // ErrNilHook is returned when attempting to perform operations on a nil hook.
 var ErrNilHook = errors.New("hook is nil")
+
+// DefaultMaxHistoryEvents is the maximum number of history events to retain.
+// Older events are pruned to prevent unbounded memory growth.
+const DefaultMaxHistoryEvents = 200
 
 // HookState represents the state machine position for crash recovery.
 type HookState string
@@ -254,24 +257,156 @@ type Hook struct {
 // This is useful when you need to inspect hook state without risking
 // accidental modifications that could lead to race conditions.
 //
-// The copy is created via JSON round-trip which handles all nested
-// structures correctly. Returns ErrNilHook if the hook is nil, or
-// an error if marshaling/unmarshaling fails.
+// Returns ErrNilHook if the hook is nil.
 func (h *Hook) DeepCopy() (*Hook, error) {
 	if h == nil {
 		return nil, ErrNilHook
 	}
 
-	// Use JSON round-trip for simplicity (acceptable for read-only copies)
-	data, err := json.Marshal(h)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal hook for deep copy: %w", err)
+	copyHook := &Hook{
+		Version:       h.Version,
+		TaskID:        h.TaskID,
+		WorkspaceID:   h.WorkspaceID,
+		CreatedAt:     h.CreatedAt,
+		UpdatedAt:     h.UpdatedAt,
+		State:         h.State,
+		SchemaVersion: h.SchemaVersion,
 	}
 
-	var copyHook Hook
-	if err := json.Unmarshal(data, &copyHook); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal hook for deep copy: %w", err)
+	// Deep copy CurrentStep
+	if h.CurrentStep != nil {
+		copyHook.CurrentStep = h.CurrentStep.deepCopy()
 	}
 
-	return &copyHook, nil
+	// Deep copy History
+	if len(h.History) > 0 {
+		copyHook.History = make([]HookEvent, len(h.History))
+		for i, event := range h.History {
+			copyHook.History[i] = event.deepCopy()
+		}
+	}
+
+	// Deep copy Recovery
+	if h.Recovery != nil {
+		copyHook.Recovery = h.Recovery.deepCopy()
+	}
+
+	// Deep copy Checkpoints
+	if len(h.Checkpoints) > 0 {
+		copyHook.Checkpoints = make([]StepCheckpoint, len(h.Checkpoints))
+		for i, cp := range h.Checkpoints {
+			copyHook.Checkpoints[i] = cp.deepCopy()
+		}
+	}
+
+	// Deep copy Receipts (no nested pointers/slices, shallow copy is sufficient)
+	if len(h.Receipts) > 0 {
+		copyHook.Receipts = make([]ValidationReceipt, len(h.Receipts))
+		copy(copyHook.Receipts, h.Receipts)
+	}
+
+	return copyHook, nil
+}
+
+// deepCopy creates a deep copy of StepContext.
+func (s *StepContext) deepCopy() *StepContext {
+	c := &StepContext{
+		StepName:            s.StepName,
+		StepIndex:           s.StepIndex,
+		StartedAt:           s.StartedAt,
+		Attempt:             s.Attempt,
+		MaxAttempts:         s.MaxAttempts,
+		WorkingOn:           s.WorkingOn,
+		LastOutput:          s.LastOutput,
+		CurrentCheckpointID: s.CurrentCheckpointID,
+	}
+	if len(s.FilesTouched) > 0 {
+		c.FilesTouched = make([]string, len(s.FilesTouched))
+		copy(c.FilesTouched, s.FilesTouched)
+	}
+	return c
+}
+
+// deepCopy creates a deep copy of HookEvent.
+func (e HookEvent) deepCopy() HookEvent {
+	c := HookEvent{
+		Timestamp: e.Timestamp,
+		FromState: e.FromState,
+		ToState:   e.ToState,
+		Trigger:   e.Trigger,
+		StepName:  e.StepName,
+	}
+	if len(e.Details) > 0 {
+		c.Details = deepCopyMap(e.Details)
+	}
+	return c
+}
+
+// deepCopy creates a deep copy of RecoveryContext.
+func (r *RecoveryContext) deepCopy() *RecoveryContext {
+	return &RecoveryContext{
+		DetectedAt:        r.DetectedAt,
+		CrashType:         r.CrashType,
+		LastKnownState:    r.LastKnownState,
+		WasValidating:     r.WasValidating,
+		ValidationCmd:     r.ValidationCmd,
+		PartialOutput:     r.PartialOutput,
+		RecommendedAction: r.RecommendedAction,
+		Reason:            r.Reason,
+		LastCheckpointID:  r.LastCheckpointID,
+	}
+}
+
+// deepCopy creates a deep copy of StepCheckpoint.
+func (c StepCheckpoint) deepCopy() StepCheckpoint {
+	cp := StepCheckpoint{
+		CheckpointID: c.CheckpointID,
+		CreatedAt:    c.CreatedAt,
+		StepName:     c.StepName,
+		StepIndex:    c.StepIndex,
+		Description:  c.Description,
+		Trigger:      c.Trigger,
+		GitBranch:    c.GitBranch,
+		GitCommit:    c.GitCommit,
+		GitDirty:     c.GitDirty,
+	}
+	if len(c.Artifacts) > 0 {
+		cp.Artifacts = make([]string, len(c.Artifacts))
+		copy(cp.Artifacts, c.Artifacts)
+	}
+	if len(c.FilesSnapshot) > 0 {
+		cp.FilesSnapshot = make([]FileSnapshot, len(c.FilesSnapshot))
+		copy(cp.FilesSnapshot, c.FilesSnapshot)
+	}
+	return cp
+}
+
+// deepCopyMap creates a deep copy of map[string]any.
+// Handles nested maps and slices recursively.
+func deepCopyMap(m map[string]any) map[string]any {
+	if m == nil {
+		return nil
+	}
+	c := make(map[string]any, len(m))
+	for k, v := range m {
+		c[k] = deepCopyValue(v)
+	}
+	return c
+}
+
+// deepCopyValue recursively copies values for map deep copy.
+func deepCopyValue(v any) any {
+	switch val := v.(type) {
+	case map[string]any:
+		return deepCopyMap(val)
+	case []any:
+		c := make([]any, len(val))
+		for i, item := range val {
+			c[i] = deepCopyValue(item)
+		}
+		return c
+	default:
+		// Primitives (string, int, float, bool, nil) are safe to copy directly
+		return v
+	}
 }
