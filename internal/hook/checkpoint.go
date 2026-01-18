@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/rs/zerolog"
 
 	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/domain"
@@ -225,6 +226,7 @@ type IntervalCheckpointer struct {
 	taskID       string // Store taskID instead of hook pointer to avoid data races
 	store        Store
 	interval     time.Duration
+	logger       zerolog.Logger
 
 	mu     sync.Mutex
 	cancel context.CancelFunc
@@ -233,12 +235,13 @@ type IntervalCheckpointer struct {
 
 // NewIntervalCheckpointer creates a new interval checkpointer.
 // It stores the taskID rather than a hook pointer to ensure thread-safe access.
-func NewIntervalCheckpointer(checkpointer *Checkpointer, taskID string, store Store, interval time.Duration) *IntervalCheckpointer {
+func NewIntervalCheckpointer(checkpointer *Checkpointer, taskID string, store Store, interval time.Duration, logger zerolog.Logger) *IntervalCheckpointer {
 	return &IntervalCheckpointer{
 		checkpointer: checkpointer,
 		taskID:       taskID,
 		store:        store,
 		interval:     interval,
+		logger:       logger,
 	}
 }
 
@@ -261,8 +264,10 @@ func (ic *IntervalCheckpointer) Start(ctx context.Context) {
 			if r := recover(); r != nil {
 				// Panic recovered - checkpointing has stopped.
 				// The done channel is closed by the outer defer, allowing Stop() to complete.
-				// In production, this would be logged: log.Error("interval checkpointer panic", "recover", r)
-				_ = r // Explicitly ignored - recovery is sufficient
+				ic.logger.Error().
+					Interface("panic", r).
+					Str("task_id", ic.taskID).
+					Msg("interval checkpointer panic recovered")
 			}
 		}()
 
@@ -312,8 +317,10 @@ func (ic *IntervalCheckpointer) createIntervalCheckpoint(ctx context.Context) {
 		return ic.checkpointer.CreateCheckpoint(ctx, hook, domain.CheckpointTriggerInterval, "Periodic checkpoint")
 	})
 	if err != nil {
-		// Log error in production
-		// fmt.Printf("Error creating interval checkpoint: %v\n", err)
+		ic.logger.Warn().
+			Err(err).
+			Str("task_id", ic.taskID).
+			Msg("failed to create interval checkpoint")
 		return
 	}
 }

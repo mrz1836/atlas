@@ -17,15 +17,20 @@ import (
 	"github.com/mrz1836/atlas/internal/flock"
 )
 
+// slowLockThreshold is the duration above which lock acquisition is considered slow.
+const slowLockThreshold = 100 * time.Millisecond
+
 // fileLock wraps a file descriptor for locking operations.
 type fileLock struct {
-	path string
-	file *os.File
+	path   string
+	file   *os.File
+	logger *zerolog.Logger // Optional, for slow lock logging
 }
 
-// New creates a new fileLock for the given path.
-func newFileLock(path string) *fileLock {
-	return &fileLock{path: path}
+// newFileLock creates a new fileLock for the given path.
+// The logger is optional and used for slow lock acquisition warnings.
+func newFileLock(path string, logger *zerolog.Logger) *fileLock {
+	return &fileLock{path: path, logger: logger}
 }
 
 // LockWithTimeout acquires an exclusive lock with timeout using retry.
@@ -38,6 +43,16 @@ func (fl *fileLock) LockWithTimeout(timeout time.Duration) error {
 // The lock acquisition can be interrupted by canceling the context, which is important
 // for responsive shutdown handling.
 func (fl *fileLock) LockWithContext(ctx context.Context, timeout time.Duration) error {
+	start := time.Now()
+	defer func() {
+		if elapsed := time.Since(start); elapsed > slowLockThreshold && fl.logger != nil {
+			fl.logger.Warn().
+				Dur("elapsed", elapsed).
+				Str("path", fl.path).
+				Msg("slow lock acquisition")
+		}
+	}()
+
 	var err error
 	fl.file, err = os.OpenFile(fl.path, os.O_RDWR|os.O_CREATE, 0o600)
 	if err != nil {
@@ -179,9 +194,11 @@ func WithLogger(logger *zerolog.Logger) FileStoreOption {
 
 // NewFileStore creates a new FileStore.
 func NewFileStore(basePath string, opts ...FileStoreOption) *FileStore {
+	nopLogger := zerolog.Nop()
 	fs := &FileStore{
 		basePath:    basePath,
 		lockTimeout: 5 * time.Second,
+		logger:      &nopLogger, // Default to nop logger, never nil
 	}
 
 	for _, opt := range opts {
@@ -204,7 +221,7 @@ func (fs *FileStore) Create(ctx context.Context, taskID, workspaceID string) (*d
 	}
 
 	// ACQUIRE LOCK FIRST to prevent TOCTOU race condition
-	lock := newFileLock(hookPath + ".lock")
+	lock := newFileLock(hookPath+".lock", fs.logger)
 	if err := lock.LockWithContext(ctx, fs.lockTimeout); err != nil {
 		return nil, fmt.Errorf("failed to acquire lock: %w", err)
 	}
@@ -305,7 +322,7 @@ func (fs *FileStore) Save(ctx context.Context, hook *domain.Hook) error {
 	}
 
 	// Acquire lock BEFORE modifying timestamp to ensure thread-safety
-	lock := newFileLock(hookPath + ".lock")
+	lock := newFileLock(hookPath+".lock", fs.logger)
 	if err := lock.LockWithContext(ctx, fs.lockTimeout); err != nil {
 		return fmt.Errorf("failed to acquire lock: %w", err)
 	}
@@ -336,7 +353,7 @@ func (fs *FileStore) Update(ctx context.Context, taskID string, modifier func(*d
 	hookPath := fs.hookPath(taskID)
 
 	// Acquire lock for the duration of read-modify-write
-	lock := newFileLock(hookPath + ".lock")
+	lock := newFileLock(hookPath+".lock", fs.logger)
 	if err := lock.LockWithContext(ctx, fs.lockTimeout); err != nil {
 		return fmt.Errorf("failed to acquire lock: %w", err)
 	}
@@ -397,7 +414,7 @@ func (fs *FileStore) Delete(ctx context.Context, taskID string) error {
 	}
 
 	// Acquire lock to prevent race with concurrent read/write operations
-	lock := newFileLock(hookPath + ".lock")
+	lock := newFileLock(hookPath+".lock", fs.logger)
 	if err := lock.LockWithContext(ctx, fs.lockTimeout); err != nil {
 		return fmt.Errorf("failed to acquire lock for delete: %w", err)
 	}
@@ -508,7 +525,7 @@ func (fs *FileStore) markdownPath(taskID string) string {
 
 // readWithLock reads a file with a lock, respecting context cancellation.
 func (fs *FileStore) readWithLock(ctx context.Context, path string) ([]byte, error) {
-	lock := newFileLock(path + ".lock")
+	lock := newFileLock(path+".lock", fs.logger)
 	if err := lock.LockWithContext(ctx, fs.lockTimeout); err != nil {
 		return nil, fmt.Errorf("failed to acquire lock: %w", err)
 	}
@@ -586,22 +603,18 @@ func (fs *FileStore) writeMarkdown(hook *domain.Hook) {
 	mdPath := fs.markdownPath(hook.TaskID)
 	mdContent, genErr := fs.markdownGenerator.Generate(hook)
 	if genErr != nil {
-		if fs.logger != nil {
-			fs.logger.Warn().
-				Str("task_id", hook.TaskID).
-				Err(genErr).
-				Msg("failed to generate HOOK.md")
-		}
+		fs.logger.Warn().
+			Str("task_id", hook.TaskID).
+			Err(genErr).
+			Msg("failed to generate HOOK.md")
 		return
 	}
 
 	if writeErr := fs.atomicWrite(mdPath, mdContent); writeErr != nil {
-		if fs.logger != nil {
-			fs.logger.Warn().
-				Str("task_id", hook.TaskID).
-				Err(writeErr).
-				Msg("failed to write HOOK.md")
-		}
+		fs.logger.Warn().
+			Str("task_id", hook.TaskID).
+			Err(writeErr).
+			Msg("failed to write HOOK.md")
 	}
 }
 

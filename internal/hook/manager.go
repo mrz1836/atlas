@@ -10,6 +10,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/rs/zerolog"
+
 	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/domain"
 )
@@ -23,13 +25,20 @@ var ErrNoCurrentStepContext = errors.New("no current step context")
 // ErrStepMismatch is returned when attempting to complete a step that doesn't match the current step.
 var ErrStepMismatch = errors.New("step name mismatch")
 
+// ErrEmptyStepName is returned when stepName is empty in TransitionStep.
+var ErrEmptyStepName = errors.New("stepName cannot be empty")
+
+// ErrNegativeStepIndex is returned when stepIndex is negative in TransitionStep.
+var ErrNegativeStepIndex = errors.New("stepIndex cannot be negative")
+
 // Manager implements task.HookManager and manages hook lifecycle.
 // It uses a FileStore for persistence and MarkdownGenerator for HOOK.md.
 type Manager struct {
 	store            *FileStore
 	cfg              *config.HookConfig
+	logger           zerolog.Logger
 	signer           ReceiptSigner // Optional signer for validation receipts
-	checkpointsMu    sync.Mutex
+	checkpointsMu    sync.RWMutex
 	intervalCheckers map[string]*IntervalCheckpointer // keyed by task ID
 }
 
@@ -41,6 +50,14 @@ type ManagerOption func(*Manager)
 func WithReceiptSigner(signer ReceiptSigner) ManagerOption {
 	return func(m *Manager) {
 		m.signer = signer
+	}
+}
+
+// WithManagerLogger sets the logger for the Manager.
+// If not set, a no-op logger is used.
+func WithManagerLogger(logger zerolog.Logger) ManagerOption {
+	return func(m *Manager) {
+		m.logger = logger
 	}
 }
 
@@ -68,6 +85,14 @@ func (m *Manager) CreateHook(ctx context.Context, task *domain.Task) error {
 
 // TransitionStep updates the hook when entering a step.
 func (m *Manager) TransitionStep(ctx context.Context, task *domain.Task, stepName string, stepIndex int) error {
+	// Validate inputs
+	if stepName == "" {
+		return ErrEmptyStepName
+	}
+	if stepIndex < 0 {
+		return fmt.Errorf("%w: %d", ErrNegativeStepIndex, stepIndex)
+	}
+
 	return m.store.Update(ctx, task.ID, func(h *domain.Hook) error {
 		// Validate transition before applying
 		if err := domain.ValidateTransition(h.State, domain.HookStateStepRunning); err != nil {
@@ -81,13 +106,19 @@ func (m *Manager) TransitionStep(ctx context.Context, task *domain.Task, stepNam
 		h.State = domain.HookStateStepRunning
 		h.UpdatedAt = now
 
+		// Determine max attempts from config or use default
+		maxAttempts := 3
+		if m.cfg != nil && m.cfg.MaxStepAttempts > 0 {
+			maxAttempts = m.cfg.MaxStepAttempts
+		}
+
 		// Update current step context
 		h.CurrentStep = &domain.StepContext{
 			StepName:    stepName,
 			StepIndex:   stepIndex,
 			StartedAt:   now,
 			Attempt:     1,
-			MaxAttempts: 3, // Default, could be made configurable
+			MaxAttempts: maxAttempts,
 		}
 
 		// Record transition
@@ -98,6 +129,7 @@ func (m *Manager) TransitionStep(ctx context.Context, task *domain.Task, stepNam
 			Trigger:   "step_started",
 			StepName:  stepName,
 		})
+		pruneHistory(h)
 
 		return nil
 	})
@@ -173,6 +205,7 @@ func (m *Manager) CompleteStep(ctx context.Context, task *domain.Task, stepName 
 			Trigger:   "step_completed",
 			StepName:  stepName,
 		})
+		pruneHistory(h)
 
 		// Update current step checkpoint reference
 		h.CurrentStep.CurrentCheckpointID = checkpoint.CheckpointID
@@ -207,6 +240,7 @@ func (m *Manager) FailStep(ctx context.Context, task *domain.Task, stepName stri
 				"error": stepErr.Error(),
 			},
 		})
+		pruneHistory(h)
 		return nil
 	})
 }
@@ -239,6 +273,7 @@ func (m *Manager) CompleteTask(ctx context.Context, task *domain.Task) error {
 			ToState:   domain.HookStateCompleted,
 			Trigger:   "task_completed",
 		})
+		pruneHistory(h)
 		return nil
 	})
 }
@@ -273,6 +308,7 @@ func (m *Manager) FailTask(ctx context.Context, task *domain.Task, taskErr error
 				"error": taskErr.Error(),
 			},
 		})
+		pruneHistory(h)
 		return nil
 	})
 }
@@ -301,7 +337,7 @@ func (m *Manager) StartIntervalCheckpointing(ctx context.Context, task *domain.T
 	if m.cfg != nil && m.cfg.CheckpointInterval > 0 {
 		interval = m.cfg.CheckpointInterval
 	}
-	ic := NewIntervalCheckpointer(checkpointer, task.ID, m.store, interval)
+	ic := NewIntervalCheckpointer(checkpointer, task.ID, m.store, interval, m.logger)
 
 	// Start interval checkpointing
 	ic.Start(ctx)
@@ -392,8 +428,10 @@ func (m *Manager) signReceiptIfAvailable(ctx context.Context, receipt *domain.Va
 	signErr := m.signer.SignReceipt(ctx, receipt, taskIndex)
 	if signErr != nil {
 		// Log but don't fail - unsigned receipts are still valuable for debugging
-		// In production, this would be: log.Warn("failed to sign receipt", "error", signErr)
-		_ = signErr // Intentionally ignoring - signing is optional per spec threat model
+		m.logger.Warn().
+			Err(signErr).
+			Int("task_index", int(taskIndex)).
+			Msg("failed to sign validation receipt")
 		return
 	}
 
@@ -411,6 +449,14 @@ func hashOutput(output string) string {
 	// Use crypto/sha256 for hashing
 	hash := sha256.Sum256([]byte(output))
 	return fmt.Sprintf("%x", hash[:8]) // First 8 bytes hex
+}
+
+// pruneHistory removes oldest history events if over the default limit.
+// This prevents unbounded growth of the history slice.
+func pruneHistory(h *domain.Hook) {
+	if len(h.History) > domain.DefaultMaxHistoryEvents {
+		h.History = h.History[len(h.History)-domain.DefaultMaxHistoryEvents:]
+	}
 }
 
 // formatReceiptDuration formats a duration as a human-readable string for receipts.
