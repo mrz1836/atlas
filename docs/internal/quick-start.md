@@ -23,6 +23,9 @@
    - [atlas format](#atlas-format)
    - [atlas lint](#atlas-lint)
    - [atlas test](#atlas-test)
+   - [atlas hook](#atlas-hook)
+   - [atlas checkpoint](#atlas-checkpoint)
+   - [atlas cleanup](#atlas-cleanup)
    - [atlas upgrade](#atlas-upgrade)
    - [atlas config](#atlas-config)
    - [atlas workspace](#atlas-workspace)
@@ -575,6 +578,177 @@ atlas test
 ```
 
 **Default Command:** `magex test`
+
+<br>
+
+### atlas hook
+
+Manage task recovery hooks. The hook system provides crash-resistant context persistence—when Claude Code crashes mid-task, you can resume exactly where you left off.
+
+```bash
+# View current hook state
+atlas hook status
+
+# List all checkpoints for current task
+atlas hook checkpoints
+
+# Verify a validation receipt's cryptographic signature
+atlas hook verify-receipt rcpt-00000001
+
+# Regenerate HOOK.md from hook.json (if corrupted)
+atlas hook regenerate
+
+# Export full hook state as JSON for debugging
+atlas hook export > hook-debug.json
+
+# Show instructions for installing git hooks
+atlas hook install
+```
+
+#### atlas hook status
+
+Display the current hook state for the active workspace.
+
+```bash
+atlas hook status
+
+# Output:
+# Hook State: step_running
+# Task: task-20260117-143022 (fix-null-pointer)
+# Step: implement (3/7), Attempt 2/3
+# Last Updated: 2 minutes ago
+# Last Checkpoint: ckpt-a1b2c3d4 (git_commit, 5 min ago)
+```
+
+**Exit Codes:**
+- `0`: Success
+- `1`: No active hook found
+- `2`: Hook in error state
+
+#### atlas hook checkpoints
+
+List all checkpoints for the current task.
+
+```bash
+atlas hook checkpoints
+
+# Output:
+# | Time     | Trigger       | Description                      |
+# |----------|---------------|----------------------------------|
+# | 14:42:15 | git_commit    | Added nil check for Server field |
+# | 14:38:22 | step_complete | Plan complete                    |
+```
+
+Checkpoints are created automatically on git commits, validation passes, step completions, and periodically during long-running steps.
+
+#### atlas hook verify-receipt
+
+Verify the cryptographic signature of a validation receipt.
+
+```bash
+atlas hook verify-receipt rcpt-00000001
+
+# Output:
+# Receipt: rcpt-00000001
+# Step: analyze
+# Command: magex lint
+# Exit Code: 0
+# Signature: VALID ✓
+```
+
+Validation receipts are signed proofs that validation actually ran, preventing scenarios where the AI claims validation passed without running it.
+
+#### atlas hook regenerate
+
+Regenerate HOOK.md from hook.json if the markdown file gets corrupted.
+
+```bash
+atlas hook regenerate
+```
+
+#### atlas hook export
+
+Export the full hook state as JSON for debugging.
+
+```bash
+atlas hook export > hook-debug.json
+```
+
+<br>
+
+### atlas checkpoint
+
+Create a manual checkpoint for the current task.
+
+```bash
+# Create a checkpoint with description
+atlas checkpoint "halfway through refactor"
+
+# Output:
+# Created checkpoint ckpt-e5f6g7h8: halfway through refactor
+
+# Specify a trigger type (for automation)
+atlas checkpoint --trigger git_commit "Post-commit checkpoint"
+```
+
+**Flags:**
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--trigger` | Checkpoint trigger type | `manual` |
+
+**Trigger Types:**
+- `manual` - User-initiated checkpoint (default)
+- `git_commit` - Triggered by git post-commit hook
+- `git_push` - Triggered by git post-push hook
+- `pr_created` - Triggered after PR creation
+- `validation` - Triggered after validation pass
+- `step_complete` - Triggered on step completion
+- `interval` - Triggered by interval timer
+
+**Exit Codes:**
+- `0`: Checkpoint created successfully
+- `1`: No active task found
+- `2`: Failed to create checkpoint
+
+<br>
+
+### atlas cleanup
+
+Clean up old task artifacts and hook files based on retention policies.
+
+```bash
+# Clean up all old artifacts
+atlas cleanup
+
+# Preview what would be deleted (dry run)
+atlas cleanup --dry-run
+
+# Only clean up old hook files
+atlas cleanup --hooks
+
+# Dry run for hooks only
+atlas cleanup --hooks --dry-run
+```
+
+**Flags:**
+
+| Flag | Description |
+|------|-------------|
+| `--dry-run` | Preview what would be deleted without removing files |
+| `--hooks` | Only clean up hook files (skip other artifact cleanup) |
+
+**Hook Retention Policy:**
+
+| Task State | Retention |
+|------------|-----------|
+| Completed | 30 days |
+| Failed | 7 days |
+| Abandoned | 7 days |
+
+**Exit Codes:**
+- `0`: Cleanup completed successfully
+- `1`: Cleanup failed
 
 <br>
 
@@ -1598,6 +1772,47 @@ verify:
     # - test_coverage
     # - garbage_files
     # - security
+
+#------------------------------------------------------------------------------
+# Hook System Configuration (Crash Recovery)
+#------------------------------------------------------------------------------
+hooks:
+  # Maximum number of checkpoints per task (oldest are pruned)
+  # Default: 50
+  max_checkpoints: 50
+
+  # Interval for periodic checkpoints during long-running steps
+  # Set to 0 to disable interval checkpoints
+  # Default: 5m
+  checkpoint_interval: 5m
+
+  # Time after which a hook is considered stale (potential crash)
+  # Default: 5m
+  stale_threshold: 5m
+
+  # Retention periods for hook files per terminal state
+  retention:
+    # Retention for completed task hooks
+    # Default: 720h (30 days)
+    completed: 720h
+
+    # Retention for failed task hooks
+    # Default: 168h (7 days)
+    failed: 168h
+
+    # Retention for abandoned task hooks
+    # Default: 168h (7 days)
+    abandoned: 168h
+
+  # Cryptographic provider configuration for receipt signing
+  crypto:
+    # Provider type: "native" (Ed25519)
+    # Default: "native"
+    provider: native
+
+    # Path to master key file
+    # Default: "~/.atlas/keys/master.key"
+    key_path: ~/.atlas/keys/master.key
 ```
 
 <br>
@@ -1611,6 +1826,8 @@ verify:
 ├── config.yaml                           # Global configuration
 ├── logs/
 │   └── atlas.log                         # CLI operations log (rotated)
+├── keys/
+│   └── master.key                        # Ed25519 signing key for receipts (0600)
 ├── backups/
 │   └── speckit-<timestamp>/              # Speckit upgrade backups
 └── workspaces/
@@ -1620,6 +1837,8 @@ verify:
             └── task-YYYYMMDD-HHMMSS/     # Task ID (timestamp-based)
                 ├── task.json             # Task state & step history
                 ├── task.log              # Full execution log (JSON-lines)
+                ├── hook.json             # Hook state (crash recovery source of truth)
+                ├── HOOK.md               # Human-readable recovery guide
                 └── artifacts/
                     ├── analyze.md        # Analysis output
                     ├── spec.md           # Specification (feature template)
@@ -1683,6 +1902,10 @@ cat ~/.atlas/workspaces/*/tasks/*/task.log | jq 'select(.event=="model_complete"
 | Gemini CLI not found | gemini not installed | `npm install -g @google/gemini-cli` |
 | Codex CLI not found | codex not installed | `npm install -g @openai/codex` |
 | No issues found (fix template) | Fix template found clean codebase | No action needed - task completes without PR |
+| `hook not found` | No active hook for current task | Start a new task or resume existing with `atlas resume` |
+| `Hook is stale` | Hook not updated in 5+ minutes (crash) | Run `atlas resume` to enter recovery mode |
+| `Signature invalid` | Receipt tampered or key regenerated | Re-run validation to create new receipt |
+| `Key manager error` | Master key missing/corrupted | Restore from backup or let ATLAS regenerate |
 
 ### Debugging
 
@@ -1701,6 +1924,19 @@ cat ~/.atlas/workspaces/my-workspace/tasks/*/task.log
 
 # Check configuration sources
 atlas config show
+
+# View hook state and recovery info
+atlas hook status
+atlas hook export | jq
+
+# List all checkpoints for current task
+atlas hook checkpoints
+
+# Verify a validation receipt
+atlas hook verify-receipt rcpt-00000001
+
+# View HOOK.md recovery guide
+cat ~/.atlas/workspaces/my-workspace/tasks/*/HOOK.md
 ```
 
 ### Getting Help
@@ -1723,5 +1959,5 @@ atlas config --help
 
 ---
 
-**Version:** 1.1.35
-**Last Updated:** 2026-01-10
+**Version:** 1.2.0
+**Last Updated:** 2026-01-17

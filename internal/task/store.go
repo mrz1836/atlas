@@ -747,7 +747,7 @@ func (s *FileStore) acquireLock(ctx context.Context, workspaceName, taskID strin
 	for {
 		select {
 		case <-ctx.Done():
-			_ = f.Close()
+			_ = f.Close() // cleanup in cancellation path, primary error is ctx.Err()
 			return nil, ctx.Err()
 		case <-ticker.C:
 			// Attempt to acquire exclusive non-blocking lock
@@ -756,7 +756,7 @@ func (s *FileStore) acquireLock(ctx context.Context, workspaceName, taskID strin
 			}
 
 			if time.Now().After(deadline) {
-				_ = f.Close()
+				_ = f.Close() // cleanup in timeout path, primary error is ErrLockTimeout
 				return nil, fmt.Errorf("failed to acquire lock: %w", atlaserrors.ErrLockTimeout)
 			}
 		}
@@ -772,7 +772,7 @@ func (s *FileStore) releaseLock(f *os.File) error {
 	// Release the lock
 	if err := flock.Unlock(f.Fd()); err != nil {
 		// Still try to close the file
-		_ = f.Close()
+		_ = f.Close() // cleanup after unlock failure, primary error is unlock error
 		return fmt.Errorf("failed to release lock: %w", err)
 	}
 
@@ -791,27 +791,27 @@ func atomicWrite(path string, data []byte) error {
 
 	// Write data
 	if _, err := f.Write(data); err != nil {
-		_ = f.Close()
-		_ = os.Remove(tmpPath)
+		_ = f.Close()          // cleanup in error path, primary error is write error
+		_ = os.Remove(tmpPath) // best-effort cleanup of temp file
 		return fmt.Errorf("failed to write data: %w", err)
 	}
 
 	// Sync to disk (ensure data is persisted before rename)
 	if err := f.Sync(); err != nil {
-		_ = f.Close()
-		_ = os.Remove(tmpPath)
+		_ = f.Close()          // cleanup in error path, primary error is sync error
+		_ = os.Remove(tmpPath) // best-effort cleanup of temp file
 		return fmt.Errorf("failed to sync file: %w", err)
 	}
 
 	// Close file before rename
 	if err := f.Close(); err != nil {
-		_ = os.Remove(tmpPath)
+		_ = os.Remove(tmpPath) // best-effort cleanup of temp file
 		return fmt.Errorf("failed to close file: %w", err)
 	}
 
 	// Atomic rename
 	if err := os.Rename(tmpPath, path); err != nil {
-		_ = os.Remove(tmpPath)
+		_ = os.Remove(tmpPath) // best-effort cleanup of temp file
 		return fmt.Errorf("failed to rename file: %w", err)
 	}
 

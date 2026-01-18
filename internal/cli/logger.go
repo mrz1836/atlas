@@ -210,8 +210,11 @@ func (w *taskLogWriter) persistToTaskLog(p []byte) {
 		return
 	}
 
-	// Persist to task log - errors are ignored to avoid disrupting logging
-	_ = w.store.AppendLog(context.Background(), fields.WorkspaceName, fields.TaskID, p)
+	// Persist to task log with timeout to prevent blocking on slow disk I/O.
+	// Errors are ignored to avoid disrupting normal logging.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_ = w.store.AppendLog(ctx, fields.WorkspaceName, fields.TaskID, p)
 }
 
 // CloseLogFile closes the global log file writer if it was opened.

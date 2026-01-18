@@ -39,6 +39,7 @@ type AtlasConfig struct {
 	AI            AIConfig           `yaml:"ai"`
 	Validation    ValidationConfig   `yaml:"validation"`
 	Notifications NotificationConfig `yaml:"notifications"`
+	Hooks         HookConfig         `yaml:"hooks"`
 }
 
 // AIConfig holds AI provider configuration.
@@ -543,7 +544,22 @@ func buildDefaultConfig(toolResult *config.ToolDetectionResult) AtlasConfig {
 		},
 		// Use reusable DefaultNotificationConfig from notification_config.go
 		Notifications: DefaultNotificationConfig(),
+		Hooks: HookConfig{
+			Crypto: CryptoConfig{
+				Provider: "native",
+			},
+		},
 	}
+}
+
+// HookConfig holds hook system configuration.
+type HookConfig struct {
+	Crypto CryptoConfig `yaml:"crypto"`
+}
+
+// CryptoConfig holds cryptographic configuration.
+type CryptoConfig struct {
+	Provider string `yaml:"provider"`
 }
 
 // saveConfig writes the configuration to ~/.atlas/config.yaml.

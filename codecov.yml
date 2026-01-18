@@ -34,6 +34,7 @@ ignore:
   - "example/**"
   - "examples/**"
   - "mocks/**"
+  - "specs/**"
   - "testing/**"
 
 # Parsers

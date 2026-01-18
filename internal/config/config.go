@@ -47,6 +47,9 @@ type Config struct {
 
 	// Approval contains settings for approval operations (approve + merge + close).
 	Approval ApprovalConfig `yaml:"approval" mapstructure:"approval"`
+
+	// Hooks contains settings for the hook system (crash recovery & context persistence).
+	Hooks HookConfig `yaml:"hooks" mapstructure:"hooks"`
 }
 
 // AIConfig contains settings for AI/LLM operations.
@@ -305,4 +308,47 @@ type ApprovalConfig struct {
 	// This message is used for both the PR review and comment (fallback).
 	// Default: "Approved and Merged by ATLAS"
 	MergeMessage string `yaml:"merge_message" mapstructure:"merge_message"`
+}
+
+// HookConfig contains all configurable settings for the hook system.
+// The hook system provides crash recovery and context persistence for ATLAS tasks.
+type HookConfig struct {
+	// MaxCheckpoints is the maximum number of checkpoints per task.
+	// Oldest checkpoints are pruned when this limit is exceeded.
+	// Default: 50
+	MaxCheckpoints int `yaml:"max_checkpoints" mapstructure:"max_checkpoints"`
+
+	// CheckpointInterval is the interval for periodic checkpoints during long-running steps.
+	// Set to 0 to disable interval checkpoints.
+	// Default: 5m
+	CheckpointInterval time.Duration `yaml:"checkpoint_interval" mapstructure:"checkpoint_interval"`
+
+	// StaleThreshold is the time after which a hook is considered stale (potential crash).
+	// Default: 5m
+	StaleThreshold time.Duration `yaml:"stale_threshold" mapstructure:"stale_threshold"`
+
+	// MaxStepAttempts is the maximum number of retry attempts for a failing step.
+	// Default: 3
+	MaxStepAttempts int `yaml:"max_step_attempts" mapstructure:"max_step_attempts"`
+
+	// Retention specifies how long to keep hook files per terminal state.
+	Retention RetentionConfig `yaml:"retention" mapstructure:"retention"`
+
+	// Crypto holds cryptographic configuration.
+	Crypto CryptoConfig `yaml:"crypto" mapstructure:"crypto"`
+}
+
+// RetentionConfig specifies how long to keep hook files per terminal state.
+type RetentionConfig struct {
+	// Completed is the retention period for completed task hooks.
+	// Default: 720h (30 days)
+	Completed time.Duration `yaml:"completed" mapstructure:"completed"`
+
+	// Failed is the retention period for failed task hooks.
+	// Default: 168h (7 days)
+	Failed time.Duration `yaml:"failed" mapstructure:"failed"`
+
+	// Abandoned is the retention period for abandoned task hooks.
+	// Default: 168h (7 days)
+	Abandoned time.Duration `yaml:"abandoned" mapstructure:"abandoned"`
 }

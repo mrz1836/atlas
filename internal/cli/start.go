@@ -7,39 +7,22 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"regexp"
 	"strings"
-	"time"
 
-	"github.com/charmbracelet/huh"
 	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
-	"golang.org/x/term"
 
-	"github.com/mrz1836/atlas/internal/ai"
+	"github.com/mrz1836/atlas/internal/cli/workflow"
 	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/domain"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
-	"github.com/mrz1836/atlas/internal/git"
 	"github.com/mrz1836/atlas/internal/signal"
 	"github.com/mrz1836/atlas/internal/task"
 	"github.com/mrz1836/atlas/internal/template"
 	"github.com/mrz1836/atlas/internal/template/steps"
 	"github.com/mrz1836/atlas/internal/tui"
-	"github.com/mrz1836/atlas/internal/validation"
 	"github.com/mrz1836/atlas/internal/workspace"
-)
-
-// Workspace name generation constants.
-const maxWorkspaceNameLen = 50
-
-// Regex patterns for workspace name generation.
-var (
-	// nonAlphanumericRegex matches any character that is not a lowercase letter, digit, or hyphen.
-	nonAlphanumericRegex = regexp.MustCompile(`[^a-z0-9-]+`)
-	// multipleHyphensRegex matches consecutive hyphens.
-	multipleHyphensRegex = regexp.MustCompile(`-+`)
 )
 
 // AddStartCommand adds the start command to the root command.
@@ -60,29 +43,6 @@ type startOptions struct {
 	verify        bool
 	noVerify      bool
 	dryRun        bool
-}
-
-// GitServices holds all git-related services created for task execution.
-// This struct reduces the number of return values from createGitServices.
-type GitServices struct {
-	Runner           git.Runner
-	SmartCommitter   *git.SmartCommitRunner
-	Pusher           *git.PushRunner
-	HubRunner        *git.CLIGitHubRunner
-	PRDescGen        *git.AIDescriptionGenerator
-	CIFailureHandler *task.CIFailureHandler
-}
-
-// RegistryDeps holds all dependencies needed to create an ExecutorRegistry.
-// This struct reduces the number of parameters to createExecutorRegistry.
-type RegistryDeps struct {
-	WorkDir     string
-	TaskStore   *task.FileStore
-	Notifier    *tui.Notifier
-	AIRunner    ai.Runner
-	Logger      zerolog.Logger
-	GitServices *GitServices
-	Config      *config.Config
 }
 
 // newStartCmd creates the start command.
@@ -218,8 +178,11 @@ func runStart(ctx context.Context, cmd *cobra.Command, w io.Writer, description 
 			fmt.Errorf("%w: cannot use both --branch and --target", atlaserrors.ErrConflictingFlags)))
 	}
 
+	// Create workflow orchestrator
+	orchestrator := workflow.NewOrchestrator(logger, out)
+
 	// Validate we're in a git repository
-	repoPath, err := findGitRepository(ctx) //nolint:contextcheck // context is properly checked and used
+	repoPath, err := orchestrator.Initializer().FindGitRepository(ctx) //nolint:contextcheck // context is properly checked and used
 	if err != nil {
 		return sc.handleError("", fmt.Errorf("not in a git repository: %w", err))
 	}
@@ -247,7 +210,7 @@ func runStart(ctx context.Context, cmd *cobra.Command, w io.Writer, description 
 	}
 
 	// Select template
-	tmpl, err := selectTemplate(ctx, registry, opts.templateName, opts.noInteractive, outputFormat) //nolint:contextcheck // context is properly checked and used
+	tmpl, err := orchestrator.Prompter().SelectTemplate(ctx, registry, opts.templateName, opts.noInteractive, outputFormat) //nolint:contextcheck // context is properly checked and used
 	if err != nil {
 		return sc.handleError("", err)
 	}
@@ -259,13 +222,13 @@ func runStart(ctx context.Context, cmd *cobra.Command, w io.Writer, description 
 	// Determine workspace name
 	wsName := opts.workspaceName
 	if wsName == "" {
-		wsName = generateWorkspaceName(description)
+		wsName = workflow.GenerateWorkspaceName(description)
 	} else {
-		wsName = sanitizeWorkspaceName(wsName)
+		wsName = workflow.SanitizeWorkspaceName(wsName)
 	}
 
 	// Apply verify flag overrides to template (needed for dry-run too)
-	applyVerifyOverrides(tmpl, opts.verify, opts.noVerify)
+	workflow.ApplyVerifyOverrides(tmpl, opts.verify, opts.noVerify)
 
 	// Handle dry-run mode - show what would happen without making changes
 	if opts.dryRun {
@@ -273,7 +236,17 @@ func runStart(ctx context.Context, cmd *cobra.Command, w io.Writer, description 
 	}
 
 	// Create and configure workspace
-	ws, err := createWorkspace(ctx, sc, wsName, repoPath, tmpl.BranchPrefix, opts.baseBranch, opts.targetBranch, opts.useLocal) //nolint:contextcheck // context is properly checked and used
+	ws, err := orchestrator.Initializer().CreateWorkspace(ctx, workflow.WorkspaceOptions{ //nolint:contextcheck // context is properly checked and used
+		Name:          wsName,
+		RepoPath:      repoPath,
+		BranchPrefix:  tmpl.BranchPrefix,
+		BaseBranch:    opts.baseBranch,
+		TargetBranch:  opts.targetBranch,
+		UseLocal:      opts.useLocal,
+		NoInteractive: opts.noInteractive,
+		OutputFormat:  outputFormat,
+		ErrorHandler:  sc.handleError,
+	})
 	if err != nil {
 		return fmt.Errorf("create workspace: %w", err)
 	}
@@ -510,101 +483,42 @@ func safeTaskID(t *domain.Task) string {
 	return t.ID
 }
 
-// createWorkspace creates a new workspace or uses an existing one (upsert behavior).
-// If a workspace with the given name already exists and is active/paused, it will be reused.
-// If a closed workspace with the same name exists, it will be automatically cleaned up and a new workspace created.
-// Supports two modes:
-//   - New branch mode (branchPrefix set): Creates a new branch from baseBranch
-//   - Existing branch mode (targetBranch set): Checks out an existing branch
-func createWorkspace(ctx context.Context, sc *startContext, wsName, repoPath, branchPrefix, baseBranch, targetBranch string, useLocal bool) (*domain.Workspace, error) {
-	logger := Logger()
-
-	// Create workspace store
-	wsStore, err := workspace.NewFileStore("")
-	if err != nil {
-		return nil, sc.handleError(wsName, fmt.Errorf("failed to create workspace store: %w", err))
-	}
-
-	// Create worktree runner
-	wtRunner, err := workspace.NewGitWorktreeRunner(ctx, repoPath, logger)
-	if err != nil {
-		return nil, sc.handleError(wsName, fmt.Errorf("failed to create worktree runner: %w", err))
-	}
-
-	// Create manager
-	wsMgr := workspace.NewManager(wsStore, wtRunner, logger)
-
-	// Check if workspace already exists (upsert behavior)
-	existingWs, err := wsMgr.Get(ctx, wsName)
-
-	// Handle existing active/paused workspace - reuse it
-	if err == nil && existingWs != nil && existingWs.Status != constants.WorkspaceStatusClosed {
-		logger.Info().
-			Str("workspace_name", wsName).
-			Str("worktree_path", existingWs.WorktreePath).
-			Str("status", string(existingWs.Status)).
-			Msg("using existing workspace")
-		return existingWs, nil
-	}
-
-	// Handle existing closed workspace - log and create new
-	if err == nil && existingWs != nil && existingWs.Status == constants.WorkspaceStatusClosed {
-		logger.Info().
-			Str("workspace_name", wsName).
-			Msg("workspace is closed, creating new workspace with same name")
-	}
-
-	// Build create options based on mode
-	createOpts := workspace.CreateOptions{
-		Name:     wsName,
-		RepoPath: repoPath,
-		UseLocal: useLocal,
-	}
-
-	if targetBranch != "" {
-		// Existing branch mode: checkout an existing branch
-		createOpts.ExistingBranch = targetBranch
-		logger.Info().
-			Str("workspace_name", wsName).
-			Str("target_branch", targetBranch).
-			Msg("creating workspace with existing branch (hotfix mode)")
-	} else {
-		// New branch mode: create a new branch from base
-		createOpts.BranchType = branchPrefix
-		createOpts.BaseBranch = baseBranch
-	}
-
-	// Create new workspace
-	ws, err := wsMgr.Create(ctx, createOpts)
-	if err != nil {
-		return nil, sc.handleError(wsName, fmt.Errorf("failed to create workspace: %w", err))
-	}
-
-	return ws, nil
-}
-
 // startTaskExecution creates and starts the task engine.
 func startTaskExecution(ctx context.Context, ws *domain.Workspace, tmpl *domain.Template, description, agent, model string, logger zerolog.Logger, out tui.Output) (*domain.Task, error) {
+	// Create service factory
+	services := workflow.NewServiceFactory(logger)
+
 	// Create task store and load config
-	taskStore, cfg, err := setupTaskStoreAndConfig(ctx, logger)
+	taskStore, cfg, err := services.SetupTaskStoreAndConfig(ctx)
 	if err != nil {
 		return nil, err
 	}
 
 	// Create notifiers
-	notifier, stateNotifier := createNotifiers(cfg)
+	notifier, stateNotifier := services.CreateNotifiers(cfg)
 
 	// Create AI runner
-	aiRunner := createAIRunner(cfg, logger)
+	aiRunner := services.CreateAIRunner(cfg)
+
+	// Resolve git config settings with fallbacks
+	gitCfg := ResolveGitConfig(cfg)
 
 	// Create git services
-	gitServices, err := createGitServices(ctx, ws.WorktreePath, cfg, aiRunner, logger)
+	gitServices, err := services.CreateGitServices(ctx, ws.WorktreePath, cfg, aiRunner, workflow.GitConfig{
+		CommitAgent:         gitCfg.CommitAgent,
+		CommitModel:         gitCfg.CommitModel,
+		CommitTimeout:       gitCfg.CommitTimeout,
+		CommitMaxRetries:    gitCfg.CommitMaxRetries,
+		CommitBackoffFactor: gitCfg.CommitBackoffFactor,
+		PRDescAgent:         gitCfg.PRDescAgent,
+		PRDescModel:         gitCfg.PRDescModel,
+	})
 	if err != nil {
 		return nil, err
 	}
 
 	// Create executor registry
-	execRegistry := createExecutorRegistry(RegistryDeps{
+	execRegistry := services.CreateExecutorRegistry(workflow.RegistryDeps{
 		WorkDir:     ws.WorktreePath,
 		TaskStore:   taskStore,
 		Notifier:    notifier,
@@ -615,7 +529,7 @@ func startTaskExecution(ctx context.Context, ws *domain.Workspace, tmpl *domain.
 	})
 
 	// Create validation retry handler for automatic AI-assisted fixes
-	validationRetryHandler := createValidationRetryHandler(aiRunner, cfg, logger)
+	validationRetryHandler := services.CreateValidationRetryHandler(aiRunner, cfg)
 	logger.Debug().
 		Bool("handler_created", validationRetryHandler != nil).
 		Bool("ai_retry_enabled", cfg.Validation.AIRetryEnabled).
@@ -623,143 +537,20 @@ func startTaskExecution(ctx context.Context, ws *domain.Workspace, tmpl *domain.
 		Msg("validation retry handler status")
 
 	// Create engine with progress callback
-	engine := createEngine(ctx, taskStore, execRegistry, logger, stateNotifier, out, ws.Name, validationRetryHandler)
+	engine := services.CreateEngine(workflow.EngineDeps{
+		TaskStore:              taskStore,
+		ExecRegistry:           execRegistry,
+		Logger:                 LoggerWithTaskStore(taskStore),
+		StateNotifier:          stateNotifier,
+		ProgressCallback:       createProgressCallback(ctx, out, ws.Name),
+		ValidationRetryHandler: validationRetryHandler,
+	})
 
 	// Apply agent and model overrides to template
-	applyAgentModelOverrides(tmpl, agent, model)
+	workflow.ApplyAgentModelOverrides(tmpl, agent, model)
 
 	// Start task
 	return startTask(ctx, engine, ws, tmpl, description, logger)
-}
-
-// setupTaskStoreAndConfig creates the task store and loads configuration.
-func setupTaskStoreAndConfig(ctx context.Context, logger zerolog.Logger) (*task.FileStore, *config.Config, error) {
-	taskStore, err := task.NewFileStore("")
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create task store: %w", err)
-	}
-
-	cfg, err := config.Load(ctx)
-	if err != nil {
-		logger.Warn().Err(err).Msg("failed to load config, using default notification settings")
-		cfg = config.DefaultConfig()
-	}
-
-	return taskStore, cfg, nil
-}
-
-// createNotifiers creates UI and state change notifiers.
-func createNotifiers(cfg *config.Config) (*tui.Notifier, *task.StateChangeNotifier) {
-	notifier := tui.NewNotifier(cfg.Notifications.Bell, false)
-	stateNotifier := task.NewStateChangeNotifier(task.NotificationConfig{
-		BellEnabled: cfg.Notifications.Bell,
-		Quiet:       false, // TODO: Pass quiet flag through when available
-		Events:      cfg.Notifications.Events,
-	})
-	return notifier, stateNotifier
-}
-
-// createAIRunner creates and configures the AI runner with all supported agents.
-func createAIRunner(cfg *config.Config, logger zerolog.Logger) ai.Runner {
-	runnerRegistry := ai.NewRunnerRegistry()
-	runnerRegistry.Register(domain.AgentClaude, ai.NewClaudeCodeRunner(&cfg.AI, nil))
-	runnerRegistry.Register(domain.AgentGemini, ai.NewGeminiRunnerWithLogger(&cfg.AI, nil, logger))
-	runnerRegistry.Register(domain.AgentCodex, ai.NewCodexRunner(&cfg.AI, nil))
-	return ai.NewMultiRunner(runnerRegistry)
-}
-
-// createGitServices creates all git-related services and returns them in a GitServices struct.
-func createGitServices(ctx context.Context, worktreePath string, cfg *config.Config, aiRunner ai.Runner, logger zerolog.Logger) (*GitServices, error) {
-	gitRunner, err := git.NewRunner(ctx, worktreePath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create git runner: %w", err)
-	}
-
-	// Resolve git config settings with fallbacks
-	gitCfg := ResolveGitConfig(cfg)
-
-	smartCommitter := git.NewSmartCommitRunner(gitRunner, worktreePath, aiRunner,
-		git.WithAgent(gitCfg.CommitAgent),
-		git.WithModel(gitCfg.CommitModel),
-		git.WithTimeout(gitCfg.CommitTimeout),
-		git.WithMaxRetries(gitCfg.CommitMaxRetries),
-		git.WithRetryBackoffFactor(gitCfg.CommitBackoffFactor),
-		git.WithLogger(logger),
-	)
-	pusher := git.NewPushRunner(gitRunner)
-	hubRunner := git.NewCLIGitHubRunner(worktreePath)
-	prDescGen := git.NewAIDescriptionGenerator(aiRunner,
-		git.WithAIDescAgent(gitCfg.PRDescAgent),
-		git.WithAIDescModel(gitCfg.PRDescModel),
-		git.WithAIDescLogger(logger),
-	)
-	ciFailureHandler := task.NewCIFailureHandler(hubRunner)
-
-	return &GitServices{
-		Runner:           gitRunner,
-		SmartCommitter:   smartCommitter,
-		Pusher:           pusher,
-		HubRunner:        hubRunner,
-		PRDescGen:        prDescGen,
-		CIFailureHandler: ciFailureHandler,
-	}, nil
-}
-
-// createExecutorRegistry creates the step executor registry with all dependencies.
-func createExecutorRegistry(deps RegistryDeps) *steps.ExecutorRegistry {
-	return steps.NewDefaultRegistry(steps.ExecutorDeps{
-		WorkDir:                deps.WorkDir,
-		ArtifactSaver:          deps.TaskStore,
-		Notifier:               deps.Notifier,
-		AIRunner:               deps.AIRunner,
-		Logger:                 deps.Logger,
-		SmartCommitter:         deps.GitServices.SmartCommitter,
-		Pusher:                 deps.GitServices.Pusher,
-		HubRunner:              deps.GitServices.HubRunner,
-		PRDescriptionGenerator: deps.GitServices.PRDescGen,
-		GitRunner:              deps.GitServices.Runner,
-		CIFailureHandler:       deps.GitServices.CIFailureHandler,
-		BaseBranch:             deps.Config.Git.BaseBranch,
-		CIConfig:               &deps.Config.CI,
-		FormatCommands:         deps.Config.Validation.Commands.Format,
-		LintCommands:           deps.Config.Validation.Commands.Lint,
-		TestCommands:           deps.Config.Validation.Commands.Test,
-		PreCommitCommands:      deps.Config.Validation.Commands.PreCommit,
-	})
-}
-
-// createEngine creates the task engine with progress callback.
-func createEngine(ctx context.Context, taskStore *task.FileStore, execRegistry *steps.ExecutorRegistry, _ zerolog.Logger, stateNotifier *task.StateChangeNotifier, out tui.Output, wsName string, validationRetryHandler *validation.RetryHandler) *task.Engine {
-	engineCfg := task.DefaultEngineConfig()
-	engineCfg.ProgressCallback = createProgressCallback(ctx, out, wsName)
-
-	taskLogger := LoggerWithTaskStore(taskStore)
-	opts := []task.EngineOption{
-		task.WithNotifier(stateNotifier),
-	}
-	if validationRetryHandler != nil {
-		opts = append(opts, task.WithValidationRetryHandler(validationRetryHandler))
-	}
-	return task.NewEngine(taskStore, execRegistry, engineCfg, taskLogger, opts...)
-}
-
-// createValidationRetryHandler creates the validation retry handler for automatic AI-assisted fixes.
-func createValidationRetryHandler(aiRunner ai.Runner, cfg *config.Config, logger zerolog.Logger) *validation.RetryHandler {
-	if !cfg.Validation.AIRetryEnabled {
-		return nil
-	}
-
-	// Create validation executor for retry
-	executor := validation.NewExecutorWithRunner(validation.DefaultTimeout, &validation.DefaultCommandRunner{})
-
-	// Create retry handler with config
-	return validation.NewRetryHandlerFromConfig(
-		aiRunner,
-		executor,
-		cfg.Validation.AIRetryEnabled,
-		cfg.Validation.MaxAIRetryAttempts,
-		logger,
-	)
 }
 
 // createProgressCallback creates the progress callback for UI feedback.
@@ -828,16 +619,6 @@ func displayPRURL(out tui.Output, output string) {
 	}
 }
 
-// applyAgentModelOverrides applies agent and model overrides to the template.
-func applyAgentModelOverrides(tmpl *domain.Template, agent, model string) {
-	if agent != "" {
-		tmpl.DefaultAgent = domain.Agent(agent)
-	}
-	if model != "" {
-		tmpl.DefaultModel = model
-	}
-}
-
 // startTask starts the task execution and handles errors.
 func startTask(ctx context.Context, engine *task.Engine, ws *domain.Workspace, tmpl *domain.Template, description string, logger zerolog.Logger) (*domain.Task, error) {
 	t, err := engine.Start(ctx, ws.Name, ws.Branch, ws.WorktreePath, tmpl, description)
@@ -848,225 +629,6 @@ func startTask(ctx context.Context, engine *task.Engine, ws *domain.Workspace, t
 		return t, err
 	}
 	return t, nil
-}
-
-// generateWorkspaceName creates a sanitized workspace name from description.
-func generateWorkspaceName(description string) string {
-	name := sanitizeWorkspaceName(description)
-
-	// Handle empty result
-	if name == "" {
-		name = fmt.Sprintf("task-%s", time.Now().Format(constants.TimeFormatCompact))
-	}
-
-	return name
-}
-
-// sanitizeWorkspaceName sanitizes a string for use as a workspace name.
-func sanitizeWorkspaceName(input string) string {
-	// Lowercase and replace spaces with hyphens
-	name := strings.ToLower(input)
-	name = strings.ReplaceAll(name, " ", "-")
-
-	// Remove special characters
-	name = nonAlphanumericRegex.ReplaceAllString(name, "")
-
-	// Collapse multiple hyphens
-	name = multipleHyphensRegex.ReplaceAllString(name, "-")
-
-	// Trim leading/trailing hyphens
-	name = strings.Trim(name, "-")
-
-	// Truncate to max length
-	if len(name) > maxWorkspaceNameLen {
-		name = name[:maxWorkspaceNameLen]
-		// Don't end with a hyphen
-		name = strings.TrimRight(name, "-")
-	}
-
-	return name
-}
-
-// selectTemplate handles template selection based on flags and interactivity mode.
-func selectTemplate(ctx context.Context, registry *template.Registry, templateName string, noInteractive bool, outputFormat string) (*domain.Template, error) {
-	// Check context cancellation
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	default:
-	}
-
-	// If template specified via flag, use it directly
-	if templateName != "" {
-		tmpl, err := registry.Get(templateName)
-		if err != nil {
-			return nil, fmt.Errorf("template '%s' not found: %w", templateName, atlaserrors.ErrTemplateNotFound)
-		}
-		return tmpl, nil
-	}
-
-	// Non-interactive mode or JSON output requires template flag
-	if noInteractive || outputFormat == OutputJSON || !term.IsTerminal(int(os.Stdin.Fd())) {
-		return nil, atlaserrors.NewExitCode2Error(
-			fmt.Errorf("use --template to specify template: %w", atlaserrors.ErrTemplateRequired))
-	}
-
-	return selectTemplateInteractive(registry)
-}
-
-// selectTemplateInteractive displays an interactive template selection menu.
-func selectTemplateInteractive(registry *template.Registry) (*domain.Template, error) {
-	templates := registry.List()
-	options := make([]huh.Option[string], 0, len(templates))
-	for _, t := range templates {
-		label := fmt.Sprintf("%s - %s", t.Name, t.Description)
-		options = append(options, huh.NewOption(label, t.Name))
-	}
-
-	var selected string
-	form := huh.NewForm(
-		huh.NewGroup(
-			huh.NewSelect[string]().
-				Title("Select a template").
-				Description("Choose the workflow template for this task").
-				Options(options...).
-				Value(&selected),
-		),
-	).WithTheme(huh.ThemeCharm())
-
-	if err := form.Run(); err != nil {
-		return nil, fmt.Errorf("template selection canceled: %w", err)
-	}
-
-	return registry.Get(selected)
-}
-
-// handleWorkspaceConflict checks for existing workspace and handles conflicts.
-func handleWorkspaceConflict(ctx context.Context, mgr *workspace.DefaultManager, wsName string, noInteractive bool, outputFormat string, out tui.Output, w io.Writer) (string, error) { //nolint:unparam // out reserved for future use
-	// Check context cancellation
-	select {
-	case <-ctx.Done():
-		return "", ctx.Err()
-	default:
-	}
-
-	exists, err := mgr.Exists(ctx, wsName)
-	if err != nil {
-		return "", fmt.Errorf("failed to check workspace existence: %w", err)
-	}
-
-	if !exists {
-		return wsName, nil
-	}
-
-	// Workspace exists - handle conflict
-	if noInteractive || outputFormat == OutputJSON {
-		if outputFormat == OutputJSON {
-			return "", outputStartErrorJSON(w, wsName, "", fmt.Sprintf("workspace '%s': %s", wsName, atlaserrors.ErrWorkspaceExists.Error()))
-		}
-		return "", atlaserrors.NewExitCode2Error(
-			fmt.Errorf("workspace '%s': %w", wsName, atlaserrors.ErrWorkspaceExists))
-	}
-
-	// Check if we're in a terminal
-	if !term.IsTerminal(int(os.Stdin.Fd())) {
-		return "", fmt.Errorf("workspace '%s': %w (use --workspace to specify a different name)", wsName, atlaserrors.ErrWorkspaceExists)
-	}
-
-	return resolveWorkspaceConflictInteractive(wsName, out)
-}
-
-// resolveWorkspaceConflictInteractive handles workspace conflict interactively.
-func resolveWorkspaceConflictInteractive(wsName string, out tui.Output) (string, error) {
-	action, err := promptWorkspaceConflict(wsName)
-	if err != nil {
-		return "", fmt.Errorf("failed to get user choice: %w", err)
-	}
-
-	switch action {
-	case "resume":
-		return "", atlaserrors.ErrResumeNotImplemented
-	case "new":
-		newName, err := promptNewWorkspaceName()
-		if err != nil {
-			return "", fmt.Errorf("failed to get new workspace name: %w", err)
-		}
-		return sanitizeWorkspaceName(newName), nil
-	case "cancel":
-		out.Info("Operation canceled")
-		return "", atlaserrors.ErrOperationCanceled
-	}
-
-	return wsName, nil
-}
-
-// promptWorkspaceConflict prompts the user to resolve a workspace name conflict.
-func promptWorkspaceConflict(name string) (string, error) {
-	var action string
-
-	form := huh.NewForm(
-		huh.NewGroup(
-			huh.NewSelect[string]().
-				Title(fmt.Sprintf("Workspace '%s' exists", name)).
-				Description("What would you like to do?").
-				Options(
-					huh.NewOption("Resume existing workspace", "resume"),
-					huh.NewOption("Use a different name", "new"),
-					huh.NewOption("Cancel", "cancel"),
-				).
-				Value(&action),
-		),
-	).WithTheme(huh.ThemeCharm())
-
-	if err := form.Run(); err != nil {
-		return "", err
-	}
-
-	return action, nil
-}
-
-// promptNewWorkspaceName prompts the user for a new workspace name.
-func promptNewWorkspaceName() (string, error) {
-	var name string
-
-	form := huh.NewForm(
-		huh.NewGroup(
-			huh.NewInput().
-				Title("Enter new workspace name").
-				Value(&name).
-				Validate(validateWorkspaceName),
-		),
-	).WithTheme(huh.ThemeCharm())
-
-	if err := form.Run(); err != nil {
-		return "", err
-	}
-
-	return name, nil
-}
-
-// validateWorkspaceName validates a workspace name input.
-func validateWorkspaceName(s string) error {
-	if strings.TrimSpace(s) == "" {
-		return fmt.Errorf("name required: %w", atlaserrors.ErrEmptyValue)
-	}
-	return nil
-}
-
-// findGitRepository finds the git repository root from the current directory.
-// Uses git rev-parse for accurate detection even in worktrees.
-func findGitRepository(ctx context.Context) (string, error) {
-	cwd, err := os.Getwd()
-	if err != nil {
-		return "", err
-	}
-
-	info, err := git.DetectRepo(ctx, cwd)
-	if err != nil {
-		return "", atlaserrors.ErrNotGitRepo
-	}
-
-	return info.WorktreePath, nil
 }
 
 // startResponse represents the JSON output for start operations.
@@ -1176,71 +738,6 @@ func validateModel(agent, model string) error {
 			fmt.Errorf("%w: '%s' is not valid for agent '%s' (valid models: %v)", atlaserrors.ErrInvalidModel, model, agent, a.ModelAliases()))
 	}
 	return nil
-}
-
-// applyVerifyOverrides applies --verify or --no-verify flag overrides to the template.
-// If neither flag is set, the template's default Verify setting is used.
-// Also propagates VerifyModel from template to the verify step config, but only if
-// the step doesn't have a different agent override (since VerifyModel may not be
-// compatible with other agents).
-func applyVerifyOverrides(tmpl *domain.Template, verify, noVerify bool) {
-	// CLI flags override template defaults
-	if verify {
-		tmpl.Verify = true
-	} else if noVerify {
-		tmpl.Verify = false
-	}
-
-	// Update the verify step's Required field and model based on the template settings
-	for i := range tmpl.Steps {
-		if tmpl.Steps[i].Type == domain.StepTypeVerify {
-			applyVerifyToStep(tmpl, &tmpl.Steps[i])
-		}
-	}
-}
-
-// applyVerifyToStep applies verify settings to a single verify step.
-func applyVerifyToStep(tmpl *domain.Template, step *domain.StepDefinition) {
-	step.Required = tmpl.Verify
-
-	// Check if step has a different agent override
-	stepHasDifferentAgent := stepHasDifferentAgent(step, tmpl.DefaultAgent)
-
-	// Propagate VerifyModel from template to step config if applicable
-	if shouldPropagateVerifyModel(tmpl.VerifyModel, stepHasDifferentAgent) {
-		propagateVerifyModel(step, tmpl.VerifyModel)
-	}
-}
-
-// stepHasDifferentAgent checks if the step has an agent override different from the default.
-func stepHasDifferentAgent(step *domain.StepDefinition, defaultAgent domain.Agent) bool {
-	if step.Config == nil {
-		return false
-	}
-
-	stepAgent, ok := step.Config["agent"].(string)
-	if !ok || stepAgent == "" {
-		return false
-	}
-
-	return domain.Agent(stepAgent) != defaultAgent
-}
-
-// shouldPropagateVerifyModel determines if VerifyModel should be propagated to the step.
-func shouldPropagateVerifyModel(verifyModel string, stepHasDifferentAgent bool) bool {
-	return verifyModel != "" && !stepHasDifferentAgent
-}
-
-// propagateVerifyModel sets the VerifyModel on a step's config if not already set.
-func propagateVerifyModel(step *domain.StepDefinition, verifyModel string) {
-	if step.Config == nil {
-		step.Config = make(map[string]any)
-	}
-
-	// Only set if not already configured in step
-	if model, ok := step.Config["model"].(string); !ok || model == "" {
-		step.Config["model"] = verifyModel
-	}
 }
 
 // displayTaskStatus outputs the task status in the appropriate format.

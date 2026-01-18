@@ -53,7 +53,7 @@ Hook Files provide durable, crash-resistant context persistence for AI-assisted 
 
 5. **Idempotent Recovery**: Running recovery twice should produce the same result as running it once.
 
-6. **Cryptographic Integrity**: Validation receipts are signed with HD-derived keys, making them impossible for AI to forge.
+6. **Tamper-Evident Integrity**: Validation receipts are signed to prevent accidental corruption or AI hallucination (claiming work was done when it wasn't).
 
 ### Non-Goals
 
@@ -248,7 +248,7 @@ type RecoveryContext struct {
 }
 
 // ValidationReceipt provides cryptographic proof that validation ran
-// Signed with HD-derived keys - impossible for AI to forge
+// Signed with Ed25519 - protects against accidental corruption
 type ValidationReceipt struct {
     ReceiptID   string    `json:"receipt_id"`    // Unique receipt ID
     StepName    string    `json:"step_name"`     // Which step this validates
@@ -258,13 +258,12 @@ type ValidationReceipt struct {
     CompletedAt time.Time `json:"completed_at"`
     Duration    string    `json:"duration"`      // Human-readable duration
 
-    // Output hashes (can't be faked by AI)
+    // Output hashes (integrity check)
     StdoutHash  string    `json:"stdout_hash"`   // SHA256 of stdout
     StderrHash  string    `json:"stderr_hash"`   // SHA256 of stderr
 
-    // Cryptographic integrity (HD key signature)
-    KeyPath     string    `json:"key_path"`      // HD derivation path used
-    Signature   string    `json:"signature"`     // ECDSA signature (BSV)
+    // Cryptographic integrity
+    Signature   string    `json:"signature"`     // Hex-encoded Ed25519 signature
 }
 ```
 
@@ -629,43 +628,49 @@ func (ic *IntervalCheckpointer) Start() {
 
 ---
 
-## HD Key Cryptographic Signing
+## Native Cryptographic Signing
 
-Validation receipts are signed using HD (Hierarchical Deterministic) keys derived from a master seed. This provides:
+Validation receipts are signed using native Ed25519 keys. This provides:
 
 - **Unforgeable signatures**: AI cannot produce valid signatures
-- **Deterministic derivation**: Keys can be regenerated from seed
-- **Per-receipt uniqueness**: Each receipt uses a unique derived key
-- **Industry-standard crypto**: Uses BSV's battle-tested implementation
+- **Simple implementation**: Uses standard Go `crypto/ed25519` library
+- **Zero dependencies**: No external blockchain SDKs required
+- **Performance**: High-speed signing and verification
 
-### Key Derivation Scheme
+### Threat Model
 
-```
-Master Seed (stored in ~/.atlas/keys/master.key)
-    │
-    └── m/44'/236'/0'  (ATLAS purpose, coin type 236 = "AT")
-            │
-            ├── 0'  (Validation receipts)
-            │   ├── 0  (Task 1 receipts)
-            │   │   ├── 0  (Receipt 1)
-            │   │   ├── 1  (Receipt 2)
-            │   │   └── ...
-            │   ├── 1  (Task 2 receipts)
-            │   └── ...
-            │
-            └── 1'  (Future: other signing needs)
-```
+The signing mechanism provides **tamper-evidence**, not authorization.
 
-### Implementation Using go-sdk
+-   **Protects Against**:
+    -   Accidental corruption (disk errors, partial writes).
+    -   AI Hallucination (AI claiming it ran a command it simulated).
+    -   Process crashes mid-write.
+-   **Does NOT Protect Against**:
+    -   Malicious agents with shell access (if the AI can read the key, it can sign).
+    -   Root users/Admins.
+
+### Key Management
+
+- **Master Key**: Stored in `~/.atlas/keys/master.key`
+- **Permissions**: `0600` (read/write only by owner) to prevent casual snooping.
+- **Format**: Raw 32-byte Ed25519 private key (encoded as hex).
+
+### Implementation
 
 ```go
-// internal/crypto/signing.go
+// internal/crypto/native/signer.go
 
 import (
-    "github.com/bsv-blockchain/go-sdk/bip32"
-    "github.com/bsv-blockchain/go-sdk/primitives/ec"
-    "github.com/bsv-blockchain/go-sdk/script"
+	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/hex"
 )
+
+// Signer uses standard Ed25519 for signing
+type Signer struct {
+	privKey ed25519.PrivateKey
+}
+
 
 const (
     // BIP44 path components

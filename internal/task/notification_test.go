@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/mrz1836/atlas/internal/constants"
+	"github.com/mrz1836/atlas/internal/contracts"
 )
 
 func TestIsAttentionStatus(t *testing.T) {
@@ -33,7 +34,7 @@ func TestIsAttentionStatus(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			assert.Equal(t, tt.expected, isAttentionStatus(tt.status))
+			assert.Equal(t, tt.expected, contracts.IsAttentionStatus(tt.status))
 		})
 	}
 }
