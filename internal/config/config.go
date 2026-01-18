@@ -327,6 +327,10 @@ type HookConfig struct {
 	// Default: 5m
 	StaleThreshold time.Duration `yaml:"stale_threshold" mapstructure:"stale_threshold"`
 
+	// MaxStepAttempts is the maximum number of retry attempts for a failing step.
+	// Default: 3
+	MaxStepAttempts int `yaml:"max_step_attempts" mapstructure:"max_step_attempts"`
+
 	// Retention specifies how long to keep hook files per terminal state.
 	Retention RetentionConfig `yaml:"retention" mapstructure:"retention"`
 

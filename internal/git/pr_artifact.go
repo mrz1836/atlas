@@ -11,6 +11,7 @@ import (
 
 	"github.com/rs/zerolog"
 
+	"github.com/mrz1836/atlas/internal/contracts"
 	"github.com/mrz1836/atlas/internal/ctxutil"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 )
@@ -26,15 +27,9 @@ type PRArtifactSaver interface {
 	Save(ctx context.Context, desc *PRDescription, opts PRDescOptions) (string, error)
 }
 
-// ArtifactStore is the interface for task artifact storage (from internal/task).
-// This is defined here to avoid circular imports.
-type ArtifactStore interface {
-	SaveArtifact(ctx context.Context, workspaceName, taskID, filename string, data []byte) error
-}
-
 // TaskStoreArtifactSaver saves PR descriptions using the task store.
 type TaskStoreArtifactSaver struct {
-	store  ArtifactStore
+	store  contracts.ArtifactStore
 	logger zerolog.Logger
 }
 
@@ -42,7 +37,7 @@ type TaskStoreArtifactSaver struct {
 type TaskStoreArtifactOption func(*TaskStoreArtifactSaver)
 
 // NewTaskStoreArtifactSaver creates a saver that uses the task store.
-func NewTaskStoreArtifactSaver(store ArtifactStore, opts ...TaskStoreArtifactOption) *TaskStoreArtifactSaver {
+func NewTaskStoreArtifactSaver(store contracts.ArtifactStore, opts ...TaskStoreArtifactOption) *TaskStoreArtifactSaver {
 	s := &TaskStoreArtifactSaver{
 		store:  store,
 		logger: zerolog.Nop(),

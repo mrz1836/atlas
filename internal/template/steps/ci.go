@@ -13,22 +13,16 @@ import (
 
 	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/constants"
+	"github.com/mrz1836/atlas/internal/contracts"
 	"github.com/mrz1836/atlas/internal/domain"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 	"github.com/mrz1836/atlas/internal/git"
 )
 
-// CIFailureHandler abstracts CI failure handling to avoid import cycle.
-// The concrete implementation is task.CIFailureHandler.
-type CIFailureHandler interface {
-	// HasHandler returns true if a failure handler is available.
-	HasHandler() bool
-}
-
 // CIExecutor handles CI waiting steps by monitoring GitHub Actions.
 type CIExecutor struct {
 	hubRunner        git.HubRunner
-	ciFailureHandler CIFailureHandler
+	ciFailureHandler contracts.CIFailureHandler
 	ciConfig         *config.CIConfig
 	logger           zerolog.Logger
 	artifactSaver    ArtifactSaver
@@ -56,7 +50,7 @@ func WithCIHubRunner(runner git.HubRunner) CIExecutorOption {
 }
 
 // WithCIFailureHandler sets the CI failure handler.
-func WithCIFailureHandler(handler CIFailureHandler) CIExecutorOption {
+func WithCIFailureHandler(handler contracts.CIFailureHandler) CIExecutorOption {
 	return func(e *CIExecutor) {
 		e.ciFailureHandler = handler
 	}

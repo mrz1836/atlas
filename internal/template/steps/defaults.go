@@ -8,6 +8,7 @@ import (
 
 	"github.com/mrz1836/atlas/internal/ai"
 	"github.com/mrz1836/atlas/internal/config"
+	"github.com/mrz1836/atlas/internal/contracts"
 	"github.com/mrz1836/atlas/internal/git"
 )
 
@@ -88,7 +89,7 @@ type ExecutorDeps struct {
 
 	// CIFailureHandler is used for handling CI failures.
 	// If nil, CI failures return simple error without interactive options.
-	CIFailureHandler CIFailureHandler
+	CIFailureHandler contracts.CIFailureHandler
 
 	// BaseBranch is the default base branch for PR creation.
 	// Falls back to "main" if not specified.
