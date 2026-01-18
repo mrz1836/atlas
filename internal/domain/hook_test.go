@@ -88,6 +88,67 @@ func TestValidHookTransitions(t *testing.T) {
 	assert.Contains(t, runningTransitions, HookStateAwaitingHuman)
 }
 
+func TestValidateTransition(t *testing.T) {
+	t.Run("allows valid transitions", func(t *testing.T) {
+		validCases := []struct {
+			from HookState
+			to   HookState
+		}{
+			{HookStateInitializing, HookStateStepPending},
+			{HookStateInitializing, HookStateFailed},
+			{HookStateStepPending, HookStateStepRunning},
+			{HookStateStepPending, HookStateCompleted},
+			{HookStateStepRunning, HookStateStepPending},
+			{HookStateStepRunning, HookStateStepValidating},
+			{HookStateStepRunning, HookStateAwaitingHuman},
+			{HookStateStepValidating, HookStateStepPending},
+			{HookStateAwaitingHuman, HookStateStepRunning},
+			{HookStateRecovering, HookStateStepPending},
+		}
+
+		for _, tc := range validCases {
+			t.Run(string(tc.from)+"_to_"+string(tc.to), func(t *testing.T) {
+				err := ValidateTransition(tc.from, tc.to)
+				assert.NoError(t, err, "transition from %s to %s should be valid", tc.from, tc.to)
+			})
+		}
+	})
+
+	t.Run("rejects transitions from terminal states", func(t *testing.T) {
+		terminalStates := []HookState{HookStateCompleted, HookStateFailed, HookStateAbandoned}
+		targetStates := []HookState{HookStateStepPending, HookStateStepRunning, HookStateInitializing}
+
+		for _, from := range terminalStates {
+			for _, to := range targetStates {
+				t.Run(string(from)+"_to_"+string(to), func(t *testing.T) {
+					err := ValidateTransition(from, to)
+					require.Error(t, err)
+					assert.Contains(t, err.Error(), "terminal state")
+				})
+			}
+		}
+	})
+
+	t.Run("rejects invalid non-terminal transitions", func(t *testing.T) {
+		invalidCases := []struct {
+			from HookState
+			to   HookState
+		}{
+			{HookStateInitializing, HookStateCompleted},   // Can't complete directly from initializing
+			{HookStateStepPending, HookStateFailed},       // Can't fail directly from step_pending
+			{HookStateStepValidating, HookStateCompleted}, // Must go through step_pending first
+		}
+
+		for _, tc := range invalidCases {
+			t.Run(string(tc.from)+"_to_"+string(tc.to), func(t *testing.T) {
+				err := ValidateTransition(tc.from, tc.to)
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "invalid state transition")
+			})
+		}
+	})
+}
+
 func TestCheckpointTrigger_Values(t *testing.T) {
 	triggers := []CheckpointTrigger{
 		CheckpointTriggerManual,
@@ -370,4 +431,136 @@ func TestHook_EmptyOptionalFields(t *testing.T) {
 	// recovery should be omitted (nil)
 	_, hasRecovery := m["recovery"]
 	assert.False(t, hasRecovery, "recovery should be omitted when nil")
+}
+
+func TestHook_DeepCopy(t *testing.T) {
+	t.Run("returns nil for nil hook", func(t *testing.T) {
+		var hook *Hook
+		result := hook.DeepCopy()
+		assert.Nil(t, result)
+	})
+
+	t.Run("creates independent copy of simple hook", func(t *testing.T) {
+		now := time.Now().UTC().Truncate(time.Second)
+		original := &Hook{
+			Version:       "1.0",
+			TaskID:        "task-123",
+			WorkspaceID:   "ws-456",
+			CreatedAt:     now,
+			UpdatedAt:     now,
+			State:         HookStateStepRunning,
+			History:       []HookEvent{},
+			Checkpoints:   []StepCheckpoint{},
+			Receipts:      []ValidationReceipt{},
+			SchemaVersion: "1.0",
+		}
+
+		copyHook := original.DeepCopy()
+		require.NotNil(t, copyHook)
+
+		// Verify fields are equal
+		assert.Equal(t, original.Version, copyHook.Version)
+		assert.Equal(t, original.TaskID, copyHook.TaskID)
+		assert.Equal(t, original.WorkspaceID, copyHook.WorkspaceID)
+		assert.Equal(t, original.State, copyHook.State)
+
+		// Modify the copy and verify original is unchanged
+		copyHook.TaskID = "modified-task"
+		copyHook.State = HookStateFailed
+		assert.Equal(t, "task-123", original.TaskID)
+		assert.Equal(t, HookStateStepRunning, original.State)
+	})
+
+	t.Run("creates independent copy of nested structures", func(t *testing.T) {
+		now := time.Now().UTC().Truncate(time.Second)
+		original := &Hook{
+			Version:     "1.0",
+			TaskID:      "task-123",
+			WorkspaceID: "ws-456",
+			CreatedAt:   now,
+			UpdatedAt:   now,
+			State:       HookStateStepRunning,
+			CurrentStep: &StepContext{
+				StepName:     "implement",
+				StepIndex:    2,
+				StartedAt:    now,
+				Attempt:      1,
+				MaxAttempts:  3,
+				FilesTouched: []string{"file1.go", "file2.go"},
+			},
+			History: []HookEvent{
+				{Timestamp: now, FromState: "", ToState: HookStateInitializing, Trigger: "start"},
+			},
+			Checkpoints: []StepCheckpoint{
+				{CheckpointID: "ckpt-001", StepName: "implement"},
+			},
+			Receipts: []ValidationReceipt{
+				{ReceiptID: "rcpt-001", StepName: "analyze"},
+			},
+			SchemaVersion: "1.0",
+		}
+
+		copyHook := original.DeepCopy()
+		require.NotNil(t, copyHook)
+
+		// Verify nested structures are equal but independent
+		assert.Equal(t, original.CurrentStep.StepName, copyHook.CurrentStep.StepName)
+		assert.Len(t, copyHook.CurrentStep.FilesTouched, len(original.CurrentStep.FilesTouched))
+		assert.Len(t, copyHook.History, len(original.History))
+		assert.Len(t, copyHook.Checkpoints, len(original.Checkpoints))
+		assert.Len(t, copyHook.Receipts, len(original.Receipts))
+
+		// Modify nested structures in copy
+		copyHook.CurrentStep.StepName = "modified-step"
+		copyHook.CurrentStep.FilesTouched[0] = "modified.go"
+		copyHook.History[0].Trigger = "modified-trigger"
+		copyHook.Checkpoints[0].CheckpointID = "ckpt-modified"
+		copyHook.Receipts[0].ReceiptID = "rcpt-modified"
+
+		// Verify original is unchanged
+		assert.Equal(t, "implement", original.CurrentStep.StepName)
+		assert.Equal(t, "file1.go", original.CurrentStep.FilesTouched[0])
+		assert.Equal(t, "start", original.History[0].Trigger)
+		assert.Equal(t, "ckpt-001", original.Checkpoints[0].CheckpointID)
+		assert.Equal(t, "rcpt-001", original.Receipts[0].ReceiptID)
+	})
+
+	t.Run("handles hook with recovery context", func(t *testing.T) {
+		now := time.Now().UTC().Truncate(time.Second)
+		original := &Hook{
+			Version:     "1.0",
+			TaskID:      "task-123",
+			WorkspaceID: "ws-456",
+			CreatedAt:   now,
+			UpdatedAt:   now,
+			State:       HookStateRecovering,
+			Recovery: &RecoveryContext{
+				DetectedAt:        now,
+				CrashType:         "timeout",
+				LastKnownState:    HookStateStepRunning,
+				RecommendedAction: "retry_step",
+				Reason:            "Step is idempotent",
+			},
+			History:       []HookEvent{},
+			Checkpoints:   []StepCheckpoint{},
+			Receipts:      []ValidationReceipt{},
+			SchemaVersion: "1.0",
+		}
+
+		copyHook := original.DeepCopy()
+		require.NotNil(t, copyHook)
+		require.NotNil(t, copyHook.Recovery)
+
+		// Verify recovery context is equal
+		assert.Equal(t, original.Recovery.CrashType, copyHook.Recovery.CrashType)
+		assert.Equal(t, original.Recovery.RecommendedAction, copyHook.Recovery.RecommendedAction)
+
+		// Modify copy's recovery context
+		copyHook.Recovery.CrashType = "signal"
+		copyHook.Recovery.RecommendedAction = "manual"
+
+		// Verify original is unchanged
+		assert.Equal(t, "timeout", original.Recovery.CrashType)
+		assert.Equal(t, "retry_step", original.Recovery.RecommendedAction)
+	})
 }

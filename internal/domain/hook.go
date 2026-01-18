@@ -7,6 +7,9 @@
 package domain
 
 import (
+	"encoding/json"
+	"errors"
+	"fmt"
 	"time"
 )
 
@@ -59,6 +62,32 @@ func GetValidTransitions() map[HookState][]HookState {
 // IsTerminalState returns true if the state is a terminal state (no outgoing transitions).
 func IsTerminalState(state HookState) bool {
 	return state == HookStateCompleted || state == HookStateFailed || state == HookStateAbandoned
+}
+
+var (
+	// ErrTerminalStateTransition is returned when attempting to transition from a terminal state.
+	ErrTerminalStateTransition = errors.New("cannot transition from terminal state")
+
+	// ErrInvalidStateTransition is returned when attempting an invalid state transition.
+	ErrInvalidStateTransition = errors.New("invalid state transition")
+)
+
+// ValidateTransition checks if a state transition is allowed.
+// Returns nil if valid, error describing why transition is invalid otherwise.
+func ValidateTransition(from, to HookState) error {
+	// Terminal states cannot transition
+	if IsTerminalState(from) {
+		return fmt.Errorf("%w from %q to %q", ErrTerminalStateTransition, from, to)
+	}
+
+	validTargets := GetValidTransitions()[from]
+	for _, valid := range validTargets {
+		if valid == to {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("%w from %q to %q", ErrInvalidStateTransition, from, to)
 }
 
 // CheckpointTrigger indicates what caused a checkpoint.
@@ -216,4 +245,30 @@ type Hook struct {
 
 	// Schema version for forward compatibility
 	SchemaVersion string `json:"schema_version"` // "1.0"
+}
+
+// DeepCopy creates a deep copy of the hook for safe read-only access.
+// This is useful when you need to inspect hook state without risking
+// accidental modifications that could lead to race conditions.
+//
+// The copy is created via JSON round-trip which handles all nested
+// structures correctly. Returns nil if the hook is nil or if
+// marshaling/unmarshaling fails.
+func (h *Hook) DeepCopy() *Hook {
+	if h == nil {
+		return nil
+	}
+
+	// Use JSON round-trip for simplicity (acceptable for read-only copies)
+	data, err := json.Marshal(h)
+	if err != nil {
+		return nil
+	}
+
+	var copyHook Hook
+	if err := json.Unmarshal(data, &copyHook); err != nil {
+		return nil
+	}
+
+	return &copyHook
 }
