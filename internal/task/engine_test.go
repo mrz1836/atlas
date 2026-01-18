@@ -4249,7 +4249,7 @@ func TestEngine_NotifyStateChange_NoNotifier(_ *testing.T) {
 	engine.notifyStateChange(constants.TaskStatusRunning, constants.TaskStatusAwaitingApproval)
 }
 
-// TestResolveStepAgentModel tests the resolveStepAgentModel helper function
+// TestResolveStepAgentModel tests the ResolveStepAgentModel helper function
 func TestResolveStepAgentModel(t *testing.T) {
 	tests := []struct {
 		name          string
@@ -4331,7 +4331,7 @@ func TestResolveStepAgentModel(t *testing.T) {
 				Config: stepConfig,
 			}
 
-			agent, model := resolveStepAgentModel(task, step)
+			agent, model := ResolveStepAgentModel(task, step)
 
 			assert.Equal(t, tt.expectedAgent, agent, "agent mismatch")
 			assert.Equal(t, tt.expectedModel, model, "model mismatch")
