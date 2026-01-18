@@ -400,11 +400,13 @@ func concurrentReceiptCreator(ctx context.Context, m *Manager, task *domain.Task
 }
 
 // concurrentStepTransitioner transitions steps concurrently
-func concurrentStepTransitioner(ctx context.Context, m *Manager, task *domain.Task, errChan chan<- error) {
+// After state validation, transitions from step_running to step_running are invalid.
+// This is expected - we just check that concurrent attempts don't cause races.
+func concurrentStepTransitioner(ctx context.Context, m *Manager, task *domain.Task, _ chan<- error) {
 	for i := 0; i < 2; i++ {
-		if transitionErr := m.TransitionStep(ctx, task, "step", i); transitionErr != nil {
-			errChan <- transitionErr
-		}
+		// Errors are expected after state validation (can't transition step_running -> step_running)
+		// We only report unexpected panics or data races (which the race detector catches)
+		_ = m.TransitionStep(ctx, task, "step", i)
 		time.Sleep(20 * time.Millisecond)
 	}
 }
@@ -418,7 +420,7 @@ func concurrentStepCompleter(ctx context.Context, m *Manager, task *domain.Task,
 }
 
 func TestManager_ConcurrentAccess(t *testing.T) {
-	// This test verifies Issue #1 fix: no data races with concurrent access.
+	// This test verifies no data races with concurrent access.
 	// Run with: go test -race ./internal/hook/...
 	ctx := context.Background()
 
@@ -456,6 +458,9 @@ func TestManager_ConcurrentAccess(t *testing.T) {
 		require.NoError(t, err)
 
 		// Run concurrent operations
+		// After state validation, some operations may return errors
+		// (e.g., transitioning from step_running to step_running is invalid).
+		// The key goal here is to verify no data races (detected by -race flag).
 		var wg sync.WaitGroup
 		errChan := make(chan error, 10)
 
@@ -471,17 +476,12 @@ func TestManager_ConcurrentAccess(t *testing.T) {
 		// Stop interval checkpointing
 		_ = m.StopIntervalCheckpointing(ctx, task)
 
-		// Check for errors
-		for err := range errChan {
-			t.Errorf("Unexpected error during concurrent access: %v", err)
-		}
-
-		// Verify final state is consistent
+		// Verify final state is consistent (no panics, no corruption)
 		finalHook, err := store.Get(ctx, taskID)
 		require.NoError(t, err)
 		assert.NotNil(t, finalHook)
 
-		// Should have receipts and checkpoints
+		// Should have receipts
 		assert.GreaterOrEqual(t, len(finalHook.Receipts), 1)
 	})
 }
@@ -500,17 +500,23 @@ func TestManager_TransitionStep(t *testing.T) {
 
 		taskDir := filepath.Join(tmpDir, taskID)
 		require.NoError(t, os.MkdirAll(taskDir, 0o750))
-		_, err := store.Create(ctx, taskID, "workspace-1")
+
+		// Create hook in step_pending state (valid source for step_running)
+		hook := &domain.Hook{
+			TaskID:      taskID,
+			State:       domain.HookStateStepPending,
+			Checkpoints: []domain.StepCheckpoint{},
+		}
+		require.NoError(t, store.Save(ctx, hook))
+
+		err := m.TransitionStep(ctx, task, "implement", 2)
 		require.NoError(t, err)
 
-		err = m.TransitionStep(ctx, task, "implement", 2)
+		updatedHook, err := store.Get(ctx, taskID)
 		require.NoError(t, err)
-
-		hook, err := store.Get(ctx, taskID)
-		require.NoError(t, err)
-		assert.Equal(t, domain.HookStateStepRunning, hook.State)
-		assert.Equal(t, "implement", hook.CurrentStep.StepName)
-		assert.Equal(t, 2, hook.CurrentStep.StepIndex)
+		assert.Equal(t, domain.HookStateStepRunning, updatedHook.State)
+		assert.Equal(t, "implement", updatedHook.CurrentStep.StepName)
+		assert.Equal(t, 2, updatedHook.CurrentStep.StepIndex)
 	})
 }
 
@@ -548,6 +554,131 @@ func TestManager_CompleteStep(t *testing.T) {
 		assert.Equal(t, domain.HookStateStepPending, updatedHook.State)
 		assert.Len(t, updatedHook.Checkpoints, 1)
 		assert.Equal(t, domain.CheckpointTriggerStepComplete, updatedHook.Checkpoints[0].Trigger)
+	})
+
+	t.Run("persists FilesSnapshot in checkpoint", func(t *testing.T) {
+		// This test verifies the fix for Issue 1: FilesSnapshot was being set
+		// AFTER append, which means the modification was lost (struct copied on append).
+		tmpDir := t.TempDir()
+		store := NewFileStore(tmpDir)
+		cfg := &config.HookConfig{}
+		m := NewManager(store, cfg)
+
+		taskID := "test-complete-snapshot"
+		task := &domain.Task{ID: taskID}
+
+		taskDir := filepath.Join(tmpDir, taskID)
+		require.NoError(t, os.MkdirAll(taskDir, 0o750))
+
+		// Create actual test files so snapshotFiles can stat them
+		testFile1 := filepath.Join(tmpDir, "changed1.go")
+		testFile2 := filepath.Join(tmpDir, "changed2.go")
+		require.NoError(t, os.WriteFile(testFile1, []byte("package test1"), 0o600))
+		require.NoError(t, os.WriteFile(testFile2, []byte("package test2"), 0o600))
+
+		hook := &domain.Hook{
+			TaskID: taskID,
+			State:  domain.HookStateStepRunning,
+			CurrentStep: &domain.StepContext{
+				StepName:  "implement",
+				StepIndex: 1,
+			},
+			Checkpoints: []domain.StepCheckpoint{},
+		}
+		require.NoError(t, store.Save(ctx, hook))
+
+		// Complete step with files changed
+		err := m.CompleteStep(ctx, task, "implement", []string{testFile1, testFile2})
+		require.NoError(t, err)
+
+		// Verify FilesSnapshot is populated in the persisted checkpoint
+		updatedHook, err := store.Get(ctx, taskID)
+		require.NoError(t, err)
+		require.Len(t, updatedHook.Checkpoints, 1)
+
+		checkpoint := updatedHook.Checkpoints[0]
+		assert.NotEmpty(t, checkpoint.FilesSnapshot, "FilesSnapshot should NOT be empty after CompleteStep")
+		assert.Len(t, checkpoint.FilesSnapshot, 2)
+
+		// Verify snapshot details
+		assert.Equal(t, testFile1, checkpoint.FilesSnapshot[0].Path)
+		assert.True(t, checkpoint.FilesSnapshot[0].Exists)
+		assert.Equal(t, testFile2, checkpoint.FilesSnapshot[1].Path)
+		assert.True(t, checkpoint.FilesSnapshot[1].Exists)
+	})
+
+	t.Run("falls back to FilesTouched when filesChanged is empty", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		store := NewFileStore(tmpDir)
+		cfg := &config.HookConfig{}
+		m := NewManager(store, cfg)
+
+		taskID := "test-complete-fallback"
+		task := &domain.Task{ID: taskID}
+
+		taskDir := filepath.Join(tmpDir, taskID)
+		require.NoError(t, os.MkdirAll(taskDir, 0o750))
+
+		// Create test file
+		testFile := filepath.Join(tmpDir, "touched.go")
+		require.NoError(t, os.WriteFile(testFile, []byte("package touched"), 0o600))
+
+		hook := &domain.Hook{
+			TaskID: taskID,
+			State:  domain.HookStateStepRunning,
+			CurrentStep: &domain.StepContext{
+				StepName:     "implement",
+				StepIndex:    1,
+				FilesTouched: []string{testFile}, // Pre-existing files touched
+			},
+			Checkpoints: []domain.StepCheckpoint{},
+		}
+		require.NoError(t, store.Save(ctx, hook))
+
+		// Complete step with empty filesChanged - should fall back to FilesTouched
+		err := m.CompleteStep(ctx, task, "implement", nil)
+		require.NoError(t, err)
+
+		updatedHook, err := store.Get(ctx, taskID)
+		require.NoError(t, err)
+		require.Len(t, updatedHook.Checkpoints, 1)
+
+		checkpoint := updatedHook.Checkpoints[0]
+		assert.NotEmpty(t, checkpoint.FilesSnapshot, "FilesSnapshot should use fallback FilesTouched")
+		assert.Len(t, checkpoint.FilesSnapshot, 1)
+		assert.Equal(t, testFile, checkpoint.FilesSnapshot[0].Path)
+	})
+}
+
+func TestManager_CompleteStep_NilCurrentStep(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("returns error when CurrentStep is nil", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		store := NewFileStore(tmpDir)
+		cfg := &config.HookConfig{}
+		m := NewManager(store, cfg)
+
+		taskID := "test-nil-current-step"
+		task := &domain.Task{ID: taskID}
+
+		taskDir := filepath.Join(tmpDir, taskID)
+		require.NoError(t, os.MkdirAll(taskDir, 0o750))
+
+		// Create hook WITHOUT CurrentStep set
+		hook := &domain.Hook{
+			TaskID:      taskID,
+			State:       domain.HookStateStepPending, // No current step context
+			CurrentStep: nil,                         // Explicitly nil
+			Checkpoints: []domain.StepCheckpoint{},
+		}
+		require.NoError(t, store.Save(ctx, hook))
+
+		// Attempt to complete step - should fail
+		err := m.CompleteStep(ctx, task, "analyze", []string{"file.go"})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "no current step context")
+		assert.Contains(t, err.Error(), "analyze")
 	})
 }
 
@@ -646,5 +777,163 @@ func TestManager_FailTask(t *testing.T) {
 		assert.Equal(t, domain.HookStateFailed, updatedHook.State)
 		assert.Len(t, updatedHook.History, 1)
 		assert.Equal(t, "fatal error", updatedHook.History[0].Details["error"])
+	})
+}
+
+func TestManager_InvalidStateTransitions(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("TransitionStep rejects transition from terminal state", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		store := NewFileStore(tmpDir)
+		cfg := &config.HookConfig{}
+		m := NewManager(store, cfg)
+
+		taskID := "test-invalid-transition-step"
+		task := &domain.Task{ID: taskID}
+
+		taskDir := filepath.Join(tmpDir, taskID)
+		require.NoError(t, os.MkdirAll(taskDir, 0o750))
+
+		// Create hook in completed (terminal) state
+		hook := &domain.Hook{
+			TaskID: taskID,
+			State:  domain.HookStateCompleted,
+		}
+		require.NoError(t, store.Save(ctx, hook))
+
+		// Attempt to transition - should fail
+		err := m.TransitionStep(ctx, task, "implement", 0)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "terminal state")
+	})
+
+	t.Run("CompleteStep rejects transition from terminal state", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		store := NewFileStore(tmpDir)
+		cfg := &config.HookConfig{}
+		m := NewManager(store, cfg)
+
+		taskID := "test-invalid-complete-step"
+		task := &domain.Task{ID: taskID}
+
+		taskDir := filepath.Join(tmpDir, taskID)
+		require.NoError(t, os.MkdirAll(taskDir, 0o750))
+
+		// Create hook in failed (terminal) state with a CurrentStep to pass the nil check
+		hook := &domain.Hook{
+			TaskID: taskID,
+			State:  domain.HookStateFailed,
+			CurrentStep: &domain.StepContext{
+				StepName:  "implement",
+				StepIndex: 0,
+			},
+		}
+		require.NoError(t, store.Save(ctx, hook))
+
+		// Attempt to complete - should fail due to state validation
+		err := m.CompleteStep(ctx, task, "implement", nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "terminal state")
+	})
+
+	t.Run("FailStep rejects transition from terminal state", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		store := NewFileStore(tmpDir)
+		cfg := &config.HookConfig{}
+		m := NewManager(store, cfg)
+
+		taskID := "test-invalid-fail-step"
+		task := &domain.Task{ID: taskID}
+
+		taskDir := filepath.Join(tmpDir, taskID)
+		require.NoError(t, os.MkdirAll(taskDir, 0o750))
+
+		// Create hook in completed (terminal) state
+		hook := &domain.Hook{
+			TaskID: taskID,
+			State:  domain.HookStateCompleted,
+		}
+		require.NoError(t, store.Save(ctx, hook))
+
+		// Attempt to fail step - should fail
+		err := m.FailStep(ctx, task, "implement", errCompilationFailed)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "terminal state")
+	})
+
+	t.Run("CompleteTask rejects transition from terminal state", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		store := NewFileStore(tmpDir)
+		cfg := &config.HookConfig{}
+		m := NewManager(store, cfg)
+
+		taskID := "test-invalid-complete-task"
+		task := &domain.Task{ID: taskID}
+
+		taskDir := filepath.Join(tmpDir, taskID)
+		require.NoError(t, os.MkdirAll(taskDir, 0o750))
+
+		// Create hook in already completed state
+		hook := &domain.Hook{
+			TaskID: taskID,
+			State:  domain.HookStateCompleted,
+		}
+		require.NoError(t, store.Save(ctx, hook))
+
+		// Attempt to complete again - should fail
+		err := m.CompleteTask(ctx, task)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "terminal state")
+	})
+
+	t.Run("FailTask rejects transition from terminal state", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		store := NewFileStore(tmpDir)
+		cfg := &config.HookConfig{}
+		m := NewManager(store, cfg)
+
+		taskID := "test-invalid-fail-task"
+		task := &domain.Task{ID: taskID}
+
+		taskDir := filepath.Join(tmpDir, taskID)
+		require.NoError(t, os.MkdirAll(taskDir, 0o750))
+
+		// Create hook in already failed state
+		hook := &domain.Hook{
+			TaskID: taskID,
+			State:  domain.HookStateFailed,
+		}
+		require.NoError(t, store.Save(ctx, hook))
+
+		// Attempt to fail again - should fail
+		err := m.FailTask(ctx, task, errFatalError)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "terminal state")
+	})
+
+	t.Run("CompleteTask rejects invalid non-terminal transition", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		store := NewFileStore(tmpDir)
+		cfg := &config.HookConfig{}
+		m := NewManager(store, cfg)
+
+		taskID := "test-invalid-complete-from-running"
+		task := &domain.Task{ID: taskID}
+
+		taskDir := filepath.Join(tmpDir, taskID)
+		require.NoError(t, os.MkdirAll(taskDir, 0o750))
+
+		// Create hook in step_running state (cannot transition directly to completed)
+		hook := &domain.Hook{
+			TaskID: taskID,
+			State:  domain.HookStateStepRunning,
+		}
+		require.NoError(t, store.Save(ctx, hook))
+
+		// Attempt to complete task - should fail (must go through step_pending first)
+		err := m.CompleteTask(ctx, task)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid state transition")
 	})
 }

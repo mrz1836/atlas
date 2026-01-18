@@ -27,7 +27,15 @@ func newFileLock(path string) *fileLock {
 }
 
 // LockWithTimeout acquires an exclusive lock with timeout using retry.
+// Deprecated: Use LockWithContext for context-aware cancellation support.
 func (fl *fileLock) LockWithTimeout(timeout time.Duration) error {
+	return fl.LockWithContext(context.Background(), timeout)
+}
+
+// LockWithContext acquires an exclusive lock with timeout and context cancellation support.
+// The lock acquisition can be interrupted by canceling the context, which is important
+// for responsive shutdown handling.
+func (fl *fileLock) LockWithContext(ctx context.Context, timeout time.Duration) error {
 	var err error
 	fl.file, err = os.OpenFile(fl.path, os.O_RDWR|os.O_CREATE, 0o600)
 	if err != nil {
@@ -38,6 +46,14 @@ func (fl *fileLock) LockWithTimeout(timeout time.Duration) error {
 	interval := 50 * time.Millisecond
 
 	for {
+		// Check context cancellation first
+		select {
+		case <-ctx.Done():
+			_ = fl.file.Close()
+			return ctx.Err()
+		default:
+		}
+
 		err = flock.Exclusive(fl.file.Fd())
 		if err == nil {
 			return nil
@@ -48,7 +64,15 @@ func (fl *fileLock) LockWithTimeout(timeout time.Duration) error {
 			return fmt.Errorf("%w after %v", atlaserrors.ErrLockTimedOut, timeout)
 		}
 
-		time.Sleep(interval)
+		// Use timer instead of Sleep for context-awareness
+		timer := time.NewTimer(interval)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			_ = fl.file.Close()
+			return ctx.Err()
+		case <-timer.C:
+		}
 	}
 }
 
@@ -77,8 +101,16 @@ type Store interface {
 	Create(ctx context.Context, taskID, workspaceID string) (*domain.Hook, error)
 
 	// Get retrieves a hook by task ID.
+	// WARNING: Returns a snapshot that may become stale. Use Update() for
+	// read-modify-write operations, or GetSnapshot() for explicit read-only access.
 	// Returns ErrHookNotFound if hook does not exist.
 	Get(ctx context.Context, taskID string) (*domain.Hook, error)
+
+	// GetSnapshot retrieves a deep copy of the hook for read-only inspection.
+	// The returned hook is safe to read but modifications will NOT be persisted.
+	// Use this when you need to inspect state without risk of accidental mutation.
+	// Returns ErrHookNotFound if hook does not exist.
+	GetSnapshot(ctx context.Context, taskID string) (*domain.Hook, error)
 
 	// Save persists the hook state atomically.
 	// Also regenerates HOOK.md from the updated state.
@@ -139,14 +171,30 @@ func NewFileStore(basePath string, opts ...FileStoreOption) *FileStore {
 }
 
 // Create initializes a new hook for a task.
+// The lock is acquired BEFORE the existence check to prevent TOCTOU race conditions
+// where multiple goroutines could pass the existence check and overwrite each other.
 func (fs *FileStore) Create(ctx context.Context, taskID, workspaceID string) (*domain.Hook, error) {
 	hookPath := fs.hookPath(taskID)
 
-	// Check if hook already exists
+	// Ensure directory exists BEFORE acquiring lock (lock file needs the directory)
+	dir := filepath.Dir(hookPath)
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		return nil, fmt.Errorf("failed to create directory: %w", err)
+	}
+
+	// ACQUIRE LOCK FIRST to prevent TOCTOU race condition
+	lock := newFileLock(hookPath + ".lock")
+	if err := lock.LockWithContext(ctx, fs.lockTimeout); err != nil {
+		return nil, fmt.Errorf("failed to acquire lock: %w", err)
+	}
+	defer func() { _ = lock.Unlock() }()
+
+	// NOW check existence (under lock) - this is atomic with the write
 	if _, err := os.Stat(hookPath); err == nil {
 		return nil, ErrHookExists
 	}
 
+	// Create the hook (still under lock)
 	now := time.Now().UTC()
 	hook := &domain.Hook{
 		Version:       constants.HookSchemaVersion,
@@ -161,20 +209,44 @@ func (fs *FileStore) Create(ctx context.Context, taskID, workspaceID string) (*d
 		SchemaVersion: constants.HookSchemaVersion,
 	}
 
-	// Save the new hook
-	if err := fs.Save(ctx, hook); err != nil {
-		return nil, fmt.Errorf("failed to save new hook: %w", err)
+	// Marshal to JSON
+	data, err := json.MarshalIndent(hook, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal hook: %w", err)
+	}
+
+	// Write atomically (we already hold the lock)
+	if err := fs.atomicWrite(hookPath, data); err != nil {
+		return nil, fmt.Errorf("failed to write hook file: %w", err)
+	}
+
+	// Generate markdown if available
+	if fs.markdownGenerator != nil {
+		mdPath := fs.markdownPath(taskID)
+		mdContent, genErr := fs.markdownGenerator.Generate(hook)
+		if genErr == nil {
+			_ = fs.atomicWrite(mdPath, mdContent)
+		}
 	}
 
 	return hook, nil
 }
 
 // Get retrieves a hook by task ID.
-func (fs *FileStore) Get(_ context.Context, taskID string) (*domain.Hook, error) {
+//
+// WARNING: The returned hook is a point-in-time snapshot and becomes stale
+// immediately after the lock is released. Any modifications to the returned
+// hook will NOT be persisted unless followed by a Save() call, but this
+// pattern is dangerous because concurrent modifications may be lost.
+//
+// For read-modify-write operations, use Update() instead which provides
+// atomic guarantees. For read-only inspection where you want to be explicit
+// about the snapshot semantics, use GetSnapshot() which returns a deep copy.
+func (fs *FileStore) Get(ctx context.Context, taskID string) (*domain.Hook, error) {
 	hookPath := fs.hookPath(taskID)
 
 	// Read file with lock
-	data, err := fs.readWithLock(hookPath)
+	data, err := fs.readWithLock(ctx, hookPath)
 	if err != nil {
 		if os.IsNotExist(err) || errors.Is(err, os.ErrNotExist) {
 			return nil, ErrHookNotFound
@@ -190,9 +262,21 @@ func (fs *FileStore) Get(_ context.Context, taskID string) (*domain.Hook, error)
 	return &hook, nil
 }
 
+// GetSnapshot retrieves a deep copy of the hook for read-only inspection.
+// The returned hook is safe to read but modifications will NOT be persisted.
+// This method is preferred over Get() when you need to be explicit about
+// the read-only nature of the access and avoid accidental mutations.
+func (fs *FileStore) GetSnapshot(ctx context.Context, taskID string) (*domain.Hook, error) {
+	hook, err := fs.Get(ctx, taskID)
+	if err != nil {
+		return nil, err
+	}
+	return hook.DeepCopy(), nil
+}
+
 // Save persists the hook state atomically with full locking.
 // The lock is acquired before any operations to ensure thread-safety.
-func (fs *FileStore) Save(_ context.Context, hook *domain.Hook) error {
+func (fs *FileStore) Save(ctx context.Context, hook *domain.Hook) error {
 	hookPath := fs.hookPath(hook.TaskID)
 
 	// Ensure directory exists BEFORE acquiring lock (lock file needs the directory)
@@ -203,7 +287,7 @@ func (fs *FileStore) Save(_ context.Context, hook *domain.Hook) error {
 
 	// Acquire lock BEFORE modifying timestamp to ensure thread-safety
 	lock := newFileLock(hookPath + ".lock")
-	if err := lock.LockWithTimeout(fs.lockTimeout); err != nil {
+	if err := lock.LockWithContext(ctx, fs.lockTimeout); err != nil {
 		return fmt.Errorf("failed to acquire lock: %w", err)
 	}
 	defer func() { _ = lock.Unlock() }()
@@ -235,12 +319,12 @@ func (fs *FileStore) Save(_ context.Context, hook *domain.Hook) error {
 }
 
 // Update performs an atomic read-modify-write operation.
-func (fs *FileStore) Update(_ context.Context, taskID string, modifier func(*domain.Hook) error) error {
+func (fs *FileStore) Update(ctx context.Context, taskID string, modifier func(*domain.Hook) error) error {
 	hookPath := fs.hookPath(taskID)
 
 	// Acquire lock for the duration of read-modify-write
 	lock := newFileLock(hookPath + ".lock")
-	if err := lock.LockWithTimeout(fs.lockTimeout); err != nil {
+	if err := lock.LockWithContext(ctx, fs.lockTimeout); err != nil {
 		return fmt.Errorf("failed to acquire lock: %w", err)
 	}
 	defer func() { _ = lock.Unlock() }()
@@ -378,10 +462,10 @@ func (fs *FileStore) markdownPath(taskID string) string {
 	return filepath.Join(fs.basePath, taskID, constants.HookMarkdownFileName)
 }
 
-// readWithLock reads a file with a lock.
-func (fs *FileStore) readWithLock(path string) ([]byte, error) {
+// readWithLock reads a file with a lock, respecting context cancellation.
+func (fs *FileStore) readWithLock(ctx context.Context, path string) ([]byte, error) {
 	lock := newFileLock(path + ".lock")
-	if err := lock.LockWithTimeout(fs.lockTimeout); err != nil {
+	if err := lock.LockWithContext(ctx, fs.lockTimeout); err != nil {
 		return nil, fmt.Errorf("failed to acquire lock: %w", err)
 	}
 	defer func() {

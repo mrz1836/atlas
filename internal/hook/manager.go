@@ -4,6 +4,7 @@ package hook
 import (
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"math"
 	"sync"
@@ -17,6 +18,9 @@ import (
 
 // DefaultCheckpointInterval is the default interval for periodic checkpoints.
 const DefaultCheckpointInterval = 5 * time.Minute
+
+// ErrNoCurrentStepContext is returned when attempting to complete a step without a current step context.
+var ErrNoCurrentStepContext = errors.New("no current step context")
 
 // generateCheckpointID generates a unique checkpoint ID.
 // Format: ckpt-{uuid8} (e.g., ckpt-a1b2c3d4)
@@ -70,6 +74,11 @@ func (m *Manager) CreateHook(ctx context.Context, task *domain.Task) error {
 // TransitionStep updates the hook when entering a step.
 func (m *Manager) TransitionStep(ctx context.Context, task *domain.Task, stepName string, stepIndex int) error {
 	return m.store.Update(ctx, task.ID, func(h *domain.Hook) error {
+		// Validate transition before applying
+		if err := domain.ValidateTransition(h.State, domain.HookStateStepRunning); err != nil {
+			return fmt.Errorf("transition to step_running: %w", err)
+		}
+
 		now := time.Now().UTC()
 		oldState := h.State
 
@@ -103,6 +112,16 @@ func (m *Manager) TransitionStep(ctx context.Context, task *domain.Task, stepNam
 // filesChanged contains the list of files modified during the step.
 func (m *Manager) CompleteStep(ctx context.Context, task *domain.Task, stepName string, filesChanged []string) error {
 	return m.store.Update(ctx, task.ID, func(h *domain.Hook) error {
+		// Guard: CurrentStep must be set before completing
+		if h.CurrentStep == nil {
+			return fmt.Errorf("cannot complete step %q: %w (state: %s)", stepName, ErrNoCurrentStepContext, h.State)
+		}
+
+		// Validate transition before applying
+		if err := domain.ValidateTransition(h.State, domain.HookStateStepPending); err != nil {
+			return fmt.Errorf("transition to step_pending: %w", err)
+		}
+
 		now := time.Now().UTC()
 		oldState := h.State
 
@@ -111,7 +130,7 @@ func (m *Manager) CompleteStep(ctx context.Context, task *domain.Task, stepName 
 		h.UpdatedAt = now
 
 		// Track files touched during this step
-		if h.CurrentStep != nil && len(filesChanged) > 0 {
+		if len(filesChanged) > 0 {
 			h.CurrentStep.FilesTouched = filesChanged
 		}
 
@@ -125,6 +144,14 @@ func (m *Manager) CompleteStep(ctx context.Context, task *domain.Task, stepName 
 			Trigger:      domain.CheckpointTriggerStepComplete,
 		}
 
+		// Capture file snapshots BEFORE appending (struct is copied on append)
+		if len(filesChanged) > 0 {
+			checkpoint.FilesSnapshot = snapshotFiles(filesChanged)
+		} else if len(h.CurrentStep.FilesTouched) > 0 {
+			// If explicit filesChanged not provided, fall back to accumulated files touched
+			checkpoint.FilesSnapshot = snapshotFiles(h.CurrentStep.FilesTouched)
+		}
+
 		// Add git state if available from task metadata
 		if task.Metadata != nil {
 			if branch, ok := task.Metadata["branch"].(string); ok {
@@ -132,19 +159,12 @@ func (m *Manager) CompleteStep(ctx context.Context, task *domain.Task, stepName 
 			}
 		}
 
+		// Append the fully-populated checkpoint to the slice
 		h.Checkpoints = append(h.Checkpoints, checkpoint)
 
 		// Prune checkpoints if over limit (keep most recent 50)
 		if len(h.Checkpoints) > 50 {
 			h.Checkpoints = h.Checkpoints[len(h.Checkpoints)-50:]
-		}
-
-		// Capture file snapshots
-		if len(filesChanged) > 0 {
-			checkpoint.FilesSnapshot = snapshotFiles(filesChanged)
-		} else if h.CurrentStep != nil && len(h.CurrentStep.FilesTouched) > 0 {
-			// If explicit filesChanged not provided, fall back to accumulated files touched
-			checkpoint.FilesSnapshot = snapshotFiles(h.CurrentStep.FilesTouched)
 		}
 
 		// Record transition
@@ -157,9 +177,7 @@ func (m *Manager) CompleteStep(ctx context.Context, task *domain.Task, stepName 
 		})
 
 		// Update current step checkpoint reference
-		if h.CurrentStep != nil {
-			h.CurrentStep.CurrentCheckpointID = checkpoint.CheckpointID
-		}
+		h.CurrentStep.CurrentCheckpointID = checkpoint.CheckpointID
 
 		return nil
 	})
@@ -168,6 +186,11 @@ func (m *Manager) CompleteStep(ctx context.Context, task *domain.Task, stepName 
 // FailStep updates the hook when a step fails.
 func (m *Manager) FailStep(ctx context.Context, task *domain.Task, stepName string, stepErr error) error {
 	return m.store.Update(ctx, task.ID, func(h *domain.Hook) error {
+		// Validate transition before applying
+		if err := domain.ValidateTransition(h.State, domain.HookStateAwaitingHuman); err != nil {
+			return fmt.Errorf("transition to awaiting_human: %w", err)
+		}
+
 		now := time.Now().UTC()
 		oldState := h.State
 
@@ -198,6 +221,11 @@ func (m *Manager) CompleteTask(ctx context.Context, task *domain.Task) error {
 	}()
 
 	return m.store.Update(ctx, task.ID, func(h *domain.Hook) error {
+		// Validate transition before applying
+		if err := domain.ValidateTransition(h.State, domain.HookStateCompleted); err != nil {
+			return fmt.Errorf("transition to completed: %w", err)
+		}
+
 		now := time.Now().UTC()
 		oldState := h.State
 
@@ -225,6 +253,11 @@ func (m *Manager) FailTask(ctx context.Context, task *domain.Task, taskErr error
 	}()
 
 	return m.store.Update(ctx, task.ID, func(h *domain.Hook) error {
+		// Validate transition before applying
+		if err := domain.ValidateTransition(h.State, domain.HookStateFailed); err != nil {
+			return fmt.Errorf("transition to failed: %w", err)
+		}
+
 		now := time.Now().UTC()
 		oldState := h.State
 
