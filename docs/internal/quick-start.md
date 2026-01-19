@@ -857,7 +857,7 @@ atlas backlog promote disc-a1b2c3 --template feature
 # Override AI agent and model
 atlas backlog promote disc-a1b2c3 --ai --agent claude --model opus
 
-# Legacy mode: link to existing task ID
+# Link to existing task ID
 atlas backlog promote disc-a1b2c3 --task-id task-20260118-150000
 
 # JSON output for scripting
@@ -873,7 +873,7 @@ atlas backlog promote disc-a1b2c3 --dry-run --json
 | `--agent` | | AI agent override (claude, gemini, codex) | From config |
 | `--model` | | AI model override | From config |
 | `--dry-run` | | Preview without executing | `false` |
-| `--task-id` | | Legacy: link to existing task ID | - |
+| `--task-id` | | Link to existing task ID | - |
 | `--json` | | Output as JSON | `false` |
 
 **Category → Template Mapping:**
@@ -1917,7 +1917,7 @@ atlas resume my-workspace
 # Option 1: Quick retry (skip menu)
 atlas resume my-workspace --retry
 
-# Option 2: Let AI fix it (legacy flag)
+# Option 2: Let AI fix it
 atlas resume my-workspace --ai-fix
 
 # Option 3: Fix manually then resume
