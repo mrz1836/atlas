@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"github.com/rs/zerolog"
+
+	"github.com/mrz1836/atlas/internal/git"
 )
 
 // Git status --porcelain format constants.
@@ -80,9 +82,13 @@ func StageModifiedFilesWithRunner(ctx context.Context, workDir string, runner Gi
 		Strs("files", modified).
 		Msg("staging files modified by pre-commit hooks")
 
-	// Stage modified files using git add
+	// Stage modified files using git add with lock file retry
 	args := append([]string{"add"}, modified...)
-	if _, err := runner.Run(ctx, workDir, args...); err != nil {
+	err = git.RunWithLockRetryVoid(ctx, git.DefaultLockRetryConfig(), *log, func(ctx context.Context) error {
+		_, runErr := runner.Run(ctx, workDir, args...)
+		return runErr
+	})
+	if err != nil {
 		return fmt.Errorf("failed to stage modified files: %w", err)
 	}
 

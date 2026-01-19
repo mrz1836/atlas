@@ -2,6 +2,7 @@ package validation_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/rs/zerolog"
@@ -19,6 +20,10 @@ type MockGitRunner struct {
 		err    error
 	}
 	calls []string
+
+	// For testing retry behavior
+	callCounts map[string]int
+	addErrors  []error // sequence of errors for "add" command (nil = success)
 }
 
 // NewMockGitRunner creates a new mock git runner.
@@ -28,7 +33,8 @@ func NewMockGitRunner() *MockGitRunner {
 			output string
 			err    error
 		}),
-		calls: []string{},
+		calls:      []string{},
+		callCounts: make(map[string]int),
 	}
 }
 
@@ -40,18 +46,42 @@ func (m *MockGitRunner) SetResponse(firstArg, output string, err error) {
 	}{output, err}
 }
 
+// SetAddErrorSequence sets a sequence of errors for "add" command calls.
+// Each call to "add" will consume the next error in the sequence.
+// nil = success, error = failure.
+func (m *MockGitRunner) SetAddErrorSequence(errors []error) {
+	m.addErrors = errors
+}
+
 // Run implements GitRunner.
 func (m *MockGitRunner) Run(_ context.Context, _ string, args ...string) (string, error) {
 	if len(args) == 0 {
 		return "", atlaserrors.ErrCommandNotConfigured
 	}
 	m.calls = append(m.calls, args[0])
+	m.callCounts[args[0]]++
+
+	// Special handling for "add" with error sequence
+	if args[0] == "add" && len(m.addErrors) > 0 {
+		callIdx := m.callCounts["add"] - 1
+		if callIdx < len(m.addErrors) {
+			if m.addErrors[callIdx] != nil {
+				return "", m.addErrors[callIdx]
+			}
+			return "", nil
+		}
+	}
 
 	resp, ok := m.responses[args[0]]
 	if !ok {
 		return "", nil
 	}
 	return resp.output, resp.err
+}
+
+// CallCount returns the number of times a command was called.
+func (m *MockGitRunner) CallCount(cmd string) int {
+	return m.callCounts[cmd]
 }
 
 // Ensure MockGitRunner implements GitRunner.
@@ -202,4 +232,71 @@ func TestDefaultGitRunner_Run(t *testing.T) {
 	output, err := runner.Run(ctx, tmpDir, "status", "--porcelain")
 	require.NoError(t, err)
 	assert.Empty(t, output) // Empty repo has no changes
+}
+
+// Tests for lock file retry behavior
+
+func TestStageModifiedFiles_LockFileRetry_Success(t *testing.T) {
+	mock := NewMockGitRunner()
+	mock.SetResponse("status", " M file.go\n", nil)
+
+	// First two calls fail with lock error, third succeeds
+	lockErr := errors.New("fatal: unable to create '/path/.git/index.lock': file exists") //nolint:err113 // test error
+	mock.SetAddErrorSequence([]error{lockErr, lockErr, nil})
+
+	ctx := stagingTestContext()
+	err := validation.StageModifiedFilesWithRunner(ctx, "/tmp", mock)
+
+	require.NoError(t, err)
+	// Should have retried 3 times total
+	assert.Equal(t, 3, mock.CallCount("add"))
+}
+
+func TestStageModifiedFiles_LockFileRetry_AnotherGitProcess(t *testing.T) {
+	mock := NewMockGitRunner()
+	mock.SetResponse("status", " M file.go\n", nil)
+
+	// Fail with "another git process" error, then succeed
+	lockErr := errors.New("another git process seems to be running in this repository") //nolint:err113 // test error
+	mock.SetAddErrorSequence([]error{lockErr, nil})
+
+	ctx := stagingTestContext()
+	err := validation.StageModifiedFilesWithRunner(ctx, "/tmp", mock)
+
+	require.NoError(t, err)
+	assert.Equal(t, 2, mock.CallCount("add"))
+}
+
+func TestStageModifiedFiles_LockFileRetry_NonLockError_NoRetry(t *testing.T) {
+	mock := NewMockGitRunner()
+	mock.SetResponse("status", " M file.go\n", nil)
+
+	// Non-lock error should not trigger retry
+	nonLockErr := errors.New("permission denied") //nolint:err113 // test error
+	mock.SetAddErrorSequence([]error{nonLockErr})
+
+	ctx := stagingTestContext()
+	err := validation.StageModifiedFilesWithRunner(ctx, "/tmp", mock)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to stage modified files")
+	// Should NOT have retried - only 1 call
+	assert.Equal(t, 1, mock.CallCount("add"))
+}
+
+func TestStageModifiedFiles_LockFileRetry_Exhausted(t *testing.T) {
+	mock := NewMockGitRunner()
+	mock.SetResponse("status", " M file.go\n", nil)
+
+	// All 5 attempts fail with lock error
+	lockErr := errors.New("index.lock exists") //nolint:err113 // test error
+	mock.SetAddErrorSequence([]error{lockErr, lockErr, lockErr, lockErr, lockErr})
+
+	ctx := stagingTestContext()
+	err := validation.StageModifiedFilesWithRunner(ctx, "/tmp", mock)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to stage modified files")
+	// Should have tried 5 times (default max attempts)
+	assert.Equal(t, 5, mock.CallCount("add"))
 }
