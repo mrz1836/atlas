@@ -1314,6 +1314,89 @@ templates:
 
 File format is auto-detected from extension (`.yaml`, `.yml`, or `.json`).
 
+**Creating and Running a Custom Template:**
+
+Follow these steps to create and use a custom template:
+
+**Step 1: Create the template file**
+
+Create a new file at `.atlas/templates/my-workflow.yaml`:
+
+```yaml
+name: my-workflow
+description: Custom workflow with CI monitoring
+branch_prefix: custom
+default_model: sonnet
+
+steps:
+  - name: implement
+    type: ai
+    description: Implement the requested changes
+    required: true
+    timeout: 20m
+
+  - name: validate
+    type: validation
+    required: true
+    timeout: 10m
+
+  - name: git_commit
+    type: git
+    config:
+      operation: commit
+
+  - name: git_push
+    type: git
+    config:
+      operation: push
+
+  - name: git_pr
+    type: git
+    config:
+      operation: create_pr
+
+  - name: ci_wait
+    type: ci
+    description: Wait for CI to pass
+    timeout: 30m
+    config:
+      poll_interval: 2m
+
+  - name: review
+    type: human
+    description: Human approval checkpoint
+```
+
+**Step 2: Register the template**
+
+Add to your `.atlas/config.yaml`:
+
+```yaml
+templates:
+  custom_templates:
+    my-workflow: .atlas/templates/my-workflow.yaml
+```
+
+**Step 3: Run with atlas start**
+
+```bash
+# Use the custom template
+atlas start "add logging to HTTP client" --template my-workflow
+
+# Or set as default and omit --template
+# templates:
+#   default_template: my-workflow
+atlas start "add logging to HTTP client"
+```
+
+**Step 4: Monitor and approve**
+
+```bash
+atlas status --watch
+# Wait for awaiting_approval...
+atlas approve
+```
+
 **Custom Template File Format (YAML):**
 
 ```yaml
@@ -1373,6 +1456,20 @@ steps:
     timeout: 2m
     config:
       operation: create_pr
+
+  - name: ci_wait
+    type: ci
+    description: Wait for CI pipeline to complete
+    required: true
+    timeout: 30m
+    config:
+      poll_interval: 2m
+      workflows: []  # Empty = monitor all workflows
+
+  - name: review
+    type: human
+    description: Human approval checkpoint
+    required: true
 ```
 
 **Step Types:**
@@ -1440,6 +1537,36 @@ steps:
 | `fresh_context` | Spawn new AI context per iteration | `false` |
 | `scratchpad_file` | JSON file for cross-iteration memory | - |
 | `steps` | Inner steps to execute each iteration | Required |
+
+**CI Step Configuration:**
+
+The `ci` step type monitors GitHub Actions workflows and waits for them to complete. It's typically used after creating a PR to ensure CI passes before human review.
+
+| Config Key | Description | Default |
+|------------|-------------|---------|
+| `poll_interval` | How often to check CI status | `2m` |
+| `grace_period` | Initial wait before first poll | `2m` |
+| `timeout` | Maximum wait time | `30m` |
+| `workflows` | Specific workflows to monitor (empty = all) | `[]` |
+
+**Example ci_wait step:**
+
+```yaml
+steps:
+  - name: ci_wait
+    type: ci
+    description: Wait for CI pipeline to pass
+    required: true
+    timeout: 30m
+    config:
+      poll_interval: 2m
+      grace_period: 2m
+      workflows:
+        - "CI / lint"
+        - "CI / test"
+```
+
+**Note:** The CI step requires a PR to have been created. It reads the PR number from task metadata set by a previous `git_pr` step.
 
 **Git Step Operations:**
 
