@@ -430,6 +430,29 @@ var (
 
 	// ErrMockVerificationFailed indicates mock signature verification failed (for testing).
 	ErrMockVerificationFailed = errors.New("mock verification failed")
+
+	// ========== Discovery/Backlog Errors ==========
+
+	// ErrDiscoveryNotFound indicates the requested discovery does not exist.
+	ErrDiscoveryNotFound = errors.New("discovery not found")
+
+	// ErrInvalidDiscoveryID indicates an invalid discovery ID format.
+	ErrInvalidDiscoveryID = errors.New("invalid discovery ID format")
+
+	// ErrBacklogDirNotFound indicates the backlog directory does not exist.
+	ErrBacklogDirNotFound = errors.New("backlog directory not found")
+
+	// ErrMalformedDiscovery indicates a discovery file is malformed or unreadable.
+	ErrMalformedDiscovery = errors.New("malformed discovery file")
+
+	// ErrDuplicateDiscoveryID indicates a discovery ID already exists.
+	ErrDuplicateDiscoveryID = errors.New("discovery ID already exists")
+
+	// ErrInvalidDiscoveryStatus indicates an invalid discovery status value.
+	ErrInvalidDiscoveryStatus = errors.New("invalid discovery status")
+
+	// ErrInvalidStatusTransition indicates an invalid status transition was attempted.
+	ErrInvalidStatusTransition = errors.New("invalid status transition")
 )
 
 // LoopError provides detailed information about loop failures.
