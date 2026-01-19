@@ -284,11 +284,11 @@ func IsAttentionStatus(status constants.TaskStatus) bool {
 //
 //nolint:gochecknoglobals // Intentional package-level constant for TUI styling
 var suggestedActions = map[constants.TaskStatus]string{
-	constants.TaskStatusValidationFailed: "atlas recover",
+	constants.TaskStatusValidationFailed: "atlas resume",
 	constants.TaskStatusAwaitingApproval: "atlas approve",
-	constants.TaskStatusGHFailed:         "atlas recover",
-	constants.TaskStatusCIFailed:         "atlas recover",
-	constants.TaskStatusCITimeout:        "atlas recover",
+	constants.TaskStatusGHFailed:         "atlas resume",
+	constants.TaskStatusCIFailed:         "atlas resume",
+	constants.TaskStatusCITimeout:        "atlas resume",
 }
 
 // SuggestedAction returns the suggested CLI command for a given task status.

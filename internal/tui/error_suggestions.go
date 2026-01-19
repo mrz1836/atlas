@@ -42,8 +42,8 @@ var errorSuggestions = []ErrorSuggestion{
 	// Task errors
 	{atlaserrors.ErrNoTasksFound, "Run: atlas start \"description\""},
 	{atlaserrors.ErrTaskNotFound, "Run: atlas status"},
-	{atlaserrors.ErrValidationFailed, "Run: atlas recover"},
-	{atlaserrors.ErrMaxRetriesExceeded, "Run: atlas recover"},
+	{atlaserrors.ErrValidationFailed, "Run: atlas resume"},
+	{atlaserrors.ErrMaxRetriesExceeded, "Run: atlas resume"},
 
 	// Template errors
 	{atlaserrors.ErrTemplateNotFound, "Use: --template bugfix, feature, or commit"},
@@ -52,11 +52,11 @@ var errorSuggestions = []ErrorSuggestion{
 	// GitHub/CI errors
 	{atlaserrors.ErrPushAuthFailed, "Check your git credentials or SSH keys"},
 	{atlaserrors.ErrPushNetworkFailed, "Check your network connection"},
-	{atlaserrors.ErrPRCreationFailed, "Run: atlas recover"},
+	{atlaserrors.ErrPRCreationFailed, "Run: atlas resume"},
 	{atlaserrors.ErrGHAuthFailed, "Run: gh auth login"},
 	{atlaserrors.ErrGHRateLimited, "Wait a few minutes and try again"},
-	{atlaserrors.ErrCIFailed, "Run: atlas recover"},
-	{atlaserrors.ErrCITimeout, "Run: atlas recover --continue"},
+	{atlaserrors.ErrCIFailed, "Run: atlas resume"},
+	{atlaserrors.ErrCITimeout, "Run: atlas resume"},
 
 	// AI errors
 	{atlaserrors.ErrClaudeInvocation, "Check that Claude CLI is installed: claude --version"},
