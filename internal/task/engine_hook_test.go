@@ -52,6 +52,10 @@ func (m *mockHookManager) CreateHook(_ context.Context, _ *domain.Task) error {
 	return m.createErr
 }
 
+func (m *mockHookManager) ReadyHook(_ context.Context, _ *domain.Task) error {
+	return nil
+}
+
 func (m *mockHookManager) CompleteTask(_ context.Context, _ *domain.Task) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

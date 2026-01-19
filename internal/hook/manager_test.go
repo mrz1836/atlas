@@ -253,6 +253,88 @@ func (s *taskIndexTrackingSigner) SignReceipt(ctx context.Context, receipt *doma
 	return s.MockSigner.SignReceipt(ctx, receipt, taskIndex)
 }
 
+func TestManager_ReadyHook(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("transitions hook from initializing to step_pending", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		store := NewFileStore(tmpDir)
+		cfg := &config.HookConfig{}
+		m := NewManager(store, cfg)
+
+		taskID := "test-ready"
+		workspaceID := testWorkspaceID
+		task := &domain.Task{ID: taskID, WorkspaceID: workspaceID}
+
+		taskPath := resolveTaskPath(workspaceID, taskID)
+		taskDir := filepath.Join(tmpDir, taskPath)
+		require.NoError(t, os.MkdirAll(taskDir, 0o750))
+
+		// Create hook (which starts in initializing state)
+		_, err := store.Create(ctx, taskPath, workspaceID)
+		require.NoError(t, err)
+
+		// Verify initial state is initializing
+		hook, err := store.Get(ctx, taskPath)
+		require.NoError(t, err)
+		assert.Equal(t, domain.HookStateInitializing, hook.State)
+
+		// Call ReadyHook
+		err = m.ReadyHook(ctx, task)
+		require.NoError(t, err)
+
+		// Verify state is now step_pending
+		updatedHook, err := store.Get(ctx, taskPath)
+		require.NoError(t, err)
+		assert.Equal(t, domain.HookStateStepPending, updatedHook.State)
+
+		// Verify history event was recorded
+		require.Len(t, updatedHook.History, 1)
+		assert.Equal(t, domain.HookStateInitializing, updatedHook.History[0].FromState)
+		assert.Equal(t, domain.HookStateStepPending, updatedHook.History[0].ToState)
+		assert.Equal(t, "hook_ready", updatedHook.History[0].Trigger)
+	})
+
+	t.Run("rejects invalid transition from terminal state", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		store := NewFileStore(tmpDir)
+		cfg := &config.HookConfig{}
+		m := NewManager(store, cfg)
+
+		taskID := "test-ready-invalid"
+		workspaceID := testWorkspaceID
+		task := &domain.Task{ID: taskID, WorkspaceID: workspaceID}
+
+		taskPath := resolveTaskPath(workspaceID, taskID)
+		taskDir := filepath.Join(tmpDir, taskPath)
+		require.NoError(t, os.MkdirAll(taskDir, 0o750))
+
+		// Create hook in completed (terminal) state - cannot transition to step_pending
+		hook := &domain.Hook{
+			TaskID: taskPath,
+			State:  domain.HookStateCompleted,
+		}
+		require.NoError(t, store.Save(ctx, hook))
+
+		// Call ReadyHook - should fail because completed is a terminal state
+		err := m.ReadyHook(ctx, task)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "terminal state")
+	})
+
+	t.Run("returns error if hook does not exist", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		store := NewFileStore(tmpDir)
+		cfg := &config.HookConfig{}
+		m := NewManager(store, cfg)
+
+		task := &domain.Task{ID: "non-existent", WorkspaceID: testWorkspaceID}
+
+		err := m.ReadyHook(ctx, task)
+		require.Error(t, err)
+	})
+}
+
 func TestManager_StartIntervalCheckpointing(t *testing.T) {
 	ctx := context.Background()
 
