@@ -175,16 +175,24 @@ func outputPromoteResultJSON(out tui.Output, result *backlog.PromoteResult) erro
 		"workspace_name": result.WorkspaceName,
 		"branch_name":    result.BranchName,
 		"description":    result.Description,
+		"start_command":  buildStartCommand(result),
 	}
 
 	if result.AIAnalysis != nil {
-		response["ai_analysis"] = map[string]any{
+		aiMap := map[string]any{
 			"template":       result.AIAnalysis.Template,
 			"description":    result.AIAnalysis.Description,
 			"reasoning":      result.AIAnalysis.Reasoning,
 			"workspace_name": result.AIAnalysis.WorkspaceName,
 			"priority":       result.AIAnalysis.Priority,
 		}
+		if result.AIAnalysis.BaseBranch != "" {
+			aiMap["base_branch"] = result.AIAnalysis.BaseBranch
+		}
+		if result.AIAnalysis.UseVerify != nil {
+			aiMap["use_verify"] = *result.AIAnalysis.UseVerify
+		}
+		response["ai_analysis"] = aiMap
 	}
 
 	response["discovery"] = result.Discovery
@@ -217,22 +225,46 @@ func displayPromoteResult(out tui.Output, result *backlog.PromoteResult) {
 		}
 	}
 
+	// Build the suggested command with all flags
+	startCmd := buildStartCommand(result)
+
 	if result.DryRun {
 		out.Text("\nTo create the task, run without --dry-run:")
 		out.Text(fmt.Sprintf("  atlas backlog promote %s", result.Discovery.ID))
 		if result.TemplateName != "" {
 			out.Text("\nOr start the task directly with:")
-			out.Text(fmt.Sprintf("  atlas start -t %s -w %s --from-backlog %s \\", result.TemplateName, result.WorkspaceName, result.Discovery.ID))
+			out.Text(fmt.Sprintf("  %s \\", startCmd))
 			out.Text(fmt.Sprintf("    %q", result.Discovery.Title))
 		}
 	} else {
 		// Not dry-run: show instructions for next steps
 		out.Success(fmt.Sprintf("\nDiscovery %s ready for task creation", result.Discovery.ID))
 		out.Text("\nTo create and start the task, run:")
-		out.Text(fmt.Sprintf("  atlas start -t %s -w %s --from-backlog %s \\", result.TemplateName, result.WorkspaceName, result.Discovery.ID))
+		out.Text(fmt.Sprintf("  %s \\", startCmd))
 		out.Text(fmt.Sprintf("    %q", result.Discovery.Title))
 		out.Text(fmt.Sprintf("\nDiscovery file: .atlas/backlog/%s.yaml", result.Discovery.ID))
 	}
+}
+
+// buildStartCommand constructs the atlas start command with all recommended flags.
+func buildStartCommand(result *backlog.PromoteResult) string {
+	// Start with base command including branch
+	cmd := fmt.Sprintf("atlas start -t %s -w %s -b %s",
+		result.TemplateName, result.WorkspaceName, result.BranchName)
+
+	// Add AI-recommended flags
+	if result.AIAnalysis != nil && result.AIAnalysis.UseVerify != nil {
+		if *result.AIAnalysis.UseVerify {
+			cmd += " --verify"
+		} else {
+			cmd += " --no-verify"
+		}
+	}
+
+	// Add backlog link
+	cmd += fmt.Sprintf(" --from-backlog %s", result.Discovery.ID)
+
+	return cmd
 }
 
 // truncateDescription truncates a description to a maximum length.

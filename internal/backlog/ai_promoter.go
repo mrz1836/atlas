@@ -32,6 +32,12 @@ type AIAnalysis struct {
 
 	// Priority suggests task priority (1-5, where 1 is highest).
 	Priority int `json:"priority,omitempty"`
+
+	// BaseBranch suggests which branch to base the work on (e.g., "develop", "main").
+	BaseBranch string `json:"base_branch,omitempty"`
+
+	// UseVerify suggests whether to enable AI verification (true=--verify, false=--no-verify, nil=default).
+	UseVerify *bool `json:"use_verify,omitempty"`
 }
 
 // AIPromoter provides AI-assisted analysis for discovery promotion.
@@ -214,14 +220,41 @@ func (p *AIPromoter) buildAnalysisPrompt(d *Discovery) string {
 		sb.WriteString(fmt.Sprintf("Tags: %s\n", strings.Join(d.Content.Tags, ", ")))
 	}
 
-	sb.WriteString("\nAvailable templates: bugfix, feature, task, fix, hotfix, commit\n\n")
-	sb.WriteString("Return JSON only, no markdown:\n")
+	// Include git context from when discovery was found
+	if d.Context.Git != nil {
+		sb.WriteString("\nDiscovery git context:\n")
+		if d.Context.Git.Branch != "" {
+			sb.WriteString(fmt.Sprintf("  Found on branch: %s\n", d.Context.Git.Branch))
+		}
+		if d.Context.Git.Commit != "" {
+			sb.WriteString(fmt.Sprintf("  Commit: %s\n", d.Context.Git.Commit))
+		}
+	}
+
+	sb.WriteString("\nAvailable templates: bugfix, feature, task, fix, hotfix, commit\n")
+
+	// Full atlas start flags context
+	sb.WriteString("\nAvailable 'atlas start' command options:\n")
+	sb.WriteString("  --template/-t    Template to use (bugfix, feature, commit, hotfix, task, fix)\n")
+	sb.WriteString("  --workspace/-w   Custom workspace name\n")
+	sb.WriteString("  --branch/-b      Base branch to create workspace from (fetches from remote)\n")
+	sb.WriteString("  --target         Existing branch to checkout (mutually exclusive with --branch)\n")
+	sb.WriteString("  --use-local      Prefer local branch over remote when both exist\n")
+	sb.WriteString("  --verify         Enable AI verification step (for critical changes)\n")
+	sb.WriteString("  --no-verify      Disable AI verification step (for simple changes)\n")
+	sb.WriteString("  --agent/-a       AI agent to use (claude, gemini, codex)\n")
+	sb.WriteString("  --model/-m       AI model to use\n")
+	sb.WriteString("  --from-backlog   Link to backlog discovery (auto-set)\n")
+
+	sb.WriteString("\nReturn JSON only, no markdown:\n")
 	sb.WriteString(`{
   "template": "best template name",
   "description": "optimized task description",
-  "reasoning": "brief explanation",
+  "reasoning": "brief explanation of your choices",
   "workspace_name": "suggested-workspace-name",
-  "priority": 1-5 where 1 is highest
+  "priority": 1-5 where 1 is highest,
+  "base_branch": "optional: branch to base work from if not default",
+  "use_verify": "optional: true for critical/security, false for simple changes, omit for default"
 }`)
 
 	return sb.String()
@@ -258,12 +291,20 @@ func (p *AIPromoter) fallbackAnalysis(d *Discovery) *AIAnalysis {
 	// Determine priority based on severity
 	priority := severityToPriority(d.Content.Severity)
 
+	// For critical/security issues, recommend --verify
+	var useVerify *bool
+	if d.Content.Category == CategorySecurity || d.Content.Severity == SeverityCritical {
+		v := true
+		useVerify = &v
+	}
+
 	return &AIAnalysis{
 		Template:      template,
 		Description:   description,
 		WorkspaceName: workspaceName,
 		Priority:      priority,
 		Reasoning:     "Deterministic mapping based on category and severity",
+		UseVerify:     useVerify,
 	}
 }
 
