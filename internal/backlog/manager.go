@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -29,6 +30,8 @@ const (
 	filePerm = 0o644
 	// dirPerm is the permission for the backlog directory.
 	dirPerm = 0o755
+	// maxDiscoveryFileSize is the maximum allowed size for a discovery file (1MB).
+	maxDiscoveryFileSize = 1024 * 1024
 )
 
 // Manager handles discovery storage operations.
@@ -169,16 +172,22 @@ func (m *Manager) Get(_ context.Context, id string) (*Discovery, error) {
 //
 //nolint:gocognit // complexity justified by parallel file loading with proper error handling
 func (m *Manager) List(ctx context.Context, filter Filter) ([]*Discovery, []string, error) {
-	// Check if directory exists
-	if _, err := os.Stat(m.dir); os.IsNotExist(err) {
-		return []*Discovery{}, nil, nil
+	// Use ReadDir instead of Glob - single syscall, returns DirEntry without stat
+	entries, err := os.ReadDir(m.dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return []*Discovery{}, nil, nil
+		}
+		return nil, nil, fmt.Errorf("failed to list backlog directory: %w", err)
 	}
 
-	// Find all discovery files
-	pattern := filepath.Join(m.dir, "disc-*"+fileExtension)
-	files, err := filepath.Glob(pattern)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to list files: %w", err)
+	// Filter for discovery files matching disc-*.yaml pattern
+	var files []string
+	for _, entry := range entries {
+		name := entry.Name()
+		if !entry.IsDir() && strings.HasPrefix(name, "disc-") && strings.HasSuffix(name, fileExtension) {
+			files = append(files, filepath.Join(m.dir, name))
+		}
 	}
 
 	if len(files) == 0 {
@@ -229,23 +238,40 @@ func (m *Manager) List(ctx context.Context, filter Filter) ([]*Discovery, []stri
 		}(file)
 	}
 
-	// Close results channel when all goroutines complete
+	// Track when cleanup goroutine finishes to prevent goroutine leak
+	closeDone := make(chan struct{})
 	go func() {
+		defer close(closeDone)
 		wg.Wait()
 		close(results)
 	}()
 
-	// Collect results
+	// Collect results with context awareness
 	discoveries := make([]*Discovery, 0, len(files))
 	var warnings []string
-	for r := range results {
-		if r.discovery != nil {
-			discoveries = append(discoveries, r.discovery)
-		} else if r.err != nil {
-			// Collect warnings for malformed files (skip context errors)
-			if !errors.Is(r.err, ctx.Err()) {
-				warnings = append(warnings, fmt.Sprintf("%s: %v", filepath.Base(r.file), r.err))
+collectLoop:
+	for {
+		select {
+		case r, ok := <-results:
+			if !ok {
+				break collectLoop
 			}
+			if r.discovery != nil {
+				discoveries = append(discoveries, r.discovery)
+			} else if r.err != nil {
+				// Collect warnings for malformed files (skip context errors)
+				if !errors.Is(r.err, ctx.Err()) {
+					warnings = append(warnings, fmt.Sprintf("%s: %v", filepath.Base(r.file), r.err))
+				}
+			}
+		case <-ctx.Done():
+			// Drain remaining results to unblock workers
+			go func() {
+				for range results {
+				}
+			}()
+			<-closeDone
+			return nil, nil, ctx.Err()
 		}
 	}
 
@@ -484,6 +510,16 @@ func getBranchPrefixForTemplate(templateName string) string {
 
 // loadFile reads and parses a single discovery YAML file.
 func (m *Manager) loadFile(path string) (*Discovery, error) {
+	// Check file size before reading to prevent memory exhaustion
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to stat file: %w", err)
+	}
+	if info.Size() > maxDiscoveryFileSize {
+		return nil, fmt.Errorf("%w: file too large (%d > %d bytes)",
+			atlaserrors.ErrMalformedDiscovery, info.Size(), maxDiscoveryFileSize)
+	}
+
 	data, err := os.ReadFile(path) //nolint:gosec // path is constructed from trusted directory
 	if err != nil {
 		return nil, fmt.Errorf("failed to read file: %w", err)
