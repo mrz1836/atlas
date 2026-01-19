@@ -45,7 +45,7 @@ func TestSuggestionForError(t *testing.T) {
 
 	t.Run("validation failed has suggestion", func(t *testing.T) {
 		suggestion := SuggestionForError(atlaserrors.ErrValidationFailed)
-		assert.Contains(t, suggestion, "atlas recover")
+		assert.Contains(t, suggestion, "atlas resume")
 	})
 
 	t.Run("template required has suggestion", func(t *testing.T) {

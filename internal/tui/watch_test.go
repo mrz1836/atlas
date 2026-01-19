@@ -890,13 +890,13 @@ func TestWatchModel_ActionableSuggestion(t *testing.T) {
 		{
 			name:      "validation failed suggests recover",
 			status:    constants.TaskStatusValidationFailed,
-			wantCmd:   "atlas recover",
+			wantCmd:   "atlas resume",
 			wantInCmd: true,
 		},
 		{
 			name:      "CI failed suggests recover",
 			status:    constants.TaskStatusCIFailed,
-			wantCmd:   "atlas recover",
+			wantCmd:   "atlas resume",
 			wantInCmd: true,
 		},
 		{

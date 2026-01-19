@@ -218,11 +218,11 @@ func TestStatusTable_ActionCellRendering(t *testing.T) {
 			status         constants.TaskStatus
 			expectedAction string
 		}{
-			{constants.TaskStatusValidationFailed, "atlas recover"},
+			{constants.TaskStatusValidationFailed, "atlas resume"},
 			{constants.TaskStatusAwaitingApproval, "atlas approve"},
-			{constants.TaskStatusGHFailed, "atlas recover"},
-			{constants.TaskStatusCIFailed, "atlas recover"},
-			{constants.TaskStatusCITimeout, "atlas recover"},
+			{constants.TaskStatusGHFailed, "atlas resume"},
+			{constants.TaskStatusCIFailed, "atlas resume"},
+			{constants.TaskStatusCITimeout, "atlas resume"},
 		}
 
 		for _, tc := range testCases {

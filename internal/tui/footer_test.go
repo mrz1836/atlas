@@ -35,7 +35,7 @@ func TestStatusFooter_NewStatusFooter(t *testing.T) {
 		assert.Equal(t, "atlas approve payment", items[0].Action)
 
 		assert.Equal(t, "api", items[1].Workspace)
-		assert.Equal(t, "atlas recover api", items[1].Action)
+		assert.Equal(t, "atlas resume api", items[1].Action)
 	})
 
 	t.Run("creates empty footer when no attention items", func(t *testing.T) {
@@ -149,8 +149,8 @@ func TestStatusFooter_Render(t *testing.T) {
 		output := buf.String()
 		assert.Contains(t, output, "Run: ")
 		assert.Contains(t, output, "atlas approve auth")
-		assert.Contains(t, output, "atlas recover payment")
-		assert.Contains(t, output, "atlas recover api")
+		assert.Contains(t, output, "atlas resume payment")
+		assert.Contains(t, output, "atlas resume api")
 	})
 
 	t.Run("includes blank line separator before footer", func(t *testing.T) {
@@ -214,7 +214,7 @@ func TestStatusFooter_ToJSON(t *testing.T) {
 		assert.Equal(t, "atlas approve payment", jsonItems[0]["action"])
 
 		assert.Equal(t, "api", jsonItems[1]["workspace"])
-		assert.Equal(t, "atlas recover api", jsonItems[1]["action"])
+		assert.Equal(t, "atlas resume api", jsonItems[1]["action"])
 	})
 
 	t.Run("returns nil when no items", func(t *testing.T) {
@@ -237,11 +237,11 @@ func TestFormatMultipleActions(t *testing.T) {
 	t.Run("formats multiple actions on separate lines", func(t *testing.T) {
 		items := []ActionItem{
 			{Workspace: "auth", Action: "atlas approve auth"},
-			{Workspace: "payment", Action: "atlas recover payment"},
+			{Workspace: "payment", Action: "atlas resume payment"},
 		}
 		result := FormatMultipleActions(items)
 		assert.Contains(t, result, "Run: atlas approve auth")
-		assert.Contains(t, result, "Run: atlas recover payment")
+		assert.Contains(t, result, "Run: atlas resume payment")
 		assert.Contains(t, result, "\n") // Should have newline separator
 	})
 
@@ -367,11 +367,11 @@ func TestStatusFooter_AllAttentionStates(t *testing.T) {
 		status         constants.TaskStatus
 		expectedAction string
 	}{
-		{constants.TaskStatusValidationFailed, "atlas recover"},
+		{constants.TaskStatusValidationFailed, "atlas resume"},
 		{constants.TaskStatusAwaitingApproval, "atlas approve"},
-		{constants.TaskStatusGHFailed, "atlas recover"},
-		{constants.TaskStatusCIFailed, "atlas recover"},
-		{constants.TaskStatusCITimeout, "atlas recover"},
+		{constants.TaskStatusGHFailed, "atlas resume"},
+		{constants.TaskStatusCIFailed, "atlas resume"},
+		{constants.TaskStatusCITimeout, "atlas resume"},
 	}
 
 	for _, tc := range attentionStatuses {
