@@ -33,6 +33,7 @@ dist
 # Code coverage
 coverage.txt
 coverage.out
+coverage.html
 
 # Fuzz Tests
 testdata
