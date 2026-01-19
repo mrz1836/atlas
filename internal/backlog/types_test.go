@@ -9,6 +9,7 @@ import (
 )
 
 func TestStatus_IsValid(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name   string
 		status Status
@@ -22,12 +23,14 @@ func TestStatus_IsValid(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			assert.Equal(t, tt.want, tt.status.IsValid())
 		})
 	}
 }
 
 func TestCategory_IsValid(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		category Category
@@ -44,12 +47,14 @@ func TestCategory_IsValid(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			assert.Equal(t, tt.want, tt.category.IsValid())
 		})
 	}
 }
 
 func TestSeverity_IsValid(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		severity Severity
@@ -64,12 +69,14 @@ func TestSeverity_IsValid(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			assert.Equal(t, tt.want, tt.severity.IsValid())
 		})
 	}
 }
 
 func TestValidStatuses(t *testing.T) {
+	t.Parallel()
 	statuses := ValidStatuses()
 	assert.Len(t, statuses, 3)
 	assert.Contains(t, statuses, StatusPending)
@@ -78,6 +85,7 @@ func TestValidStatuses(t *testing.T) {
 }
 
 func TestValidCategories(t *testing.T) {
+	t.Parallel()
 	categories := ValidCategories()
 	assert.Len(t, categories, 6)
 	assert.Contains(t, categories, CategoryBug)
@@ -89,6 +97,7 @@ func TestValidCategories(t *testing.T) {
 }
 
 func TestValidSeverities(t *testing.T) {
+	t.Parallel()
 	severities := ValidSeverities()
 	assert.Len(t, severities, 4)
 	assert.Contains(t, severities, SeverityLow)
@@ -98,6 +107,7 @@ func TestValidSeverities(t *testing.T) {
 }
 
 func TestDiscovery_ValidateID(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		id      string
@@ -115,6 +125,7 @@ func TestDiscovery_ValidateID(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			d := &Discovery{ID: tt.id}
 			err := d.ValidateID()
 			if tt.wantErr {
@@ -127,6 +138,7 @@ func TestDiscovery_ValidateID(t *testing.T) {
 }
 
 func TestDiscovery_ValidateTitle(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		title   string
@@ -141,6 +153,7 @@ func TestDiscovery_ValidateTitle(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			d := &Discovery{Title: tt.title}
 			err := d.ValidateTitle()
 			if tt.wantErr {
@@ -153,6 +166,7 @@ func TestDiscovery_ValidateTitle(t *testing.T) {
 }
 
 func TestDiscovery_ValidateCategory(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		category Category
@@ -165,6 +179,7 @@ func TestDiscovery_ValidateCategory(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			d := &Discovery{Content: Content{Category: tt.category}}
 			err := d.ValidateCategory()
 			if tt.wantErr {
@@ -177,6 +192,7 @@ func TestDiscovery_ValidateCategory(t *testing.T) {
 }
 
 func TestDiscovery_ValidateSeverity(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		severity Severity
@@ -189,6 +205,7 @@ func TestDiscovery_ValidateSeverity(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			d := &Discovery{Content: Content{Severity: tt.severity}}
 			err := d.ValidateSeverity()
 			if tt.wantErr {
@@ -201,6 +218,7 @@ func TestDiscovery_ValidateSeverity(t *testing.T) {
 }
 
 func TestDiscovery_ValidateTags(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		tags    []string
@@ -240,6 +258,7 @@ func TestDiscovery_ValidateTags(t *testing.T) {
 }
 
 func TestDiscovery_ValidateLocation(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		location *Location
@@ -254,6 +273,7 @@ func TestDiscovery_ValidateLocation(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			d := &Discovery{Location: tt.location}
 			err := d.ValidateLocation()
 			if tt.wantErr {
@@ -266,6 +286,7 @@ func TestDiscovery_ValidateLocation(t *testing.T) {
 }
 
 func TestDiscovery_ValidateStatus(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		status  Status
@@ -279,6 +300,7 @@ func TestDiscovery_ValidateStatus(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			d := &Discovery{Status: tt.status}
 			err := d.ValidateStatus()
 			if tt.wantErr {
@@ -291,6 +313,7 @@ func TestDiscovery_ValidateStatus(t *testing.T) {
 }
 
 func TestDiscovery_Validate(t *testing.T) {
+	t.Parallel()
 	now := time.Now().UTC()
 
 	validDiscovery := func() *Discovery {
@@ -311,11 +334,13 @@ func TestDiscovery_Validate(t *testing.T) {
 	}
 
 	t.Run("valid pending discovery", func(t *testing.T) {
+		t.Parallel()
 		d := validDiscovery()
 		assert.NoError(t, d.Validate())
 	})
 
 	t.Run("valid promoted discovery with task ID", func(t *testing.T) {
+		t.Parallel()
 		d := validDiscovery()
 		d.Status = StatusPromoted
 		d.Lifecycle.PromotedToTask = "task-001"
@@ -323,12 +348,14 @@ func TestDiscovery_Validate(t *testing.T) {
 	})
 
 	t.Run("promoted without task ID", func(t *testing.T) {
+		t.Parallel()
 		d := validDiscovery()
 		d.Status = StatusPromoted
 		assert.Error(t, d.Validate())
 	})
 
 	t.Run("valid dismissed discovery with reason", func(t *testing.T) {
+		t.Parallel()
 		d := validDiscovery()
 		d.Status = StatusDismissed
 		d.Lifecycle.DismissedReason = "duplicate"
@@ -336,18 +363,21 @@ func TestDiscovery_Validate(t *testing.T) {
 	})
 
 	t.Run("dismissed without reason", func(t *testing.T) {
+		t.Parallel()
 		d := validDiscovery()
 		d.Status = StatusDismissed
 		assert.Error(t, d.Validate())
 	})
 
 	t.Run("missing discovered_by", func(t *testing.T) {
+		t.Parallel()
 		d := validDiscovery()
 		d.Context.DiscoveredBy = ""
 		assert.Error(t, d.Validate())
 	})
 
 	t.Run("missing discovered_at", func(t *testing.T) {
+		t.Parallel()
 		d := validDiscovery()
 		d.Context.DiscoveredAt = time.Time{}
 		assert.Error(t, d.Validate())
@@ -355,6 +385,7 @@ func TestDiscovery_Validate(t *testing.T) {
 }
 
 func TestFilter_Match(t *testing.T) {
+	t.Parallel()
 	pending := StatusPending
 	promoted := StatusPromoted
 	bug := CategoryBug
@@ -387,6 +418,7 @@ func TestFilter_Match(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got := tt.filter.Match(discovery)
 			assert.Equal(t, tt.want, got)
 		})
@@ -394,13 +426,16 @@ func TestFilter_Match(t *testing.T) {
 }
 
 func TestGenerateID(t *testing.T) {
+	t.Parallel()
 	t.Run("generates valid ID", func(t *testing.T) {
+		t.Parallel()
 		id, err := GenerateID()
 		require.NoError(t, err)
 		assert.Regexp(t, `^disc-[a-z0-9]{6}$`, id)
 	})
 
 	t.Run("generates unique IDs", func(t *testing.T) {
+		t.Parallel()
 		ids := make(map[string]bool)
 		for i := 0; i < 100; i++ {
 			id, err := GenerateID()
