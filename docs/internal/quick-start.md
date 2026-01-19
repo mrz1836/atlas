@@ -265,6 +265,7 @@ atlas start "fix null pointer" --template bugfix --dry-run --output json
 | `--no-verify` | | Disable AI verification step | |
 | `--no-interactive` | | Disable interactive prompts | |
 | `--dry-run` | | Show what would happen without executing | |
+| `--from-backlog` | | Link task to backlog discovery (auto-promotes the discovery) | Discovery ID |
 
 **Dry-Run Mode:**
 
@@ -810,6 +811,7 @@ atlas backlog list
 atlas backlog list --status pending
 atlas backlog list --status promoted
 atlas backlog list --status dismissed
+atlas backlog list --status completed
 
 # Filter by category
 atlas backlog list --category bug
@@ -829,7 +831,7 @@ atlas backlog list --json
 
 | Flag | Short | Description | Default |
 |------|-------|-------------|---------|
-| `--status` | | Filter by status | `pending` |
+| `--status` | | Filter by status (`pending`, `promoted`, `dismissed`, `completed`) | `pending` |
 | `--category` | `-c` | Filter by category | All |
 | `--all` | `-a` | Include dismissed items | `false` |
 | `--limit` | `-n` | Maximum items to show | Unlimited |
@@ -952,8 +954,12 @@ Promoted discovery disc-a1b2c3
   Workspace:  missing-error-handling-payment
   Branch:     fix/missing-error-handling-payment
 
-To start the task: atlas start "..." --workspace missing-error-handling-payment
+To create and start the task, run:
+  atlas start -t bugfix -w missing-error-handling-payment --from-backlog disc-a1b2c3 \
+    "Missing error handling in payment processor"
 ```
+
+**Note:** The `--from-backlog` flag automatically promotes the discovery (updates its status to `promoted` and links it to the task ID) when the task is created successfully. This ensures the discovery lifecycle is tracked.
 
 #### atlas backlog dismiss
 
@@ -990,6 +996,32 @@ Then continue your task.
 ```
 
 This ensures no good observations get lost during automated development.
+
+#### Discovery Lifecycle
+
+Discoveries follow a simple lifecycle through four states:
+
+```
+pending → promoted → completed   (task approved)
+       ↘ dismissed    ↓
+                   [deleted]     (workspace destroyed)
+```
+
+**States:**
+- `pending`: Newly added, awaiting action
+- `promoted`: Linked to a task via `--from-backlog` flag
+- `completed`: Task was approved (automatic transition)
+- `dismissed`: Manually dismissed with a reason
+
+**Automatic Lifecycle Management:**
+
+1. **On Task Creation**: When you use `atlas start --from-backlog disc-xxx`, the discovery is automatically promoted and linked to the new task.
+
+2. **On Task Approval**: When you run `atlas approve`, any discovery linked to that task is automatically marked as `completed` with a timestamp.
+
+3. **On Workspace Destroy**: When you run `atlas workspace destroy`, any discovery files linked to tasks in that workspace are automatically deleted (git history preserves the audit trail).
+
+This ensures discoveries don't remain in stale states and the backlog stays clean.
 
 <br>
 
