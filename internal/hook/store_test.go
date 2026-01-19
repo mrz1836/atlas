@@ -420,7 +420,7 @@ func TestFileStore_ContextCancellation(t *testing.T) {
 
 		// Acquire the lock externally to block the store operation
 		externalLock := newFileLock(lockPath, nil)
-		err = externalLock.LockWithTimeout(time.Second)
+		err = externalLock.LockWithContext(ctx, time.Second)
 		require.NoError(t, err)
 		defer func() { _ = externalLock.Unlock() }()
 
@@ -474,7 +474,7 @@ func TestFileStore_ContextCancellation(t *testing.T) {
 
 		// Acquire the lock externally
 		externalLock := newFileLock(lockPath, nil)
-		err = externalLock.LockWithTimeout(time.Second)
+		err = externalLock.LockWithContext(ctx, time.Second)
 		require.NoError(t, err)
 		defer func() { _ = externalLock.Unlock() }()
 
@@ -523,7 +523,7 @@ func TestFileStore_ContextCancellation(t *testing.T) {
 
 		// Acquire the lock externally
 		externalLock := newFileLock(lockPath, nil)
-		err = externalLock.LockWithTimeout(time.Second)
+		err = externalLock.LockWithContext(ctx, time.Second)
 		require.NoError(t, err)
 		defer func() { _ = externalLock.Unlock() }()
 
@@ -562,7 +562,7 @@ func TestFileLock_LockWithContext(t *testing.T) {
 
 		// Acquire lock with first instance
 		lock1 := newFileLock(lockPath, nil)
-		err := lock1.LockWithTimeout(time.Second)
+		err := lock1.LockWithContext(context.Background(), time.Second)
 		require.NoError(t, err)
 		defer func() { _ = lock1.Unlock() }()
 
@@ -582,7 +582,7 @@ func TestFileLock_LockWithContext(t *testing.T) {
 
 		// Acquire lock with first instance
 		lock1 := newFileLock(lockPath, nil)
-		err := lock1.LockWithTimeout(time.Second)
+		err := lock1.LockWithContext(context.Background(), time.Second)
 		require.NoError(t, err)
 		defer func() { _ = lock1.Unlock() }()
 
@@ -614,7 +614,7 @@ func TestFileLock_LockWithContext(t *testing.T) {
 
 		// Acquire lock briefly
 		lock1 := newFileLock(lockPath, nil)
-		err := lock1.LockWithTimeout(time.Second)
+		err := lock1.LockWithContext(context.Background(), time.Second)
 		require.NoError(t, err)
 
 		// Start waiting for lock in goroutine

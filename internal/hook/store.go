@@ -33,12 +33,6 @@ func newFileLock(path string, logger *zerolog.Logger) *fileLock {
 	return &fileLock{path: path, logger: logger}
 }
 
-// LockWithTimeout acquires an exclusive lock with timeout using retry.
-// Deprecated: Use LockWithContext for context-aware cancellation support.
-func (fl *fileLock) LockWithTimeout(timeout time.Duration) error {
-	return fl.LockWithContext(context.Background(), timeout)
-}
-
 // LockWithContext acquires an exclusive lock with timeout and context cancellation support.
 // The lock acquisition can be interrupted by canceling the context, which is important
 // for responsive shutdown handling.
