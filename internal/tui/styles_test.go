@@ -482,8 +482,8 @@ func TestPadRight_Truncation(t *testing.T) {
 
 // TestTerminalWidthConstants verifies width constants are defined correctly.
 func TestTerminalWidthConstants(t *testing.T) {
-	assert.Equal(t, 80, NarrowTerminalWidth)
-	assert.Equal(t, 80, DefaultTerminalWidth)
+	assert.Equal(t, 80, TerminalWidthNarrow)
+	assert.Equal(t, 80, TerminalWidthDefault)
 }
 
 // TestIsNarrowTerminal verifies narrow terminal detection.
@@ -501,7 +501,7 @@ func TestIsNarrowTerminal_UsesTerminalWidth(t *testing.T) {
 	// If width is 0 (detection failed), should be narrow
 	if width == 0 {
 		assert.True(t, isNarrow, "should be narrow when width detection fails")
-	} else if width < NarrowTerminalWidth {
+	} else if width < TerminalWidthNarrow {
 		assert.True(t, isNarrow, "should be narrow when width < threshold")
 	} else {
 		assert.False(t, isNarrow, "should not be narrow when width >= threshold")

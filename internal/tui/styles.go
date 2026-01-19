@@ -627,14 +627,6 @@ func RenderStyledHeader(icon, text string, color lipgloss.TerminalColor) string 
 	return style.Render(icon + " " + text)
 }
 
-// NarrowTerminalWidth is an alias for TerminalWidthNarrow for backwards compatibility.
-// Deprecated: Use TerminalWidthNarrow instead.
-const NarrowTerminalWidth = TerminalWidthNarrow
-
-// DefaultTerminalWidth is an alias for TerminalWidthDefault for backwards compatibility.
-// Deprecated: Use TerminalWidthDefault instead.
-const DefaultTerminalWidth = TerminalWidthDefault
-
 // IsNarrowTerminal returns true if terminal width is below the narrow threshold.
 // Use this to adapt output format for narrow terminals.
 // Uses TerminalWidth() from header.go for actual terminal detection.

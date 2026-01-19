@@ -288,11 +288,9 @@ func buildValidationSummary(result domain.StepResult) *ValidationSummary {
 	// Try to extract individual validation checks from metadata
 	vs.Checks = extractChecksFromMetadata(result.Metadata)
 
-	// Set pass/fail counts
+	// Set pass/fail counts from validation checks
 	if len(vs.Checks) > 0 {
 		vs.PassCount, vs.FailCount, _ = countValidationChecks(vs.Checks)
-	} else {
-		vs.PassCount, vs.FailCount = legacyPassFailCounts(result.Status)
 	}
 
 	// Extract AI retry attempt count from metadata
@@ -343,17 +341,6 @@ func countValidationChecks(checks []ValidationCheck) (passCount, failCount, skip
 		}
 	}
 	return passCount, failCount, skipCount
-}
-
-// legacyPassFailCounts returns pass/fail counts based on overall status.
-func legacyPassFailCounts(status string) (passCount, failCount int) {
-	if status == "success" {
-		return 1, 0
-	}
-	if status == "failed" {
-		return 0, 1
-	}
-	return 0, 0
 }
 
 // extractCIStatus finds CI step results and adds CI check to validation checks.
@@ -876,12 +863,6 @@ func formatCheckItem(check ValidationCheck) string {
 	}
 
 	return check.Name + " " + lipgloss.NewStyle().Foreground(color).Render(icon)
-}
-
-// renderValidationSection is kept for backward compatibility.
-// Deprecated: Use renderValidationSectionWithMode instead.
-func renderValidationSection(validation *ValidationSummary, width int) string {
-	return renderValidationSectionWithMode(validation, width, displayModeStandard)
 }
 
 // Helper functions

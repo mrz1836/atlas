@@ -891,8 +891,8 @@ func TestExtractValidationStatus_WithMetadata(t *testing.T) {
 		require.NotNil(t, summary.Validation)
 		assert.Equal(t, "passed", summary.Validation.Status)
 		assert.Empty(t, summary.Validation.Checks)
-		// Fallback to legacy count
-		assert.Equal(t, 1, summary.Validation.PassCount)
+		// Without metadata, pass/fail counts are derived from checks (which is empty)
+		assert.Equal(t, 0, summary.Validation.PassCount)
 		assert.Equal(t, 0, summary.Validation.FailCount)
 	})
 }
@@ -1452,7 +1452,7 @@ func TestRenderValidationSectionWithMode(t *testing.T) {
 		assert.Contains(t, result, "Lint ✗")
 	})
 
-	t.Run("no checks falls back to legacy display", func(t *testing.T) {
+	t.Run("no checks shows only pass/fail counts", func(t *testing.T) {
 		validation := &ValidationSummary{
 			PassCount: 1,
 			FailCount: 0,
@@ -1634,32 +1634,6 @@ func TestRenderApprovalSummary_VerboseMode(t *testing.T) {
 		assert.Contains(t, result, "Format ✓")
 		assert.Contains(t, result, "Lint ✓")
 	})
-}
-
-// TestRenderValidationSection_BackwardCompatibility tests the deprecated function.
-func TestRenderValidationSection_BackwardCompatibility(t *testing.T) {
-	// Disable colors for consistent test output
-	t.Setenv("NO_COLOR", "1")
-
-	now := time.Now()
-	validation := &ValidationSummary{
-		PassCount: 3,
-		FailCount: 0,
-		Status:    "passed",
-		LastRunAt: &now,
-		Checks: []ValidationCheck{
-			{Name: "Format", Passed: true},
-			{Name: "Lint", Passed: true},
-			{Name: "Test", Passed: true},
-		},
-	}
-
-	result := renderValidationSection(validation, 100)
-
-	// Should behave like standard mode
-	assert.Contains(t, result, "Validation:")
-	assert.Contains(t, result, "passed")
-	assert.Contains(t, result, "Format ✓")
 }
 
 // TestExtractRetryAttempt tests extraction of AI retry attempt from metadata.

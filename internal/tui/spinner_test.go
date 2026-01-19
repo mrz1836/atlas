@@ -37,13 +37,13 @@ var _ io.Writer = (*safeSpinnerBuffer)(nil)
 
 func TestNewSpinner(t *testing.T) {
 	var buf bytes.Buffer
-	spinner := tui.NewSpinner(&buf)
+	spinner := tui.NewTerminalSpinner(&buf)
 	require.NotNil(t, spinner)
 }
 
 func TestSpinner_Start_Stop(t *testing.T) {
 	buf := &safeSpinnerBuffer{}
-	spinner := tui.NewSpinner(buf)
+	spinner := tui.NewTerminalSpinner(buf)
 
 	ctx := context.Background()
 	spinner.Start(ctx, "Testing...")
@@ -59,7 +59,7 @@ func TestSpinner_Start_Stop(t *testing.T) {
 
 func TestSpinner_StartMultipleTimes(t *testing.T) {
 	buf := &safeSpinnerBuffer{}
-	spinner := tui.NewSpinner(buf)
+	spinner := tui.NewTerminalSpinner(buf)
 
 	ctx := context.Background()
 	spinner.Start(ctx, "First message")
@@ -74,7 +74,7 @@ func TestSpinner_StartMultipleTimes(t *testing.T) {
 
 func TestSpinner_UpdateMessage(t *testing.T) {
 	buf := &safeSpinnerBuffer{}
-	spinner := tui.NewSpinner(buf)
+	spinner := tui.NewTerminalSpinner(buf)
 
 	ctx := context.Background()
 	spinner.Start(ctx, "Initial")
@@ -92,7 +92,7 @@ func TestSpinner_UpdateMessage(t *testing.T) {
 
 func TestSpinner_StopWithSuccess(t *testing.T) {
 	buf := &safeSpinnerBuffer{}
-	spinner := tui.NewSpinner(buf)
+	spinner := tui.NewTerminalSpinner(buf)
 
 	ctx := context.Background()
 	spinner.Start(ctx, "Working...")
@@ -107,7 +107,7 @@ func TestSpinner_StopWithSuccess(t *testing.T) {
 
 func TestSpinner_StopWithError(t *testing.T) {
 	buf := &safeSpinnerBuffer{}
-	spinner := tui.NewSpinner(buf)
+	spinner := tui.NewTerminalSpinner(buf)
 
 	ctx := context.Background()
 	spinner.Start(ctx, "Working...")
@@ -122,7 +122,7 @@ func TestSpinner_StopWithError(t *testing.T) {
 
 func TestSpinner_StopWithWarning(t *testing.T) {
 	buf := &safeSpinnerBuffer{}
-	spinner := tui.NewSpinner(buf)
+	spinner := tui.NewTerminalSpinner(buf)
 
 	ctx := context.Background()
 	spinner.Start(ctx, "Working...")
@@ -137,7 +137,7 @@ func TestSpinner_StopWithWarning(t *testing.T) {
 
 func TestSpinner_ContextCancellation(t *testing.T) {
 	buf := &safeSpinnerBuffer{}
-	spinner := tui.NewSpinner(buf)
+	spinner := tui.NewTerminalSpinner(buf)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	spinner.Start(ctx, "Cancellable task")
@@ -155,7 +155,7 @@ func TestSpinner_ContextCancellation(t *testing.T) {
 func TestSpinner_StopWithoutStart(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer
-	spinner := tui.NewSpinner(&buf)
+	spinner := tui.NewTerminalSpinner(&buf)
 
 	// Should not panic
 	spinner.Stop()
@@ -219,7 +219,7 @@ func TestFormatDuration(t *testing.T) {
 
 func TestSpinner_AnimationUpdatesAtInterval(t *testing.T) {
 	buf := &safeSpinnerBuffer{}
-	spinner := tui.NewSpinner(buf)
+	spinner := tui.NewTerminalSpinner(buf)
 
 	ctx := context.Background()
 	spinner.Start(ctx, "Animating")
@@ -238,7 +238,7 @@ func TestSpinner_AnimationUpdatesAtInterval(t *testing.T) {
 
 func TestSpinner_NonBlockingOperation(t *testing.T) {
 	buf := &safeSpinnerBuffer{}
-	spinner := tui.NewSpinner(buf)
+	spinner := tui.NewTerminalSpinner(buf)
 
 	ctx := context.Background()
 
@@ -264,7 +264,7 @@ func TestSpinner_NonBlockingOperation(t *testing.T) {
 
 func TestSpinner_UpdateRateReasonable(t *testing.T) {
 	buf := &safeSpinnerBuffer{}
-	spinner := tui.NewSpinner(buf)
+	spinner := tui.NewTerminalSpinner(buf)
 
 	ctx := context.Background()
 	spinner.Start(ctx, "Rate test")
@@ -289,7 +289,7 @@ func TestSpinner_RaceCondition_StartStopConcurrent(t *testing.T) {
 
 	for i := 0; i < 10; i++ {
 		buf := &safeSpinnerBuffer{}
-		spinner := tui.NewSpinner(buf)
+		spinner := tui.NewTerminalSpinner(buf)
 
 		ctx, cancel := context.WithCancel(context.Background())
 
@@ -325,7 +325,7 @@ func TestSpinner_RaceCondition_MultipleStops(t *testing.T) {
 	t.Parallel()
 
 	buf := &safeSpinnerBuffer{}
-	spinner := tui.NewSpinner(buf)
+	spinner := tui.NewTerminalSpinner(buf)
 
 	ctx := context.Background()
 	spinner.Start(ctx, "Test message")

@@ -44,11 +44,6 @@ func NewTerminalSpinner(w io.Writer) *TerminalSpinner {
 	}
 }
 
-// NewSpinner is an alias for NewTerminalSpinner for backward compatibility.
-func NewSpinner(w io.Writer) *TerminalSpinner {
-	return NewTerminalSpinner(w)
-}
-
 // Start begins the spinner animation with the given message.
 // This method is safe to call multiple times; subsequent calls update the message.
 func (s *TerminalSpinner) Start(ctx context.Context, message string) {
