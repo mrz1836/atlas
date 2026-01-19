@@ -7,16 +7,10 @@ import (
 
 	"github.com/rs/zerolog"
 
+	"github.com/mrz1836/atlas/internal/contracts"
 	"github.com/mrz1836/atlas/internal/domain"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 )
-
-// AIRunner abstracts AI execution for retry operations.
-// This interface matches ai.Runner, allowing the retry handler to
-// invoke AI without direct dependency on the ai package.
-type AIRunner interface {
-	Run(ctx context.Context, req *domain.AIRequest) (*domain.AIResult, error)
-}
 
 // RetryConfig holds retry configuration.
 type RetryConfig struct {
@@ -39,14 +33,14 @@ func DefaultRetryConfig() RetryConfig {
 // It extracts error context from failed validation, invokes AI to fix issues,
 // and re-runs validation to verify the fix.
 type RetryHandler struct {
-	aiRunner AIRunner
+	aiRunner contracts.AIRunner
 	executor *Executor
 	config   RetryConfig
 	logger   zerolog.Logger
 }
 
 // NewRetryHandler creates a retry handler.
-func NewRetryHandler(aiRunner AIRunner, executor *Executor, config RetryConfig, logger zerolog.Logger) *RetryHandler {
+func NewRetryHandler(aiRunner contracts.AIRunner, executor *Executor, config RetryConfig, logger zerolog.Logger) *RetryHandler {
 	return &RetryHandler{
 		aiRunner: aiRunner,
 		executor: executor,
@@ -57,7 +51,7 @@ func NewRetryHandler(aiRunner AIRunner, executor *Executor, config RetryConfig, 
 
 // NewRetryHandlerFromConfig creates a RetryHandler using application config.
 // This is the recommended way to create a RetryHandler for CLI usage.
-func NewRetryHandlerFromConfig(aiRunner AIRunner, executor *Executor, enabled bool, maxAttempts int, logger zerolog.Logger) *RetryHandler {
+func NewRetryHandlerFromConfig(aiRunner contracts.AIRunner, executor *Executor, enabled bool, maxAttempts int, logger zerolog.Logger) *RetryHandler {
 	config := RetryConfigFromAppConfig(enabled, maxAttempts)
 	return NewRetryHandler(aiRunner, executor, config, logger)
 }
