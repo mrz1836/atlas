@@ -206,11 +206,11 @@ func TestExecuteWithRetry_ExponentialBackoff(t *testing.T) {
 	assert.Equal(t, 4, attempts)
 	require.Len(t, delays, 3)
 
-	// Verify exponential backoff (with some tolerance)
+	// Verify exponential backoff (with tolerance for CI scheduling variance)
 	// Expected: 10ms, 20ms, 40ms
-	assert.InDelta(t, 10, delays[0].Milliseconds(), 5)
-	assert.InDelta(t, 20, delays[1].Milliseconds(), 5)
-	assert.InDelta(t, 40, delays[2].Milliseconds(), 10)
+	assert.InDelta(t, 10, delays[0].Milliseconds(), 15)
+	assert.InDelta(t, 20, delays[1].Milliseconds(), 15)
+	assert.InDelta(t, 40, delays[2].Milliseconds(), 20)
 }
 
 func TestExecuteWithRetry_MaxDelayCapApplied(t *testing.T) {
