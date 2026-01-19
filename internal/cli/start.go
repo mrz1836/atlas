@@ -156,6 +156,36 @@ func runStart(ctx context.Context, cmd *cobra.Command, w io.Writer, description 
 		w:            w,
 	}
 
+	// Validate CLI flags
+	if err := validateStartOptions(opts, sc); err != nil {
+		return err
+	}
+
+	// Setup orchestrator and find repository
+	orchestrator := workflow.NewOrchestrator(logger, out)
+	repoPath, err := orchestrator.Initializer().FindGitRepository(ctx) //nolint:contextcheck // context is properly checked and used
+	if err != nil {
+		return sc.handleError("", fmt.Errorf("not in a git repository: %w", err))
+	}
+	logger.Debug().Str("repo_path", repoPath).Msg("found git repository")
+
+	// Load config and template
+	cfg, tmpl, wsName, err := setupConfigAndTemplate(ctx, sc, logger, orchestrator, repoPath, description, opts) //nolint:contextcheck // context is properly checked and used
+	if err != nil {
+		return err
+	}
+
+	// Handle dry-run mode early
+	if opts.dryRun {
+		return runDryRun(ctx, sc, tmpl, description, wsName, cfg, logger) //nolint:contextcheck // context is properly checked and used
+	}
+
+	// Create workspace and execute task
+	return executeTask(ctx, sc, sigHandler, orchestrator, repoPath, outputFormat, tmpl, description, wsName, opts, logger, out) //nolint:contextcheck // context is properly checked and used
+}
+
+// validateStartOptions validates all CLI option flags.
+func validateStartOptions(opts startOptions, sc *startContext) error {
 	// Validate agent flag if provided
 	if err := validateAgent(opts.agent); err != nil {
 		return sc.handleError("", err)
@@ -178,19 +208,13 @@ func runStart(ctx context.Context, cmd *cobra.Command, w io.Writer, description 
 			fmt.Errorf("%w: cannot use both --branch and --target", atlaserrors.ErrConflictingFlags)))
 	}
 
-	// Create workflow orchestrator
-	orchestrator := workflow.NewOrchestrator(logger, out)
+	return nil
+}
 
-	// Validate we're in a git repository
-	repoPath, err := orchestrator.Initializer().FindGitRepository(ctx) //nolint:contextcheck // context is properly checked and used
-	if err != nil {
-		return sc.handleError("", fmt.Errorf("not in a git repository: %w", err))
-	}
-
-	logger.Debug().Str("repo_path", repoPath).Msg("found git repository")
-
+// setupConfigAndTemplate loads config, template registry, and selects template.
+func setupConfigAndTemplate(ctx context.Context, sc *startContext, logger zerolog.Logger, orchestrator *workflow.Orchestrator, repoPath, description string, opts startOptions) (*config.Config, *domain.Template, string, error) {
 	// Load config for custom templates
-	cfg, cfgErr := config.Load(ctx) //nolint:contextcheck // context is properly checked and used
+	cfg, cfgErr := config.Load(ctx)
 	if cfgErr != nil {
 		// Log warning but continue with defaults - don't fail task start for config issues
 		logger.Error().Err(cfgErr).
@@ -206,13 +230,13 @@ func runStart(ctx context.Context, cmd *cobra.Command, w io.Writer, description 
 	// Load template registry with custom templates from config
 	registry, err := template.NewRegistryWithConfig(repoPath, cfg.Templates.CustomTemplates)
 	if err != nil {
-		return sc.handleError("", fmt.Errorf("failed to load templates: %w", err))
+		return nil, nil, "", sc.handleError("", fmt.Errorf("failed to load templates: %w", err))
 	}
 
 	// Select template
-	tmpl, err := orchestrator.Prompter().SelectTemplate(ctx, registry, opts.templateName, opts.noInteractive, outputFormat) //nolint:contextcheck // context is properly checked and used
+	tmpl, err := orchestrator.Prompter().SelectTemplate(ctx, registry, opts.templateName, opts.noInteractive, sc.outputFormat)
 	if err != nil {
-		return sc.handleError("", err)
+		return nil, nil, "", sc.handleError("", err)
 	}
 
 	logger.Debug().
@@ -230,13 +254,13 @@ func runStart(ctx context.Context, cmd *cobra.Command, w io.Writer, description 
 	// Apply verify flag overrides to template (needed for dry-run too)
 	workflow.ApplyVerifyOverrides(tmpl, opts.verify, opts.noVerify)
 
-	// Handle dry-run mode - show what would happen without making changes
-	if opts.dryRun {
-		return runDryRun(ctx, sc, tmpl, description, wsName, cfg, logger) //nolint:contextcheck // context is properly checked and used
-	}
+	return cfg, tmpl, wsName, nil
+}
 
+// executeTask creates workspace and executes the task.
+func executeTask(ctx context.Context, sc *startContext, sigHandler *signal.Handler, orchestrator *workflow.Orchestrator, repoPath, outputFormat string, tmpl *domain.Template, description, wsName string, opts startOptions, logger zerolog.Logger, out tui.Output) error {
 	// Create and configure workspace
-	ws, err := orchestrator.Initializer().CreateWorkspace(ctx, workflow.WorkspaceOptions{ //nolint:contextcheck // context is properly checked and used
+	ws, err := orchestrator.Initializer().CreateWorkspace(ctx, workflow.WorkspaceOptions{
 		Name:          wsName,
 		RepoPath:      repoPath,
 		BranchPrefix:  tmpl.BranchPrefix,
@@ -258,17 +282,25 @@ func runStart(ctx context.Context, cmd *cobra.Command, w io.Writer, description 
 		Msg("workspace created")
 
 	// Start task execution
-	t, err := startTaskExecution(ctx, ws, tmpl, description, opts.agent, opts.model, logger, out) //nolint:contextcheck // context is properly checked and used
+	t, taskStore, err := startTaskExecution(ctx, ws, tmpl, description, opts.agent, opts.model, logger, out)
+
+	// Store CLI overrides in task metadata for resume (if task was created)
+	if t != nil && taskStore != nil {
+		workflow.StoreCLIOverrides(t, opts.verify, opts.noVerify, opts.agent, opts.model)
+		if updateErr := taskStore.Update(ctx, ws.Name, t); updateErr != nil {
+			logger.Warn().Err(updateErr).Msg("failed to persist CLI overrides")
+		}
+	}
 
 	// Check if we were interrupted by Ctrl+C
 	select {
 	case <-sigHandler.Interrupted():
-		return handleInterruption(ctx, sc, ws, t, logger, out) //nolint:contextcheck // context is properly checked and used
+		return handleInterruption(ctx, sc, ws, t, logger, out)
 	default:
 	}
 
 	if err != nil {
-		sc.handleTaskStartError(ctx, ws, repoPath, t, logger) //nolint:contextcheck // context is properly checked and used
+		sc.handleTaskStartError(ctx, ws, repoPath, t, logger)
 		if t != nil {
 			return displayTaskStatus(out, outputFormat, ws, t, err)
 		}
@@ -484,14 +516,15 @@ func safeTaskID(t *domain.Task) string {
 }
 
 // startTaskExecution creates and starts the task engine.
-func startTaskExecution(ctx context.Context, ws *domain.Workspace, tmpl *domain.Template, description, agent, model string, logger zerolog.Logger, out tui.Output) (*domain.Task, error) {
+// Returns the task, task store (for subsequent updates), and any error.
+func startTaskExecution(ctx context.Context, ws *domain.Workspace, tmpl *domain.Template, description, agent, model string, logger zerolog.Logger, out tui.Output) (*domain.Task, *task.FileStore, error) {
 	// Create service factory
 	services := workflow.NewServiceFactory(logger)
 
 	// Create task store and load config
 	taskStore, cfg, err := services.SetupTaskStoreAndConfig(ctx)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// Create notifiers
@@ -514,7 +547,7 @@ func startTaskExecution(ctx context.Context, ws *domain.Workspace, tmpl *domain.
 		PRDescModel:         gitCfg.PRDescModel,
 	})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// Create executor registry
@@ -550,7 +583,8 @@ func startTaskExecution(ctx context.Context, ws *domain.Workspace, tmpl *domain.
 	workflow.ApplyAgentModelOverrides(tmpl, agent, model)
 
 	// Start task
-	return startTask(ctx, engine, ws, tmpl, description, logger)
+	t, err := startTask(ctx, engine, ws, tmpl, description, logger)
+	return t, taskStore, err
 }
 
 // createProgressCallback creates the progress callback for UI feedback.
