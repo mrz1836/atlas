@@ -13,8 +13,10 @@ import (
 	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/errors"
+	"github.com/mrz1836/atlas/internal/task"
 	"github.com/mrz1836/atlas/internal/tui"
 	"github.com/mrz1836/atlas/internal/validation"
+	"github.com/mrz1836/atlas/internal/workspace"
 )
 
 // CommandResult holds the result of a single command execution.
@@ -261,4 +263,64 @@ func ResolveGitConfig(cfg *config.Config) ResolvedGitConfig {
 		CommitMaxRetries:    commitMaxRetries,
 		CommitBackoffFactor: commitBackoffFactor,
 	}
+}
+
+// WorkspaceTaskSelector defines interface for items that can be selected from a workspace menu.
+type WorkspaceTaskSelector interface {
+	GetWorkspaceName() string
+	GetTaskDescription() string
+}
+
+// SelectWorkspaceTask presents a selection menu and returns the selected item's index.
+// It uses generics to work with any type implementing WorkspaceTaskSelector.
+func SelectWorkspaceTask[T WorkspaceTaskSelector](prompt string, items []T) (int, error) {
+	options := make([]tui.Option, len(items))
+	for i, item := range items {
+		options[i] = tui.Option{
+			Label:       item.GetWorkspaceName(),
+			Description: item.GetTaskDescription(),
+			Value:       item.GetWorkspaceName(),
+		}
+	}
+
+	selected, err := tui.Select(prompt, options)
+	if err != nil {
+		return -1, err
+	}
+
+	for i, item := range items {
+		if item.GetWorkspaceName() == selected {
+			return i, nil
+		}
+	}
+	return -1, fmt.Errorf("selected workspace not found: %w", errors.ErrWorkspaceNotFound)
+}
+
+// CreateStores creates workspace and task stores with unified error handling.
+// Returns workspace store, task store, and error.
+func CreateStores(baseDir string) (workspace.Store, task.Store, error) {
+	wsStore, err := workspace.NewFileStore(baseDir)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create workspace store: %w", err)
+	}
+
+	taskStore, err := task.NewFileStore(baseDir)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create task store: %w", err)
+	}
+
+	return wsStore, taskStore, nil
+}
+
+// HandleCommandError handles errors with optional JSON output.
+// If format is JSON, it encodes the response and returns ErrJSONErrorOutput.
+// Otherwise, it returns the original error.
+func HandleCommandError(format string, w io.Writer, response any, err error) error {
+	if format == OutputJSON {
+		if encErr := encodeJSONIndented(w, response); encErr != nil {
+			return fmt.Errorf("failed to encode JSON: %w", encErr)
+		}
+		return errors.ErrJSONErrorOutput
+	}
+	return err
 }

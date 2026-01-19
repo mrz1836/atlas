@@ -244,16 +244,10 @@ func runApprove(ctx context.Context, cmd *cobra.Command, w io.Writer, opts appro
 
 // findAndSelectTask finds awaiting tasks and selects one based on options.
 func findAndSelectTask(ctx context.Context, outputFormat string, w io.Writer, out tui.Output, opts approveOptions, isNonInteractive bool) (*domain.Workspace, *domain.Task, error) {
-	// Create workspace store
-	wsStore, err := workspace.NewFileStore("")
+	// Create stores
+	wsStore, taskStore, err := CreateStores("")
 	if err != nil {
-		return nil, nil, handleApproveError(outputFormat, w, "", fmt.Errorf("failed to create workspace store: %w", err))
-	}
-
-	// Create task store
-	taskStore, err := task.NewFileStore("")
-	if err != nil {
-		return nil, nil, handleApproveError(outputFormat, w, "", fmt.Errorf("failed to create task store: %w", err))
+		return nil, nil, handleApproveError(outputFormat, w, "", err)
 	}
 
 	// Find tasks awaiting approval
@@ -318,6 +312,16 @@ type awaitingTask struct {
 	task      *domain.Task
 }
 
+// GetWorkspaceName returns the workspace name for menu selection.
+func (a awaitingTask) GetWorkspaceName() string {
+	return a.workspace.Name
+}
+
+// GetTaskDescription returns the task description for menu selection.
+func (a awaitingTask) GetTaskDescription() string {
+	return a.task.Description
+}
+
 // findAwaitingApprovalTasks finds all tasks with awaiting_approval status.
 func findAwaitingApprovalTasks(ctx context.Context, wsStore workspace.Store, taskStore task.Store) ([]awaitingTask, error) {
 	// List all workspaces
@@ -360,28 +364,11 @@ func findAwaitingApprovalTasks(ctx context.Context, wsStore workspace.Store, tas
 
 // selectWorkspaceForApproval presents a selection menu for multiple awaiting tasks.
 func selectWorkspaceForApproval(tasks []awaitingTask) (*awaitingTask, error) {
-	options := make([]tui.Option, len(tasks))
-	for i, at := range tasks {
-		options[i] = tui.Option{
-			Label:       at.workspace.Name,
-			Description: at.task.Description,
-			Value:       at.workspace.Name,
-		}
-	}
-
-	selected, err := tuiSelectFunc("Select a workspace to approve:", options)
+	idx, err := SelectWorkspaceTask("Select a workspace to approve:", tasks)
 	if err != nil {
 		return nil, err
 	}
-
-	// Find the selected task
-	for i, at := range tasks {
-		if at.workspace.Name == selected {
-			return &tasks[i], nil
-		}
-	}
-
-	return nil, fmt.Errorf("selected workspace not found: %w", atlaserrors.ErrWorkspaceNotFound)
+	return &tasks[idx], nil
 }
 
 // runAutoApprove performs automatic approval without interactive menu.
@@ -840,15 +827,18 @@ func approveAndOutputJSON(ctx context.Context, w io.Writer, taskStore task.Store
 
 // handleApproveError handles errors based on output format.
 func handleApproveError(format string, w io.Writer, workspaceName string, err error) error {
-	if format == OutputJSON {
-		return outputApproveErrorJSON(w, workspaceName, "", err.Error())
-	}
-	return err
+	return HandleCommandError(format, w, approveResponse{
+		Success: false,
+		Workspace: workspaceInfo{
+			Name: workspaceName,
+		},
+		Error: err.Error(),
+	}, err)
 }
 
 // outputApproveErrorJSON outputs an error result as JSON.
 func outputApproveErrorJSON(w io.Writer, workspaceName, taskID, errMsg string) error {
-	if err := encodeJSONIndented(w, approveResponse{
+	return HandleCommandError(OutputJSON, w, approveResponse{
 		Success: false,
 		Workspace: workspaceInfo{
 			Name: workspaceName,
@@ -857,10 +847,7 @@ func outputApproveErrorJSON(w io.Writer, workspaceName, taskID, errMsg string) e
 			ID: taskID,
 		},
 		Error: errMsg,
-	}); err != nil {
-		return fmt.Errorf("failed to encode JSON: %w", err)
-	}
-	return atlaserrors.ErrJSONErrorOutput
+	}, atlaserrors.ErrJSONErrorOutput)
 }
 
 // newApproveStepTracker creates a new step tracker

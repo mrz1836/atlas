@@ -361,9 +361,6 @@ func outputCloseSuccessJSONWithWarning(w io.Writer, name, warning string) error 
 // outputCloseErrorJSON outputs an error result as JSON.
 // Returns the encoding error if JSON output fails, which callers typically
 // ignore with `_ =` since ErrJSONErrorOutput is already being returned.
-// This is intentional: if we can't write JSON, there's no useful fallback,
-// and the caller's return of ErrJSONErrorOutput signals to cobra to suppress
-// its own error printing regardless of whether our JSON succeeded.
 func outputCloseErrorJSON(w io.Writer, name, errMsg string) error {
 	result := closeResult{
 		Status:    "error",

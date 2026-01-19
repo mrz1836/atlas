@@ -140,14 +140,9 @@ func runRecover(ctx context.Context, cmd *cobra.Command, w io.Writer, opts *reco
 	}
 
 	// Create stores
-	wsStore, err := workspace.NewFileStore("")
+	wsStore, taskStore, err := CreateStores("")
 	if err != nil {
-		return handleRecoverError(outputFormat, w, "", fmt.Errorf("failed to create workspace store: %w", err))
-	}
-
-	taskStore, err := task.NewFileStore("")
-	if err != nil {
-		return handleRecoverError(outputFormat, w, "", fmt.Errorf("failed to create task store: %w", err))
+		return handleRecoverError(outputFormat, w, "", err)
 	}
 
 	// Find and select task

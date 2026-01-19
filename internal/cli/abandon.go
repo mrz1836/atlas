@@ -276,11 +276,12 @@ type abandonResult struct {
 
 // handleAbandonError handles errors based on output format.
 func handleAbandonError(format string, w io.Writer, workspaceName, taskID string, err error) error {
-	if format == OutputJSON {
-		_ = outputAbandonErrorJSON(w, workspaceName, taskID, err.Error())
-		return errors.ErrJSONErrorOutput
-	}
-	return err
+	return HandleCommandError(format, w, abandonResult{
+		Status:    "error",
+		Workspace: workspaceName,
+		TaskID:    taskID,
+		Error:     err.Error(),
+	}, err)
 }
 
 // outputAbandonSuccessJSON outputs a success result as JSON.
@@ -295,12 +296,10 @@ func outputAbandonSuccessJSON(w io.Writer, workspaceName, taskID, branch, worktr
 }
 
 // outputAbandonErrorJSON outputs an error result as JSON.
-// Returns the encoding error if JSON output fails, which callers typically
-// ignore with `_ =` since ErrJSONErrorOutput is already being returned.
-// This is intentional: if we can't write JSON, there's no useful fallback,
-// and the caller's return of ErrJSONErrorOutput signals to cobra to suppress
-// its own error printing regardless of whether our JSON succeeded.
+// This function is kept for test compatibility but delegates to HandleCommandError.
 func outputAbandonErrorJSON(w io.Writer, workspaceName, taskID, errMsg string) error {
+	// Use encodeJSONIndented directly to maintain the original behavior
+	// (returns encoding error, not ErrJSONErrorOutput)
 	return encodeJSONIndented(w, abandonResult{
 		Status:    "error",
 		Workspace: workspaceName,

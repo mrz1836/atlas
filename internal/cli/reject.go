@@ -139,14 +139,9 @@ func runReject(ctx context.Context, cmd *cobra.Command, w io.Writer, opts *rejec
 	}
 
 	// Create stores
-	wsStore, err := workspace.NewFileStore("")
+	wsStore, taskStore, err := CreateStores("")
 	if err != nil {
-		return handleRejectError(outputFormat, w, "", fmt.Errorf("failed to create workspace store: %w", err))
-	}
-
-	taskStore, err := task.NewFileStore("")
-	if err != nil {
-		return handleRejectError(outputFormat, w, "", fmt.Errorf("failed to create task store: %w", err))
+		return handleRejectError(outputFormat, w, "", err)
 	}
 
 	// Find and select task
@@ -232,28 +227,11 @@ func findAndSelectTaskForReject(ctx context.Context, outputFormat string, w io.W
 
 // selectWorkspaceForReject presents a selection menu for multiple awaiting tasks.
 func selectWorkspaceForReject(tasks []awaitingTask) (*awaitingTask, error) {
-	options := make([]tui.Option, len(tasks))
-	for i, at := range tasks {
-		options[i] = tui.Option{
-			Label:       at.workspace.Name,
-			Description: at.task.Description,
-			Value:       at.workspace.Name,
-		}
-	}
-
-	selected, err := tui.Select("Select a workspace to reject:", options)
+	idx, err := SelectWorkspaceTask("Select a workspace to reject:", tasks)
 	if err != nil {
 		return nil, err
 	}
-
-	// Find the selected task
-	for i, at := range tasks {
-		if at.workspace.Name == selected {
-			return &tasks[i], nil
-		}
-	}
-
-	return nil, fmt.Errorf("selected workspace not found: %w", atlaserrors.ErrWorkspaceNotFound)
+	return &tasks[idx], nil
 }
 
 // runInteractiveReject runs the interactive rejection flow.
@@ -576,21 +554,19 @@ func processJSONRejectDone(ctx context.Context, w io.Writer, taskStore task.Stor
 
 // handleRejectError handles errors based on output format.
 func handleRejectError(format string, w io.Writer, workspaceName string, err error) error {
-	if format == OutputJSON {
-		return outputRejectErrorJSON(w, workspaceName, "", err.Error())
-	}
-	return err
+	return HandleCommandError(format, w, rejectResponse{
+		Success:       false,
+		WorkspaceName: workspaceName,
+		Error:         err.Error(),
+	}, err)
 }
 
 // outputRejectErrorJSON outputs an error result as JSON.
 func outputRejectErrorJSON(w io.Writer, workspaceName, taskID, errMsg string) error {
-	if err := encodeJSONIndented(w, rejectResponse{
+	return HandleCommandError(OutputJSON, w, rejectResponse{
 		Success:       false,
 		WorkspaceName: workspaceName,
 		TaskID:        taskID,
 		Error:         errMsg,
-	}); err != nil {
-		return fmt.Errorf("failed to encode JSON: %w", err)
-	}
-	return atlaserrors.ErrJSONErrorOutput
+	}, atlaserrors.ErrJSONErrorOutput)
 }
