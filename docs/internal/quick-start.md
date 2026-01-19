@@ -25,6 +25,7 @@
    - [atlas test](#atlas-test)
    - [atlas hook](#atlas-hook)
    - [atlas checkpoint](#atlas-checkpoint)
+   - [atlas backlog](#atlas-backlog)
    - [atlas cleanup](#atlas-cleanup)
    - [atlas upgrade](#atlas-upgrade)
    - [atlas config](#atlas-config)
@@ -710,6 +711,196 @@ atlas checkpoint --trigger git_commit "Post-commit checkpoint"
 - `0`: Checkpoint created successfully
 - `1`: No active task found
 - `2`: Failed to create checkpoint
+
+<br>
+
+### atlas backlog
+
+Manage the work backlog for capturing issues discovered during AI-assisted development. The backlog provides a lightweight, project-local queue that prevents good observations from getting lost.
+
+**Storage**: Discoveries are stored as individual YAML files in `.atlas/backlog/` directory, enabling zero merge conflicts on concurrent adds.
+
+#### atlas backlog add
+
+Add a new discovery to the backlog.
+
+```bash
+# Interactive mode (for humans) - launches guided form
+atlas backlog add
+
+# Flag mode (for AI/scripts)
+atlas backlog add "Missing error handling" \
+  --file main.go \
+  --line 47 \
+  --category bug \
+  --severity high \
+  --description "Detailed explanation" \
+  --tags "error-handling,config"
+
+# JSON output for scripting
+atlas backlog add "Issue title" --category bug --severity low --json
+```
+
+**Flags:**
+
+| Flag | Short | Description | Values |
+|------|-------|-------------|--------|
+| `--file` | `-f` | File path where issue was found | Relative path |
+| `--line` | `-l` | Line number in file | Positive integer |
+| `--category` | `-c` | Issue category | `bug`, `security`, `performance`, `maintainability`, `testing`, `documentation` |
+| `--severity` | `-s` | Priority level | `low`, `medium`, `high`, `critical` |
+| `--description` | `-d` | Detailed explanation | String |
+| `--tags` | `-t` | Comma-separated labels | String |
+| `--json` | | Output created discovery as JSON | Flag |
+
+**Output:**
+```
+Created discovery: disc-a1b2c3
+  Title: Missing error handling
+  Category: bug | Severity: high
+  Location: main.go:47
+```
+
+#### atlas backlog list
+
+List discoveries in the backlog.
+
+```bash
+# List all pending discoveries (default)
+atlas backlog list
+
+# Filter by status
+atlas backlog list --status pending
+atlas backlog list --status promoted
+atlas backlog list --status dismissed
+
+# Filter by category
+atlas backlog list --category bug
+atlas backlog list --category security
+
+# Show all (including dismissed)
+atlas backlog list --all
+
+# Limit results
+atlas backlog list --limit 10
+
+# JSON output for scripting
+atlas backlog list --json
+```
+
+**Flags:**
+
+| Flag | Short | Description | Default |
+|------|-------|-------------|---------|
+| `--status` | | Filter by status | `pending` |
+| `--category` | `-c` | Filter by category | All |
+| `--all` | `-a` | Include dismissed items | `false` |
+| `--limit` | `-n` | Maximum items to show | Unlimited |
+| `--json` | | Output as JSON array | `false` |
+
+**Output:**
+```
+ID           TITLE                           CATEGORY  SEVERITY  AGE
+disc-a1b2c3  Missing error handling          bug       high      2h
+disc-x9y8z7  Potential race condition        bug       critical  1d
+disc-p4q5r6  Add test for edge case          testing   medium    3d
+```
+
+#### atlas backlog view
+
+View full details of a discovery.
+
+```bash
+atlas backlog view disc-a1b2c3
+
+# JSON output
+atlas backlog view disc-a1b2c3 --json
+```
+
+**Output:**
+```
+Discovery: disc-a1b2c3
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Title:      Missing error handling
+Status:     pending
+Category:   bug
+Severity:   high
+
+Description:
+  The Parse function doesn't handle the case where the config file
+  exists but is empty. This causes a nil pointer panic at line 52.
+
+Location:   config/parser.go:47
+Tags:       config, error-handling
+
+Discovered: 2026-01-18 14:32:15 UTC
+By:         ai:claude-code:claude-sonnet-4
+During:     task-20260118-143022
+Git:        feat/auth-refactor @ 7b3f1a2
+```
+
+#### atlas backlog promote
+
+Promote a discovery to an ATLAS task.
+
+```bash
+# Promote with task ID
+atlas backlog promote disc-a1b2c3 --task-id task-20260118-150000
+
+# JSON output
+atlas backlog promote disc-a1b2c3 --task-id task-20260118-150000 --json
+```
+
+**Flags:**
+
+| Flag | Description | Required |
+|------|-------------|----------|
+| `--task-id` | ATLAS task ID to link | Yes |
+
+**Output:**
+```
+Promoted discovery disc-a1b2c3
+  Linked to task: task-20260118-150000
+```
+
+**Note:** This MVP only records the task ID in the discovery metadata. Full task creation integration is planned for a future release.
+
+#### atlas backlog dismiss
+
+Dismiss a discovery with a reason.
+
+```bash
+# Dismiss with reason
+atlas backlog dismiss disc-a1b2c3 --reason "Duplicate of disc-x9y8z7"
+
+# JSON output
+atlas backlog dismiss disc-a1b2c3 --reason "Won't fix" --json
+```
+
+**Flags:**
+
+| Flag | Description | Required |
+|------|-------------|----------|
+| `--reason` | Explanation for dismissal | Yes |
+
+**Output:**
+```
+Dismissed discovery disc-a1b2c3
+  Reason: Duplicate of disc-x9y8z7
+```
+
+#### AI Agent Discovery Protocol
+
+For AI agents (Claude Code, Gemini, Codex), add to your CLAUDE.md or equivalent:
+
+```markdown
+**Discovery Protocol**: If you see an issue outside your current task scope, DO NOT ignore it.
+Run `atlas backlog add "<Title>" --file <path> --category <type> --severity <level>` immediately.
+Then continue your task.
+```
+
+This ensures no good observations get lost during automated development.
 
 <br>
 
