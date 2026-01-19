@@ -346,9 +346,12 @@ func (r *SmartCommitRunner) commitGroup(ctx context.Context, group FileGroup) (*
 	// Generate commit message
 	message := r.generateCommitMessage(ctx, group)
 
-	// Create the commit
-	if commitErr := r.runner.Commit(ctx, message); commitErr != nil {
-		return nil, commitErr
+	// Create the commit with lock retry to handle concurrent git operations
+	err = RunWithLockRetryVoid(ctx, DefaultLockRetryConfig(), r.logger, func(ctx context.Context) error {
+		return r.runner.Commit(ctx, message)
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	// Get the commit hash (we just created it, so HEAD is our commit)
