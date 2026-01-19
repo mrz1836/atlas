@@ -18,7 +18,6 @@
    - [atlas reject](#atlas-reject)
    - [atlas resume](#atlas-resume)
    - [atlas abandon](#atlas-abandon)
-   - [atlas recover](#atlas-recover)
    - [atlas validate](#atlas-validate)
    - [atlas format](#atlas-format)
    - [atlas lint](#atlas-lint)
@@ -506,50 +505,6 @@ atlas abandon my-workspace --force
 | Flag | Short | Description |
 |------|-------|-------------|
 | `--force` | `-f` | Skip confirmation prompt |
-
-**Applicable States:**
-- `validation_failed`
-- `gh_failed`
-- `ci_failed`
-- `ci_timeout`
-
-<br>
-
-### atlas recover
-
-Recover from task error states with guided options.
-
-```bash
-# Interactive recovery menu
-atlas recover my-workspace
-
-# JSON mode: Retry with AI fix
-atlas recover --output json --retry
-
-# JSON mode: Get manual fix instructions
-atlas recover --output json --manual
-
-# JSON mode: Abandon task
-atlas recover --output json --abandon
-
-# JSON mode: Continue waiting (ci_timeout only)
-atlas recover --output json --continue
-```
-
-**Interactive Options:**
-- Retry with AI fix
-- Fix manually (instructions provided)
-- View errors/logs
-- Abandon task
-
-**Flags (JSON mode only):**
-
-| Flag | Description |
-|------|-------------|
-| `--retry` | Retry with AI attempting to fix |
-| `--manual` | Get manual fix instructions |
-| `--abandon` | Abandon task |
-| `--continue` | Continue waiting (ci_timeout only) |
 
 **Applicable States:**
 - `validation_failed`
@@ -1944,19 +1899,25 @@ atlas workspace destroy payment
 atlas status
 # Shows: validation_failed
 
-# Option 1: Let AI fix it
-atlas resume my-workspace --ai-fix
-
-# Option 2: Guided recovery
-atlas recover my-workspace
-# Interactive menu with options:
-# - Retry with AI fix
-# - Fix manually
-# - View errors/logs
+# Smart recovery with interactive menu
+atlas resume my-workspace
+# Automatically shows recovery menu for error states with options:
+# - Retry with AI fix (auto-executes)
+# - Fix manually (shows instructions)
+# - Rebase and retry (for push failures, auto-executes)
+# - Continue waiting (for CI timeout, auto-executes)
+# - View errors/logs (returns to menu)
 # - Abandon task
 
-# Option 3: Fix manually then continue
+# Option 1: Quick retry (skip menu)
+atlas resume my-workspace --retry
+
+# Option 2: Let AI fix it (legacy flag)
+atlas resume my-workspace --ai-fix
+
+# Option 3: Fix manually then resume
 # (make manual fixes in worktree)
+# Then run atlas resume again - it will directly execute (fast path)
 atlas resume my-workspace
 ```
 
@@ -2334,8 +2295,8 @@ cat ~/.atlas/workspaces/*/tasks/*/task.log | jq 'select(.event=="model_complete"
 | `invalid model` | Unknown model name | Claude: `sonnet`, `opus`, `haiku`; Gemini: `flash`, `pro`; Codex: `codex`, `max`, `mini` |
 | `agent not found` | Unknown agent name | Use `claude`, `gemini`, or `codex` |
 | `agent CLI not installed` | AI CLI not available | Install Claude CLI, Gemini CLI, or Codex CLI |
-| Validation failed | Code doesn't pass checks | `atlas recover` or fix manually, then `atlas resume` |
-| CI timeout | CI taking too long | `atlas recover` → continue waiting or retry |
+| Validation failed | Code doesn't pass checks | `atlas resume` shows interactive recovery menu with options |
+| CI timeout | CI taking too long | `atlas resume` → continue waiting or retry |
 | GitHub auth failed | gh CLI not authenticated | Run `gh auth login` |
 | Claude CLI not found | claude not installed | `npm install -g @anthropic-ai/claude-code` |
 | Gemini CLI not found | gemini not installed | `npm install -g @google/gemini-cli` |
