@@ -148,6 +148,22 @@ type Step struct {
 	Attempts int `json:"attempts"`
 }
 
+// ApprovalOption represents a single approval choice for step-level approvals.
+// This is used when a step requires user input to proceed (e.g., garbage file handling).
+type ApprovalOption struct {
+	// Key is the short identifier for this option (e.g., "r", "i", "a").
+	Key string `json:"key"`
+
+	// Label is the display text for this option (e.g., "Remove and continue").
+	Label string `json:"label"`
+
+	// Description provides additional context about what this option does.
+	Description string `json:"description,omitempty"`
+
+	// Recommended indicates this is the suggested choice.
+	Recommended bool `json:"recommended,omitempty"`
+}
+
 // StepResult captures the outcome of executing a step.
 // This is used to record results after step completion.
 //
@@ -203,6 +219,10 @@ type StepResult struct {
 	// Metadata contains additional step-specific data.
 	// Used for passing failure_type and ci_result for specialized failure handling.
 	Metadata map[string]any `json:"metadata,omitempty"`
+
+	// ApprovalOptions holds step-specific approval choices when the step requires user input.
+	// Used for garbage file handling, manual confirmations, etc.
+	ApprovalOptions []ApprovalOption `json:"approval_options,omitempty"`
 }
 
 // Transition records a state change for audit trail.
