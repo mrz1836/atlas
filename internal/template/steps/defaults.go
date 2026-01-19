@@ -114,7 +114,7 @@ func NewDefaultRegistry(deps ExecutorDeps) *ExecutorRegistry {
 
 	// Register AI executor (requires AIRunner)
 	if deps.AIRunner != nil {
-		r.Register(NewAIExecutorWithWorkingDir(deps.AIRunner, deps.WorkDir, deps.ArtifactSaver, deps.Logger))
+		r.Register(NewAIExecutor(deps.AIRunner, deps.ArtifactSaver, deps.Logger, WithAIWorkingDir(deps.WorkDir)))
 	}
 
 	// Register validation executor with optional artifact saving, notifications, retry, and commands
@@ -186,7 +186,7 @@ func NewDefaultRegistry(deps ExecutorDeps) *ExecutorRegistry {
 	// Register verify executor (requires AIRunner for AI verification)
 	if deps.AIRunner != nil {
 		garbageDetector := git.NewGarbageDetector(nil)
-		r.Register(NewVerifyExecutorWithWorkingDir(deps.AIRunner, garbageDetector, deps.ArtifactSaver, deps.Logger, deps.WorkDir))
+		r.Register(NewVerifyExecutor(deps.AIRunner, garbageDetector, deps.ArtifactSaver, deps.Logger, WithVerifyWorkingDir(deps.WorkDir)))
 	}
 
 	return r

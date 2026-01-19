@@ -46,12 +46,6 @@ func NewAIExecutor(runner ai.Runner, artifactSaver ArtifactSaver, logger zerolog
 	return e
 }
 
-// NewAIExecutorWithWorkingDir creates an AI executor with a working directory.
-// Deprecated: Use NewAIExecutor with WithAIWorkingDir option instead.
-func NewAIExecutorWithWorkingDir(runner ai.Runner, workingDir string, artifactSaver ArtifactSaver, logger zerolog.Logger) *AIExecutor {
-	return NewAIExecutor(runner, artifactSaver, logger, WithAIWorkingDir(workingDir))
-}
-
 // Execute runs an AI step using Claude Code.
 // The step config may contain:
 //   - permission_mode: string controlling AI permissions ("plan" or empty)

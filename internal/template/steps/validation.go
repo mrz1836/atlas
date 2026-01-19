@@ -14,14 +14,6 @@ import (
 	"github.com/mrz1836/atlas/internal/validation"
 )
 
-// CommandRunner is an alias to validation.CommandRunner for backward compatibility.
-// Deprecated: Use validation.CommandRunner directly. Will be removed in Epic 7+.
-type CommandRunner = validation.CommandRunner
-
-// DefaultCommandRunner is an alias to validation.DefaultCommandRunner for backward compatibility.
-// Deprecated: Use validation.DefaultCommandRunner directly. Will be removed in Epic 7+.
-type DefaultCommandRunner = validation.DefaultCommandRunner
-
 // ValidationExecutor handles validation steps.
 // It runs configured validation commands using the parallel pipeline runner
 // and captures their output. Results can optionally be saved as artifacts.
@@ -58,12 +50,6 @@ func NewValidationExecutorWithOptions(workDir string, opts ...ValidationExecutor
 		opt(e)
 	}
 	return e
-}
-
-// NewValidationExecutorWithRunner creates a validation executor with a custom command runner.
-// Deprecated: Use NewValidationExecutorWithOptions with WithValidationRunner instead.
-func NewValidationExecutorWithRunner(workDir string, runner validation.CommandRunner) *ValidationExecutor {
-	return NewValidationExecutorWithOptions(workDir, WithValidationRunner(runner))
 }
 
 // ValidationCommands holds the validation command configuration from project config.
@@ -120,41 +106,6 @@ func WithValidationCommands(cmds ValidationCommands) ValidationExecutorOption {
 		e.testCommands = cmds.Test
 		e.preCommitCommands = cmds.PreCommit
 	}
-}
-
-// NewValidationExecutorWithDeps creates a validation executor with full dependencies.
-// The artifactSaver, notifier, and retryHandler may be nil if those features are not needed.
-// Deprecated: Use NewValidationExecutorWithOptions with functional options instead.
-func NewValidationExecutorWithDeps(workDir string, artifactSaver ArtifactSaver, notifier Notifier, retryHandler RetryHandler) *ValidationExecutor {
-	return NewValidationExecutorWithOptions(workDir,
-		WithValidationArtifactSaver(artifactSaver),
-		WithValidationNotifier(notifier),
-		WithValidationRetryHandler(retryHandler),
-	)
-}
-
-// NewValidationExecutorFull creates a validation executor with all dependencies including
-// validation commands from project config. The commands override the defaults.
-// Deprecated: Use NewValidationExecutorWithOptions with functional options instead.
-func NewValidationExecutorFull(workDir string, artifactSaver ArtifactSaver, notifier Notifier, retryHandler RetryHandler, commands ValidationCommands) *ValidationExecutor {
-	return NewValidationExecutorWithOptions(workDir,
-		WithValidationArtifactSaver(artifactSaver),
-		WithValidationNotifier(notifier),
-		WithValidationRetryHandler(retryHandler),
-		WithValidationCommands(commands),
-	)
-}
-
-// NewValidationExecutorWithAll creates a validation executor with all dependencies including custom runner.
-// Deprecated: Use NewValidationExecutorWithOptions with functional options instead.
-func NewValidationExecutorWithAll(workDir string, runner validation.CommandRunner, toolChecker validation.ToolChecker, artifactSaver ArtifactSaver, notifier Notifier, retryHandler RetryHandler) *ValidationExecutor {
-	return NewValidationExecutorWithOptions(workDir,
-		WithValidationRunner(runner),
-		WithValidationToolChecker(toolChecker),
-		WithValidationArtifactSaver(artifactSaver),
-		WithValidationNotifier(notifier),
-		WithValidationRetryHandler(retryHandler),
-	)
 }
 
 // Execute runs validation commands using the parallel pipeline runner.

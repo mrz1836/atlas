@@ -13,26 +13,6 @@ import (
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 )
 
-func TestNewSDDExecutor(t *testing.T) {
-	runner := &mockAIRunner{}
-	executor := NewSDDExecutor(runner, "/tmp/artifacts") // artifactsDir is deprecated/ignored
-
-	require.NotNil(t, executor)
-	assert.Equal(t, runner, executor.runner)
-	assert.Nil(t, executor.artifactSaver) // deprecated constructor doesn't set artifactSaver
-	assert.Empty(t, executor.workingDir)
-}
-
-func TestNewSDDExecutorWithWorkingDir(t *testing.T) {
-	runner := &mockAIRunner{}
-	executor := NewSDDExecutorWithWorkingDir(runner, "/tmp/artifacts", "/tmp/worktree") // artifactsDir is deprecated/ignored
-
-	require.NotNil(t, executor)
-	assert.Equal(t, runner, executor.runner)
-	assert.Nil(t, executor.artifactSaver) // deprecated constructor doesn't set artifactSaver
-	assert.Equal(t, "/tmp/worktree", executor.workingDir)
-}
-
 func TestNewSDDExecutorWithArtifactSaver(t *testing.T) {
 	runner := &mockAIRunner{}
 	saver := newTestArtifactSaver()
@@ -45,7 +25,7 @@ func TestNewSDDExecutorWithArtifactSaver(t *testing.T) {
 }
 
 func TestSDDExecutor_SetWorkingDir(t *testing.T) {
-	executor := NewSDDExecutor(&mockAIRunner{}, "/tmp")
+	executor := NewSDDExecutorWithArtifactSaver(&mockAIRunner{}, nil, "", zerolog.Nop())
 	assert.Empty(t, executor.workingDir)
 
 	executor.SetWorkingDir("/path/to/worktree")
@@ -53,7 +33,7 @@ func TestSDDExecutor_SetWorkingDir(t *testing.T) {
 }
 
 func TestSDDExecutor_Type(t *testing.T) {
-	executor := NewSDDExecutor(&mockAIRunner{}, "/tmp")
+	executor := NewSDDExecutorWithArtifactSaver(&mockAIRunner{}, nil, "", zerolog.Nop())
 
 	assert.Equal(t, domain.StepTypeSDD, executor.Type())
 }
@@ -150,7 +130,7 @@ func TestSDDExecutor_Execute_SlashCommandFormat(t *testing.T) {
 			runner := &mockAIRunner{
 				result: &domain.AIResult{Output: "done"},
 			}
-			executor := NewSDDExecutor(runner, tmpDir)
+			executor := NewSDDExecutorWithArtifactSaver(runner, nil, tmpDir, zerolog.Nop())
 
 			task := &domain.Task{
 				ID:          "task-123",
@@ -179,13 +159,12 @@ func TestSDDExecutor_Execute_WorkingDirPassed(t *testing.T) {
 	defer ResetSpeckitCheck()
 
 	ctx := context.Background()
-	tmpDir := t.TempDir()
 	worktreePath := "/path/to/worktree"
 
 	runner := &mockAIRunner{
 		result: &domain.AIResult{Output: "done"},
 	}
-	executor := NewSDDExecutorWithWorkingDir(runner, tmpDir, worktreePath)
+	executor := NewSDDExecutorWithArtifactSaver(runner, nil, worktreePath, zerolog.Nop())
 
 	task := &domain.Task{
 		ID:          "task-123",
@@ -211,7 +190,7 @@ func TestSDDExecutor_Execute_ContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately
 
-	executor := NewSDDExecutor(&mockAIRunner{}, "/tmp")
+	executor := NewSDDExecutorWithArtifactSaver(&mockAIRunner{}, nil, "", zerolog.Nop())
 	task := &domain.Task{ID: "task-123"}
 	step := &domain.StepDefinition{Name: "sdd", Type: domain.StepTypeSDD}
 
@@ -228,7 +207,7 @@ func TestSDDExecutor_Execute_RunnerError(t *testing.T) {
 	runner := &mockAIRunner{
 		err: atlaserrors.ErrClaudeInvocation,
 	}
-	executor := NewSDDExecutor(runner, "")
+	executor := NewSDDExecutorWithArtifactSaver(runner, nil, "", zerolog.Nop())
 
 	task := &domain.Task{ID: "task-123", Description: "Test"}
 	step := &domain.StepDefinition{Name: "sdd", Type: domain.StepTypeSDD}
@@ -249,7 +228,7 @@ func TestSDDExecutor_Execute_EmptyOutput(t *testing.T) {
 	runner := &mockAIRunner{
 		result: &domain.AIResult{Output: ""}, // Empty output
 	}
-	executor := NewSDDExecutor(runner, "")
+	executor := NewSDDExecutorWithArtifactSaver(runner, nil, "", zerolog.Nop())
 
 	task := &domain.Task{ID: "task-123", Description: "Test"}
 	step := &domain.StepDefinition{Name: "sdd", Type: domain.StepTypeSDD}
@@ -276,7 +255,7 @@ func TestSDDExecutor_Execute_SpeckitNotInstalled(t *testing.T) {
 	runner := &mockAIRunner{
 		result: &domain.AIResult{Output: "done"},
 	}
-	executor := NewSDDExecutor(runner, "")
+	executor := NewSDDExecutorWithArtifactSaver(runner, nil, "", zerolog.Nop())
 
 	task := &domain.Task{ID: "task-123", Description: "Test", Config: domain.TaskConfig{Model: "sonnet"}}
 	step := &domain.StepDefinition{Name: "sdd", Type: domain.StepTypeSDD}
@@ -300,7 +279,7 @@ func TestSDDExecutor_Execute_NoArtifactsDir(t *testing.T) {
 	runner := &mockAIRunner{
 		result: &domain.AIResult{Output: "done"},
 	}
-	executor := NewSDDExecutor(runner, "")
+	executor := NewSDDExecutorWithArtifactSaver(runner, nil, "", zerolog.Nop())
 
 	task := &domain.Task{ID: "task-123", Description: "Test"}
 	step := &domain.StepDefinition{Name: "sdd", Type: domain.StepTypeSDD}
@@ -322,7 +301,7 @@ func TestSDDExecutor_Execute_ImplementCommand_NoArtifact(t *testing.T) {
 	runner := &mockAIRunner{
 		result: &domain.AIResult{Output: "Implementation complete"},
 	}
-	executor := NewSDDExecutor(runner, tmpDir)
+	executor := NewSDDExecutorWithArtifactSaver(runner, nil, tmpDir, zerolog.Nop())
 
 	task := &domain.Task{ID: "task-123", Description: "Build feature X"}
 	step := &domain.StepDefinition{
@@ -351,7 +330,7 @@ func TestSDDExecutor_Execute_DefaultCommand(t *testing.T) {
 	runner := &mockAIRunner{
 		result: &domain.AIResult{Output: "done"},
 	}
-	executor := NewSDDExecutor(runner, tmpDir)
+	executor := NewSDDExecutorWithArtifactSaver(runner, nil, tmpDir, zerolog.Nop())
 
 	task := &domain.Task{ID: "task-123", Description: "Build it"}
 	step := &domain.StepDefinition{
@@ -416,7 +395,7 @@ func TestSDDExecutor_saveArtifact_Versioning(t *testing.T) {
 
 func TestSDDExecutor_saveArtifact_NoArtifactSaver(t *testing.T) {
 	ctx := context.Background()
-	executor := NewSDDExecutor(&mockAIRunner{}, "") // No artifact saver
+	executor := NewSDDExecutorWithArtifactSaver(&mockAIRunner{}, nil, "", zerolog.Nop()) // No artifact saver
 
 	task := &domain.Task{ID: "task-123", WorkspaceID: "test-ws"}
 	path, err := executor.saveArtifact(ctx, task, SDDCmdSpecify, "content")
@@ -440,7 +419,7 @@ func TestSDDExecutor_saveArtifact_UnknownCommand(t *testing.T) {
 }
 
 func TestSDDExecutor_buildPrompt_AllCommands(t *testing.T) {
-	executor := NewSDDExecutor(&mockAIRunner{}, "")
+	executor := NewSDDExecutorWithArtifactSaver(&mockAIRunner{}, nil, "", zerolog.Nop())
 	task := &domain.Task{Description: "Build auth system"}
 
 	tests := []struct {
@@ -473,7 +452,7 @@ func TestSDDExecutor_Execute_MaxTurnsAndTimeout(t *testing.T) {
 	runner := &mockAIRunner{
 		result: &domain.AIResult{Output: "done"},
 	}
-	executor := NewSDDExecutor(runner, tmpDir)
+	executor := NewSDDExecutorWithArtifactSaver(runner, nil, tmpDir, zerolog.Nop())
 
 	task := &domain.Task{
 		ID:          "task-123",
@@ -597,7 +576,7 @@ func TestSDDExecutor_Execute_StepTimeout(t *testing.T) {
 	runner := &mockAIRunner{
 		result: &domain.AIResult{Output: "done"},
 	}
-	executor := NewSDDExecutor(runner, tmpDir)
+	executor := NewSDDExecutorWithArtifactSaver(runner, nil, tmpDir, zerolog.Nop())
 
 	task := &domain.Task{
 		ID:          "task-123",
@@ -627,7 +606,7 @@ func TestSDDExecutor_Execute_ContextCanceledDuringExecution(t *testing.T) {
 	runner := &mockAIRunner{
 		result: &domain.AIResult{Output: "done"},
 	}
-	executor := NewSDDExecutor(runner, "")
+	executor := NewSDDExecutorWithArtifactSaver(runner, nil, "", zerolog.Nop())
 
 	task := &domain.Task{
 		ID:          "task-123",

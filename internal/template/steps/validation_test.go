@@ -112,7 +112,7 @@ func TestValidationExecutor_Execute_AllSuccess(t *testing.T) {
 
 	// Create temp directory for test
 	tmpDir := t.TempDir()
-	executor := NewValidationExecutorWithAll(tmpDir, runner, toolChecker, nil, nil, nil)
+	executor := NewValidationExecutorWithOptions(tmpDir, WithValidationRunner(runner), WithValidationToolChecker(toolChecker))
 
 	task := &domain.Task{
 		ID:          "task-123",
@@ -147,7 +147,7 @@ func TestValidationExecutor_Execute_FailsOnError(t *testing.T) {
 
 	// Create temp directory for test
 	tmpDir := t.TempDir()
-	executor := NewValidationExecutorWithRunner(tmpDir, runner)
+	executor := NewValidationExecutorWithOptions(tmpDir, WithValidationRunner(runner))
 
 	task := &domain.Task{
 		ID:          "task-123",
@@ -173,7 +173,7 @@ func TestValidationExecutor_Execute_DefaultCommands(t *testing.T) {
 
 	// Create temp directory for test
 	tmpDir := t.TempDir()
-	executor := NewValidationExecutorWithAll(tmpDir, runner, toolChecker, nil, nil, nil)
+	executor := NewValidationExecutorWithOptions(tmpDir, WithValidationRunner(runner), WithValidationToolChecker(toolChecker))
 
 	task := &domain.Task{
 		ID:          "task-123",
@@ -234,7 +234,7 @@ func TestValidationExecutor_Execute_CapturesOutput(t *testing.T) {
 
 	// Create temp directory for test
 	tmpDir := t.TempDir()
-	executor := NewValidationExecutorWithRunner(tmpDir, runner)
+	executor := NewValidationExecutorWithOptions(tmpDir, WithValidationRunner(runner))
 
 	task := &domain.Task{
 		ID:          "task-123",
@@ -258,7 +258,7 @@ func TestValidationExecutor_Execute_EmptyCommands(t *testing.T) {
 
 	// Create temp directory for test
 	tmpDir := t.TempDir()
-	executor := NewValidationExecutorWithAll(tmpDir, runner, toolChecker, nil, nil, nil)
+	executor := NewValidationExecutorWithOptions(tmpDir, WithValidationRunner(runner), WithValidationToolChecker(toolChecker))
 
 	task := &domain.Task{
 		ID:          "task-123",
@@ -283,7 +283,7 @@ func TestValidationExecutor_Execute_Timing(t *testing.T) {
 
 	// Create temp directory for test
 	tmpDir := t.TempDir()
-	executor := NewValidationExecutorWithRunner(tmpDir, runner)
+	executor := NewValidationExecutorWithOptions(tmpDir, WithValidationRunner(runner))
 
 	task := &domain.Task{
 		ID:          "task-123",
@@ -319,7 +319,7 @@ func TestValidationExecutor_Execute_WithArtifactSaver(t *testing.T) {
 
 	// Create temp directory for test
 	tmpDir := t.TempDir()
-	executor := NewValidationExecutorWithAll(tmpDir, runner, nil, mockSaver, nil, nil)
+	executor := NewValidationExecutorWithOptions(tmpDir, WithValidationRunner(runner), WithValidationArtifactSaver(mockSaver))
 
 	task := &domain.Task{
 		ID:          "task-123",
@@ -352,7 +352,7 @@ func TestValidationExecutor_Execute_WithNotifier(t *testing.T) {
 
 	// Create temp directory for test
 	tmpDir := t.TempDir()
-	executor := NewValidationExecutorWithAll(tmpDir, runner, nil, mockSaver, mockNotifier, nil)
+	executor := NewValidationExecutorWithOptions(tmpDir, WithValidationRunner(runner), WithValidationArtifactSaver(mockSaver), WithValidationNotifier(mockNotifier))
 
 	task := &domain.Task{
 		ID:          "task-123",
@@ -413,7 +413,7 @@ func (m *mockRetryHandler) IsEnabled() bool {
 
 func TestValidationExecutor_CanRetry_WithHandler(t *testing.T) {
 	retryHandler := &mockRetryHandler{enabled: true, maxAttempts: 3}
-	executor := NewValidationExecutorWithAll("/tmp/work", nil, nil, nil, nil, retryHandler)
+	executor := NewValidationExecutorWithOptions("/tmp/work", WithValidationRetryHandler(retryHandler))
 
 	assert.True(t, executor.CanRetry(1))
 	assert.True(t, executor.CanRetry(2))
@@ -429,14 +429,14 @@ func TestValidationExecutor_CanRetry_WithoutHandler(t *testing.T) {
 
 func TestValidationExecutor_RetryEnabled_WithHandler(t *testing.T) {
 	retryHandler := &mockRetryHandler{enabled: true, maxAttempts: 3}
-	executor := NewValidationExecutorWithAll("/tmp/work", nil, nil, nil, nil, retryHandler)
+	executor := NewValidationExecutorWithOptions("/tmp/work", WithValidationRetryHandler(retryHandler))
 
 	assert.True(t, executor.RetryEnabled())
 }
 
 func TestValidationExecutor_RetryEnabled_Disabled(t *testing.T) {
 	retryHandler := &mockRetryHandler{enabled: false, maxAttempts: 3}
-	executor := NewValidationExecutorWithAll("/tmp/work", nil, nil, nil, nil, retryHandler)
+	executor := NewValidationExecutorWithOptions("/tmp/work", WithValidationRetryHandler(retryHandler))
 
 	assert.False(t, executor.RetryEnabled())
 }
@@ -449,7 +449,7 @@ func TestValidationExecutor_RetryEnabled_WithoutHandler(t *testing.T) {
 
 func TestValidationExecutor_MaxRetryAttempts_WithHandler(t *testing.T) {
 	retryHandler := &mockRetryHandler{enabled: true, maxAttempts: 5}
-	executor := NewValidationExecutorWithAll("/tmp/work", nil, nil, nil, nil, retryHandler)
+	executor := NewValidationExecutorWithOptions("/tmp/work", WithValidationRetryHandler(retryHandler))
 
 	assert.Equal(t, 5, executor.MaxRetryAttempts())
 }
@@ -591,7 +591,7 @@ func TestValidationExecutor_Execute_IncludesMetadata(t *testing.T) {
 
 	// Create temp directory for test
 	tmpDir := t.TempDir()
-	executor := NewValidationExecutorWithAll(tmpDir, runner, toolChecker, nil, nil, nil)
+	executor := NewValidationExecutorWithOptions(tmpDir, WithValidationRunner(runner), WithValidationToolChecker(toolChecker))
 
 	task := &domain.Task{
 		ID:          "task-123",
@@ -639,7 +639,7 @@ func TestValidationExecutor_Execute_MetadataOnFailure(t *testing.T) {
 
 	// Create temp directory for test
 	tmpDir := t.TempDir()
-	executor := NewValidationExecutorWithRunner(tmpDir, runner)
+	executor := NewValidationExecutorWithOptions(tmpDir, WithValidationRunner(runner))
 
 	task := &domain.Task{
 		ID:          "task-123",
@@ -674,14 +674,14 @@ func TestValidationExecutor_Execute_MetadataOnFailure(t *testing.T) {
 	assert.False(t, lintCheck["passed"].(bool), "Lint should be marked as failed")
 }
 
-func TestNewValidationExecutorFull(t *testing.T) {
+func TestNewValidationExecutorWithOptions_CustomCommands(t *testing.T) {
 	commands := ValidationCommands{
 		Format:    []string{"custom-format"},
 		Lint:      []string{"custom-lint"},
 		Test:      []string{"custom-test"},
 		PreCommit: []string{"custom-precommit"},
 	}
-	executor := NewValidationExecutorFull("/tmp/work", nil, nil, nil, commands)
+	executor := NewValidationExecutorWithOptions("/tmp/work", WithValidationCommands(commands))
 
 	require.NotNil(t, executor)
 	assert.Equal(t, "/tmp/work", executor.workDir)

@@ -50,25 +50,6 @@ type SDDExecutor struct {
 	logger         zerolog.Logger
 }
 
-// NewSDDExecutor creates a new SDD executor.
-// Deprecated: Use NewSDDExecutorWithArtifactSaver instead.
-func NewSDDExecutor(runner ai.Runner, _ string) *SDDExecutor {
-	return &SDDExecutor{
-		runner: runner,
-		logger: zerolog.Nop(),
-	}
-}
-
-// NewSDDExecutorWithWorkingDir creates a new SDD executor with a custom working directory.
-// Deprecated: Use NewSDDExecutorWithArtifactSaver instead.
-func NewSDDExecutorWithWorkingDir(runner ai.Runner, _, workingDir string) *SDDExecutor {
-	return &SDDExecutor{
-		runner:     runner,
-		workingDir: workingDir,
-		logger:     zerolog.Nop(),
-	}
-}
-
 // NewSDDExecutorWithArtifactSaver creates a new SDD executor with artifact saving support.
 func NewSDDExecutorWithArtifactSaver(runner ai.Runner, saver ArtifactSaver, workingDir string, logger zerolog.Logger) *SDDExecutor {
 	return &SDDExecutor{

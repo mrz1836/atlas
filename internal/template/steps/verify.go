@@ -92,12 +92,6 @@ func NewVerifyExecutor(runner ai.Runner, garbageDetector *git.GarbageDetector, a
 	return e
 }
 
-// NewVerifyExecutorWithWorkingDir creates a verify executor with a working directory.
-// Deprecated: Use NewVerifyExecutor with WithVerifyWorkingDir option instead.
-func NewVerifyExecutorWithWorkingDir(runner ai.Runner, garbageDetector *git.GarbageDetector, artifactSaver ArtifactSaver, logger zerolog.Logger, workingDir string) *VerifyExecutor {
-	return NewVerifyExecutor(runner, garbageDetector, artifactSaver, logger, WithVerifyWorkingDir(workingDir))
-}
-
 // VerifyConfig configures the verification step.
 type VerifyConfig struct {
 	// Model to use for verification (different from implementation model).
