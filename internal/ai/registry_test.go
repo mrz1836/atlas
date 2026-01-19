@@ -208,7 +208,7 @@ func TestMultiRunner_Run(t *testing.T) {
 		assert.Equal(t, "gemini response", result.Output)
 	})
 
-	t.Run("defaults to claude when agent is empty", func(t *testing.T) {
+	t.Run("returns error when agent is empty", func(t *testing.T) {
 		reg := NewRunnerRegistry()
 
 		claudeRunner := &MockRunner{
@@ -221,14 +221,15 @@ func TestMultiRunner_Run(t *testing.T) {
 
 		multi := NewMultiRunner(reg)
 
-		// Request with empty agent should default to Claude
+		// Request with empty agent should return error
 		req := &domain.AIRequest{
 			Agent:  "", // Empty agent
 			Prompt: "test",
 		}
 		result, err := multi.Run(context.Background(), req)
-		require.NoError(t, err)
-		assert.Equal(t, "claude default", result.Output)
+		require.Error(t, err)
+		assert.Nil(t, result)
+		assert.Contains(t, err.Error(), "agent must be specified")
 	})
 
 	t.Run("returns error for unregistered agent", func(t *testing.T) {

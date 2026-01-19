@@ -76,14 +76,13 @@ func NewMultiRunner(registry *RunnerRegistry) *MultiRunner {
 }
 
 // Run dispatches to the appropriate runner based on req.Agent.
-// If req.Agent is empty, defaults to Claude for backwards compatibility.
+// Returns ErrEmptyAgent if req.Agent is not specified.
 func (m *MultiRunner) Run(ctx context.Context, req *domain.AIRequest) (*domain.AIResult, error) {
-	agent := req.Agent
-	if agent == "" {
-		agent = domain.AgentClaude // Default for backwards compatibility
+	if req.Agent == "" {
+		return nil, fmt.Errorf("%w: agent must be specified in request", atlaserrors.ErrEmptyValue)
 	}
 
-	runner, err := m.registry.Get(agent)
+	runner, err := m.registry.Get(req.Agent)
 	if err != nil {
 		return nil, err
 	}

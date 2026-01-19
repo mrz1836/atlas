@@ -61,12 +61,6 @@ func NewGeminiRunner(cfg *config.AIConfig, executor CommandExecutor, opts ...Gem
 	return r
 }
 
-// NewGeminiRunnerWithLogger creates a new GeminiRunner with logging support.
-// Deprecated: Use NewGeminiRunner with WithGeminiLogger option instead.
-func NewGeminiRunnerWithLogger(cfg *config.AIConfig, executor CommandExecutor, logger zerolog.Logger) *GeminiRunner {
-	return NewGeminiRunner(cfg, executor, WithGeminiLogger(logger))
-}
-
 // Run executes an AI request using the Gemini CLI.
 // This method delegates to BaseRunner for timeout and retry handling,
 // providing the execute function for Gemini-specific command execution.
