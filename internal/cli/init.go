@@ -838,26 +838,3 @@ func displaySuccessMessageWithPaths(w io.Writer, nonInteractive, projectConfigCr
 		_, _ = fmt.Fprintln(w, styles.dim.Render("Edit the config file or run 'atlas init' interactively to customize."))
 	}
 }
-
-// displaySuccessMessage shows the success message after configuration.
-// Deprecated: Use displaySuccessMessageWithPaths for new code.
-func displaySuccessMessage(w io.Writer, nonInteractive bool, styles *initStyles) {
-	_, _ = fmt.Fprintln(w)
-	_, _ = fmt.Fprintln(w, styles.success.Render("✓ ATLAS configuration saved successfully!"))
-	_, _ = fmt.Fprintln(w)
-
-	home, _ := os.UserHomeDir()
-	configPath := filepath.Join(home, constants.AtlasHome, constants.GlobalConfigName)
-	_, _ = fmt.Fprintln(w, styles.dim.Render("Configuration saved to: "+configPath))
-	_, _ = fmt.Fprintln(w)
-
-	_, _ = fmt.Fprintln(w, styles.info.Render("Suggested next commands:"))
-	_, _ = fmt.Fprintln(w, styles.dim.Render("  atlas status    - View current project status"))
-	_, _ = fmt.Fprintln(w, styles.dim.Render("  atlas start     - Start a new task"))
-	_, _ = fmt.Fprintln(w)
-
-	if nonInteractive {
-		_, _ = fmt.Fprintln(w, styles.dim.Render("Note: Non-interactive mode used default values."))
-		_, _ = fmt.Fprintln(w, styles.dim.Render("Edit the config file or run 'atlas init' interactively to customize."))
-	}
-}

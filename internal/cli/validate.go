@@ -94,7 +94,7 @@ func runValidate(ctx context.Context, cmd *cobra.Command, w io.Writer) error {
 	runner := validation.NewRunner(executor, runnerConfig)
 
 	// Create spinner for progress indication (only for TTY output)
-	spinner := tui.NewSpinner(w)
+	spinner := tui.NewTerminalSpinner(w)
 
 	// Set up progress callback for TUI output
 	runner.SetProgressCallback(func(step, status string, info *validation.ProgressInfo) {

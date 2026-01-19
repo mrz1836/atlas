@@ -104,7 +104,7 @@ func (f *ServiceFactory) CreateNotifiers(cfg *config.Config) (*tui.Notifier, *ta
 func (f *ServiceFactory) CreateAIRunner(cfg *config.Config) ai.Runner {
 	runnerRegistry := ai.NewRunnerRegistry()
 	runnerRegistry.Register(domain.AgentClaude, ai.NewClaudeCodeRunner(&cfg.AI, nil))
-	runnerRegistry.Register(domain.AgentGemini, ai.NewGeminiRunnerWithLogger(&cfg.AI, nil, f.logger))
+	runnerRegistry.Register(domain.AgentGemini, ai.NewGeminiRunner(&cfg.AI, nil, ai.WithGeminiLogger(f.logger)))
 	runnerRegistry.Register(domain.AgentCodex, ai.NewCodexRunner(&cfg.AI, nil))
 	return ai.NewMultiRunner(runnerRegistry)
 }

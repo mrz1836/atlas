@@ -313,14 +313,6 @@ func statusPriority(status constants.TaskStatus) int {
 	return 0 // Lowest priority
 }
 
-// statusJSONOutput is the structured JSON output for the status command.
-// Includes workspaces and attention_items per Story 7.9.
-// Deprecated: Use hierarchicalJSONOutput for new code.
-type statusJSONOutput struct {
-	Workspaces     []map[string]string `json:"workspaces"`
-	AttentionItems []map[string]string `json:"attention_items,omitempty"`
-}
-
 // hierarchicalJSONOutput is the structured JSON output with nested tasks.
 type hierarchicalJSONOutput struct {
 	Workspaces     []tui.HierarchicalJSONWorkspace `json:"workspaces"`

@@ -441,51 +441,6 @@ func TestSaveConfig_CreatesDirectory(t *testing.T) {
 	assert.Equal(t, os.FileMode(0o700), info.Mode().Perm())
 }
 
-func TestDisplaySuccessMessage(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name           string
-		nonInteractive bool
-		expectedOutput []string
-	}{
-		{
-			name:           "interactive mode",
-			nonInteractive: false,
-			expectedOutput: []string{
-				"ATLAS configuration saved successfully",
-				"Suggested next commands",
-				"atlas status",
-				"atlas start",
-			},
-		},
-		{
-			name:           "non-interactive mode",
-			nonInteractive: true,
-			expectedOutput: []string{
-				"ATLAS configuration saved successfully",
-				"Non-interactive mode used default values",
-			},
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			var buf bytes.Buffer
-			styles := newInitStyles()
-
-			displaySuccessMessage(&buf, tc.nonInteractive, styles)
-
-			output := buf.String()
-			for _, expected := range tc.expectedOutput {
-				assert.Contains(t, output, expected)
-			}
-		})
-	}
-}
-
 func TestNewInitStyles(t *testing.T) {
 	t.Parallel()
 

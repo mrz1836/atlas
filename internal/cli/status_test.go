@@ -508,7 +508,7 @@ func TestRunStatus_JSONOutput(t *testing.T) {
 	require.NoError(t, err)
 
 	// Story 7.9: Should output empty structured JSON object
-	var result statusJSONOutput
+	var result hierarchicalJSONOutput
 	err = json.Unmarshal(buf.Bytes(), &result)
 	require.NoError(t, err, "output should be valid JSON")
 	assert.Empty(t, result.Workspaces)
