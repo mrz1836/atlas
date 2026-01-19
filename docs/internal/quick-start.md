@@ -239,6 +239,9 @@ atlas start "fix lint errors" --template hotfix --target feat/my-feature
 atlas start "simple edit" -t task --verify
 atlas start "simple edit" -t task --no-verify
 
+# Start from a backlog discovery (auto-promotes when task starts)
+atlas start "fix null pointer" -t bugfix -w fix-null-pointer --from-backlog disc-a1b2c3
+
 # Non-interactive mode (requires --template)
 atlas start "fix bug" -t bugfix --no-interactive
 
@@ -836,7 +839,7 @@ Git:        feat/auth-refactor @ 7b3f1a2
 
 #### atlas backlog promote
 
-Promote a discovery to an ATLAS task. Automatically generates task configuration from the discovery's category, severity, and content.
+Generate task configuration for a backlog discovery. Automatically determines the best template, workspace name, and branch based on the discovery's category, severity, and content. The discovery status remains `pending` until you create the task with `atlas start --from-backlog`.
 
 ```bash
 # Auto-generate task configuration from discovery (deterministic mapping)
@@ -912,6 +915,8 @@ Promoted discovery disc-a1b2c3
 To create and start the task, run:
   atlas start -t bugfix -w missing-error-handling-payment --from-backlog disc-a1b2c3 \
     "Missing error handling in payment processor"
+
+Note: Discovery status will change to 'promoted' when you run the start command.
 ```
 
 **Note:** The `--from-backlog` flag automatically promotes the discovery (updates its status to `promoted` and links it to the task ID) when the task is created successfully. This ensures the discovery lifecycle is tracked.
@@ -963,14 +968,14 @@ pending → promoted → completed   (task approved)
 ```
 
 **States:**
-- `pending`: Newly added, awaiting action
-- `promoted`: Linked to a task via `--from-backlog` flag
+- `pending`: Newly added, awaiting action (remains pending even after `atlas backlog promote`)
+- `promoted`: Task has started working on this discovery (via `--from-backlog` flag)
 - `completed`: Task was approved (automatic transition)
 - `dismissed`: Manually dismissed with a reason
 
 **Automatic Lifecycle Management:**
 
-1. **On Task Creation**: When you use `atlas start --from-backlog disc-xxx`, the discovery is automatically promoted and linked to the new task.
+1. **On Task Start**: When you run `atlas start --from-backlog disc-xxx`, the discovery is automatically promoted (status changes to `promoted`) and linked to the new task when the task begins execution.
 
 2. **On Task Approval**: When you run `atlas approve`, any discovery linked to that task is automatically marked as `completed` with a timestamp.
 
