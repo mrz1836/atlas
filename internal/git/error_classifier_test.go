@@ -13,6 +13,7 @@ func TestErrorType_String(t *testing.T) {
 		{ErrorTypeRateLimit, "rate_limit"},
 		{ErrorTypeNotFound, "not_found"},
 		{ErrorTypeNonFastForward, "non_fast_forward"},
+		{ErrorTypeLockFile, "lock_file"},
 	}
 
 	for _, tt := range tests {
@@ -63,6 +64,14 @@ func TestClassifyError(t *testing.T) {
 		{"non-ff - failed to push", "error: failed to push some refs to 'origin'", ErrorTypeNonFastForward},
 		{"non-ff - updates rejected", "Updates were rejected because the tip of your current branch is behind", ErrorTypeNonFastForward},
 		{"non-ff - fetch first", "hint: Please fetch first", ErrorTypeNonFastForward},
+
+		// Lock file errors
+		{"lock - index.lock", "fatal: Unable to create '/path/.git/index.lock': File exists.", ErrorTypeLockFile},
+		{"lock - another git process", "Another git process seems to be running in this repository", ErrorTypeLockFile},
+		{"lock - unable to create", "Unable to create '/path/.git/refs/heads/main.lock'", ErrorTypeLockFile},
+		{"lock - file exists", "error: .lock': file exists", ErrorTypeLockFile},
+		{"lock - lock file", "error: could not lock file", ErrorTypeLockFile},
+		{"lock - case insensitive", "ANOTHER GIT PROCESS SEEMS TO BE RUNNING", ErrorTypeLockFile},
 
 		// Unknown errors
 		{"unknown - empty string", "", ErrorTypeUnknown},
@@ -188,6 +197,8 @@ func TestPatternMatcher_MatchesLower(t *testing.T) {
 }
 
 // Test backward compatibility with existing Matches* functions
+//
+//nolint:gocognit // comprehensive compatibility test
 func TestMatchesFunctions_BackwardCompatibility(t *testing.T) {
 	t.Run("MatchesAuthError", func(t *testing.T) {
 		if !MatchesAuthError("authentication failed") {
@@ -233,6 +244,18 @@ func TestMatchesFunctions_BackwardCompatibility(t *testing.T) {
 			t.Error("expected MatchesNonFastForwardError not to match 'success'")
 		}
 	})
+
+	t.Run("MatchesLockFileError", func(t *testing.T) {
+		if !MatchesLockFileError("index.lock") {
+			t.Error("expected MatchesLockFileError to match 'index.lock'")
+		}
+		if !MatchesLockFileError("another git process") {
+			t.Error("expected MatchesLockFileError to match 'another git process'")
+		}
+		if MatchesLockFileError("success") {
+			t.Error("expected MatchesLockFileError not to match 'success'")
+		}
+	})
 }
 
 // TestMatchesFunctions_CaseInsensitive verifies that all Matches* functions
@@ -275,6 +298,12 @@ func TestMatchesFunctions_CaseInsensitive(t *testing.T) {
 			inputs:   []string{"NON-FAST-FORWARD", "Non-Fast-Forward", "UPDATES WERE REJECTED"},
 			expected: true,
 		},
+		{
+			name:     "MatchesLockFileError uppercase",
+			fn:       MatchesLockFileError,
+			inputs:   []string{"INDEX.LOCK", "ANOTHER GIT PROCESS", "UNABLE TO CREATE"},
+			expected: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -302,6 +331,7 @@ func TestMatchesFunctions_MixedCase(t *testing.T) {
 		{"GitHub API Rate Limit Exceeded - try again later", MatchesRateLimitError, "MatchesRateLimitError", true},
 		{"Error 404: Repository Not Found", MatchesNotFoundError, "MatchesNotFoundError", true},
 		{"ERROR: Updates Were Rejected because the tip is behind", MatchesNonFastForwardError, "MatchesNonFastForwardError", true},
+		{"fatal: Unable to create '/path/.git/index.lock': File exists.", MatchesLockFileError, "MatchesLockFileError", true},
 	}
 
 	for _, tt := range realWorldErrors {

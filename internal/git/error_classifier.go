@@ -20,6 +20,8 @@ const (
 	ErrorTypeNotFound
 	// ErrorTypeNonFastForward indicates a non-fast-forward push rejection.
 	ErrorTypeNonFastForward
+	// ErrorTypeLockFile indicates a git lock file conflict.
+	ErrorTypeLockFile
 )
 
 // String returns a human-readable name for the error type.
@@ -37,6 +39,8 @@ func (e ErrorType) String() string {
 		return "not_found"
 	case ErrorTypeNonFastForward:
 		return "non_fast_forward"
+	case ErrorTypeLockFile:
+		return "lock_file"
 	default:
 		return "unknown"
 	}
@@ -138,6 +142,15 @@ var (
 		"tip of your current branch is behind",
 		"rejected because the remote contains work",
 	)
+
+	// lockFilePatterns matches git lock file errors.
+	lockFilePatterns = NewPatternMatcher(
+		"index.lock",
+		"another git process",
+		"unable to create",
+		".lock': file exists",
+		"lock file",
+	)
 )
 
 // ErrorClassifier provides a unified interface for classifying git errors.
@@ -149,6 +162,7 @@ type ErrorClassifier struct {
 	rateLimit      *PatternMatcher
 	notFound       *PatternMatcher
 	nonFastForward *PatternMatcher
+	lockFile       *PatternMatcher
 }
 
 // defaultClassifier is the package-level classifier using standard patterns.
@@ -160,6 +174,7 @@ var defaultClassifier = &ErrorClassifier{
 	rateLimit:      rateLimitPatterns,
 	notFound:       notFoundPatterns,
 	nonFastForward: nonFastForwardPatterns,
+	lockFile:       lockFilePatterns,
 }
 
 // ClassifyError determines the error type from an error string.
@@ -188,6 +203,9 @@ func (c *ErrorClassifier) classifyLower(lower string) ErrorType {
 	// Order matters: more specific patterns first
 	if c.rateLimit.MatchesLower(lower) {
 		return ErrorTypeRateLimit
+	}
+	if c.lockFile != nil && c.lockFile.MatchesLower(lower) {
+		return ErrorTypeLockFile
 	}
 	if c.auth.MatchesLower(lower) {
 		return ErrorTypeAuth
@@ -232,4 +250,10 @@ func MatchesNotFoundError(errStr string) bool {
 // The input string is lowercased before matching.
 func MatchesNonFastForwardError(errStr string) bool {
 	return nonFastForwardPatterns.Matches(errStr)
+}
+
+// MatchesLockFileError checks if the error string indicates a git lock file conflict.
+// The input string is lowercased before matching.
+func MatchesLockFileError(errStr string) bool {
+	return lockFilePatterns.Matches(errStr)
 }
