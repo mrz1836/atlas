@@ -217,11 +217,12 @@ func (r *Runner) handlePreCommitSkipped(result *PipelineResult, log *zerolog.Log
 	r.reportProgress("pre-commit", "skipped")
 
 	// Track skipped step - initialize both slice and map for consistency
+	// Capacity 4 covers all pipeline steps: pre-commit, format, lint, test
 	if result.SkippedSteps == nil {
-		result.SkippedSteps = make([]string, 0, 1)
+		result.SkippedSteps = make([]string, 0, 4)
 	}
 	if result.SkipReasons == nil {
-		result.SkipReasons = make(map[string]string)
+		result.SkipReasons = make(map[string]string, 4)
 	}
 	result.SkippedSteps = append(result.SkippedSteps, "pre-commit")
 	result.SkipReasons["pre-commit"] = "go-pre-commit not installed"
