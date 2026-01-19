@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/rs/zerolog"
 
 	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/ctxutil"
@@ -78,7 +79,8 @@ type Store interface {
 
 // FileStore implements Store using the local filesystem.
 type FileStore struct {
-	atlasHome string // Usually ~/.atlas
+	atlasHome string         // Usually ~/.atlas
+	logger    zerolog.Logger // Logger for debug output
 }
 
 // NewFileStore creates a new FileStore with the given atlas home directory.
@@ -91,7 +93,16 @@ func NewFileStore(atlasHome string) (*FileStore, error) {
 		}
 		atlasHome = filepath.Join(home, constants.AtlasHome)
 	}
-	return &FileStore{atlasHome: atlasHome}, nil
+	return &FileStore{
+		atlasHome: atlasHome,
+		logger:    zerolog.Nop(), // Default to no-op logger
+	}, nil
+}
+
+// WithLogger sets a logger for the FileStore and returns it for chaining.
+func (s *FileStore) WithLogger(logger zerolog.Logger) *FileStore {
+	s.logger = logger
+	return s
 }
 
 // Create creates a new task in the workspace.
@@ -127,7 +138,9 @@ func (s *FileStore) Create(ctx context.Context, workspaceName string, task *doma
 	lockFile, err := s.acquireLock(ctx, workspaceName, task.ID)
 	if err != nil {
 		// Clean up directory on lock failure
-		_ = os.RemoveAll(taskDir)
+		if rmErr := os.RemoveAll(taskDir); rmErr != nil {
+			s.logger.Debug().Err(rmErr).Str("path", taskDir).Msg("failed to clean up task directory after lock error")
+		}
 		return fmt.Errorf("failed to create task '%s': %w", task.ID, err)
 	}
 	defer func() { _ = s.releaseLock(lockFile) }()
@@ -135,14 +148,18 @@ func (s *FileStore) Create(ctx context.Context, workspaceName string, task *doma
 	// Marshal task to JSON
 	data, err := json.MarshalIndent(task, "", "  ")
 	if err != nil {
-		_ = os.RemoveAll(taskDir)
+		if rmErr := os.RemoveAll(taskDir); rmErr != nil {
+			s.logger.Debug().Err(rmErr).Str("path", taskDir).Msg("failed to clean up task directory after marshal error")
+		}
 		return fmt.Errorf("failed to create task '%s': %w", task.ID, err)
 	}
 
 	// Write task file atomically
 	taskFile := s.taskFilePath(workspaceName, task.ID)
 	if err := atomicWrite(taskFile, data); err != nil {
-		_ = os.RemoveAll(taskDir)
+		if rmErr := os.RemoveAll(taskDir); rmErr != nil {
+			s.logger.Debug().Err(rmErr).Str("path", taskDir).Msg("failed to clean up task directory after write error")
+		}
 		return fmt.Errorf("failed to create task '%s': %w", task.ID, err)
 	}
 
@@ -422,10 +439,10 @@ func (s *FileStore) SaveArtifact(ctx context.Context, workspaceName, taskID, fil
 		return err
 	}
 
-	// Prevent path traversal - reject absolute paths and ".." sequences
+	// Prevent path traversal - reject absolute paths and ".." anywhere in path
 	// Use filepath.Clean to normalize the path and detect traversal attempts
 	cleanFilename := filepath.Clean(filename)
-	if filepath.IsAbs(cleanFilename) || strings.HasPrefix(cleanFilename, "..") {
+	if filepath.IsAbs(cleanFilename) || strings.Contains(cleanFilename, "..") {
 		return fmt.Errorf("failed to save artifact: %w", atlaserrors.ErrPathTraversal)
 	}
 
@@ -444,6 +461,11 @@ func (s *FileStore) SaveArtifact(ctx context.Context, workspaceName, taskID, fil
 
 	// Build artifact path and ensure it stays within artifacts directory
 	artifactPath := filepath.Join(artifactDir, cleanFilename)
+
+	// Additional validation: ensure resolved path stays within artifact directory
+	if rel, err := filepath.Rel(artifactDir, artifactPath); err != nil || strings.HasPrefix(rel, "..") {
+		return fmt.Errorf("failed to save artifact: %w", atlaserrors.ErrPathTraversal)
+	}
 
 	// Create subdirectories if needed (e.g., for "sdd/spec.md")
 	if err := os.MkdirAll(filepath.Dir(artifactPath), dirPerm); err != nil {
@@ -469,9 +491,9 @@ func (s *FileStore) SaveVersionedArtifact(ctx context.Context, workspaceName, ta
 		return "", err
 	}
 
-	// Prevent path traversal - reject absolute paths and ".." sequences
+	// Prevent path traversal - reject absolute paths and ".." anywhere in path
 	cleanBaseName := filepath.Clean(baseName)
-	if filepath.IsAbs(cleanBaseName) || strings.HasPrefix(cleanBaseName, "..") {
+	if filepath.IsAbs(cleanBaseName) || strings.Contains(cleanBaseName, "..") {
 		return "", fmt.Errorf("failed to save versioned artifact: %w", atlaserrors.ErrPathTraversal)
 	}
 
@@ -511,14 +533,20 @@ func (s *FileStore) GetArtifact(ctx context.Context, workspaceName, taskID, file
 		return nil, err
 	}
 
-	// Prevent path traversal - reject absolute paths and ".." sequences
+	// Prevent path traversal - reject absolute paths and ".." anywhere in path
 	// Use filepath.Clean to normalize the path and detect traversal attempts
 	cleanFilename := filepath.Clean(filename)
-	if filepath.IsAbs(cleanFilename) || strings.HasPrefix(cleanFilename, "..") {
+	if filepath.IsAbs(cleanFilename) || strings.Contains(cleanFilename, "..") {
 		return nil, fmt.Errorf("failed to get artifact: %w", atlaserrors.ErrPathTraversal)
 	}
 
-	artifactPath := filepath.Join(s.artifactsDir(workspaceName, taskID), cleanFilename)
+	artifactDir := s.artifactsDir(workspaceName, taskID)
+	artifactPath := filepath.Join(artifactDir, cleanFilename)
+
+	// Additional validation: ensure resolved path stays within artifact directory
+	if rel, err := filepath.Rel(artifactDir, artifactPath); err != nil || strings.HasPrefix(rel, "..") {
+		return nil, fmt.Errorf("failed to get artifact: %w", atlaserrors.ErrPathTraversal)
+	}
 
 	data, err := os.ReadFile(artifactPath) //#nosec G304 -- path is validated and constructed from trusted base
 	if err != nil {
