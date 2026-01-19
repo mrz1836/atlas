@@ -91,6 +91,39 @@ func (m *Manager) CreateHook(ctx context.Context, task *domain.Task) error {
 	return err
 }
 
+// ReadyHook transitions the hook from initializing to step_pending state.
+// This should be called after CreateHook() succeeds to indicate the hook is ready for step execution.
+func (m *Manager) ReadyHook(ctx context.Context, task *domain.Task) error {
+	taskPath := resolveTaskPath(task.WorkspaceID, task.ID)
+	return m.store.Update(ctx, taskPath, func(h *domain.Hook) error {
+		// Validate transition from initializing to step_pending
+		if err := domain.ValidateTransition(h.State, domain.HookStateStepPending); err != nil {
+			return fmt.Errorf("transition to step_pending: %w", err)
+		}
+
+		now := time.Now().UTC()
+		oldState := h.State
+
+		// Update state to step_pending
+		h.State = domain.HookStateStepPending
+		h.UpdatedAt = now
+
+		// Record transition
+		h.History = append(h.History, domain.HookEvent{
+			Timestamp: now,
+			FromState: oldState,
+			ToState:   domain.HookStateStepPending,
+			Trigger:   "hook_ready",
+			Details: map[string]any{
+				"message": "hook ready for step execution",
+			},
+		})
+		pruneHistory(h)
+
+		return nil
+	})
+}
+
 // TransitionStep updates the hook when entering a step.
 func (m *Manager) TransitionStep(ctx context.Context, task *domain.Task, stepName string, stepIndex int) error {
 	// Validate inputs

@@ -95,6 +95,10 @@ type HookLifecycleManager interface {
 	// CreateHook initializes a hook for a new task.
 	CreateHook(ctx context.Context, task *domain.Task) error
 
+	// ReadyHook transitions the hook from initializing to step_pending state.
+	// This should be called after CreateHook() succeeds to indicate the hook is ready for step execution.
+	ReadyHook(ctx context.Context, task *domain.Task) error
+
 	// CompleteTask finalizes the hook when the task completes.
 	CompleteTask(ctx context.Context, task *domain.Task) error
 
@@ -292,13 +296,7 @@ func (e *Engine) Start(ctx context.Context, workspaceName, branch, worktreePath 
 	}
 
 	// Create hook for crash recovery (if hook manager is configured)
-	if e.hookManager != nil {
-		if err := e.hookManager.CreateHook(ctx, task); err != nil {
-			e.logger.Warn().Err(err).
-				Str("task_id", taskID).
-				Msg("failed to create hook, continuing without crash recovery")
-		}
-	}
+	e.initializeHook(ctx, task)
 
 	// Inject logger with task context for step executors
 	ctx = e.injectLoggerContext(ctx, workspaceName, taskID)
@@ -821,4 +819,26 @@ func (e *Engine) injectLoggerContext(ctx context.Context, workspaceName, taskID 
 		Str("task_id", taskID).
 		Logger()
 	return logger.WithContext(ctx)
+}
+
+// initializeHook sets up crash recovery hooks for a task.
+// Logs warnings on failures but does not fail the task - hooks are optional.
+func (e *Engine) initializeHook(ctx context.Context, task *domain.Task) {
+	if e.hookManager == nil {
+		return
+	}
+
+	if err := e.hookManager.CreateHook(ctx, task); err != nil {
+		e.logger.Warn().Err(err).
+			Str("task_id", task.ID).
+			Msg("failed to create hook, continuing without crash recovery")
+		return
+	}
+
+	// Transition hook to ready state (initializing -> step_pending)
+	if err := e.hookManager.ReadyHook(ctx, task); err != nil {
+		e.logger.Warn().Err(err).
+			Str("task_id", task.ID).
+			Msg("failed to ready hook, continuing without crash recovery")
+	}
 }
