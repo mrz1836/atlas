@@ -444,4 +444,44 @@ func TestGenerateID(t *testing.T) {
 			ids[id] = true
 		}
 	})
+
+	t.Run("uniform character distribution", func(t *testing.T) {
+		t.Parallel()
+		// Generate many IDs and count character frequency
+		const idChars = "abcdefghijklmnopqrstuvwxyz0123456789"
+		const numIDs = 10000
+		const charsPerID = 6
+
+		charCounts := make(map[byte]int)
+		for _, c := range []byte(idChars) {
+			charCounts[c] = 0
+		}
+
+		for i := 0; i < numIDs; i++ {
+			id, err := GenerateID()
+			require.NoError(t, err)
+			// Count characters in suffix (skip "disc-" prefix)
+			suffix := id[5:]
+			for j := 0; j < len(suffix); j++ {
+				charCounts[suffix[j]]++
+			}
+		}
+
+		// Each character should appear roughly equal times
+		// Expected: (numIDs * charsPerID) / 36 = 1666.67
+		// Allow 20% deviation for statistical variance
+		totalChars := numIDs * charsPerID
+		expectedPerChar := float64(totalChars) / float64(len(idChars))
+		tolerance := expectedPerChar * 0.20
+
+		for c, count := range charCounts {
+			deviation := float64(count) - expectedPerChar
+			if deviation < 0 {
+				deviation = -deviation
+			}
+			assert.LessOrEqual(t, deviation, tolerance,
+				"character %c has count %d, expected ~%.0f (deviation %.0f > tolerance %.0f)",
+				c, count, expectedPerChar, deviation, tolerance)
+		}
+	})
 }

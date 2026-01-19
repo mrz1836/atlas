@@ -9,6 +9,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 )
 
 func TestNewManager(t *testing.T) {
@@ -396,6 +398,8 @@ func TestManager_Promote(t *testing.T) {
 		_, err = mgr.Promote(ctx, d.ID, "task-new")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "invalid status transition")
+		// Verify it's an ExitCode2Error for CLI handling
+		assert.True(t, atlaserrors.IsExitCode2Error(err), "expected ExitCode2Error for invalid transition")
 	})
 
 	t.Run("fails on non-existent discovery", func(t *testing.T) {
@@ -459,6 +463,8 @@ func TestManager_Dismiss(t *testing.T) {
 		_, err = mgr.Dismiss(ctx, d.ID, "new reason")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "invalid status transition")
+		// Verify it's an ExitCode2Error for CLI handling
+		assert.True(t, atlaserrors.IsExitCode2Error(err), "expected ExitCode2Error for invalid transition")
 	})
 
 	t.Run("fails on non-existent discovery", func(t *testing.T) {
