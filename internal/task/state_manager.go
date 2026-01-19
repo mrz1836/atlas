@@ -13,6 +13,7 @@ import (
 
 	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/domain"
+	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 )
 
 // advanceToNextStep increments the step counter, updates timestamp, and saves a checkpoint.
@@ -126,6 +127,10 @@ func (e *Engine) transitionToErrorState(ctx context.Context, task *domain.Task, 
 
 	// Notify on transition to attention/error state
 	e.notifyStateChange(oldStatus, targetStatus)
+
+	// Update hook state to reflect task failure
+	e.failHookTask(ctx, task, fmt.Errorf("%w: %s", atlaserrors.ErrTaskFailed, reason))
+
 	return nil
 }
 

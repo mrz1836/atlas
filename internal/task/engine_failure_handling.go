@@ -76,6 +76,9 @@ func (e *Engine) handleCIFailure(ctx context.Context, task *domain.Task, result 
 	// Notify on transition to attention state
 	e.notifyStateChange(oldStatus, constants.TaskStatusCIFailed)
 
+	// Update hook state to reflect CI failure
+	e.failHookTask(ctx, task, fmt.Errorf("%w: %s", atlaserrors.ErrCIFailed, result.Error))
+
 	// Store failure context for action processing
 	task.Metadata = e.ensureMetadata(task.Metadata)
 	task.Metadata["ci_failure_result"] = ciResult
@@ -110,6 +113,9 @@ func (e *Engine) handleGHFailure(ctx context.Context, task *domain.Task, result 
 
 	// Notify on transition to attention state
 	e.notifyStateChange(oldStatus, constants.TaskStatusGHFailed)
+
+	// Update hook state to reflect GitHub failure
+	e.failHookTask(ctx, task, fmt.Errorf("%w: %s", atlaserrors.ErrGitHubOperation, result.Error))
 
 	// Store error context
 	task.Metadata = e.ensureMetadata(task.Metadata)
@@ -156,6 +162,9 @@ func (e *Engine) handleCITimeout(ctx context.Context, task *domain.Task, result 
 
 	// Notify on transition to attention state
 	e.notifyStateChange(oldStatus, constants.TaskStatusCITimeout)
+
+	// Update hook state to reflect CI timeout
+	e.failHookTask(ctx, task, fmt.Errorf("%w: %s", atlaserrors.ErrCITimeout, result.Error))
 
 	// Store timeout context
 	task.Metadata = e.ensureMetadata(task.Metadata)

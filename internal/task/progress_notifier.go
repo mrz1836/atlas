@@ -169,3 +169,15 @@ func (e *Engine) completeHookTask(ctx context.Context, task *domain.Task) {
 		}
 	}
 }
+
+// failHookTask updates the hook when the task fails or is interrupted.
+func (e *Engine) failHookTask(ctx context.Context, task *domain.Task, taskErr error) {
+	if e.hookManager == nil {
+		return
+	}
+	if err := e.hookManager.FailTask(ctx, task, taskErr); err != nil {
+		e.logger.Warn().Err(err).
+			Str("task_id", task.ID).
+			Msg("failed to update hook task failure")
+	}
+}

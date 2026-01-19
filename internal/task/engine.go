@@ -488,6 +488,9 @@ func (e *Engine) Abandon(ctx context.Context, task *domain.Task, reason string, 
 		return err
 	}
 
+	// Update hook state to reflect abandonment
+	e.failHookTask(ctx, task, fmt.Errorf("%w: %s", atlaserrors.ErrTaskAbandoned, reason))
+
 	if err := e.store.Update(ctx, task.WorkspaceID, task); err != nil {
 		log.Error().Err(err).Msg("failed to save abandoned task")
 		return fmt.Errorf("failed to save task: %w", err)
@@ -654,8 +657,14 @@ func (e *Engine) runSteps(ctx context.Context, task *domain.Task, template *doma
 				Int("current_step", task.CurrentStep).
 				Msg("context canceled, saving state before exit")
 
-			// Try to save current state as checkpoint (use context without cancellation since original is canceled)
-			if saveErr := e.store.Update(context.WithoutCancel(ctx), task.WorkspaceID, task); saveErr != nil {
+			// Use context without cancellation since original is canceled
+			uncancelledCtx := context.WithoutCancel(ctx)
+
+			// Update hook state to reflect interruption
+			e.failHookTask(uncancelledCtx, task, err)
+
+			// Try to save current state as checkpoint
+			if saveErr := e.store.Update(uncancelledCtx, task.WorkspaceID, task); saveErr != nil {
 				e.logger.Error().Err(saveErr).Msg("failed to save state on cancellation")
 			}
 			return err

@@ -262,6 +262,12 @@ var (
 	// The task state is saved and can be resumed with `atlas resume`.
 	ErrTaskInterrupted = errors.New("task interrupted by user")
 
+	// ErrTaskAbandoned indicates the task was abandoned.
+	ErrTaskAbandoned = errors.New("task abandoned")
+
+	// ErrTaskFailed indicates the task failed during execution.
+	ErrTaskFailed = errors.New("task failed")
+
 	// ErrInvalidTransition indicates an attempt to make an invalid state transition.
 	ErrInvalidTransition = errors.New("invalid state transition")
 
