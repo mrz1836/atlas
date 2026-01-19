@@ -441,7 +441,7 @@ func TestAIPromoter_buildAnalysisPrompt(t *testing.T) {
 		t.Parallel()
 		d := validDiscoveryForAI()
 
-		prompt := promoter.buildAnalysisPrompt(d)
+		prompt := promoter.buildAnalysisPrompt(d, nil)
 
 		assert.Contains(t, prompt, d.Title)
 		assert.Contains(t, prompt, string(d.Content.Category))
@@ -457,7 +457,7 @@ func TestAIPromoter_buildAnalysisPrompt(t *testing.T) {
 		t.Parallel()
 		d := validDiscoveryForAI()
 
-		prompt := promoter.buildAnalysisPrompt(d)
+		prompt := promoter.buildAnalysisPrompt(d, nil)
 
 		assert.Contains(t, prompt, "bugfix")
 		assert.Contains(t, prompt, "feature")
@@ -477,7 +477,7 @@ func TestAIPromoter_buildAnalysisPrompt(t *testing.T) {
 			// No location
 		}
 
-		prompt := promoter.buildAnalysisPrompt(d)
+		prompt := promoter.buildAnalysisPrompt(d, nil)
 
 		assert.Contains(t, prompt, "Simple issue")
 		assert.NotContains(t, prompt, "Description:")
@@ -489,7 +489,7 @@ func TestAIPromoter_buildAnalysisPrompt(t *testing.T) {
 		t.Parallel()
 		d := validDiscoveryForAI()
 
-		prompt := promoter.buildAnalysisPrompt(d)
+		prompt := promoter.buildAnalysisPrompt(d, nil)
 
 		assert.Contains(t, prompt, "JSON only")
 		assert.Contains(t, prompt, "template")
@@ -837,7 +837,7 @@ func TestAIPromoter_buildAnalysisPrompt_GitContext(t *testing.T) {
 			},
 		}
 
-		prompt := promoter.buildAnalysisPrompt(d)
+		prompt := promoter.buildAnalysisPrompt(d, nil)
 
 		assert.Contains(t, prompt, "Discovery git context:")
 		assert.Contains(t, prompt, "Found on branch: feature/test-branch")
@@ -859,7 +859,7 @@ func TestAIPromoter_buildAnalysisPrompt_GitContext(t *testing.T) {
 			},
 		}
 
-		prompt := promoter.buildAnalysisPrompt(d)
+		prompt := promoter.buildAnalysisPrompt(d, nil)
 
 		assert.NotContains(t, prompt, "Discovery git context:")
 		assert.NotContains(t, prompt, "Found on branch:")
@@ -872,7 +872,7 @@ func TestAIPromoter_buildAnalysisPrompt_AtlasStartFlags(t *testing.T) {
 	promoter := NewAIPromoter(nil, nil)
 	d := validDiscoveryForAI()
 
-	prompt := promoter.buildAnalysisPrompt(d)
+	prompt := promoter.buildAnalysisPrompt(d, nil)
 
 	// Verify all atlas start flags are mentioned
 	assert.Contains(t, prompt, "Available 'atlas start' command options:")

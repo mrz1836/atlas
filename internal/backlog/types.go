@@ -348,6 +348,10 @@ type PromoteOptions struct {
 
 	// Description overrides the auto-generated task description.
 	Description string
+
+	// AvailableAgents lists the detected/installed agents for AI prompt guidance.
+	// If empty, no agent recommendations are made in the prompt.
+	AvailableAgents []string
 }
 
 // PromoteResult contains the outcome of a promotion operation.

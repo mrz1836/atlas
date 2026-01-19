@@ -500,8 +500,9 @@ func (m *Manager) PromoteWithOptions(ctx context.Context, id string, opts Promot
 	if opts.UseAI && aiPromoter != nil {
 		// Use AI-assisted analysis
 		aiCfg := &AIPromoterConfig{
-			Agent: opts.Agent,
-			Model: opts.Model,
+			Agent:           opts.Agent,
+			Model:           opts.Model,
+			AvailableAgents: opts.AvailableAgents,
 		}
 		analysis = aiPromoter.AnalyzeWithFallback(ctx, d, aiCfg)
 		result.AIAnalysis = analysis

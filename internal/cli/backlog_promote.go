@@ -11,6 +11,7 @@ import (
 	"github.com/mrz1836/atlas/internal/backlog"
 	"github.com/mrz1836/atlas/internal/cli/workflow"
 	"github.com/mrz1836/atlas/internal/config"
+	"github.com/mrz1836/atlas/internal/constants"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 	"github.com/mrz1836/atlas/internal/tui"
 )
@@ -106,13 +107,17 @@ func runBacklogPromote(ctx context.Context, cmd *cobra.Command, w io.Writer, id 
 		return outputBacklogError(w, outputFormat, "promote", err)
 	}
 
+	// Detect available AI agents
+	availableAgents := detectAvailableAgents(ctx)
+
 	// Build promote options
 	promoteOpts := backlog.PromoteOptions{
-		Template: opts.template,
-		Agent:    opts.agent,
-		Model:    opts.model,
-		UseAI:    opts.ai,
-		DryRun:   opts.dryRun,
+		Template:        opts.template,
+		Agent:           opts.agent,
+		Model:           opts.model,
+		UseAI:           opts.ai,
+		DryRun:          opts.dryRun,
+		AvailableAgents: availableAgents,
 	}
 
 	// Create AI promoter if AI mode is enabled
@@ -132,8 +137,9 @@ func runBacklogPromote(ctx context.Context, cmd *cobra.Command, w io.Writer, id 
 		// Show progress for AI analysis (only in non-JSON mode)
 		if outputFormat != OutputJSON {
 			aiCfg := &backlog.AIPromoterConfig{
-				Agent: opts.agent,
-				Model: opts.model,
+				Agent:           opts.agent,
+				Model:           opts.model,
+				AvailableAgents: availableAgents,
 			}
 			agent, model := aiPromoter.ResolvedConfig(aiCfg)
 			out.Info(fmt.Sprintf("AI Analysis (%s/%s)...", agent, model))
@@ -290,4 +296,27 @@ func truncateDescription(desc string, maxLen int) string {
 		return desc
 	}
 	return desc[:maxLen-3] + "..."
+}
+
+// detectAvailableAgents detects which AI agent CLIs are installed.
+// Returns a slice of agent names (e.g., ["claude", "gemini"]).
+func detectAvailableAgents(ctx context.Context) []string {
+	detector := config.NewToolDetector()
+	result, err := detector.Detect(ctx)
+	if err != nil {
+		return nil
+	}
+
+	var agents []string
+	agentTools := []string{constants.ToolClaude, constants.ToolGemini, constants.ToolCodex}
+
+	for _, tool := range result.Tools {
+		for _, agentTool := range agentTools {
+			if tool.Name == agentTool && tool.Status == config.ToolStatusInstalled {
+				agents = append(agents, tool.Name)
+			}
+		}
+	}
+
+	return agents
 }
