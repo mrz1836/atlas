@@ -161,6 +161,13 @@ func runBacklogPromote(ctx context.Context, cmd *cobra.Command, w io.Writer, id 
 	}
 
 	displayPromoteResult(out, result)
+
+	// Add informational note
+	if !result.DryRun {
+		out.Info("")
+		out.Info("Note: Discovery status will change to 'promoted' when you run the start command.")
+	}
+
 	return nil
 }
 

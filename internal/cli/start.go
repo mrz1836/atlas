@@ -12,7 +12,6 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
 
-	"github.com/mrz1836/atlas/internal/backlog"
 	"github.com/mrz1836/atlas/internal/cli/workflow"
 	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/constants"
@@ -315,40 +314,7 @@ func executeTask(ctx context.Context, sc *startContext, sigHandler *signal.Handl
 		Int("total_steps", len(t.Steps)).
 		Msg("task started")
 
-	// Promote backlog discovery if --from-backlog was specified
-	if opts.fromBacklogID != "" && t != nil {
-		promoteBacklogDiscovery(ctx, opts.fromBacklogID, t.ID, logger, out)
-	}
-
 	return displayTaskStatus(out, outputFormat, ws, t, nil)
-}
-
-// promoteBacklogDiscovery promotes a backlog discovery to link it with the created task.
-// This is a best-effort operation - failures are logged as warnings but don't fail the task.
-func promoteBacklogDiscovery(ctx context.Context, discoveryID, taskID string, logger zerolog.Logger, out tui.Output) {
-	mgr, err := backlog.NewManager("")
-	if err != nil {
-		logger.Warn().Err(err).
-			Str("discovery_id", discoveryID).
-			Msg("failed to create backlog manager for promotion")
-		return
-	}
-
-	_, err = mgr.Promote(ctx, discoveryID, taskID)
-	if err != nil {
-		logger.Warn().Err(err).
-			Str("discovery_id", discoveryID).
-			Str("task_id", taskID).
-			Msg("failed to promote backlog discovery")
-		out.Warning(fmt.Sprintf("Warning: Failed to link backlog discovery %s: %s", discoveryID, err.Error()))
-		return
-	}
-
-	logger.Info().
-		Str("discovery_id", discoveryID).
-		Str("task_id", taskID).
-		Msg("backlog discovery promoted")
-	out.Success(fmt.Sprintf("Linked backlog discovery %s to task", discoveryID))
 }
 
 // logConfigSources logs which config sources were loaded and key metrics.

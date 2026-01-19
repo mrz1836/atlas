@@ -17,7 +17,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/mrz1836/atlas/internal/ai"
-	"github.com/mrz1836/atlas/internal/backlog"
 	"github.com/mrz1836/atlas/internal/cli/workflow"
 	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/constants"
@@ -1890,131 +1889,6 @@ func TestTargetFlag_Integration(t *testing.T) {
 		// Cleanup
 		_ = workflow.CleanupWorkspace(context.Background(), ws.Name, repoPath)
 	})
-}
-
-// TestPromoteBacklogDiscovery_Success tests successful backlog promotion
-func TestPromoteBacklogDiscovery_Success(t *testing.T) {
-	// Create temp directory for backlog
-	tmpDir := t.TempDir()
-
-	// Change to temp directory so backlog manager uses it
-	origDir, err := os.Getwd()
-	require.NoError(t, err)
-	require.NoError(t, os.Chdir(tmpDir))
-	defer func() { _ = os.Chdir(origDir) }()
-
-	// Create a pending discovery
-	mgr, err := backlog.NewManager(tmpDir)
-	require.NoError(t, err)
-
-	discovery := &backlog.Discovery{
-		Title:  "Test discovery",
-		Status: backlog.StatusPending,
-		Content: backlog.Content{
-			Description: "Test description",
-			Category:    backlog.CategoryBug,
-			Severity:    backlog.SeverityMedium,
-		},
-		Context: backlog.Context{
-			DiscoveredBy: "test",
-			DiscoveredAt: time.Now(),
-		},
-	}
-	require.NoError(t, mgr.Add(context.Background(), discovery))
-
-	// Verify discovery was created with pending status
-	loaded, err := mgr.Get(context.Background(), discovery.ID)
-	require.NoError(t, err)
-	assert.Equal(t, backlog.StatusPending, loaded.Status)
-
-	// Call promoteBacklogDiscovery
-	var buf bytes.Buffer
-	out := tui.NewOutput(&buf, "text")
-	logger := zerolog.Nop()
-
-	promoteBacklogDiscovery(context.Background(), discovery.ID, "task-123", logger, out)
-
-	// Verify discovery was promoted
-	promoted, err := mgr.Get(context.Background(), discovery.ID)
-	require.NoError(t, err)
-	assert.Equal(t, backlog.StatusPromoted, promoted.Status)
-	assert.Equal(t, "task-123", promoted.Lifecycle.PromotedToTask)
-
-	// Verify success message was output
-	assert.Contains(t, buf.String(), "Linked backlog discovery")
-}
-
-// TestPromoteBacklogDiscovery_NotFound tests promotion of non-existent discovery
-func TestPromoteBacklogDiscovery_NotFound(t *testing.T) {
-	// Create temp directory for backlog
-	tmpDir := t.TempDir()
-
-	// Change to temp directory
-	origDir, err := os.Getwd()
-	require.NoError(t, err)
-	require.NoError(t, os.Chdir(tmpDir))
-	defer func() { _ = os.Chdir(origDir) }()
-
-	// Initialize backlog directory
-	mgr, err := backlog.NewManager(tmpDir)
-	require.NoError(t, err)
-	require.NoError(t, mgr.EnsureDir())
-
-	// Call promoteBacklogDiscovery with non-existent ID
-	var buf bytes.Buffer
-	out := tui.NewOutput(&buf, "text")
-	logger := zerolog.Nop()
-
-	promoteBacklogDiscovery(context.Background(), "disc-nonexistent", "task-123", logger, out)
-
-	// Verify warning message was output
-	assert.Contains(t, buf.String(), "Warning")
-	assert.Contains(t, buf.String(), "disc-nonexistent")
-}
-
-// TestPromoteBacklogDiscovery_AlreadyPromoted tests promotion of already-promoted discovery
-func TestPromoteBacklogDiscovery_AlreadyPromoted(t *testing.T) {
-	// Create temp directory for backlog
-	tmpDir := t.TempDir()
-
-	// Change to temp directory
-	origDir, err := os.Getwd()
-	require.NoError(t, err)
-	require.NoError(t, os.Chdir(tmpDir))
-	defer func() { _ = os.Chdir(origDir) }()
-
-	// Create a promoted discovery
-	mgr, err := backlog.NewManager(tmpDir)
-	require.NoError(t, err)
-
-	discovery := &backlog.Discovery{
-		Title:  "Test discovery",
-		Status: backlog.StatusPending,
-		Content: backlog.Content{
-			Description: "Test description",
-			Category:    backlog.CategoryBug,
-			Severity:    backlog.SeverityMedium,
-		},
-		Context: backlog.Context{
-			DiscoveredBy: "test",
-			DiscoveredAt: time.Now(),
-		},
-	}
-	require.NoError(t, mgr.Add(context.Background(), discovery))
-
-	// Promote it first
-	_, err = mgr.Promote(context.Background(), discovery.ID, "task-original")
-	require.NoError(t, err)
-
-	// Try to promote again - should fail
-	var buf bytes.Buffer
-	out := tui.NewOutput(&buf, "text")
-	logger := zerolog.Nop()
-
-	promoteBacklogDiscovery(context.Background(), discovery.ID, "task-456", logger, out)
-
-	// Verify warning message was output (status transition error)
-	assert.Contains(t, buf.String(), "Warning")
 }
 
 // TestStartOptions_FromBacklogID tests the startOptions struct includes fromBacklogID
