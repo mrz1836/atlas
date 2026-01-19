@@ -1198,6 +1198,10 @@ func TestRunBacklogPromote_OutputIncludesBranch(t *testing.T) {
 		Context: backlog.Context{
 			DiscoveredAt: time.Now().UTC(),
 			DiscoveredBy: "human:tester",
+			Git: &backlog.GitContext{
+				Branch: "develop",
+				Commit: "abc1234",
+			},
 		},
 	}
 	err = mgr.Add(ctx, d)
@@ -1215,8 +1219,8 @@ func TestRunBacklogPromote_OutputIncludesBranch(t *testing.T) {
 	require.NoError(t, err)
 
 	output := buf.String()
-	// Should include -b flag in the suggested command
-	assert.Contains(t, output, "-b fix/")
+	// Should include -b flag with the discovery's source branch (not the generated branch name)
+	assert.Contains(t, output, "-b develop")
 }
 
 func TestRunBacklogPromote_JSONOutput_IncludesStartCommand(t *testing.T) {

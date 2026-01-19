@@ -248,9 +248,14 @@ func displayPromoteResult(out tui.Output, result *backlog.PromoteResult) {
 
 // buildStartCommand constructs the atlas start command with all recommended flags.
 func buildStartCommand(result *backlog.PromoteResult) string {
-	// Start with base command including branch
-	cmd := fmt.Sprintf("atlas start -t %s -w %s -b %s",
-		result.TemplateName, result.WorkspaceName, result.BranchName)
+	// Start with base command (template and workspace)
+	cmd := fmt.Sprintf("atlas start -t %s -w %s",
+		result.TemplateName, result.WorkspaceName)
+
+	// Use the branch where the discovery was made as the base branch (explicit, no assumptions)
+	if result.Discovery.Context.Git != nil && result.Discovery.Context.Git.Branch != "" {
+		cmd += fmt.Sprintf(" -b %s", result.Discovery.Context.Git.Branch)
+	}
 
 	// Add AI-recommended flags
 	if result.AIAnalysis != nil && result.AIAnalysis.UseVerify != nil {

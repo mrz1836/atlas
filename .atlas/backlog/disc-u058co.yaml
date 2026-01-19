@@ -7,10 +7,10 @@ content:
   category: testing
   severity: low
 location:
-  file: atlas / internal / constants / status.go
+  file: internal/constants/status.go
 context:
   discovered_at: 2026-01-19T17:46:52.735034Z
-  discovered_by: human:mr.-z
+  discovered_by: human:mrz1836
   git:
     branch: master
     commit: 5ade0f6
