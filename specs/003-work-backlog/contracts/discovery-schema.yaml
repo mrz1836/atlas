@@ -96,7 +96,7 @@ properties:
         description: Line number (1-indexed)
     dependencies:
       line:
-        - file  # line requires file to be present
+        - file # line requires file to be present
 
   context:
     type: object

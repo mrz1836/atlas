@@ -26,9 +26,9 @@ Based on plan.md project structure:
 
 **Purpose**: Project initialization and package structure for the backlog feature
 
-- [ ] T001 Create backlog package directory structure at internal/backlog/
-- [ ] T002 [P] Add discovery-specific sentinel errors to internal/errors/errors.go
-- [ ] T003 Run `magex format:fix && magex lint` and fix any issues
+- [X] T001 Create backlog package directory structure at internal/backlog/
+- [X] T002 [P] Add discovery-specific sentinel errors to internal/errors/errors.go
+- [X] T003 Run `magex format:fix && magex lint` and fix any issues
 
 ---
 
@@ -38,18 +38,18 @@ Based on plan.md project structure:
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T004 Implement Status, Category, Severity enum types with constants in internal/backlog/types.go
-- [ ] T005 Implement Discovery, Content, Location, Context, GitContext, Lifecycle structs with YAML tags in internal/backlog/types.go
-- [ ] T006 Implement Filter struct with Match method in internal/backlog/types.go
-- [ ] T007 Implement validation methods for Discovery (ValidateID, ValidateTitle, ValidateCategory, ValidateSeverity, ValidateTags, Validate) in internal/backlog/types.go
-- [ ] T008 Implement GenerateID function using crypto/rand in internal/backlog/id.go
-- [ ] T009 Implement BacklogManager struct with NewManager constructor in internal/backlog/manager.go
-- [ ] T010 Implement ensureBacklogDir method to auto-create .atlas/backlog/ with .gitkeep in internal/backlog/manager.go
-- [ ] T011 [P] Implement createSafe helper function using O_EXCL for collision-proof file creation in internal/backlog/manager.go
-- [ ] T012 [P] Implement loadFile method to read and parse single discovery YAML in internal/backlog/manager.go
-- [ ] T013 Create 'atlas backlog' parent command group in internal/cli/backlog.go
-- [ ] T014 Implement unit tests for types, validation, and storage manager (coverage > 90%) in internal/backlog/
-- [ ] T015 Run `magex format:fix && magex lint` and fix any issues
+- [X] T004 Implement Status, Category, Severity enum types with constants in internal/backlog/types.go
+- [X] T005 Implement Discovery, Content, Location, Context, GitContext, Lifecycle structs with YAML tags in internal/backlog/types.go
+- [X] T006 Implement Filter struct with Match method in internal/backlog/types.go
+- [X] T007 Implement validation methods for Discovery (ValidateID, ValidateTitle, ValidateCategory, ValidateSeverity, ValidateTags, Validate) in internal/backlog/types.go
+- [X] T008 Implement GenerateID function using crypto/rand in internal/backlog/id.go
+- [X] T009 Implement BacklogManager struct with NewManager constructor in internal/backlog/manager.go
+- [X] T010 Implement ensureBacklogDir method to auto-create .atlas/backlog/ with .gitkeep in internal/backlog/manager.go
+- [X] T011 [P] Implement createSafe helper function using O_EXCL for collision-proof file creation in internal/backlog/manager.go
+- [X] T012 [P] Implement loadFile method to read and parse single discovery YAML in internal/backlog/manager.go
+- [X] T013 Create 'atlas backlog' parent command group in internal/cli/backlog.go
+- [X] T014 Implement unit tests for types, validation, and storage manager (coverage > 90%) in internal/backlog/
+- [X] T015 Run `magex format:fix && magex lint` and fix any issues
 
 **Checkpoint**: Foundation ready - user story implementation can now begin
 
@@ -63,15 +63,15 @@ Based on plan.md project structure:
 
 ### Implementation for User Story 1
 
-- [ ] T016 [US1] Implement Add method on BacklogManager for creating new discoveries in internal/backlog/manager.go
-- [ ] T017 [US1] Implement git context capture (branch, commit SHA) using internal/git package in internal/backlog/manager.go
-- [ ] T018 [US1] Create 'atlas backlog add' subcommand with all flags in internal/cli/backlog_add.go
-- [ ] T019 [US1] Implement flag parsing for --file, --line, --category, --severity, --description, --tags in internal/cli/backlog_add.go
-- [ ] T020 [US1] Implement discoverer format handling with auto-detection (env vars ATLAS_AGENT/MODEL) in internal/cli/backlog_add.go
-- [ ] T021 [US1] Implement JSON output mode (--json flag) for add command in internal/cli/backlog_add.go
-- [ ] T022 [US1] Implement text output formatting showing created discovery details in internal/cli/backlog_add.go
-- [ ] T023 Implement unit tests for Add command, flags, and format detection (table-driven) in internal/cli/
-- [ ] T024 Run `magex format:fix && magex lint` and fix any issues
+- [X] T016 [US1] Implement Add method on BacklogManager for creating new discoveries in internal/backlog/manager.go
+- [X] T017 [US1] Implement git context capture (branch, commit SHA) using internal/git package in internal/backlog/manager.go
+- [X] T018 [US1] Create 'atlas backlog add' subcommand with all flags in internal/cli/backlog_add.go
+- [X] T019 [US1] Implement flag parsing for --file, --line, --category, --severity, --description, --tags in internal/cli/backlog_add.go
+- [X] T020 [US1] Implement discoverer format handling with auto-detection (env vars ATLAS_AGENT/MODEL) in internal/cli/backlog_add.go
+- [X] T021 [US1] Implement JSON output mode (--json flag) for add command in internal/cli/backlog_add.go
+- [X] T022 [US1] Implement text output formatting showing created discovery details in internal/cli/backlog_add.go
+- [X] T023 Implement unit tests for Add command, flags, and format detection (table-driven) in internal/cli/
+- [X] T024 Run `magex format:fix && magex lint` and fix any issues
 
 **Checkpoint**: AI agents can now capture discoveries via CLI - MVP functional
 
@@ -85,17 +85,17 @@ Based on plan.md project structure:
 
 ### Implementation for User Story 2
 
-- [ ] T025 [US2] Implement List method on BacklogManager with parallel file reads and bounded concurrency in internal/backlog/manager.go
-- [ ] T026 [US2] Implement Get method on BacklogManager to retrieve single discovery by ID in internal/backlog/manager.go
-- [ ] T027 [US2] Create 'atlas backlog list' subcommand in internal/cli/backlog_list.go
-- [ ] T028 [US2] Implement filter flags (--status, --category, --all, --limit) for list command in internal/cli/backlog_list.go
-- [ ] T029 [US2] Implement table output formatting with ID, title, category, severity, age columns in internal/cli/backlog_list.go
-- [ ] T030 [US2] Implement JSON output mode for list command in internal/cli/backlog_list.go
-- [ ] T031 [US2] Create 'atlas backlog view <id>' subcommand in internal/cli/backlog_view.go
-- [ ] T032 [US2] Implement rich view output using charmbracelet/glamour for markdown rendering in internal/cli/backlog_view.go
-- [ ] T033 [US2] Implement JSON output mode for view command in internal/cli/backlog_view.go
-- [ ] T034 Implement unit tests for List/View commands and Filter logic in internal/cli/
-- [ ] T035 Run `magex format:fix && magex lint` and fix any issues
+- [X] T025 [US2] Implement List method on BacklogManager with parallel file reads and bounded concurrency in internal/backlog/manager.go
+- [X] T026 [US2] Implement Get method on BacklogManager to retrieve single discovery by ID in internal/backlog/manager.go
+- [X] T027 [US2] Create 'atlas backlog list' subcommand in internal/cli/backlog_list.go
+- [X] T028 [US2] Implement filter flags (--status, --category, --all, --limit) for list command in internal/cli/backlog_list.go
+- [X] T029 [US2] Implement table output formatting with ID, title, category, severity, age columns in internal/cli/backlog_list.go
+- [X] T030 [US2] Implement JSON output mode for list command in internal/cli/backlog_list.go
+- [X] T031 [US2] Create 'atlas backlog view <id>' subcommand in internal/cli/backlog_view.go
+- [X] T032 [US2] Implement rich view output using charmbracelet/glamour for markdown rendering in internal/cli/backlog_view.go
+- [X] T033 [US2] Implement JSON output mode for view command in internal/cli/backlog_view.go
+- [X] T034 Implement unit tests for List/View commands and Filter logic in internal/cli/
+- [X] T035 Run `magex format:fix && magex lint` and fix any issues
 
 **Checkpoint**: Users can review the full backlog and view discovery details
 
@@ -109,13 +109,13 @@ Based on plan.md project structure:
 
 ### Implementation for User Story 3
 
-- [ ] T036 [US3] Implement interactive form flow using charmbracelet/huh in internal/cli/backlog_add.go
-- [ ] T037 [US3] Create form fields for title (required), description (optional), category (select), severity (select) in internal/cli/backlog_add.go
-- [ ] T038 [US3] Create optional form fields for file path and line number in internal/cli/backlog_add.go
-- [ ] T039 [US3] Implement form validation matching schema requirements in internal/cli/backlog_add.go
-- [ ] T040 [US3] Implement automatic discoverer detection (human:<git-username> from git config) in internal/cli/backlog_add.go
-- [ ] T041 Implement unit tests for interactive form helpers and input validation in internal/cli/
-- [ ] T042 Run `magex format:fix && magex lint` and fix any issues
+- [X] T036 [US3] Implement interactive form flow using charmbracelet/huh in internal/cli/backlog_add.go
+- [X] T037 [US3] Create form fields for title (required), description (optional), category (select), severity (select) in internal/cli/backlog_add.go
+- [X] T038 [US3] Create optional form fields for file path and line number in internal/cli/backlog_add.go
+- [X] T039 [US3] Implement form validation matching schema requirements in internal/cli/backlog_add.go
+- [X] T040 [US3] Implement automatic discoverer detection (human:<git-username> from git config) in internal/cli/backlog_add.go
+- [X] T041 Implement unit tests for interactive form helpers and input validation in internal/cli/
+- [X] T042 Run `magex format:fix && magex lint` and fix any issues
 
 **Checkpoint**: Humans can add discoveries interactively with full form guidance
 
@@ -129,13 +129,13 @@ Based on plan.md project structure:
 
 ### Implementation for User Story 4
 
-- [ ] T043 [US4] Implement Promote method on BacklogManager for status transition in internal/backlog/manager.go
-- [ ] T044 [US4] Implement status transition validation (only pending → promoted allowed) in internal/backlog/manager.go
-- [ ] T045 [US4] Create 'atlas backlog promote <id>' subcommand in internal/cli/backlog_promote.go
-- [ ] T046 [US4] Implement --task-id flag (required) for promote command in internal/cli/backlog_promote.go
-- [ ] T047 [US4] Implement text and JSON output modes for promote command in internal/cli/backlog_promote.go
-- [ ] T048 Implement unit tests for Promote command and status transitions in internal/cli/
-- [ ] T049 Run `magex format:fix && magex lint` and fix any issues
+- [X] T043 [US4] Implement Promote method on BacklogManager for status transition in internal/backlog/manager.go
+- [X] T044 [US4] Implement status transition validation (only pending → promoted allowed) in internal/backlog/manager.go
+- [X] T045 [US4] Create 'atlas backlog promote <id>' subcommand in internal/cli/backlog_promote.go
+- [X] T046 [US4] Implement --task-id flag (required) for promote command in internal/cli/backlog_promote.go
+- [X] T047 [US4] Implement text and JSON output modes for promote command in internal/cli/backlog_promote.go
+- [X] T048 Implement unit tests for Promote command and status transitions in internal/cli/
+- [X] T049 Run `magex format:fix && magex lint` and fix any issues
 
 **Checkpoint**: Discoveries can be promoted to tasks with proper linking
 
@@ -149,13 +149,13 @@ Based on plan.md project structure:
 
 ### Implementation for User Story 5
 
-- [ ] T050 [US5] Implement Dismiss method on BacklogManager for status transition in internal/backlog/manager.go
-- [ ] T051 [US5] Implement status transition validation (only pending → dismissed allowed) in internal/backlog/manager.go
-- [ ] T052 [US5] Create 'atlas backlog dismiss <id>' subcommand in internal/cli/backlog_dismiss.go
-- [ ] T053 [US5] Implement --reason flag (required) for dismiss command in internal/cli/backlog_dismiss.go
-- [ ] T054 [US5] Implement text and JSON output modes for dismiss command in internal/cli/backlog_dismiss.go
-- [ ] T055 Implement unit tests for Dismiss command and status transitions in internal/cli/
-- [ ] T056 Run `magex format:fix && magex lint` and fix any issues
+- [X] T050 [US5] Implement Dismiss method on BacklogManager for status transition in internal/backlog/manager.go
+- [X] T051 [US5] Implement status transition validation (only pending → dismissed allowed) in internal/backlog/manager.go
+- [X] T052 [US5] Create 'atlas backlog dismiss <id>' subcommand in internal/cli/backlog_dismiss.go
+- [X] T053 [US5] Implement --reason flag (required) for dismiss command in internal/cli/backlog_dismiss.go
+- [X] T054 [US5] Implement text and JSON output modes for dismiss command in internal/cli/backlog_dismiss.go
+- [X] T055 Implement unit tests for Dismiss command and status transitions in internal/cli/
+- [X] T056 Run `magex format:fix && magex lint` and fix any issues
 
 **Checkpoint**: Discoveries can be dismissed with documented reasons
 
@@ -165,14 +165,14 @@ Based on plan.md project structure:
 
 **Purpose**: Error handling refinement, edge cases, and final validation
 
-- [ ] T057 Handle edge case: malformed YAML files during list (skip with warning, don't break) in internal/backlog/manager.go
-- [ ] T058 Handle edge case: missing git context gracefully (empty strings, log warning) in internal/backlog/manager.go
-- [ ] T059 [P] Add human-readable age calculation for list output (e.g., "2h", "1d", "3d") in internal/cli/backlog_list.go
-- [ ] T060 [P] Ensure consistent exit codes: 0 (success), 1 (general error), 2 (invalid input) across all commands
-- [ ] T061 Verify 90%+ test coverage across all new packages and cover edge cases (missing files, permissions, etc.)
-- [ ] T062 Run `magex format:fix && magex lint` and fix any issues
-- [ ] T063 Update `docs/internal/quick-start.md` with new commands and backlog functionality
-- [ ] T064 Run quickstart.md validation - verify all documented commands work as specified
+- [X] T057 Handle edge case: malformed YAML files during list (skip with warning, don't break) in internal/backlog/manager.go
+- [X] T058 Handle edge case: missing git context gracefully (empty strings, log warning) in internal/backlog/manager.go
+- [X] T059 [P] Add human-readable age calculation for list output (e.g., "2h", "1d", "3d") in internal/cli/backlog_list.go
+- [X] T060 [P] Ensure consistent exit codes: 0 (success), 1 (general error), 2 (invalid input) across all commands
+- [X] T061 Verify 90%+ test coverage across all new packages and cover edge cases (missing files, permissions, etc.)
+- [X] T062 Run `magex format:fix && magex lint` and fix any issues
+- [X] T063 Update `docs/internal/quick-start.md` with new commands and backlog functionality
+- [X] T064 Run quickstart.md validation - verify all documented commands work as specified
 
 ---
 
