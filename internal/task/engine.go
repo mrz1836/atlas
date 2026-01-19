@@ -28,6 +28,7 @@ import (
 
 	"github.com/rs/zerolog"
 
+	"github.com/mrz1836/atlas/internal/backlog"
 	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/ctxutil"
 	"github.com/mrz1836/atlas/internal/domain"
@@ -296,6 +297,9 @@ func (e *Engine) Start(ctx context.Context, workspaceName, branch, worktreePath 
 
 	// Create hook for crash recovery (if hook manager is configured)
 	e.initializeHook(ctx, task)
+
+	// Update backlog discovery status if task was started from backlog
+	e.updateBacklogStatus(ctx, task)
 
 	// Inject logger with task context for step executors
 	ctx = e.injectLoggerContext(ctx, workspaceName, taskID)
@@ -840,4 +844,40 @@ func (e *Engine) initializeHook(ctx context.Context, task *domain.Task) {
 			Str("task_id", task.ID).
 			Msg("failed to ready hook, continuing without crash recovery")
 	}
+}
+
+// updateBacklogStatus updates the linked backlog discovery status when task starts.
+// This is a best-effort operation - failures are logged as warnings but don't fail the task.
+func (e *Engine) updateBacklogStatus(ctx context.Context, task *domain.Task) {
+	if task == nil || task.Metadata == nil {
+		return
+	}
+
+	backlogID, ok := task.Metadata["from_backlog_id"].(string)
+	if !ok || backlogID == "" {
+		return
+	}
+
+	mgr, err := backlog.NewManager("")
+	if err != nil {
+		e.logger.Warn().Err(err).
+			Str("discovery_id", backlogID).
+			Str("task_id", task.ID).
+			Msg("failed to create backlog manager for status update")
+		return
+	}
+
+	_, err = mgr.StartTask(ctx, backlogID, task.ID)
+	if err != nil {
+		e.logger.Warn().Err(err).
+			Str("discovery_id", backlogID).
+			Str("task_id", task.ID).
+			Msg("failed to update backlog discovery status on task start")
+		return
+	}
+
+	e.logger.Info().
+		Str("discovery_id", backlogID).
+		Str("task_id", task.ID).
+		Msg("backlog discovery status updated to promoted")
 }
