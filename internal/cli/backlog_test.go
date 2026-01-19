@@ -364,10 +364,10 @@ func TestBacklogPromoteCommand(t *testing.T) {
 		assert.True(t, atlaserrors.IsExitCode2Error(err), "expected ExitCode2Error")
 	})
 
-	t.Run("requires task-id flag", func(t *testing.T) {
+	t.Run("works without task-id using auto-config", func(t *testing.T) {
 		tmpDir, mgr := setupTestBacklogDir(t)
 
-		d := createTestDiscovery(ctx, t, mgr, "Missing task-id")
+		d := createTestDiscovery(ctx, t, mgr, "Auto config test")
 
 		// Change to temp dir for the command
 		origDir, _ := os.Getwd()
@@ -379,11 +379,15 @@ func TestBacklogPromoteCommand(t *testing.T) {
 		cmd.SetContext(ctx)
 		cmd.SetOut(&buf)
 		cmd.SetErr(&buf)
-		cmd.SetArgs([]string{d.ID})
+		// Use dry-run to test auto-config without actually creating task
+		cmd.SetArgs([]string{d.ID, "--dry-run"})
 
 		err := cmd.Execute()
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "task-id")
+		require.NoError(t, err)
+		output := buf.String()
+		// Should show dry-run output with auto-generated config
+		assert.Contains(t, output, "Dry-run")
+		assert.Contains(t, output, "bugfix") // Bug category maps to bugfix template
 	})
 }
 
