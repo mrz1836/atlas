@@ -3,6 +3,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -37,32 +38,64 @@ func AddResumeCommand(root *cobra.Command) {
 // resumeOptions contains all options for the resume command.
 type resumeOptions struct {
 	aiFix bool
+	retry bool // Skip recovery menu and directly retry
+	menu  bool // Force recovery menu even for interrupted tasks
 }
 
 // newResumeCmd creates the resume command.
 func newResumeCmd() *cobra.Command {
 	var aiFix bool
+	var retry bool
+	var menu bool
 
 	cmd := &cobra.Command{
 		Use:   "resume <workspace>",
 		Short: "Resume a paused or failed task",
 		Long: `Resume execution of a task that was paused or failed.
 
-Use this command after manually fixing validation errors in the worktree.
-The task will re-run validation from the current step.
+This command intelligently handles all recovery scenarios:
+  - Interrupted tasks: Directly resumes execution (fast path)
+  - Error tasks: Shows interactive recovery menu with auto-execution
+  - Awaiting approval: Continues with approval flow
+
+Error states handled:
+  - validation_failed: Validation checks failed
+  - gh_failed: GitHub operations (push/PR) failed
+  - ci_failed: CI pipeline checks failed
+  - ci_timeout: CI pipeline exceeded timeout
+
+Interactive mode (default):
+  atlas resume auth-fix
+
+  For interrupted tasks, directly resumes. For error tasks, shows menu with options:
+  - Retry with AI fix - AI attempts to fix based on error context
+  - Fix manually - Edit files in worktree, then resume
+  - Rebase and retry - For non-fast-forward push failures
+  - Continue waiting - For CI timeout, resume polling
+  - View errors/logs - See detailed error output
+  - Abandon task - End task, preserve branch for later
+
+Power user flags:
+  atlas resume auth-fix --retry   # Skip menu, directly retry
+  atlas resume auth-fix --menu    # Force menu for interrupted tasks
 
 Examples:
-  atlas resume auth-fix           # Resume task in auth-fix workspace
-  atlas resume auth-fix --ai-fix  # Resume with AI attempting to fix errors`,
+  atlas resume auth-fix           # Smart resume (menu for errors, direct for interrupted)
+  atlas resume auth-fix --ai-fix  # Resume with AI attempting to fix errors
+  atlas resume auth-fix --retry   # Skip menu and directly retry`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runResume(cmd.Context(), cmd, os.Stdout, args[0], resumeOptions{
 				aiFix: aiFix,
+				retry: retry,
+				menu:  menu,
 			})
 		},
 	}
 
 	cmd.Flags().BoolVar(&aiFix, "ai-fix", false, "Retry with AI attempting to fix errors")
+	cmd.Flags().BoolVarP(&retry, "retry", "r", false, "Skip recovery menu and directly retry")
+	cmd.Flags().BoolVar(&menu, "menu", false, "Show recovery menu even for interrupted tasks")
 
 	return cmd
 }
@@ -92,27 +125,70 @@ func runResume(ctx context.Context, cmd *cobra.Command, w io.Writer, workspaceNa
 		return err
 	}
 
-	// Get template and check AI fix option
+	// Get template
 	tmpl, err := prepareResumeTemplate(currentTask, opts, outputFormat, w, workspaceName)
 	if err != nil {
 		return err
 	}
 
-	// Create engine and execute resume
+	// Create engine
 	engine, err := createResumeEngine(ctx, ws, taskStore, logger, out) //nolint:contextcheck // ctx inherits from parent via signal.NewHandler
 	if err != nil {
 		return handleResumeError(outputFormat, w, workspaceName, currentTask.ID, err)
 	}
 
-	// Display info and prepare task
-	displayResumeInfo(out, workspaceName, currentTask)
-	if currentTask.Metadata == nil {
-		currentTask.Metadata = make(map[string]any)
-	}
-	currentTask.Metadata["worktree_dir"] = ws.WorktreePath
+	// Intelligent status-based behavior routing
+	//nolint:exhaustive // Only handling specific resumable states
+	switch currentTask.Status {
+	case constants.TaskStatusInterrupted:
+		// Fast path: directly resume unless --menu flag is set
+		if opts.menu {
+			// User explicitly wants the recovery menu
+			//nolint:contextcheck // context properly propagated through function calls
+			return handleRecoveryMenu(ctx, cmd, out, taskStore, ws, currentTask, engine, tmpl, sigHandler, wsStore, outputFormat, w, workspaceName, logger)
+		}
+		// Direct resume for interrupted tasks
+		displayResumeInfo(out, workspaceName, currentTask)
+		if currentTask.Metadata == nil {
+			currentTask.Metadata = make(map[string]any)
+		}
+		currentTask.Metadata["worktree_dir"] = ws.WorktreePath
+		//nolint:contextcheck // context properly propagated through function calls
+		return executeResumeAndHandleResult(ctx, engine, currentTask, tmpl, sigHandler, out, ws, wsStore, outputFormat, w, workspaceName, logger)
 
-	// Execute resume and handle result
-	return executeResumeAndHandleResult(ctx, engine, currentTask, tmpl, sigHandler, out, ws, wsStore, outputFormat, w, workspaceName, logger) //nolint:contextcheck // ctx inherits from parent via signal.NewHandler
+	case constants.TaskStatusValidationFailed,
+		constants.TaskStatusGHFailed,
+		constants.TaskStatusCIFailed,
+		constants.TaskStatusCITimeout:
+		// Error states: show recovery menu unless --retry flag is set
+		if opts.retry {
+			// Skip menu and directly retry
+			displayResumeInfo(out, workspaceName, currentTask)
+			if currentTask.Metadata == nil {
+				currentTask.Metadata = make(map[string]any)
+			}
+			currentTask.Metadata["worktree_dir"] = ws.WorktreePath
+			//nolint:contextcheck // context properly propagated through function calls
+			return executeResumeAndHandleResult(ctx, engine, currentTask, tmpl, sigHandler, out, ws, wsStore, outputFormat, w, workspaceName, logger)
+		}
+		// Show interactive recovery menu with auto-execution
+		//nolint:contextcheck // context properly propagated through function calls
+		return handleRecoveryMenu(ctx, cmd, out, taskStore, ws, currentTask, engine, tmpl, sigHandler, wsStore, outputFormat, w, workspaceName, logger)
+
+	case constants.TaskStatusAwaitingApproval:
+		// Existing approval flow
+		displayResumeInfo(out, workspaceName, currentTask)
+		if currentTask.Metadata == nil {
+			currentTask.Metadata = make(map[string]any)
+		}
+		currentTask.Metadata["worktree_dir"] = ws.WorktreePath
+		//nolint:contextcheck // context properly propagated through function calls
+		return executeResumeAndHandleResult(ctx, engine, currentTask, tmpl, sigHandler, out, ws, wsStore, outputFormat, w, workspaceName, logger)
+
+	default:
+		return handleResumeError(outputFormat, w, workspaceName, currentTask.ID,
+			fmt.Errorf("%w: %s", atlaserrors.ErrInvalidStatus, currentTask.Status))
+	}
 }
 
 // setupResumeWorkspaceAndTask sets up the workspace, task, and stores for resume.
@@ -637,4 +713,403 @@ func showRecoveryContextAndPrompt(ctx context.Context, t *domain.Task, out tui.O
 	}
 
 	return proceed, nil
+}
+
+// handleRecoveryMenu shows the interactive recovery menu and executes the chosen action with auto-resume.
+func handleRecoveryMenu(ctx context.Context, _ *cobra.Command, out tui.Output, taskStore *task.FileStore, ws *domain.Workspace, t *domain.Task, engine *task.Engine, tmpl *domain.Template, sigHandler *signal.Handler, wsStore workspace.Store, outputFormat string, w io.Writer, workspaceName string, logger zerolog.Logger) error {
+	// Load config for notification settings
+	cfg, err := config.Load(ctx)
+	if err != nil {
+		logger.Warn().Err(err).Msg("failed to load config, using default notification settings")
+		cfg = config.DefaultConfig()
+	}
+	notifier := tui.NewNotifier(cfg.Notifications.Bell, false)
+
+	// Display error context
+	displayRecoveryErrorContext(out, ws, t)
+
+	// Action menu loop - view actions return to menu
+	for {
+		action, err := selectRecoveryAction(t)
+		if err != nil {
+			if errors.Is(err, tui.ErrMenuCanceled) {
+				out.Info("Recovery canceled.")
+				return nil
+			}
+			return err
+		}
+
+		done, autoResume, err := executeRecoveryActionWithResume(ctx, out, taskStore, ws, t, notifier, action)
+		if err != nil {
+			return err
+		}
+		if done {
+			// Check if we should auto-resume
+			if autoResume {
+				// Display info and prepare task for execution
+				displayResumeInfo(out, workspaceName, t)
+				if t.Metadata == nil {
+					t.Metadata = make(map[string]any)
+				}
+				t.Metadata["worktree_dir"] = ws.WorktreePath
+
+				// Auto-resume execution
+				out.Info("Auto-resuming task execution...")
+				return executeResumeAndHandleResult(ctx, engine, t, tmpl, sigHandler, out, ws, wsStore, outputFormat, w, workspaceName, logger)
+			}
+			return nil
+		}
+		// Continue loop for view actions
+	}
+}
+
+// displayRecoveryErrorContext shows the error state and relevant information before the recovery menu.
+func displayRecoveryErrorContext(out tui.Output, ws *domain.Workspace, t *domain.Task) {
+	out.Info("")
+	out.Info(fmt.Sprintf("❌ Task failed: %s", t.Description))
+	out.Info(fmt.Sprintf("   Workspace: %s", ws.Name))
+	out.Info(fmt.Sprintf("   Status: %s", tui.TaskStatusIcon(t.Status)+" "+string(t.Status)))
+
+	// Show error-specific context
+	//nolint:exhaustive // Only showing context for specific error states
+	switch t.Status {
+	case constants.TaskStatusValidationFailed:
+		if t.Metadata != nil {
+			if errCount, ok := t.Metadata["validation_error_count"].(int); ok {
+				out.Info(fmt.Sprintf("   Errors: %d validation failures", errCount))
+			}
+		}
+	case constants.TaskStatusGHFailed:
+		// Error details are in metadata if available
+		if t.Metadata != nil {
+			if errMsg, ok := t.Metadata["error"].(string); ok && errMsg != "" {
+				out.Info(fmt.Sprintf("   Error: %s", errMsg))
+			}
+		}
+	case constants.TaskStatusCIFailed, constants.TaskStatusCITimeout:
+		if t.Metadata != nil {
+			if ciURL, ok := t.Metadata["ci_url"].(string); ok && ciURL != "" {
+				out.Info(fmt.Sprintf("   CI Run: %s", ciURL))
+			}
+		}
+	}
+
+	out.Info("")
+	out.Info("What would you like to do?")
+}
+
+// selectRecoveryAction selects the appropriate recovery menu based on task state.
+func selectRecoveryAction(t *domain.Task) (tui.RecoveryAction, error) {
+	// For GH failed state, check for specific push error type
+	if action, ok := tryGHFailedRecovery(t); ok {
+		return action, nil
+	}
+
+	// Default: use standard recovery menu
+	return tui.SelectErrorRecovery(t.Status)
+}
+
+// tryGHFailedRecovery attempts to show GH-specific recovery options.
+func tryGHFailedRecovery(t *domain.Task) (tui.RecoveryAction, bool) {
+	if t.Status != constants.TaskStatusGHFailed || t.Metadata == nil {
+		return "", false
+	}
+
+	pushErrorType, ok := t.Metadata["push_error_type"].(string)
+	if !ok || pushErrorType == "" {
+		return "", false
+	}
+
+	options := tui.GHFailedOptionsForPushError(pushErrorType)
+	if len(options) == 0 {
+		return "", false
+	}
+
+	baseOptions := make([]tui.Option, len(options))
+	for i, opt := range options {
+		baseOptions[i] = opt.Option
+	}
+
+	title := tui.MenuTitleForStatus(t.Status)
+	selected, err := tui.Select(title, baseOptions)
+	if err != nil {
+		return "", false
+	}
+
+	return tui.RecoveryAction(selected), true
+}
+
+// executeRecoveryActionWithResume executes the selected recovery action.
+// Returns (done, autoResume, error) where:
+//   - done: true if action loop should exit
+//   - autoResume: true if task should automatically resume execution after this action
+//   - error: any error that occurred
+func executeRecoveryActionWithResume(ctx context.Context, out tui.Output, taskStore *task.FileStore, ws *domain.Workspace, t *domain.Task, notifier *tui.Notifier, action tui.RecoveryAction) (bool, bool, error) {
+	switch action {
+	case tui.RecoveryActionRetryAI, tui.RecoveryActionRetryGH:
+		err := handleRetryAction(ctx, out, taskStore, t, notifier)
+		return true, err == nil, err
+
+	case tui.RecoveryActionRebaseRetry:
+		err := handleRebaseRetry(ctx, out, taskStore, ws, t, notifier)
+		return true, err == nil, err
+
+	case tui.RecoveryActionFixManually:
+		err := handleFixManually(out, ws, notifier)
+		return true, false, err // No auto-resume for manual fix
+
+	case tui.RecoveryActionViewErrors:
+		err := handleViewErrors(ctx, out, taskStore, ws.Name, t.ID)
+		return false, false, err // Return to menu
+
+	case tui.RecoveryActionViewLogs:
+		err := handleViewLogs(ctx, out, ws, t)
+		return false, false, err // Return to menu
+
+	case tui.RecoveryActionContinueWaiting:
+		err := handleContinueWaiting(ctx, out, taskStore, t, notifier)
+		return true, err == nil, err
+
+	case tui.RecoveryActionAbandon:
+		err := handleAbandon(ctx, out, taskStore, ws, t, notifier)
+		return true, false, err // No auto-resume for abandon
+	}
+
+	return false, false, nil
+}
+
+// handleRetryAction handles retry with AI fix actions.
+func handleRetryAction(ctx context.Context, out tui.Output, taskStore *task.FileStore, t *domain.Task, notifier *tui.Notifier) error {
+	// Transition task back to running
+	if err := task.Transition(ctx, t, constants.TaskStatusRunning, "User requested retry from recovery menu"); err != nil {
+		out.Error(tui.WrapWithSuggestion(fmt.Errorf("failed to transition task: %w", err)))
+		return err
+	}
+
+	// Save updated task
+	if err := taskStore.Update(ctx, t.WorkspaceID, t); err != nil {
+		out.Error(tui.WrapWithSuggestion(fmt.Errorf("failed to save task: %w", err)))
+		return err
+	}
+
+	out.Success("Retrying with AI fix...")
+	notifier.Bell()
+	return nil
+}
+
+// handleFixManually shows worktree path and resume instructions.
+//
+//nolint:unparam // error return maintained for consistent interface with other handlers
+func handleFixManually(out tui.Output, ws *domain.Workspace, notifier *tui.Notifier) error {
+	out.Info("Fix the issue in the worktree manually:")
+	out.Info("")
+	if ws.WorktreePath != "" {
+		out.Info(fmt.Sprintf("  cd %s", ws.WorktreePath))
+	} else {
+		out.Info(fmt.Sprintf("  cd <worktree for %s>", ws.Name))
+	}
+	out.Info("  # Make your fixes")
+	out.Info(fmt.Sprintf("  atlas resume %s", ws.Name))
+	out.Info("")
+	notifier.Bell()
+	return nil
+}
+
+// handleRebaseRetry handles the "Rebase and retry" action for non-fast-forward push failures.
+func handleRebaseRetry(ctx context.Context, out tui.Output, taskStore *task.FileStore, ws *domain.Workspace, t *domain.Task, notifier *tui.Notifier) error {
+	// Validate worktree path
+	if ws.WorktreePath == "" {
+		out.Error(tui.WrapWithSuggestion(fmt.Errorf("worktree path not available: %w", atlaserrors.ErrWorktreeNotFound)))
+		return fmt.Errorf("worktree path not available: %w", atlaserrors.ErrWorktreeNotFound)
+	}
+
+	// Get branch name
+	branch := ws.Branch
+	if branch == "" {
+		out.Error(tui.WrapWithSuggestion(fmt.Errorf("branch name not available: %w", atlaserrors.ErrEmptyValue)))
+		return fmt.Errorf("branch name not available: %w", atlaserrors.ErrEmptyValue)
+	}
+	remote := "origin"
+
+	// Create git runner for worktree
+	runner, err := git.NewRunner(ctx, ws.WorktreePath)
+	if err != nil {
+		out.Error(tui.WrapWithSuggestion(fmt.Errorf("failed to create git runner: %w", err)))
+		return err
+	}
+
+	// Fetch latest from remote
+	out.Info(fmt.Sprintf("Fetching latest from %s...", remote))
+	if err := runner.Fetch(ctx, remote); err != nil {
+		out.Error(tui.WrapWithSuggestion(fmt.Errorf("fetch failed: %w", err)))
+		return err
+	}
+
+	// Attempt rebase
+	rebaseTarget := fmt.Sprintf("%s/%s", remote, branch)
+	out.Info(fmt.Sprintf("Rebasing onto %s...", rebaseTarget))
+	if err := runner.Rebase(ctx, rebaseTarget); err != nil {
+		// Check for conflicts
+		if errors.Is(err, atlaserrors.ErrRebaseConflict) {
+			// Abort the failed rebase
+			_ = runner.RebaseAbort(ctx)
+
+			out.Warning("Rebase has conflicts that require manual resolution:")
+			out.Info("")
+			out.Info(fmt.Sprintf("  cd %s", ws.WorktreePath))
+			out.Info(fmt.Sprintf("  git fetch %s", remote))
+			out.Info(fmt.Sprintf("  git rebase %s", rebaseTarget))
+			out.Info("  # Resolve conflicts in your editor")
+			out.Info("  git add <resolved-files>")
+			out.Info("  git rebase --continue")
+			out.Info(fmt.Sprintf("  atlas resume %s", ws.Name))
+			out.Info("")
+			notifier.Bell()
+			return nil // Don't auto-resume, user needs to fix conflicts
+		}
+
+		out.Error(tui.WrapWithSuggestion(fmt.Errorf("rebase failed: %w", err)))
+		return err
+	}
+
+	// Rebase succeeded, transition task back to running
+	if err := task.Transition(ctx, t, constants.TaskStatusRunning, "Rebased and retrying push"); err != nil {
+		out.Error(tui.WrapWithSuggestion(fmt.Errorf("failed to transition task: %w", err)))
+		return err
+	}
+
+	// Save updated task
+	if err := taskStore.Update(ctx, t.WorkspaceID, t); err != nil {
+		out.Error(tui.WrapWithSuggestion(fmt.Errorf("failed to save task: %w", err)))
+		return err
+	}
+
+	out.Success("Rebase successful. Auto-resuming execution...")
+	notifier.Bell()
+	return nil
+}
+
+// handleViewErrors displays the validation errors.
+//
+//nolint:unparam // error return maintained for consistent interface with other handlers
+func handleViewErrors(ctx context.Context, out tui.Output, taskStore *task.FileStore, workspaceName, taskID string) error {
+	// Try to get validation artifact
+	data, err := taskStore.GetArtifact(ctx, workspaceName, taskID, "validation.json")
+	if err != nil {
+		// Try alternate filename
+		data, err = taskStore.GetArtifact(ctx, workspaceName, taskID, "validation-result.json")
+		if err != nil {
+			out.Warning(fmt.Sprintf("Could not load validation results: %v", err))
+			return nil
+		}
+	}
+
+	if len(data) == 0 {
+		out.Info("No validation errors recorded.")
+		return nil
+	}
+
+	// Display the validation output
+	out.Info("")
+	out.Info("--- Validation Output ---")
+	out.Info(string(data))
+	out.Info("-------------------------")
+	out.Info("")
+
+	return nil
+}
+
+// handleViewLogs opens GitHub Actions in browser for CI states.
+//
+//nolint:unparam // error return maintained for consistent interface with other handlers
+func handleViewLogs(ctx context.Context, out tui.Output, ws *domain.Workspace, t *domain.Task) error {
+	// Extract GitHub Actions URL from task metadata or PR URL
+	ghURL := extractGitHubActionsURL(t)
+	if ghURL == "" {
+		// Fall back to PR URL if available
+		prURL := extractPRURL(t)
+		if prURL != "" {
+			ghURL = prURL + "/checks"
+		}
+	}
+
+	if ghURL == "" {
+		out.Warning("No GitHub Actions URL available.")
+		out.Info(fmt.Sprintf("You can manually check: https://github.com/%s/actions", extractRepoInfo(ws)))
+		return nil
+	}
+
+	// Open in browser
+	if err := openInBrowser(ctx, ghURL); err != nil {
+		out.Warning(fmt.Sprintf("Could not open browser: %v", err))
+		out.Info(fmt.Sprintf("URL: %s", ghURL))
+	} else {
+		out.Info(fmt.Sprintf("Opened %s in browser.", ghURL))
+	}
+
+	return nil
+}
+
+// handleContinueWaiting resumes CI polling.
+func handleContinueWaiting(ctx context.Context, out tui.Output, taskStore *task.FileStore, t *domain.Task, notifier *tui.Notifier) error {
+	// Transition task back to running to continue CI polling
+	if err := task.Transition(ctx, t, constants.TaskStatusRunning, "User requested to continue waiting"); err != nil {
+		out.Error(tui.WrapWithSuggestion(fmt.Errorf("failed to transition task: %w", err)))
+		return err
+	}
+
+	// Save updated task
+	if err := taskStore.Update(ctx, t.WorkspaceID, t); err != nil {
+		out.Error(tui.WrapWithSuggestion(fmt.Errorf("failed to save task: %w", err)))
+		return err
+	}
+
+	out.Success("Continuing CI polling. Auto-resuming execution...")
+	notifier.Bell()
+	return nil
+}
+
+// handleAbandon transitions task to abandoned state.
+func handleAbandon(ctx context.Context, out tui.Output, taskStore *task.FileStore, ws *domain.Workspace, t *domain.Task, notifier *tui.Notifier) error {
+	// Transition task to abandoned
+	if err := task.Transition(ctx, t, constants.TaskStatusAbandoned, "User abandoned from recovery menu"); err != nil {
+		out.Error(tui.WrapWithSuggestion(fmt.Errorf("failed to transition task: %w", err)))
+		return err
+	}
+
+	// Save updated task
+	if err := taskStore.Update(ctx, t.WorkspaceID, t); err != nil {
+		out.Error(tui.WrapWithSuggestion(fmt.Errorf("failed to save task: %w", err)))
+		return err
+	}
+
+	out.Info(fmt.Sprintf("Task abandoned. Branch '%s' preserved at '%s'", ws.Branch, ws.WorktreePath))
+	out.Info("You can work on the code manually or destroy the workspace later.")
+	notifier.Bell()
+	return nil
+}
+
+// extractGitHubActionsURL extracts the GitHub Actions URL from task metadata.
+func extractGitHubActionsURL(t *domain.Task) string {
+	if t == nil || t.Metadata == nil {
+		return ""
+	}
+	if url, ok := t.Metadata["ci_url"].(string); ok {
+		return url
+	}
+	if url, ok := t.Metadata["github_actions_url"].(string); ok {
+		return url
+	}
+	return ""
+}
+
+// extractRepoInfo extracts repository info from workspace for manual URL construction.
+func extractRepoInfo(ws *domain.Workspace) string {
+	if ws == nil || ws.Metadata == nil {
+		return ""
+	}
+	if repo, ok := ws.Metadata["repository"].(string); ok {
+		return repo
+	}
+	return ""
 }

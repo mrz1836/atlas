@@ -142,7 +142,6 @@ func newRootCmd(flags *GlobalFlags, info BuildInfo) *cobra.Command {
 	AddTestCommand(cmd)
 	AddApproveCommand(cmd)
 	AddRejectCommand(cmd)
-	AddRecoverCommand(cmd)
 	AddCompletionCommand(cmd)
 	AddHookCommand(cmd)
 	AddCheckpointCommand(cmd)
