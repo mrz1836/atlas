@@ -48,6 +48,31 @@ func NewAIPromoter(runner contracts.AIRunner, cfg *config.AIConfig) *AIPromoter 
 	}
 }
 
+// ResolvedConfig returns the resolved agent and model that will be used for analysis.
+// This applies global config and optional per-call overrides, matching the resolution
+// logic used in buildAIRequest.
+func (p *AIPromoter) ResolvedConfig(cfg *AIPromoterConfig) (agent, model string) {
+	// Default values (same as buildAIRequest)
+	a := domain.AgentClaude
+	m := "sonnet"
+	var maxBudget float64
+
+	// Apply global config
+	p.applyGlobalConfig(&a, &m, &maxBudget)
+
+	// Apply per-call overrides
+	if cfg != nil {
+		if cfg.Agent != "" {
+			a = domain.Agent(cfg.Agent)
+		}
+		if cfg.Model != "" {
+			m = cfg.Model
+		}
+	}
+
+	return string(a), m
+}
+
 // AIPromoterConfig allows customization of AI promotion behavior.
 type AIPromoterConfig struct {
 	// Agent overrides the AI agent (claude, gemini, codex).

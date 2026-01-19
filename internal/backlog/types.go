@@ -28,17 +28,19 @@ const (
 	StatusPromoted Status = "promoted"
 	// StatusDismissed indicates a discovery that has been dismissed.
 	StatusDismissed Status = "dismissed"
+	// StatusCompleted indicates a discovery whose linked task has been approved.
+	StatusCompleted Status = "completed"
 )
 
 // ValidStatuses returns all valid status values.
 func ValidStatuses() []Status {
-	return []Status{StatusPending, StatusPromoted, StatusDismissed}
+	return []Status{StatusPending, StatusPromoted, StatusDismissed, StatusCompleted}
 }
 
 // IsValid checks if the status is a valid value.
 func (s Status) IsValid() bool {
 	switch s {
-	case StatusPending, StatusPromoted, StatusDismissed:
+	case StatusPending, StatusPromoted, StatusDismissed, StatusCompleted:
 		return true
 	default:
 		return false
@@ -149,8 +151,9 @@ type GitContext struct {
 
 // Lifecycle tracks status transitions.
 type Lifecycle struct {
-	PromotedToTask  string `yaml:"promoted_to_task,omitempty"`
-	DismissedReason string `yaml:"dismissed_reason,omitempty"`
+	PromotedToTask  string    `yaml:"promoted_to_task,omitempty"`
+	DismissedReason string    `yaml:"dismissed_reason,omitempty"`
+	CompletedAt     time.Time `yaml:"completed_at,omitempty"`
 }
 
 // Validation constants and patterns.
@@ -287,6 +290,14 @@ func (d *Discovery) Validate() error {
 	if d.Status == StatusDismissed && d.Lifecycle.DismissedReason == "" {
 		return fmt.Errorf("%w: dismissed_reason is required when status is dismissed", atlaserrors.ErrInvalidArgument)
 	}
+	if d.Status == StatusCompleted {
+		if d.Lifecycle.PromotedToTask == "" {
+			return fmt.Errorf("%w: promoted_to_task is required when status is completed", atlaserrors.ErrInvalidArgument)
+		}
+		if d.Lifecycle.CompletedAt.IsZero() {
+			return fmt.Errorf("%w: completed_at is required when status is completed", atlaserrors.ErrInvalidArgument)
+		}
+	}
 	return nil
 }
 
@@ -332,10 +343,6 @@ type PromoteOptions struct {
 	// promoting the discovery or creating a task.
 	DryRun bool
 
-	// TaskID allows providing a pre-existing task ID (for backward compatibility).
-	// When set, no new task is created; the discovery is linked to this task.
-	TaskID string
-
 	// WorkspaceName overrides the auto-generated workspace name.
 	WorkspaceName string
 
@@ -347,9 +354,6 @@ type PromoteOptions struct {
 type PromoteResult struct {
 	// Discovery is the promoted discovery with updated status.
 	Discovery *Discovery
-
-	// TaskID is the ID of the created or linked task.
-	TaskID string
 
 	// WorkspaceName is the name of the created workspace.
 	WorkspaceName string

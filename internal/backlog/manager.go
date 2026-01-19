@@ -368,6 +368,46 @@ func (m *Manager) Dismiss(ctx context.Context, id, reason string) (*Discovery, e
 	return d, nil
 }
 
+// Complete marks a promoted discovery as completed (task approved).
+// Only promoted discoveries can be completed.
+func (m *Manager) Complete(ctx context.Context, id string) (*Discovery, error) {
+	d, err := m.Get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	// Validate status transition
+	if d.Status != StatusPromoted {
+		return nil, atlaserrors.NewExitCode2Error(
+			fmt.Errorf("%w: can only complete promoted discoveries, current status is %q",
+				atlaserrors.ErrInvalidStatusTransition, d.Status))
+	}
+
+	// Update status and lifecycle
+	d.Status = StatusCompleted
+	d.Lifecycle.CompletedAt = time.Now().UTC()
+
+	if err := m.Update(ctx, d); err != nil {
+		return nil, err
+	}
+
+	return d, nil
+}
+
+// Delete removes a discovery file from the backlog.
+// This is typically called when a workspace is destroyed and we want to clean up
+// the associated discovery file (git history provides the audit trail).
+func (m *Manager) Delete(_ context.Context, id string) error {
+	path := filepath.Join(m.dir, id+fileExtension)
+	if err := os.Remove(path); err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("%w: %s", atlaserrors.ErrDiscoveryNotFound, id)
+		}
+		return fmt.Errorf("failed to delete discovery: %w", err)
+	}
+	return nil
+}
+
 // createSafe creates a new file with O_EXCL to prevent overwriting existing files.
 // This is used to prevent ID collisions.
 func createSafe(path string, data []byte) error {
@@ -391,15 +431,10 @@ func createSafe(path string, data []byte) error {
 }
 
 // PromoteWithOptions promotes a discovery with full options support.
-// This method supports both legacy behavior (with TaskID) and new behavior
-// (auto-generating task configuration).
-//
-// When opts.TaskID is set, it behaves like the legacy Promote method.
-// When opts.TaskID is empty, it generates task configuration from the discovery.
+// It generates task configuration from the discovery based on category and severity.
 // When opts.DryRun is true, it returns the result without modifying the discovery.
 //
-// Returns a PromoteResult with the generated task configuration and optionally
-// the promoted discovery.
+// Returns a PromoteResult with the generated task configuration.
 func (m *Manager) PromoteWithOptions(ctx context.Context, id string, opts PromoteOptions, aiPromoter *AIPromoter) (*PromoteResult, error) {
 	// Load discovery
 	d, err := m.Get(ctx, id)
@@ -420,23 +455,7 @@ func (m *Manager) PromoteWithOptions(ctx context.Context, id string, opts Promot
 		DryRun:    opts.DryRun,
 	}
 
-	// If TaskID is provided, use legacy behavior
-	if opts.TaskID != "" {
-		result.TaskID = opts.TaskID
-
-		if !opts.DryRun {
-			d.Status = StatusPromoted
-			d.Lifecycle.PromotedToTask = opts.TaskID
-
-			if err := m.Update(ctx, d); err != nil {
-				return nil, err
-			}
-		}
-
-		return result, nil
-	}
-
-	// New behavior: generate task configuration from discovery
+	// Generate task configuration from discovery
 	var analysis *AIAnalysis
 
 	if opts.UseAI && aiPromoter != nil {

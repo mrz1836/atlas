@@ -99,7 +99,7 @@ func GenerateWorkspaceName(title string) string {
 
 // Workspace name generation constants.
 const (
-	maxWorkspaceNameLen = 50
+	maxWorkspaceNameLen = 40
 )
 
 // Regex patterns for workspace name generation.
@@ -108,14 +108,39 @@ var (
 	nonAlphanumericRegex = regexp.MustCompile(`[^a-z0-9-]+`)
 	// multipleHyphensRegex matches consecutive hyphens.
 	multipleHyphensRegex = regexp.MustCompile(`-+`)
+	// wordSplitRegex matches word boundaries for stop word filtering.
+	wordSplitRegex = regexp.MustCompile(`[\s/\\]+`)
 )
 
+// getStopWords returns common English words to filter from workspace names.
+func getStopWords() map[string]bool {
+	return map[string]bool{
+		"i": true, "a": true, "an": true, "the": true,
+		"is": true, "are": true, "was": true, "were": true,
+		"be": true, "been": true, "being": true,
+		"have": true, "has": true, "had": true,
+		"do": true, "does": true, "did": true,
+		"will": true, "would": true, "could": true, "should": true,
+		"may": true, "might": true, "must": true,
+		"that": true, "this": true, "these": true, "those": true,
+		"it": true, "its": true,
+		"to": true, "of": true, "in": true, "for": true, "on": true,
+		"with": true, "at": true, "by": true, "from": true,
+		"and": true, "or": true, "but": true, "not": true,
+		"found": true, "there": true, "here": true,
+		"two": true, "easy": true, "some": true, "any": true,
+	}
+}
+
 // SanitizeWorkspaceName sanitizes a string for use as a workspace name.
-// It lowercases the input, replaces spaces with hyphens, removes special
-// characters, and truncates to the maximum allowed length.
+// It filters common stop words, lowercases the input, replaces spaces with hyphens,
+// removes special characters, and truncates to the maximum allowed length.
 func SanitizeWorkspaceName(input string) string {
+	// Filter out stop words first
+	name := removeStopWords(input)
+
 	// Lowercase and replace spaces with hyphens
-	name := strings.ToLower(input)
+	name = strings.ToLower(name)
 	name = strings.ReplaceAll(name, " ", "-")
 
 	// Remove special characters
@@ -135,6 +160,27 @@ func SanitizeWorkspaceName(input string) string {
 	}
 
 	return name
+}
+
+// removeStopWords filters common English stop words from the input string.
+func removeStopWords(input string) string {
+	stopWords := getStopWords()
+
+	// Split on whitespace and path separators
+	words := wordSplitRegex.Split(input, -1)
+
+	// Filter out stop words
+	filtered := make([]string, 0, len(words))
+	for _, word := range words {
+		lower := strings.ToLower(word)
+		// Remove quotes and other punctuation for stop word check
+		cleaned := nonAlphanumericRegex.ReplaceAllString(lower, "")
+		if cleaned != "" && !stopWords[cleaned] {
+			filtered = append(filtered, word)
+		}
+	}
+
+	return strings.Join(filtered, " ")
 }
 
 // FormatLocation formats a location for display.
