@@ -52,10 +52,7 @@ Exit codes:
 
 // runBacklogPromote executes the backlog promote command.
 func runBacklogPromote(ctx context.Context, cmd *cobra.Command, w io.Writer, id, taskID string, jsonOutput bool) error {
-	outputFormat := cmd.Flag("output").Value.String()
-	if jsonOutput {
-		outputFormat = OutputJSON
-	}
+	outputFormat := getOutputFormat(cmd, jsonOutput)
 	out := tui.NewOutput(w, outputFormat)
 
 	// Validate task ID

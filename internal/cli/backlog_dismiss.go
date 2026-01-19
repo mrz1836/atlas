@@ -52,10 +52,7 @@ Exit codes:
 
 // runBacklogDismiss executes the backlog dismiss command.
 func runBacklogDismiss(ctx context.Context, cmd *cobra.Command, w io.Writer, id, reason string, jsonOutput bool) error {
-	outputFormat := cmd.Flag("output").Value.String()
-	if jsonOutput {
-		outputFormat = OutputJSON
-	}
+	outputFormat := getOutputFormat(cmd, jsonOutput)
 	out := tui.NewOutput(w, outputFormat)
 
 	// Validate reason

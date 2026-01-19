@@ -80,10 +80,7 @@ Exit codes:
 
 // runBacklogAdd executes the backlog add command.
 func runBacklogAdd(ctx context.Context, cmd *cobra.Command, w io.Writer, args []string, flags *backlogAddFlags) error {
-	outputFormat := cmd.Flag("output").Value.String()
-	if flags.json {
-		outputFormat = OutputJSON
-	}
+	outputFormat := getOutputFormat(cmd, flags.json)
 	out := tui.NewOutput(w, outputFormat)
 
 	// Create manager
@@ -209,6 +206,7 @@ func runBacklogAddInteractive(ctx context.Context, mgr *backlog.Manager) (*backl
 		severity    string
 		file        string
 		line        int
+		lineStr     string
 	)
 
 	// Build category options
@@ -279,12 +277,17 @@ func runBacklogAddInteractive(ctx context.Context, mgr *backlog.Manager) (*backl
 					}
 					return nil
 				}).
-				Value((*string)(nil)), // We'll handle this manually
+				Value(&lineStr),
 		),
 	).WithTheme(huh.ThemeCharm())
 
 	if err := form.Run(); err != nil {
 		return nil, fmt.Errorf("form canceled: %w", err)
+	}
+
+	// Parse line number if provided
+	if lineStr != "" {
+		_, _ = fmt.Sscanf(lineStr, "%d", &line) // validation already passed in form
 	}
 
 	// Build discovery
@@ -365,6 +368,19 @@ func displayBacklogAddSuccess(out tui.Output, d *backlog.Discovery) {
 			out.Info(fmt.Sprintf("  Location: %s", d.Location.File))
 		}
 	}
+}
+
+// getOutputFormat safely retrieves the output format from the command flags.
+// If the jsonFlag is true, it returns OutputJSON. Otherwise, it checks the
+// "output" flag if defined, returning its value or empty string if not defined.
+func getOutputFormat(cmd *cobra.Command, jsonFlag bool) string {
+	if jsonFlag {
+		return OutputJSON
+	}
+	if flag := cmd.Flag("output"); flag != nil {
+		return flag.Value.String()
+	}
+	return ""
 }
 
 // outputBacklogError outputs an error in the appropriate format.
