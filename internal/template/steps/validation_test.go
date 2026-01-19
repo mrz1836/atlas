@@ -263,7 +263,7 @@ func TestValidationExecutor_Execute_EmptyCommands(t *testing.T) {
 	task := &domain.Task{
 		ID:          "task-123",
 		WorkspaceID: "ws-123",
-		Config:      domain.TaskConfig{ValidationCommands: []string{}}, // Empty slice
+		Config:      domain.TaskConfig{}, // Empty config uses defaults
 	}
 	step := &domain.StepDefinition{Name: "validate", Type: domain.StepTypeValidation}
 
@@ -271,7 +271,7 @@ func TestValidationExecutor_Execute_EmptyCommands(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, "success", result.Status)
-	// Should use defaults when empty - the parallel pipeline runs 4 commands
+	// Should use defaults - the parallel pipeline runs 4 commands
 	calls := runner.GetCalls()
 	assert.GreaterOrEqual(t, len(calls), 4)
 }
@@ -859,7 +859,7 @@ func TestValidationExecutor_BuildRunnerConfig(t *testing.T) {
 		assert.Equal(t, []string{"custom-precommit"}, config.PreCommitCommands)
 	})
 
-	t.Run("task validation commands are ignored in favor of config separation", func(t *testing.T) {
+	t.Run("task config does not override executor commands", func(t *testing.T) {
 		executor := &ValidationExecutor{
 			workDir:           "/tmp/work",
 			formatCommands:    []string{"custom-format"},
@@ -869,14 +869,12 @@ func TestValidationExecutor_BuildRunnerConfig(t *testing.T) {
 		}
 
 		task := &domain.Task{
-			Config: domain.TaskConfig{
-				ValidationCommands: []string{"task-specific-lint"}, // Legacy field (ignored)
-			},
+			Config: domain.TaskConfig{}, // Task config has no validation command fields
 		}
 
 		config := executor.buildRunnerConfig(task)
 
-		// All commands should use executor's config commands; task.ValidationCommands is ignored
+		// All commands should use executor's config commands
 		assert.Equal(t, []string{"custom-format"}, config.FormatCommands)
 		assert.Equal(t, []string{"custom-lint"}, config.LintCommands)
 		assert.Equal(t, []string{"custom-test"}, config.TestCommands)

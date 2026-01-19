@@ -590,11 +590,10 @@ func TestDeserializeExampleWorkspaceJSON(t *testing.T) {
 // TestTaskConfig_JSONSerialization verifies TaskConfig marshals to JSON with snake_case keys.
 func TestTaskConfig_JSONSerialization(t *testing.T) {
 	cfg := TaskConfig{
-		Model:              "claude-sonnet-4-20250514",
-		MaxTurns:           15,
-		Timeout:            30 * time.Minute,
-		PermissionMode:     "plan",
-		ValidationCommands: []string{"magex lint", "magex test"},
+		Model:          "claude-sonnet-4-20250514",
+		MaxTurns:       15,
+		Timeout:        30 * time.Minute,
+		PermissionMode: "plan",
 		Variables: map[string]string{
 			"branch_name": "feat/test",
 		},
@@ -608,12 +607,11 @@ func TestTaskConfig_JSONSerialization(t *testing.T) {
 	// Verify snake_case keys are present
 	assert.Contains(t, jsonStr, `"max_turns"`)
 	assert.Contains(t, jsonStr, `"permission_mode"`)
-	assert.Contains(t, jsonStr, `"validation_commands"`)
+	assert.Contains(t, jsonStr, `"variables"`)
 
 	// Verify camelCase keys are NOT present
 	assert.NotContains(t, jsonStr, `"maxTurns"`)
 	assert.NotContains(t, jsonStr, `"permissionMode"`)
-	assert.NotContains(t, jsonStr, `"validationCommands"`)
 
 	// Round-trip test
 	var decoded TaskConfig
@@ -623,8 +621,6 @@ func TestTaskConfig_JSONSerialization(t *testing.T) {
 	assert.Equal(t, cfg.Model, decoded.Model)
 	assert.Equal(t, cfg.MaxTurns, decoded.MaxTurns)
 	assert.Equal(t, cfg.PermissionMode, decoded.PermissionMode)
-	require.Len(t, decoded.ValidationCommands, 2)
-	assert.Equal(t, "magex lint", decoded.ValidationCommands[0])
 	require.Len(t, decoded.Variables, 1)
 	assert.Equal(t, "feat/test", decoded.Variables["branch_name"])
 }
@@ -645,7 +641,6 @@ func TestTaskConfig_OmitemptyFields(t *testing.T) {
 	assert.NotContains(t, jsonStr, `"max_turns"`)
 	assert.NotContains(t, jsonStr, `"timeout"`)
 	assert.NotContains(t, jsonStr, `"permission_mode"`)
-	assert.NotContains(t, jsonStr, `"validation_commands"`)
 	assert.NotContains(t, jsonStr, `"variables"`)
 }
 

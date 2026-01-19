@@ -268,9 +268,8 @@ func (e *Engine) Start(ctx context.Context, workspaceName, branch, worktreePath 
 		CreatedAt:   now,
 		UpdatedAt:   now,
 		Config: domain.TaskConfig{
-			Agent:              template.DefaultAgent,
-			Model:              template.DefaultModel,
-			ValidationCommands: template.ValidationCommands,
+			Agent: template.DefaultAgent,
+			Model: template.DefaultModel,
 		},
 		SchemaVersion: constants.TaskSchemaVersion,
 		Metadata: map[string]any{

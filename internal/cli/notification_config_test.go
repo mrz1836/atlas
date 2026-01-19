@@ -16,8 +16,7 @@ func TestNotificationConfigDefaults(t *testing.T) {
 	assert.Contains(t, cfg.Events, NotifyEventValidationFailed)
 	assert.Contains(t, cfg.Events, NotifyEventCIFailed)
 	assert.Contains(t, cfg.Events, NotifyEventGitHubFailed)
-	assert.NotContains(t, cfg.Events, NotifyEventError, "Default should not include legacy error event")
-	assert.Len(t, cfg.Events, 4, "Should have 4 default events (granular only)")
+	assert.Len(t, cfg.Events, 4, "Should have 4 default events")
 }
 
 func TestDefaultNotificationConfig(t *testing.T) {
@@ -28,19 +27,17 @@ func TestDefaultNotificationConfig(t *testing.T) {
 	assert.Contains(t, cfg.Events, NotifyEventValidationFailed)
 	assert.Contains(t, cfg.Events, NotifyEventCIFailed)
 	assert.Contains(t, cfg.Events, NotifyEventGitHubFailed)
-	assert.NotContains(t, cfg.Events, NotifyEventError, "Default should not include legacy error event")
-	assert.Len(t, cfg.Events, 4, "Should have 4 default events (granular only)")
+	assert.Len(t, cfg.Events, 4, "Should have 4 default events")
 }
 
 func TestAllNotificationEvents(t *testing.T) {
 	events := AllNotificationEvents()
 
-	assert.Len(t, events, 5, "Should return 5 events (including legacy error)")
+	assert.Len(t, events, 4, "Should return 4 events")
 	assert.Contains(t, events, NotifyEventAwaitingApproval)
 	assert.Contains(t, events, NotifyEventValidationFailed)
 	assert.Contains(t, events, NotifyEventCIFailed)
 	assert.Contains(t, events, NotifyEventGitHubFailed)
-	assert.Contains(t, events, NotifyEventError)
 }
 
 func TestNotificationEventConstants(t *testing.T) {
@@ -134,9 +131,8 @@ func TestPopulateNotificationConfigDefaults(t *testing.T) {
 	PopulateNotificationConfigDefaults(cfg)
 
 	assert.True(t, cfg.BellEnabled)
-	assert.Len(t, cfg.Events, 4, "Should have 4 default events (granular only)")
+	assert.Len(t, cfg.Events, 4, "Should have 4 default events")
 	assert.Contains(t, cfg.Events, NotifyEventAwaitingApproval)
-	assert.NotContains(t, cfg.Events, NotifyEventError, "Default should not include legacy error event")
 }
 
 func TestPopulateNotificationConfigDefaults_NilConfig(_ *testing.T) {

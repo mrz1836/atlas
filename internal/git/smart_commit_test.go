@@ -500,7 +500,7 @@ func TestSmartCommitRunner_BuildAIPrompt(t *testing.T) {
 		CommitType: CommitTypeFeat,
 	}
 
-	prompt := runner.buildAIPrompt(group)
+	prompt := runner.buildAIPromptWithDiff(group, "")
 
 	assert.Contains(t, prompt, "Package: internal/git")
 	assert.Contains(t, prompt, "internal/git/runner.go (M)")

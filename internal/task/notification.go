@@ -26,7 +26,6 @@ type NotificationConfig struct {
 
 	// Events is the list of event types that trigger notifications.
 	// Supported: "awaiting_approval", "validation_failed", "ci_failed", "github_failed"
-	// Legacy: "error" (matches both ci_failed and github_failed for backward compatibility)
 	Events []string
 }
 
@@ -121,13 +120,7 @@ func (n *StateChangeNotifier) shouldNotifyForStatus(status constants.TaskStatus)
 	}
 
 	for _, event := range n.config.Events {
-		// Direct match (granular events)
 		if event == eventType {
-			return true
-		}
-
-		// Backward compatibility: "error" matches any failure type
-		if event == "error" && (eventType == "ci_failed" || eventType == "github_failed") {
 			return true
 		}
 	}

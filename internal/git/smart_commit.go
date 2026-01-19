@@ -696,11 +696,6 @@ Return format (no extra formatting or explanations):
 	)
 }
 
-// buildAIPrompt creates the prompt for AI commit message generation (legacy, for tests).
-func (r *SmartCommitRunner) buildAIPrompt(group FileGroup) string {
-	return r.buildAIPromptWithDiff(group, "")
-}
-
 // addGarbageToGroups adds garbage files back to the analysis groups.
 // This is used when IncludeGarbage option is true.
 func (r *SmartCommitRunner) addGarbageToGroups(analysis *CommitAnalysis) *CommitAnalysis {

@@ -14,7 +14,6 @@ const (
 	NotifyEventValidationFailed = "validation_failed"
 	NotifyEventCIFailed         = "ci_failed"
 	NotifyEventGitHubFailed     = "github_failed"
-	NotifyEventError            = "error" // Legacy catch-all for CI and GitHub failures (deprecated, use granular events)
 )
 
 // AllNotificationEvents returns all supported notification event types.
@@ -24,7 +23,6 @@ func AllNotificationEvents() []string {
 		NotifyEventValidationFailed,
 		NotifyEventCIFailed,
 		NotifyEventGitHubFailed,
-		NotifyEventError, // Legacy support
 	}
 }
 

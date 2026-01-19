@@ -991,9 +991,9 @@ func TestTreeChars(t *testing.T) {
 }
 
 // TestRenderHyperlink tests OSC 8 hyperlink rendering.
+// We don't use t.Parallel() here because subtests modify environment variables,
+// which would cause race conditions when running in parallel.
 func TestRenderHyperlink(t *testing.T) {
-	t.Parallel()
-
 	t.Run("renders hyperlink with OSC 8 escape sequence", func(t *testing.T) {
 		// Need to ensure color support for hyperlink rendering
 		// Store and restore NO_COLOR
@@ -1023,9 +1023,9 @@ func TestRenderHyperlink(t *testing.T) {
 }
 
 // TestRenderFileHyperlink tests file:// URL hyperlink rendering.
+// We don't use t.Parallel() here because subtests modify environment variables,
+// which would cause race conditions when running in parallel.
 func TestRenderFileHyperlink(t *testing.T) {
-	t.Parallel()
-
 	t.Run("creates file:// URL", func(t *testing.T) {
 		// Need to ensure color support
 		original := os.Getenv("NO_COLOR")

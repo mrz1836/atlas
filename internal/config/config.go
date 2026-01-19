@@ -249,7 +249,7 @@ type NotificationsConfig struct {
 	Bell bool `yaml:"bell" mapstructure:"bell"`
 
 	// Events is the list of event types that trigger notifications.
-	// Supported events: "awaiting_approval", "validation_failed", "task_complete", "error"
+	// Supported events: "awaiting_approval", "validation_failed", "ci_failed", "github_failed"
 	Events []string `yaml:"events" mapstructure:"events"`
 }
 

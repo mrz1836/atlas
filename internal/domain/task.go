@@ -107,9 +107,6 @@ type TaskConfig struct {
 	// PermissionMode controls AI permissions ("", "plan").
 	PermissionMode string `json:"permission_mode,omitempty"`
 
-	// ValidationCommands are the commands to run during validation.
-	ValidationCommands []string `json:"validation_commands,omitempty"`
-
 	// Variables are template-specific variables for this task.
 	Variables map[string]string `json:"variables,omitempty"`
 }

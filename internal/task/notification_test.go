@@ -93,7 +93,7 @@ func TestStateChangeNotifier_Bell_EmitsBellCharacter(t *testing.T) {
 	cfg := NotificationConfig{
 		BellEnabled: true,
 		Quiet:       false,
-		Events:      []string{"awaiting_approval", "validation_failed", "error"},
+		Events:      []string{"awaiting_approval", "validation_failed", "ci_failed", "github_failed"},
 	}
 	n := NewStateChangeNotifierWithWriter(cfg, &buf)
 
@@ -149,7 +149,7 @@ func TestStateChangeNotifier_NotifyStateChange_EmitsBellOnNewAttentionTransition
 	cfg := NotificationConfig{
 		BellEnabled: true,
 		Quiet:       false,
-		Events:      []string{"awaiting_approval", "validation_failed", "error"},
+		Events:      []string{"awaiting_approval", "validation_failed", "ci_failed", "github_failed"},
 	}
 	n := NewStateChangeNotifierWithWriter(cfg, &buf)
 
@@ -166,7 +166,7 @@ func TestStateChangeNotifier_NotifyStateChange_DoesNotBellWithinAttentionStates(
 	cfg := NotificationConfig{
 		BellEnabled: true,
 		Quiet:       false,
-		Events:      []string{"awaiting_approval", "validation_failed", "error"},
+		Events:      []string{"awaiting_approval", "validation_failed", "ci_failed", "github_failed"},
 	}
 	n := NewStateChangeNotifierWithWriter(cfg, &buf)
 
@@ -183,7 +183,7 @@ func TestStateChangeNotifier_NotifyStateChange_DoesNotBellOnNonAttentionTransiti
 	cfg := NotificationConfig{
 		BellEnabled: true,
 		Quiet:       false,
-		Events:      []string{"awaiting_approval", "validation_failed", "error"},
+		Events:      []string{"awaiting_approval", "validation_failed", "ci_failed", "github_failed"},
 	}
 	n := NewStateChangeNotifierWithWriter(cfg, &buf)
 
@@ -235,7 +235,7 @@ func TestStateChangeNotifier_NotifyStateChange_DisabledDoesNotEmit(t *testing.T)
 	cfg := NotificationConfig{
 		BellEnabled: false,
 		Quiet:       false,
-		Events:      []string{"awaiting_approval", "validation_failed", "error"},
+		Events:      []string{"awaiting_approval", "validation_failed", "ci_failed", "github_failed"},
 	}
 	n := NewStateChangeNotifierWithWriter(cfg, &buf)
 
@@ -251,7 +251,7 @@ func TestStateChangeNotifier_NotifyStateChange_QuietModeDoesNotEmit(t *testing.T
 	cfg := NotificationConfig{
 		BellEnabled: true,
 		Quiet:       true,
-		Events:      []string{"awaiting_approval", "validation_failed", "error"},
+		Events:      []string{"awaiting_approval", "validation_failed", "ci_failed", "github_failed"},
 	}
 	n := NewStateChangeNotifierWithWriter(cfg, &buf)
 
@@ -286,7 +286,7 @@ func TestStateChangeNotifier_NotifyStateChange_AllAttentionStatuses(t *testing.T
 			cfg := NotificationConfig{
 				BellEnabled: true,
 				Quiet:       false,
-				Events:      []string{"awaiting_approval", "validation_failed", "error"},
+				Events:      []string{"awaiting_approval", "validation_failed", "ci_failed", "github_failed"},
 			}
 			n := NewStateChangeNotifierWithWriter(cfg, &buf)
 
@@ -308,8 +308,7 @@ func TestDefaultNotificationConfig(t *testing.T) {
 	assert.Contains(t, cfg.Events, "validation_failed")
 	assert.Contains(t, cfg.Events, "ci_failed")
 	assert.Contains(t, cfg.Events, "github_failed")
-	assert.NotContains(t, cfg.Events, "error", "Default should not include legacy error event")
-	assert.Len(t, cfg.Events, 4, "Should have 4 default events (granular only)")
+	assert.Len(t, cfg.Events, 4, "Should have 4 default events")
 }
 
 func TestStateChangeNotifier_ShouldNotifyForStatus(t *testing.T) {
@@ -318,16 +317,16 @@ func TestStateChangeNotifier_ShouldNotifyForStatus(t *testing.T) {
 	cfg := NotificationConfig{
 		BellEnabled: true,
 		Quiet:       false,
-		Events:      []string{"awaiting_approval", "error"},
+		Events:      []string{"awaiting_approval", "github_failed"},
 	}
 	n := NewStateChangeNotifier(cfg)
 
 	// Test that configured events return true
 	assert.True(t, n.shouldNotifyForStatus(constants.TaskStatusAwaitingApproval))
-	assert.True(t, n.shouldNotifyForStatus(constants.TaskStatusGHFailed)) // Maps to "error"
-	assert.True(t, n.shouldNotifyForStatus(constants.TaskStatusCIFailed)) // Maps to "error"
+	assert.True(t, n.shouldNotifyForStatus(constants.TaskStatusGHFailed))
 
 	// Test that non-configured events return false
 	assert.False(t, n.shouldNotifyForStatus(constants.TaskStatusValidationFailed)) // Not in Events
+	assert.False(t, n.shouldNotifyForStatus(constants.TaskStatusCIFailed))         // Not in Events
 	assert.False(t, n.shouldNotifyForStatus(constants.TaskStatusRunning))          // No mapping
 }
