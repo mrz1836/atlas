@@ -842,29 +842,81 @@ Git:        feat/auth-refactor @ 7b3f1a2
 
 #### atlas backlog promote
 
-Promote a discovery to an ATLAS task.
+Promote a discovery to an ATLAS task. Automatically generates task configuration from the discovery's category, severity, and content.
 
 ```bash
-# Promote with task ID
+# Auto-generate task configuration from discovery (deterministic mapping)
+atlas backlog promote disc-a1b2c3
+
+# Dry-run: preview what would happen without executing
+atlas backlog promote disc-a1b2c3 --dry-run
+
+# With AI-assisted analysis for optimal task configuration
+atlas backlog promote disc-a1b2c3 --ai
+
+# Override template selection (bugfix, feature, task, hotfix)
+atlas backlog promote disc-a1b2c3 --template feature
+
+# Override AI agent and model
+atlas backlog promote disc-a1b2c3 --ai --agent claude --model opus
+
+# Legacy mode: link to existing task ID
 atlas backlog promote disc-a1b2c3 --task-id task-20260118-150000
 
-# JSON output
-atlas backlog promote disc-a1b2c3 --task-id task-20260118-150000 --json
+# JSON output for scripting
+atlas backlog promote disc-a1b2c3 --dry-run --json
 ```
 
 **Flags:**
 
-| Flag | Description | Required |
-|------|-------------|----------|
-| `--task-id` | ATLAS task ID to link | Yes |
+| Flag | Short | Description | Default |
+|------|-------|-------------|---------|
+| `--template` | `-t` | Override template selection | Auto from category |
+| `--ai` | | Use AI-assisted analysis | `false` |
+| `--agent` | | AI agent override (claude, gemini, codex) | From config |
+| `--model` | | AI model override | From config |
+| `--dry-run` | | Preview without executing | `false` |
+| `--task-id` | | Legacy: link to existing task ID | - |
+| `--json` | | Output as JSON | `false` |
 
-**Output:**
+**Category → Template Mapping:**
+
+| Category | Severity | Template |
+|----------|----------|----------|
+| security | critical | hotfix |
+| bug | any | bugfix |
+| security | non-critical | bugfix |
+| performance | any | task |
+| maintainability | any | task |
+| testing | any | task |
+| documentation | any | task |
+
+**Output (Dry-Run):**
+```
+Dry-run: Promote discovery disc-a1b2c3
+  Title:     Missing error handling in payment processor
+  Category:  bug
+  Severity:  high
+
+Would create task with:
+  Template:   bugfix
+  Workspace:  missing-error-handling-payment
+  Branch:     fix/missing-error-handling-payment
+  Description: Missing error handling in payment processor [HIGH]
+               Category: bug
+               The API endpoint doesn't handle network failures properly
+               Location: cmd/api.go:47
+```
+
+**Output (Execute):**
 ```
 Promoted discovery disc-a1b2c3
-  Linked to task: task-20260118-150000
-```
+  Template:   bugfix
+  Workspace:  missing-error-handling-payment
+  Branch:     fix/missing-error-handling-payment
 
-**Note:** This MVP only records the task ID in the discovery metadata. Full task creation integration is planned for a future release.
+To start the task: atlas start "..." --workspace missing-error-handling-payment
+```
 
 #### atlas backlog dismiss
 
