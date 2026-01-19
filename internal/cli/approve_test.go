@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"os/exec"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/mrz1836/atlas/internal/backlog"
 	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/domain"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
@@ -1993,4 +1995,143 @@ func TestApproveCommand_RunEWithWorkspace(t *testing.T) {
 
 	// If we get here without panic, RunE was successfully called
 	// This is the main goal - ensuring code coverage of the RunE function
+}
+
+// TestCompleteLinkedDiscovery_WithNoMetadata tests that completeLinkedDiscovery handles nil metadata gracefully.
+func TestCompleteLinkedDiscovery_WithNoMetadata(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	// Task without metadata
+	task := &domain.Task{
+		ID:       "task-001",
+		Metadata: nil,
+	}
+
+	// Should not panic, just return silently
+	completeLinkedDiscovery(ctx, task)
+}
+
+// TestCompleteLinkedDiscovery_WithNilTask tests that completeLinkedDiscovery handles nil task gracefully.
+func TestCompleteLinkedDiscovery_WithNilTask(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	// Should not panic, just return silently
+	completeLinkedDiscovery(ctx, nil)
+}
+
+// TestCompleteLinkedDiscovery_WithEmptyBacklogID tests that completeLinkedDiscovery handles empty backlog ID gracefully.
+func TestCompleteLinkedDiscovery_WithEmptyBacklogID(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	// Task with metadata but no from_backlog_id
+	task := &domain.Task{
+		ID:       "task-001",
+		Metadata: map[string]any{"some_key": "some_value"},
+	}
+
+	// Should not panic, just return silently
+	completeLinkedDiscovery(ctx, task)
+}
+
+// TestCompleteLinkedDiscovery_WithInvalidBacklogIDType tests that completeLinkedDiscovery handles wrong type gracefully.
+func TestCompleteLinkedDiscovery_WithInvalidBacklogIDType(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	// Task with metadata but from_backlog_id is not a string
+	task := &domain.Task{
+		ID:       "task-001",
+		Metadata: map[string]any{"from_backlog_id": 12345},
+	}
+
+	// Should not panic, just return silently (type assertion will fail)
+	completeLinkedDiscovery(ctx, task)
+}
+
+// TestCompleteLinkedDiscovery_WithValidBacklogID tests completeLinkedDiscovery with valid backlog ID.
+func TestCompleteLinkedDiscovery_WithValidBacklogID(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+
+	// Create a backlog discovery
+	mgr, err := backlog.NewManager(tmpDir)
+	require.NoError(t, err)
+
+	discovery := &backlog.Discovery{
+		Title:  "Test discovery",
+		Status: backlog.StatusPromoted,
+		Content: backlog.Content{
+			Category: backlog.CategoryBug,
+			Severity: backlog.SeverityHigh,
+		},
+		Context: backlog.Context{
+			DiscoveredAt: time.Now().UTC(),
+			DiscoveredBy: "human:tester",
+		},
+		Lifecycle: backlog.Lifecycle{PromotedToTask: "task-001"},
+	}
+	err = mgr.Add(ctx, discovery)
+	require.NoError(t, err)
+
+	// Task with valid from_backlog_id pointing to this discovery
+	task := &domain.Task{
+		ID:       "task-001",
+		Metadata: map[string]any{"from_backlog_id": discovery.ID},
+	}
+
+	// Change to tmpDir so NewManager("") finds the right directory
+	originalDir := t.TempDir()
+	t.Cleanup(func() {
+		_ = chdir(originalDir)
+	})
+	err = chdir(tmpDir)
+	require.NoError(t, err)
+
+	// Call the function
+	completeLinkedDiscovery(ctx, task)
+
+	// Verify the discovery was completed
+	completed, err := mgr.Get(ctx, discovery.ID)
+	require.NoError(t, err)
+	assert.Equal(t, backlog.StatusCompleted, completed.Status)
+	assert.False(t, completed.Lifecycle.CompletedAt.IsZero())
+}
+
+// TestCompleteLinkedDiscovery_WithNonexistentBacklogID tests that completeLinkedDiscovery handles nonexistent discovery gracefully.
+func TestCompleteLinkedDiscovery_WithNonexistentBacklogID(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+
+	// Ensure backlog dir exists
+	mgr, err := backlog.NewManager(tmpDir)
+	require.NoError(t, err)
+	err = mgr.EnsureDir()
+	require.NoError(t, err)
+
+	// Task with from_backlog_id that doesn't exist
+	task := &domain.Task{
+		ID:       "task-001",
+		Metadata: map[string]any{"from_backlog_id": "disc-nonex"},
+	}
+
+	// Change to tmpDir so NewManager("") finds the right directory
+	originalDir := t.TempDir()
+	t.Cleanup(func() {
+		_ = chdir(originalDir)
+	})
+	err = chdir(tmpDir)
+	require.NoError(t, err)
+
+	// Should not panic, just log a warning and return
+	completeLinkedDiscovery(ctx, task)
+}
+
+// chdir helper for tests
+func chdir(dir string) error {
+	return syscall.Chdir(dir)
 }

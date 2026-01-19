@@ -32,7 +32,7 @@ func TestNewBacklogPromoteCmd(t *testing.T) {
 
 	t.Run("has all flags", func(t *testing.T) {
 		t.Parallel()
-		flags := []string{"task-id", "template", "ai", "agent", "model", "dry-run", "json"}
+		flags := []string{"template", "ai", "agent", "model", "dry-run", "json"}
 		for _, flag := range flags {
 			f := cmd.Flags().Lookup(flag)
 			assert.NotNil(t, f, "flag %s should exist", flag)
@@ -47,48 +47,6 @@ func TestNewBacklogPromoteCmd(t *testing.T) {
 }
 
 // Tests that change working directory cannot use t.Parallel() due to race conditions
-
-func TestRunBacklogPromote_LegacyMode(t *testing.T) {
-	// Cannot use t.Parallel() - test changes working directory
-	ctx := context.Background()
-
-	tmpDir := t.TempDir()
-	origDir, _ := os.Getwd()
-	require.NoError(t, os.Chdir(tmpDir))
-	t.Cleanup(func() { _ = os.Chdir(origDir) })
-
-	mgr, err := backlog.NewManager("")
-	require.NoError(t, err)
-	d := &backlog.Discovery{
-		Title:  "Legacy Test",
-		Status: backlog.StatusPending,
-		Content: backlog.Content{
-			Category: backlog.CategoryBug,
-			Severity: backlog.SeverityHigh,
-		},
-		Context: backlog.Context{
-			DiscoveredAt: time.Now().UTC(),
-			DiscoveredBy: "human:tester",
-		},
-	}
-	err = mgr.Add(ctx, d)
-	require.NoError(t, err)
-
-	cmd := newBacklogPromoteCmd()
-
-	var buf bytes.Buffer
-
-	opts := promoteOptions{
-		taskID: "task-legacy-001",
-	}
-
-	err = runBacklogPromote(ctx, cmd, &buf, d.ID, opts)
-	require.NoError(t, err)
-
-	output := buf.String()
-	assert.Contains(t, output, "Promoted")
-	assert.Contains(t, output, "task-legacy-001")
-}
 
 func TestRunBacklogPromote_DryRun(t *testing.T) {
 	// Cannot use t.Parallel() - test changes working directory
@@ -707,54 +665,6 @@ func TestRunBacklogPromote_DismissedDiscovery(t *testing.T) {
 	assert.Contains(t, err.Error(), "invalid status transition")
 }
 
-func TestRunBacklogPromote_LegacyDryRun(t *testing.T) {
-	// Cannot use t.Parallel() - test changes working directory
-	ctx := context.Background()
-
-	tmpDir := t.TempDir()
-	origDir, _ := os.Getwd()
-	require.NoError(t, os.Chdir(tmpDir))
-	t.Cleanup(func() { _ = os.Chdir(origDir) })
-
-	mgr, err := backlog.NewManager("")
-	require.NoError(t, err)
-	d := &backlog.Discovery{
-		Title:  "Legacy Dry Run Test",
-		Status: backlog.StatusPending,
-		Content: backlog.Content{
-			Category: backlog.CategoryBug,
-			Severity: backlog.SeverityHigh,
-		},
-		Context: backlog.Context{
-			DiscoveredAt: time.Now().UTC(),
-			DiscoveredBy: "human:tester",
-		},
-	}
-	err = mgr.Add(ctx, d)
-	require.NoError(t, err)
-
-	cmd := newBacklogPromoteCmd()
-
-	var buf bytes.Buffer
-
-	opts := promoteOptions{
-		taskID: "task-legacy-dryrun",
-		dryRun: true,
-	}
-
-	err = runBacklogPromote(ctx, cmd, &buf, d.ID, opts)
-	require.NoError(t, err)
-
-	output := buf.String()
-	assert.Contains(t, output, "Dry-run")
-	assert.Contains(t, output, "task-legacy-dryrun")
-
-	// Verify discovery was not modified
-	got, err := mgr.Get(ctx, d.ID)
-	require.NoError(t, err)
-	assert.Equal(t, backlog.StatusPending, got.Status)
-}
-
 func TestPromoteResult_BranchNames(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -1011,4 +921,153 @@ type mockCLIAIRunnerRecorder struct {
 func (m *mockCLIAIRunnerRecorder) Run(_ context.Context, req *domain.AIRequest) (*domain.AIResult, error) {
 	*m.requests = append(*m.requests, req)
 	return m.result, m.err
+}
+
+func TestRunBacklogPromote_AIProgress_TTYOutput(t *testing.T) {
+	// Cannot use t.Parallel() - test changes working directory
+	ctx := context.Background()
+
+	tmpDir := t.TempDir()
+	origDir, _ := os.Getwd()
+	require.NoError(t, os.Chdir(tmpDir))
+	t.Cleanup(func() { _ = os.Chdir(origDir) })
+
+	mgr, err := backlog.NewManager("")
+	require.NoError(t, err)
+	d := &backlog.Discovery{
+		Title:  "AI Progress Test",
+		Status: backlog.StatusPending,
+		Content: backlog.Content{
+			Category: backlog.CategoryBug,
+			Severity: backlog.SeverityMedium,
+		},
+		Context: backlog.Context{
+			DiscoveredAt: time.Now().UTC(),
+			DiscoveredBy: "human:tester",
+		},
+	}
+	err = mgr.Add(ctx, d)
+	require.NoError(t, err)
+
+	cmd := newBacklogPromoteCmd()
+
+	var buf bytes.Buffer
+
+	opts := promoteOptions{
+		ai:     true,
+		dryRun: true,
+	}
+
+	err = runBacklogPromote(ctx, cmd, &buf, d.ID, opts)
+	require.NoError(t, err)
+
+	output := buf.String()
+	// Should show AI analysis progress message with agent/model
+	assert.Contains(t, output, "AI Analysis")
+	assert.Contains(t, output, "claude")
+	assert.Contains(t, output, "sonnet")
+	// Should show completion message
+	assert.Contains(t, output, "AI Analysis complete")
+}
+
+func TestRunBacklogPromote_AIProgress_WithAgentOverride(t *testing.T) {
+	// Cannot use t.Parallel() - test changes working directory
+	ctx := context.Background()
+
+	tmpDir := t.TempDir()
+	origDir, _ := os.Getwd()
+	require.NoError(t, os.Chdir(tmpDir))
+	t.Cleanup(func() { _ = os.Chdir(origDir) })
+
+	mgr, err := backlog.NewManager("")
+	require.NoError(t, err)
+	d := &backlog.Discovery{
+		Title:  "AI Progress Agent Override Test",
+		Status: backlog.StatusPending,
+		Content: backlog.Content{
+			Category: backlog.CategoryBug,
+			Severity: backlog.SeverityMedium,
+		},
+		Context: backlog.Context{
+			DiscoveredAt: time.Now().UTC(),
+			DiscoveredBy: "human:tester",
+		},
+	}
+	err = mgr.Add(ctx, d)
+	require.NoError(t, err)
+
+	cmd := newBacklogPromoteCmd()
+
+	var buf bytes.Buffer
+
+	opts := promoteOptions{
+		ai:     true,
+		agent:  "gemini",
+		model:  "flash",
+		dryRun: true,
+	}
+
+	err = runBacklogPromote(ctx, cmd, &buf, d.ID, opts)
+	require.NoError(t, err)
+
+	output := buf.String()
+	// Should show AI analysis progress with overridden agent/model
+	assert.Contains(t, output, "AI Analysis")
+	assert.Contains(t, output, "gemini")
+	assert.Contains(t, output, "flash")
+}
+
+func TestRunBacklogPromote_AIProgress_JSONOutput_NoProgress(t *testing.T) {
+	// Cannot use t.Parallel() - test changes working directory
+	ctx := context.Background()
+
+	tmpDir := t.TempDir()
+	origDir, _ := os.Getwd()
+	require.NoError(t, os.Chdir(tmpDir))
+	t.Cleanup(func() { _ = os.Chdir(origDir) })
+
+	mgr, err := backlog.NewManager("")
+	require.NoError(t, err)
+	d := &backlog.Discovery{
+		Title:  "AI JSON No Progress Test",
+		Status: backlog.StatusPending,
+		Content: backlog.Content{
+			Category: backlog.CategoryBug,
+			Severity: backlog.SeverityMedium,
+		},
+		Context: backlog.Context{
+			DiscoveredAt: time.Now().UTC(),
+			DiscoveredBy: "human:tester",
+		},
+	}
+	err = mgr.Add(ctx, d)
+	require.NoError(t, err)
+
+	cmd := newBacklogPromoteCmd()
+	// Add global output flag
+	root := &cobra.Command{Use: "atlas"}
+	AddGlobalFlags(root, &GlobalFlags{})
+	root.AddCommand(cmd)
+
+	var buf bytes.Buffer
+
+	opts := promoteOptions{
+		ai:         true,
+		jsonOutput: true,
+		dryRun:     true,
+	}
+
+	err = runBacklogPromote(ctx, cmd, &buf, d.ID, opts)
+	require.NoError(t, err)
+
+	output := buf.String()
+	// JSON output should NOT contain progress messages
+	assert.NotContains(t, output, "AI Analysis (")
+	assert.NotContains(t, output, "AI Analysis complete")
+
+	// Should be valid JSON
+	var result map[string]any
+	err = json.Unmarshal(buf.Bytes(), &result)
+	require.NoError(t, err)
+	assert.True(t, result["success"].(bool))
 }

@@ -244,23 +244,25 @@ func TestStatusCommand_JSONOutput(t *testing.T) {
 	err := runStatusWithDeps(ctx, &buf, testStatusOpts("json", false, false), testStatusDeps(mockMgr, mockStore))
 	require.NoError(t, err)
 
-	// Parse JSON output - now uses structured format with workspaces and attention_items (Story 7.9)
-	var result statusJSONOutput
+	// Parse JSON output - now uses hierarchical format with nested tasks
+	var result hierarchicalJSONOutput
 	err = json.Unmarshal(buf.Bytes(), &result)
 	require.NoError(t, err, "output should be valid JSON")
 	require.Len(t, result.Workspaces, 1, "should have one workspace")
 
-	// Check JSON uses full field names (AC: #2)
-	assert.Equal(t, "payment", result.Workspaces[0]["workspace"])
-	assert.Equal(t, "fix/payment", result.Workspaces[0]["branch"])
-	assert.Contains(t, result.Workspaces[0]["status"], "awaiting_approval")
-	assert.Equal(t, "6/7", result.Workspaces[0]["step"])
-	assert.Equal(t, "atlas approve", result.Workspaces[0]["action"], "action field should be present")
+	// Check hierarchical JSON structure
+	assert.Equal(t, "payment", result.Workspaces[0].Name)
+	assert.Equal(t, "fix/payment", result.Workspaces[0].Branch)
+	assert.Contains(t, result.Workspaces[0].Status, "awaiting_approval")
+	assert.Equal(t, 1, result.Workspaces[0].TotalTasks)
+	require.Len(t, result.Workspaces[0].Tasks, 1, "should have one task")
+	assert.Equal(t, "6/7", result.Workspaces[0].Tasks[0].Step)
 
-	// Check attention_items (Story 7.9)
+	// Check attention_items
 	require.Len(t, result.AttentionItems, 1, "should have one attention item")
-	assert.Equal(t, "payment", result.AttentionItems[0]["workspace"])
-	assert.Equal(t, "atlas approve payment", result.AttentionItems[0]["action"])
+	assert.Equal(t, "payment", result.AttentionItems[0].Workspace)
+	assert.Equal(t, "task-1", result.AttentionItems[0].TaskID)
+	assert.Equal(t, "atlas approve payment", result.AttentionItems[0].Action)
 }
 
 // TestStatusCommand_EmptyJSON tests empty state returns valid JSON with empty workspaces array.
@@ -276,8 +278,8 @@ func TestStatusCommand_EmptyJSON(t *testing.T) {
 	err := runStatusWithDeps(ctx, &buf, testStatusOpts("json", false, false), testStatusDeps(mockMgr, mockStore))
 	require.NoError(t, err)
 
-	// Story 7.9: JSON output now uses structured format
-	var result statusJSONOutput
+	// JSON output uses hierarchical format
+	var result hierarchicalJSONOutput
 	err = json.Unmarshal(buf.Bytes(), &result)
 	require.NoError(t, err, "empty state should return valid JSON")
 	assert.Empty(t, result.Workspaces, "workspaces array should be empty")
@@ -324,11 +326,14 @@ func TestStatusCommand_QuietMode(t *testing.T) {
 
 	// Quiet mode should NOT have header or footer
 	assert.NotContains(t, output, "ATLAS", "quiet mode should not show ATLAS header")
-	assert.NotContains(t, output, "workspaces", "quiet mode should not show footer summary")
+	// The word "workspace" appears in the footer summary (e.g., "1 workspace, 1 task")
+	// The hierarchical footer is only shown when not in quiet mode
+	assert.NotContains(t, output, "1 workspace,", "quiet mode should not show footer summary")
 	assert.NotContains(t, output, "Run:", "quiet mode should not show actionable command")
 
-	// But should have the table data
+	// But should have the table data (hierarchical format shows workspace and task rows)
 	assert.Contains(t, output, "auth", "quiet mode should still show workspace name")
+	assert.Contains(t, output, "task-1", "quiet mode should show task ID")
 }
 
 // TestStatusCommand_HeaderAndFooter tests header and footer display.
@@ -678,14 +683,15 @@ func TestStatusCommand_EmptyTaskRefsWithTasksInStore_JSON(t *testing.T) {
 	err := runStatusWithDeps(ctx, &buf, testStatusOpts("json", false, false), testStatusDeps(mockMgr, mockStore))
 	require.NoError(t, err)
 
-	var result statusJSONOutput
+	var result hierarchicalJSONOutput
 	err = json.Unmarshal(buf.Bytes(), &result)
 	require.NoError(t, err)
 	require.Len(t, result.Workspaces, 1)
 
-	// Verify correct values in JSON
-	assert.Contains(t, result.Workspaces[0]["status"], "awaiting_approval")
-	assert.Equal(t, "8/8", result.Workspaces[0]["step"], "JSON should show correct step count")
+	// Verify correct values in hierarchical JSON format
+	assert.Contains(t, result.Workspaces[0].Status, "awaiting_approval")
+	require.Len(t, result.Workspaces[0].Tasks, 1, "should have one task")
+	assert.Equal(t, "8/8", result.Workspaces[0].Tasks[0].Step, "JSON should show correct step count")
 }
 
 // TestStatusCommand_AllStatuses tests all possible task statuses are handled.

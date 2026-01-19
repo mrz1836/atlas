@@ -307,7 +307,7 @@ func TestBacklogViewCommand(t *testing.T) {
 func TestBacklogPromoteCommand(t *testing.T) {
 	ctx := context.Background()
 
-	t.Run("promotes pending discovery", func(t *testing.T) {
+	t.Run("generates task config for pending discovery", func(t *testing.T) {
 		tmpDir, mgr := setupTestBacklogDir(t)
 
 		d := createTestDiscovery(ctx, t, mgr, "Promote test")
@@ -322,21 +322,15 @@ func TestBacklogPromoteCommand(t *testing.T) {
 		cmd.SetContext(ctx)
 		cmd.SetOut(&buf)
 		cmd.SetErr(&buf)
-		cmd.SetArgs([]string{d.ID, "--task-id", "task-001"})
+		cmd.SetArgs([]string{d.ID, "--dry-run"})
 
 		err := cmd.Execute()
 		require.NoError(t, err)
 
 		output := buf.String()
-		assert.Contains(t, output, "Promoted")
+		assert.Contains(t, output, "Dry-run")
 		assert.Contains(t, output, d.ID)
-		assert.Contains(t, output, "task-001")
-
-		// Verify the discovery was actually promoted
-		updated, err := mgr.Get(ctx, d.ID)
-		require.NoError(t, err)
-		assert.Equal(t, backlog.StatusPromoted, updated.Status)
-		assert.Equal(t, "task-001", updated.Lifecycle.PromotedToTask)
+		assert.Contains(t, output, "bugfix") // Bug category maps to bugfix
 	})
 
 	t.Run("returns ExitCode2Error for already promoted discovery", func(t *testing.T) {
@@ -357,14 +351,14 @@ func TestBacklogPromoteCommand(t *testing.T) {
 		cmd.SetContext(ctx)
 		cmd.SetOut(&buf)
 		cmd.SetErr(&buf)
-		cmd.SetArgs([]string{d.ID, "--task-id", "task-new"})
+		cmd.SetArgs([]string{d.ID})
 
 		err = cmd.Execute()
 		require.Error(t, err)
 		assert.True(t, atlaserrors.IsExitCode2Error(err), "expected ExitCode2Error")
 	})
 
-	t.Run("works without task-id using auto-config", func(t *testing.T) {
+	t.Run("generates auto-config with dry-run", func(t *testing.T) {
 		tmpDir, mgr := setupTestBacklogDir(t)
 
 		d := createTestDiscovery(ctx, t, mgr, "Auto config test")
@@ -648,5 +642,184 @@ func TestBacklogAddFlagMode(t *testing.T) {
 		assert.Equal(t, "JSON output test", result.Title)
 		assert.Equal(t, backlog.CategoryBug, result.Content.Category)
 		assert.Equal(t, backlog.SeverityLow, result.Content.Severity)
+	})
+}
+
+// TestGetGitHubUsername tests the getGitHubUsername helper function.
+func TestGetGitHubUsername(t *testing.T) {
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+
+	// Save and clear relevant env vars
+	origGitHubUser := os.Getenv("GITHUB_USER")
+	origGitHubActor := os.Getenv("GITHUB_ACTOR")
+	defer func() {
+		_ = os.Setenv("GITHUB_USER", origGitHubUser)
+		_ = os.Setenv("GITHUB_ACTOR", origGitHubActor)
+	}()
+
+	t.Run("GITHUB_USER env var takes priority", func(t *testing.T) {
+		_ = os.Setenv("GITHUB_USER", "envuser")
+		_ = os.Setenv("GITHUB_ACTOR", "actoruser")
+		defer func() {
+			_ = os.Unsetenv("GITHUB_USER")
+			_ = os.Unsetenv("GITHUB_ACTOR")
+		}()
+
+		result := getGitHubUsername(ctx, tmpDir)
+		assert.Equal(t, "envuser", result)
+	})
+
+	t.Run("GITHUB_ACTOR env var is second priority", func(t *testing.T) {
+		_ = os.Unsetenv("GITHUB_USER")
+		_ = os.Setenv("GITHUB_ACTOR", "actoruser")
+		defer func() {
+			_ = os.Unsetenv("GITHUB_ACTOR")
+		}()
+
+		result := getGitHubUsername(ctx, tmpDir)
+		assert.Equal(t, "actoruser", result)
+	})
+
+	t.Run("falls back to OS username when env vars not set", func(t *testing.T) {
+		_ = os.Unsetenv("GITHUB_USER")
+		_ = os.Unsetenv("GITHUB_ACTOR")
+
+		result := getGitHubUsername(ctx, tmpDir)
+		// Should return OS username (not empty) since gh CLI likely not authenticated in test
+		assert.NotEmpty(t, result, "should fall back to OS username")
+	})
+}
+
+// TestGetGitHubUsernameViaCLI tests the getGitHubUsernameViaCLI helper function.
+func TestGetGitHubUsernameViaCLI(t *testing.T) {
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+
+	t.Run("returns empty string when gh is not installed or not authenticated", func(t *testing.T) {
+		// In most test environments, gh won't be authenticated
+		// This test verifies the function doesn't panic and handles errors gracefully
+		result := getGitHubUsernameViaCLI(ctx, tmpDir)
+		// Result could be empty (not authenticated) or a username (if authenticated)
+		// We just verify it doesn't panic and returns a string
+		assert.IsType(t, "", result)
+	})
+
+	t.Run("handles context cancellation", func(t *testing.T) {
+		cancelCtx, cancel := context.WithCancel(ctx)
+		cancel() // Cancel immediately
+
+		result := getGitHubUsernameViaCLI(cancelCtx, tmpDir)
+		assert.Empty(t, result, "should return empty on canceled context")
+	})
+}
+
+// TestDetectDiscoverer tests the detectDiscoverer function.
+func TestDetectDiscoverer(t *testing.T) {
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+
+	// Save original env vars
+	origGitHubUser := os.Getenv("GITHUB_USER")
+	origAtlasAgent := os.Getenv("ATLAS_AGENT")
+	origAtlasModel := os.Getenv("ATLAS_MODEL")
+	origClaudeCode := os.Getenv("CLAUDE_CODE")
+	origAnthropicKey := os.Getenv("ANTHROPIC_API_KEY")
+	origAnthropicModel := os.Getenv("ANTHROPIC_MODEL")
+
+	defer func() {
+		_ = os.Setenv("GITHUB_USER", origGitHubUser)
+		_ = os.Setenv("ATLAS_AGENT", origAtlasAgent)
+		_ = os.Setenv("ATLAS_MODEL", origAtlasModel)
+		_ = os.Setenv("CLAUDE_CODE", origClaudeCode)
+		_ = os.Setenv("ANTHROPIC_API_KEY", origAnthropicKey)
+		_ = os.Setenv("ANTHROPIC_MODEL", origAnthropicModel)
+	}()
+
+	// Clear all env vars before tests
+	clearDiscovererEnvVars := func() {
+		_ = os.Unsetenv("GITHUB_USER")
+		_ = os.Unsetenv("GITHUB_ACTOR")
+		_ = os.Unsetenv("ATLAS_AGENT")
+		_ = os.Unsetenv("ATLAS_MODEL")
+		_ = os.Unsetenv("CLAUDE_CODE")
+		_ = os.Unsetenv("ANTHROPIC_API_KEY")
+		_ = os.Unsetenv("ANTHROPIC_MODEL")
+	}
+
+	t.Run("interactive mode returns human with GitHub username", func(t *testing.T) {
+		clearDiscovererEnvVars()
+		_ = os.Setenv("GITHUB_USER", "testuser")
+		defer func() { _ = os.Unsetenv("GITHUB_USER") }()
+
+		result := detectDiscoverer(ctx, tmpDir, true)
+		assert.Equal(t, "human:testuser", result)
+	})
+
+	t.Run("interactive mode lowercases username", func(t *testing.T) {
+		clearDiscovererEnvVars()
+		_ = os.Setenv("GITHUB_USER", "TestUser")
+		defer func() { _ = os.Unsetenv("GITHUB_USER") }()
+
+		result := detectDiscoverer(ctx, tmpDir, true)
+		assert.Equal(t, "human:testuser", result)
+	})
+
+	t.Run("flag mode with ATLAS_AGENT and ATLAS_MODEL returns AI format", func(t *testing.T) {
+		clearDiscovererEnvVars()
+		_ = os.Setenv("ATLAS_AGENT", "custom-agent")
+		_ = os.Setenv("ATLAS_MODEL", "custom-model")
+		defer func() {
+			_ = os.Unsetenv("ATLAS_AGENT")
+			_ = os.Unsetenv("ATLAS_MODEL")
+		}()
+
+		result := detectDiscoverer(ctx, tmpDir, false)
+		assert.Equal(t, "ai:custom-agent:custom-model", result)
+	})
+
+	t.Run("flag mode with CLAUDE_CODE returns Claude format", func(t *testing.T) {
+		clearDiscovererEnvVars()
+		_ = os.Setenv("CLAUDE_CODE", "1")
+		_ = os.Setenv("ANTHROPIC_MODEL", "claude-sonnet-4")
+		defer func() {
+			_ = os.Unsetenv("CLAUDE_CODE")
+			_ = os.Unsetenv("ANTHROPIC_MODEL")
+		}()
+
+		result := detectDiscoverer(ctx, tmpDir, false)
+		assert.Equal(t, "ai:claude-code:claude-sonnet-4", result)
+	})
+
+	t.Run("flag mode with ANTHROPIC_API_KEY returns Claude format", func(t *testing.T) {
+		clearDiscovererEnvVars()
+		_ = os.Setenv("ANTHROPIC_API_KEY", "test-key")
+		defer func() { _ = os.Unsetenv("ANTHROPIC_API_KEY") }()
+
+		result := detectDiscoverer(ctx, tmpDir, false)
+		assert.Equal(t, "ai:claude-code:unknown", result)
+	})
+
+	t.Run("flag mode without AI env vars falls back to human", func(t *testing.T) {
+		clearDiscovererEnvVars()
+		_ = os.Setenv("GITHUB_USER", "fallbackuser")
+		defer func() { _ = os.Unsetenv("GITHUB_USER") }()
+
+		result := detectDiscoverer(ctx, tmpDir, false)
+		assert.Equal(t, "human:fallbackuser", result)
+	})
+
+	t.Run("ATLAS_AGENT requires ATLAS_MODEL to use AI format", func(t *testing.T) {
+		clearDiscovererEnvVars()
+		_ = os.Setenv("ATLAS_AGENT", "orphan-agent")
+		_ = os.Setenv("GITHUB_USER", "humanuser")
+		defer func() {
+			_ = os.Unsetenv("ATLAS_AGENT")
+			_ = os.Unsetenv("GITHUB_USER")
+		}()
+
+		result := detectDiscoverer(ctx, tmpDir, false)
+		// Without ATLAS_MODEL, should fall through to human
+		assert.Equal(t, "human:humanuser", result)
 	})
 }
