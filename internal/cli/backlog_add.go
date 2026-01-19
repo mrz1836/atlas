@@ -63,7 +63,7 @@ Exit codes:
   2: Invalid input (missing required flags)`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runBacklogAdd(cmd.Context(), cmd, os.Stdout, args, flags)
+			return runBacklogAdd(cmd.Context(), cmd, cmd.OutOrStdout(), args, flags)
 		},
 	}
 

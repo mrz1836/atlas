@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -48,7 +47,7 @@ Exit codes:
   0: Success
   1: General error`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runBacklogList(cmd.Context(), cmd, os.Stdout, flags)
+			return runBacklogList(cmd.Context(), cmd, cmd.OutOrStdout(), flags)
 		},
 	}
 

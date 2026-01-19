@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
 
 	"github.com/spf13/cobra"
 
@@ -39,7 +38,7 @@ Exit codes:
   2: Invalid input (discovery not pending, missing reason)`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runBacklogDismiss(cmd.Context(), cmd, os.Stdout, args[0], reason, jsonOutput)
+			return runBacklogDismiss(cmd.Context(), cmd, cmd.OutOrStdout(), args[0], reason, jsonOutput)
 		},
 	}
 

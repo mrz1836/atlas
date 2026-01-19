@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 	"sync"
 
@@ -56,7 +55,7 @@ Exit codes:
   1: Discovery not found or error`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runBacklogView(cmd.Context(), cmd, os.Stdout, args[0], jsonOutput)
+			return runBacklogView(cmd.Context(), cmd, cmd.OutOrStdout(), args[0], jsonOutput)
 		},
 	}
 
