@@ -177,6 +177,9 @@ var (
 	// ErrConfigInvalidValidation indicates an invalid Validation configuration value.
 	ErrConfigInvalidValidation = errors.New("invalid Validation configuration")
 
+	// ErrInsecurePermissions indicates that a file has insecure permissions.
+	ErrInsecurePermissions = errors.New("insecure file permissions")
+
 	// ErrInvalidOutputFormat indicates an invalid output format was specified.
 	ErrInvalidOutputFormat = errors.New("invalid output format")
 

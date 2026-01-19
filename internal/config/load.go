@@ -3,6 +3,7 @@ package config
 import (
 	"context"
 	stderrors "errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,7 +12,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/spf13/viper"
 
-	"github.com/mrz1836/atlas/internal/errors"
+	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 )
 
 // mergeStringMaps merges src map into dst map, creating dst if nil.
@@ -54,10 +55,10 @@ func isConfigNotFoundError(err error) bool {
 func unmarshalAndValidate(v *viper.Viper) (*Config, error) {
 	var cfg Config
 	if err := v.Unmarshal(&cfg, viperDecoderOption()); err != nil {
-		return nil, errors.Wrap(err, "failed to unmarshal config")
+		return nil, atlaserrors.Wrap(err, "failed to unmarshal config")
 	}
 	if err := Validate(&cfg); err != nil {
-		return nil, errors.Wrap(err, "invalid configuration")
+		return nil, atlaserrors.Wrap(err, "invalid configuration")
 	}
 	return &cfg, nil
 }
@@ -82,7 +83,7 @@ func Load(ctx context.Context) (*Config, error) {
 
 	// Load global config first (lower precedence)
 	// Global config provides user-wide defaults that can be overridden per-project
-	if err := loadGlobalConfig(v); err != nil {
+	if err := loadGlobalConfig(ctx, v); err != nil {
 		return nil, err
 	}
 
@@ -95,7 +96,7 @@ func Load(ctx context.Context) (*Config, error) {
 	// Unmarshal into Config struct
 	var cfg Config
 	if err := v.Unmarshal(&cfg, viperDecoderOption()); err != nil {
-		return nil, errors.Wrap(err, "failed to unmarshal config")
+		return nil, atlaserrors.Wrap(err, "failed to unmarshal config")
 	}
 
 	// Log loaded configuration for debugging
@@ -108,7 +109,7 @@ func Load(ctx context.Context) (*Config, error) {
 
 	// Validate the configuration
 	if err := Validate(&cfg); err != nil {
-		return nil, errors.Wrap(err, "invalid configuration")
+		return nil, atlaserrors.Wrap(err, "invalid configuration")
 	}
 
 	return &cfg, nil
@@ -116,16 +117,39 @@ func Load(ctx context.Context) (*Config, error) {
 
 // loadGlobalConfig attempts to load the global config file (~/.atlas/config.yaml).
 // Returns nil if the file doesn't exist or home directory cannot be determined.
-func loadGlobalConfig(v *viper.Viper) error {
+func loadGlobalConfig(ctx context.Context, v *viper.Viper) error {
 	globalConfigPath, ok := getGlobalConfigPathIfExists()
 	if !ok {
 		// Global config doesn't exist or home dir unavailable, skip silently
 		return nil
 	}
 
+	// Validate file permissions (warn on insecure, don't fail)
+	if err := validateConfigPermissions(globalConfigPath); err != nil {
+		// Log warning but continue - don't break existing setups
+		zerolog.Ctx(ctx).Warn().
+			Err(err).
+			Str("path", globalConfigPath).
+			Msg("config file has insecure permissions")
+	}
+
 	v.SetConfigFile(globalConfigPath)
 	if err := v.ReadInConfig(); err != nil && !isConfigNotFoundError(err) {
-		return errors.Wrap(err, "failed to read global config file")
+		return atlaserrors.Wrap(err, "failed to read global config file")
+	}
+	return nil
+}
+
+// validateConfigPermissions checks that config file isn't world-readable.
+// Returns error if permissions allow group/other read access.
+func validateConfigPermissions(path string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	perms := info.Mode().Perm()
+	if perms&0o077 != 0 {
+		return fmt.Errorf("%w: %#o (should be 0600 or 0640)", atlaserrors.ErrInsecurePermissions, perms)
 	}
 	return nil
 }
@@ -158,7 +182,7 @@ func loadProjectConfig(v *viper.Viper) error {
 
 	v.SetConfigFile(projectConfigPath)
 	if err := v.MergeInConfig(); err != nil && !isConfigNotFoundError(err) {
-		return errors.Wrap(err, "failed to read project config file")
+		return atlaserrors.Wrap(err, "failed to read project config file")
 	}
 	return nil
 }
@@ -189,7 +213,7 @@ func LoadWithOverrides(ctx context.Context, overrides *Config) (*Config, error) 
 
 	// Re-validate after applying overrides
 	if err := Validate(cfg); err != nil {
-		return nil, errors.Wrap(err, "invalid configuration after overrides")
+		return nil, atlaserrors.Wrap(err, "invalid configuration after overrides")
 	}
 
 	return cfg, nil
@@ -208,7 +232,7 @@ func LoadFromPaths(_ context.Context, projectConfigPath, globalConfigPath string
 	if globalConfigPath != "" {
 		v.SetConfigFile(globalConfigPath)
 		if err := v.ReadInConfig(); err != nil && !isConfigNotFoundError(err) && !os.IsNotExist(err) {
-			return nil, errors.Wrapf(err, "failed to read global config: %s", globalConfigPath)
+			return nil, atlaserrors.Wrapf(err, "failed to read global config: %s", globalConfigPath)
 		}
 	}
 
@@ -216,7 +240,7 @@ func LoadFromPaths(_ context.Context, projectConfigPath, globalConfigPath string
 	if projectConfigPath != "" {
 		v.SetConfigFile(projectConfigPath)
 		if err := v.MergeInConfig(); err != nil && !isConfigNotFoundError(err) && !os.IsNotExist(err) {
-			return nil, errors.Wrapf(err, "failed to read project config: %s", projectConfigPath)
+			return nil, atlaserrors.Wrapf(err, "failed to read project config: %s", projectConfigPath)
 		}
 	}
 
@@ -394,11 +418,11 @@ func applyValidationOverrides(cfg, overrides *Config) {
 //
 // This enables worktree-specific overrides while inheriting base settings.
 // The worktree config is only loaded if worktreePath differs from mainRepoPath.
-func LoadWithWorktree(_ context.Context, mainRepoPath, worktreePath string) (*Config, error) {
+func LoadWithWorktree(ctx context.Context, mainRepoPath, worktreePath string) (*Config, error) {
 	v := newViperInstance()
 
 	// Load global config first (lowest file precedence)
-	if err := loadGlobalConfig(v); err != nil {
+	if err := loadGlobalConfig(ctx, v); err != nil {
 		return nil, err
 	}
 
@@ -409,7 +433,7 @@ func LoadWithWorktree(_ context.Context, mainRepoPath, worktreePath string) (*Co
 		if err := v.MergeInConfig(); err != nil {
 			var configNotFoundErr viper.ConfigFileNotFoundError
 			if !stderrors.As(err, &configNotFoundErr) {
-				return nil, errors.Wrap(err, "failed to read main repo config")
+				return nil, atlaserrors.Wrap(err, "failed to read main repo config")
 			}
 		}
 	}
@@ -448,7 +472,7 @@ func mergeWorktreeConfig(v *viper.Viper, worktreePath, mainRepoPath string) erro
 	if err := v.MergeInConfig(); err != nil {
 		var configNotFoundErr viper.ConfigFileNotFoundError
 		if !stderrors.As(err, &configNotFoundErr) {
-			return errors.Wrap(err, "failed to read worktree config")
+			return atlaserrors.Wrap(err, "failed to read worktree config")
 		}
 	}
 	return nil
