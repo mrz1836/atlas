@@ -19,7 +19,7 @@ import "time"
 //	}
 type AIRequest struct {
 	// Agent specifies which AI CLI to use (claude, gemini).
-	// If empty, defaults to "claude" for backwards compatibility.
+	// This field is required for request execution.
 	Agent Agent `json:"agent,omitempty"`
 
 	// Prompt is the main instruction for the AI agent.

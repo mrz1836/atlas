@@ -13,7 +13,7 @@ func NewCommitTemplate() *domain.Template {
 		Name:         "commit",
 		Description:  "Analyze changes and create smart commits with garbage detection",
 		BranchPrefix: "chore",
-		DefaultAgent: domain.AgentClaude, // Default to Claude for backwards compatibility
+		DefaultAgent: domain.AgentClaude,
 		DefaultModel: "sonnet",
 		Steps: []domain.StepDefinition{
 			{

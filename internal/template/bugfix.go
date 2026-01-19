@@ -14,7 +14,7 @@ func NewBugfixTemplate() *domain.Template {
 		Name:         "bugfix",
 		Description:  "Fix a reported bug with analysis, implementation, and validation",
 		BranchPrefix: "fix",
-		DefaultAgent: domain.AgentClaude, // Default to Claude for backwards compatibility
+		DefaultAgent: domain.AgentClaude,
 		DefaultModel: "sonnet",
 		Verify:       false,  // Verification OFF by default for bugfix (enable with --verify)
 		VerifyModel:  "opus", // Uses different model family automatically

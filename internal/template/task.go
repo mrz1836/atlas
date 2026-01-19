@@ -14,7 +14,7 @@ func NewTaskTemplate() *domain.Template {
 		Name:         "task",
 		Description:  "Complete a simple task with implementation and validation",
 		BranchPrefix: "task",
-		DefaultAgent: domain.AgentClaude, // Default to Claude for backwards compatibility
+		DefaultAgent: domain.AgentClaude,
 		DefaultModel: "sonnet",
 		Verify:       false,  // Verification OFF by default for task (enable with --verify)
 		VerifyModel:  "opus", // Uses different model family automatically
