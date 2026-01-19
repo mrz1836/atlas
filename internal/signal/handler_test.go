@@ -3,6 +3,7 @@ package signal
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -133,8 +134,11 @@ func TestHandler_ListenContinuesAfterSignal(t *testing.T) {
 	h.sigChan <- nil // First signal
 	h.sigChan <- nil // Second signal (should not block/deadlock)
 
-	// Give the goroutine time to process
-	// If listen() exits after first signal, the second send would block forever
+	// Wait for the async listen() goroutine to process the signals
+	// Use Eventually to poll with a timeout to avoid race conditions
+	assert.Eventually(t, func() bool {
+		return h.Context().Err() != nil
+	}, 100*time.Millisecond, 5*time.Millisecond, "context should be canceled after signal")
 
 	// Context should be canceled after the first signal
 	require.Error(t, h.Context().Err())
