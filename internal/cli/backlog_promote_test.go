@@ -1083,12 +1083,18 @@ func TestBuildStartCommand(t *testing.T) {
 			BranchName:    "fix/fix-bug",
 			Discovery: &backlog.Discovery{
 				ID: "disc-abc123",
+				Context: backlog.Context{
+					Git: &backlog.GitContext{
+						Branch: "develop",
+						Commit: "abc1234",
+					},
+				},
 			},
 		}
 
 		cmd := buildStartCommand(result)
 
-		assert.Contains(t, cmd, "-b fix/fix-bug")
+		assert.Contains(t, cmd, "-b develop")
 		assert.Contains(t, cmd, "-t bugfix")
 		assert.Contains(t, cmd, "-w fix-bug")
 		assert.Contains(t, cmd, "--from-backlog disc-abc123")
@@ -1164,6 +1170,12 @@ func TestBuildStartCommand(t *testing.T) {
 			BranchName:    "fix/another-bug",
 			Discovery: &backlog.Discovery{
 				ID: "disc-xyz789",
+				Context: backlog.Context{
+					Git: &backlog.GitContext{
+						Branch: "main",
+						Commit: "xyz7890",
+					},
+				},
 			},
 			AIAnalysis: nil,
 		}
@@ -1171,7 +1183,7 @@ func TestBuildStartCommand(t *testing.T) {
 		cmd := buildStartCommand(result)
 
 		assert.Contains(t, cmd, "atlas start")
-		assert.Contains(t, cmd, "-b fix/another-bug")
+		assert.Contains(t, cmd, "-b main")
 		assert.NotContains(t, cmd, "--verify")
 		assert.NotContains(t, cmd, "--no-verify")
 	})
