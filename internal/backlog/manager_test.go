@@ -12,6 +12,7 @@ import (
 )
 
 func TestNewManager(t *testing.T) {
+	t.Parallel()
 	t.Run("uses current directory when empty", func(t *testing.T) {
 		mgr, err := NewManager("")
 		require.NoError(t, err)
@@ -29,6 +30,7 @@ func TestNewManager(t *testing.T) {
 }
 
 func TestManager_EnsureDir(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 	mgr, err := NewManager(tmpDir)
 	require.NoError(t, err)
@@ -57,6 +59,7 @@ func TestManager_EnsureDir(t *testing.T) {
 }
 
 func TestManager_Add(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	tmpDir := t.TempDir()
 	mgr, err := NewManager(tmpDir)
@@ -151,6 +154,7 @@ func TestManager_Add(t *testing.T) {
 }
 
 func TestManager_Get(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	tmpDir := t.TempDir()
 	mgr, err := NewManager(tmpDir)
@@ -192,6 +196,7 @@ func TestManager_Get(t *testing.T) {
 }
 
 func TestManager_List(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	tmpDir := t.TempDir()
 	mgr, err := NewManager(tmpDir)
@@ -226,34 +231,39 @@ func TestManager_List(t *testing.T) {
 	}
 
 	t.Run("lists all discoveries", func(t *testing.T) {
-		list, err := mgr.List(ctx, Filter{})
+		list, warnings, err := mgr.List(ctx, Filter{})
 		require.NoError(t, err)
+		assert.Empty(t, warnings)
 		assert.Len(t, list, 3)
 	})
 
 	t.Run("filters by status", func(t *testing.T) {
 		pending := StatusPending
-		list, err := mgr.List(ctx, Filter{Status: &pending})
+		list, warnings, err := mgr.List(ctx, Filter{Status: &pending})
 		require.NoError(t, err)
+		assert.Empty(t, warnings)
 		assert.Len(t, list, 2)
 	})
 
 	t.Run("filters by category", func(t *testing.T) {
 		bug := CategoryBug
-		list, err := mgr.List(ctx, Filter{Category: &bug})
+		list, warnings, err := mgr.List(ctx, Filter{Category: &bug})
 		require.NoError(t, err)
+		assert.Empty(t, warnings)
 		assert.Len(t, list, 2)
 	})
 
 	t.Run("applies limit", func(t *testing.T) {
-		list, err := mgr.List(ctx, Filter{Limit: 2})
+		list, warnings, err := mgr.List(ctx, Filter{Limit: 2})
 		require.NoError(t, err)
+		assert.Empty(t, warnings)
 		assert.Len(t, list, 2)
 	})
 
 	t.Run("sorts by discovered_at descending", func(t *testing.T) {
-		list, err := mgr.List(ctx, Filter{})
+		list, warnings, err := mgr.List(ctx, Filter{})
 		require.NoError(t, err)
+		assert.Empty(t, warnings)
 		require.Len(t, list, 3)
 		// Newest should be first
 		assert.True(t, list[0].Context.DiscoveredAt.After(list[1].Context.DiscoveredAt))
@@ -265,13 +275,15 @@ func TestManager_List(t *testing.T) {
 		emptyMgr, err := NewManager(emptyDir)
 		require.NoError(t, err)
 
-		list, err := emptyMgr.List(ctx, Filter{})
+		list, warnings, err := emptyMgr.List(ctx, Filter{})
 		require.NoError(t, err)
+		assert.Empty(t, warnings)
 		assert.Empty(t, list)
 	})
 }
 
 func TestManager_Update(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	tmpDir := t.TempDir()
 	mgr, err := NewManager(tmpDir)
@@ -331,6 +343,7 @@ func TestManager_Update(t *testing.T) {
 }
 
 func TestManager_Promote(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	tmpDir := t.TempDir()
 	mgr, err := NewManager(tmpDir)
@@ -393,6 +406,7 @@ func TestManager_Promote(t *testing.T) {
 }
 
 func TestManager_Dismiss(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	tmpDir := t.TempDir()
 	mgr, err := NewManager(tmpDir)
@@ -455,6 +469,7 @@ func TestManager_Dismiss(t *testing.T) {
 }
 
 func TestManager_ListWithMalformedFiles(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	tmpDir := t.TempDir()
 	mgr, err := NewManager(tmpDir)
@@ -485,9 +500,11 @@ func TestManager_ListWithMalformedFiles(t *testing.T) {
 	err = os.WriteFile(malformedPath, []byte("invalid: yaml: content: ["), 0o600)
 	require.NoError(t, err)
 
-	// List should succeed and skip malformed file
-	list, err := mgr.List(ctx, Filter{})
+	// List should succeed and skip malformed file with warning
+	list, warnings, err := mgr.List(ctx, Filter{})
 	require.NoError(t, err)
 	assert.Len(t, list, 1)
 	assert.Equal(t, d.ID, list[0].ID)
+	assert.Len(t, warnings, 1)
+	assert.Contains(t, warnings[0], "disc-broken.yaml")
 }

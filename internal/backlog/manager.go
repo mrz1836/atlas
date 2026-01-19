@@ -2,6 +2,7 @@ package backlog
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -162,28 +163,32 @@ func (m *Manager) Get(_ context.Context, id string) (*Discovery, error) {
 	return d, nil
 }
 
-// List returns all discoveries matching the filter.
+// List returns all discoveries matching the filter along with any warnings
+// about malformed files that could not be loaded.
 // It reads files in parallel with bounded concurrency for performance.
-func (m *Manager) List(ctx context.Context, filter Filter) ([]*Discovery, error) {
+//
+//nolint:gocognit // complexity justified by parallel file loading with proper error handling
+func (m *Manager) List(ctx context.Context, filter Filter) ([]*Discovery, []string, error) {
 	// Check if directory exists
 	if _, err := os.Stat(m.dir); os.IsNotExist(err) {
-		return []*Discovery{}, nil
+		return []*Discovery{}, nil, nil
 	}
 
 	// Find all discovery files
 	pattern := filepath.Join(m.dir, "disc-*"+fileExtension)
 	files, err := filepath.Glob(pattern)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list files: %w", err)
+		return nil, nil, fmt.Errorf("failed to list files: %w", err)
 	}
 
 	if len(files) == 0 {
-		return []*Discovery{}, nil
+		return []*Discovery{}, nil, nil
 	}
 
 	// Use worker pool for parallel reads
 	type result struct {
 		discovery *Discovery
+		file      string
 		err       error
 	}
 
@@ -199,7 +204,7 @@ func (m *Manager) List(ctx context.Context, filter Filter) ([]*Discovery, error)
 			// Check for context cancellation
 			select {
 			case <-ctx.Done():
-				results <- result{err: ctx.Err()}
+				results <- result{file: f, err: ctx.Err()}
 				return
 			default:
 			}
@@ -210,8 +215,8 @@ func (m *Manager) List(ctx context.Context, filter Filter) ([]*Discovery, error)
 
 			d, loadErr := m.loadFile(f)
 			if loadErr != nil {
-				// Log warning but don't fail the entire list
-				results <- result{err: loadErr}
+				// Return error with file path for warning
+				results <- result{file: f, err: loadErr}
 				return
 			}
 
@@ -231,12 +236,17 @@ func (m *Manager) List(ctx context.Context, filter Filter) ([]*Discovery, error)
 	}()
 
 	// Collect results
-	var discoveries []*Discovery
+	discoveries := make([]*Discovery, 0, len(files))
+	var warnings []string
 	for r := range results {
 		if r.discovery != nil {
 			discoveries = append(discoveries, r.discovery)
+		} else if r.err != nil {
+			// Collect warnings for malformed files (skip context errors)
+			if !errors.Is(r.err, ctx.Err()) {
+				warnings = append(warnings, fmt.Sprintf("%s: %v", filepath.Base(r.file), r.err))
+			}
 		}
-		// Silently skip errors (malformed files) - don't break the list
 	}
 
 	// Sort by discovered_at descending (newest first)
@@ -249,7 +259,7 @@ func (m *Manager) List(ctx context.Context, filter Filter) ([]*Discovery, error)
 		discoveries = discoveries[:filter.Limit]
 	}
 
-	return discoveries, nil
+	return discoveries, warnings, nil
 }
 
 // Update saves changes to an existing discovery.
@@ -290,8 +300,9 @@ func (m *Manager) Promote(ctx context.Context, id, taskID string) (*Discovery, e
 
 	// Validate status transition
 	if d.Status != StatusPending {
-		return nil, fmt.Errorf("%w: can only promote pending discoveries, current status is %q",
-			atlaserrors.ErrInvalidStatusTransition, d.Status)
+		return nil, atlaserrors.NewExitCode2Error(
+			fmt.Errorf("%w: can only promote pending discoveries, current status is %q",
+				atlaserrors.ErrInvalidStatusTransition, d.Status))
 	}
 
 	// Update status and lifecycle
@@ -315,8 +326,9 @@ func (m *Manager) Dismiss(ctx context.Context, id, reason string) (*Discovery, e
 
 	// Validate status transition
 	if d.Status != StatusPending {
-		return nil, fmt.Errorf("%w: can only dismiss pending discoveries, current status is %q",
-			atlaserrors.ErrInvalidStatusTransition, d.Status)
+		return nil, atlaserrors.NewExitCode2Error(
+			fmt.Errorf("%w: can only dismiss pending discoveries, current status is %q",
+				atlaserrors.ErrInvalidStatusTransition, d.Status))
 	}
 
 	// Update status and lifecycle

@@ -63,10 +63,7 @@ Exit codes:
 
 // runBacklogList executes the backlog list command.
 func runBacklogList(ctx context.Context, cmd *cobra.Command, w io.Writer, flags *backlogListFlags) error {
-	outputFormat := cmd.Flag("output").Value.String()
-	if flags.json {
-		outputFormat = OutputJSON
-	}
+	outputFormat := getOutputFormat(cmd, flags.json)
 	out := tui.NewOutput(w, outputFormat)
 
 	// Create manager
@@ -101,9 +98,14 @@ func runBacklogList(ctx context.Context, cmd *cobra.Command, w io.Writer, flags 
 	}
 
 	// List discoveries
-	discoveries, err := mgr.List(ctx, filter)
+	discoveries, warnings, err := mgr.List(ctx, filter)
 	if err != nil {
 		return outputBacklogError(w, outputFormat, "list", err)
+	}
+
+	// Display warnings about malformed files
+	for _, warning := range warnings {
+		out.Warning(fmt.Sprintf("Skipping malformed file: %s", warning))
 	}
 
 	// Output results
