@@ -206,12 +206,6 @@ func NewBranchCreator(runner Runner, opts ...BranchCreatorOption) *BranchCreator
 	return bc
 }
 
-// NewBranchCreatorWithConfig creates a new BranchCreator with custom prefixes from config.
-// Deprecated: Use NewBranchCreator(runner, WithCustomPrefixes(prefixes)) instead.
-func NewBranchCreatorWithConfig(runner Runner, customPrefixes map[string]string) *BranchCreator {
-	return NewBranchCreator(runner, WithCustomPrefixes(customPrefixes))
-}
-
 // GenerateUniqueBranchName generates a unique branch name.
 // If the base name already exists, appends a timestamp suffix.
 // Delegates to the shared GenerateUniqueBranchNameWithChecker function.

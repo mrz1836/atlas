@@ -29,11 +29,6 @@ type Runner interface {
 	// Returns an error if the branch already exists.
 	CreateBranch(ctx context.Context, name, baseBranch string) error
 
-	// Diff returns the diff output.
-	// If cached is true, shows staged changes; otherwise shows unstaged changes.
-	// Deprecated: Use DiffStaged() or DiffUnstaged() for clearer intent.
-	Diff(ctx context.Context, cached bool) (string, error)
-
 	// DiffStaged returns the diff of staged (cached) changes.
 	DiffStaged(ctx context.Context) (string, error)
 

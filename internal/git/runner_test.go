@@ -492,7 +492,7 @@ func TestCLIRunner_CreateBranch(t *testing.T) {
 	})
 }
 
-// TestCLIRunner_Diff tests the Diff method.
+// TestCLIRunner_Diff tests the DiffStaged and DiffUnstaged methods.
 func TestCLIRunner_Diff(t *testing.T) {
 	t.Run("no diff on clean repo", func(t *testing.T) {
 		repoPath := setupTestRepo(t)
@@ -502,11 +502,11 @@ func TestCLIRunner_Diff(t *testing.T) {
 		runner, err := NewRunner(context.Background(), repoPath)
 		require.NoError(t, err)
 
-		diff, err := runner.Diff(context.Background(), false)
+		diff, err := runner.DiffUnstaged(context.Background())
 		require.NoError(t, err)
 		assert.Empty(t, diff)
 
-		diff, err = runner.Diff(context.Background(), true)
+		diff, err = runner.DiffStaged(context.Background())
 		require.NoError(t, err)
 		assert.Empty(t, diff)
 	})
@@ -520,7 +520,7 @@ func TestCLIRunner_Diff(t *testing.T) {
 		runner, err := NewRunner(context.Background(), repoPath)
 		require.NoError(t, err)
 
-		diff, err := runner.Diff(context.Background(), false)
+		diff, err := runner.DiffUnstaged(context.Background())
 		require.NoError(t, err)
 		assert.Contains(t, diff, "file.txt")
 		assert.Contains(t, diff, "-initial content")
@@ -542,12 +542,12 @@ func TestCLIRunner_Diff(t *testing.T) {
 		require.NoError(t, err)
 
 		// Unstaged diff should be empty
-		diff, err := runner.Diff(context.Background(), false)
+		diff, err := runner.DiffUnstaged(context.Background())
 		require.NoError(t, err)
 		assert.Empty(t, diff)
 
 		// Staged diff should show changes
-		diff, err = runner.Diff(context.Background(), true)
+		diff, err = runner.DiffStaged(context.Background())
 		require.NoError(t, err)
 		assert.Contains(t, diff, "file.txt")
 		assert.Contains(t, diff, "+modified content")

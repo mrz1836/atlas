@@ -635,7 +635,7 @@ func TestBranchCreator_CreateWithCustomConfig(t *testing.T) {
 		customPrefixes := map[string]string{
 			"bugfix": "hotfix",
 		}
-		creator := NewBranchCreatorWithConfig(runner, customPrefixes)
+		creator := NewBranchCreator(runner, WithCustomPrefixes(customPrefixes))
 
 		info, err := creator.Create(context.Background(), BranchCreateOptions{
 			WorkspaceName: "critical-issue",
@@ -646,29 +646,6 @@ func TestBranchCreator_CreateWithCustomConfig(t *testing.T) {
 		// Should use custom "hotfix" prefix instead of default "fix"
 		assert.Equal(t, "hotfix/critical-issue", info.Name)
 	})
-}
-
-func TestNewBranchCreatorWithConfig(t *testing.T) {
-	// Mock runner for testing
-	tempDir := t.TempDir()
-	repoDir := filepath.Join(tempDir, "repo-test-config")
-	err := os.MkdirAll(repoDir, 0o750)
-	require.NoError(t, err)
-
-	_, err = RunCommand(context.Background(), repoDir, "init")
-	require.NoError(t, err)
-
-	runner, err := NewRunner(context.Background(), repoDir)
-	require.NoError(t, err)
-
-	customPrefixes := map[string]string{
-		"bugfix": "hotfix",
-		"docs":   "docs",
-	}
-
-	creator := NewBranchCreatorWithConfig(runner, customPrefixes)
-	require.NotNil(t, creator)
-	assert.Equal(t, customPrefixes, creator.customPrefixes)
 }
 
 func TestNewBranchCreator_FunctionalOptions(t *testing.T) {

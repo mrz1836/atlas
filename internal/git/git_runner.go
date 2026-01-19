@@ -178,12 +178,6 @@ func (r *CLIRunner) DiffUnstaged(ctx context.Context) (string, error) {
 	return r.diff(ctx, false)
 }
 
-// Diff returns the diff output.
-// Deprecated: Use DiffStaged() or DiffUnstaged() for clearer intent.
-func (r *CLIRunner) Diff(ctx context.Context, cached bool) (string, error) {
-	return r.diff(ctx, cached)
-}
-
 // BranchExists checks if a branch exists in the repository.
 func (r *CLIRunner) BranchExists(ctx context.Context, name string) (bool, error) {
 	if err := ctxutil.Canceled(ctx); err != nil {

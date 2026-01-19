@@ -196,10 +196,10 @@ func TestPatternMatcher_MatchesLower(t *testing.T) {
 	}
 }
 
-// Test backward compatibility with existing Matches* functions
+// TestMatchesFunctions_BasicMatching tests the Matches* helper functions.
 //
-//nolint:gocognit // comprehensive compatibility test
-func TestMatchesFunctions_BackwardCompatibility(t *testing.T) {
+//nolint:gocognit // comprehensive test
+func TestMatchesFunctions_BasicMatching(t *testing.T) {
 	t.Run("MatchesAuthError", func(t *testing.T) {
 		if !MatchesAuthError("authentication failed") {
 			t.Error("expected MatchesAuthError to match 'authentication failed'")

@@ -6,44 +6,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestDefaultTrailers(t *testing.T) {
-	// DefaultTrailers is deprecated and now always returns an empty map.
-	// Commit messages now include an AI-generated synopsis body instead of trailers.
-	tests := []struct {
-		name         string
-		taskID       string
-		templateName string
-	}{
-		{
-			name:         "both values returns empty",
-			taskID:       "task-abc-xyz",
-			templateName: "bugfix",
-		},
-		{
-			name:         "only task ID returns empty",
-			taskID:       "task-abc-xyz",
-			templateName: "",
-		},
-		{
-			name:         "only template returns empty",
-			taskID:       "",
-			templateName: "feature",
-		},
-		{
-			name:         "empty values returns empty",
-			taskID:       "",
-			templateName: "",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			trailers := DefaultTrailers(tt.taskID, tt.templateName)
-			assert.Empty(t, trailers)
-		})
-	}
-}
-
 func TestInferCommitType(t *testing.T) {
 	tests := []struct {
 		name     string

@@ -105,14 +105,6 @@ type CommitArtifact struct {
 	Summary   string       // Human-readable summary
 }
 
-// DefaultTrailers returns the standard ATLAS trailers.
-// Deprecated: Trailers are no longer used in commit messages.
-// Commit messages now include an AI-generated synopsis body instead.
-// This function is kept for backward compatibility but returns empty trailers.
-func DefaultTrailers(_, _ string) map[string]string {
-	return make(map[string]string)
-}
-
 // InferCommitType infers the commit type from file changes.
 func InferCommitType(files []FileChange) CommitType {
 	hasTest := false
