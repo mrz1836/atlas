@@ -292,7 +292,7 @@ func TestGenerateWorkspaceName(t *testing.T) {
 		{
 			name:     "title with special characters",
 			title:    "fix null pointer in parseConfig()",
-			expected: "fix-null-pointer-in-parseconfig",
+			expected: "fix-null-pointer-parseconfig", // "in" is a stop word
 		},
 		{
 			name:     "uppercase title",
@@ -317,7 +317,7 @@ func TestGenerateWorkspaceName(t *testing.T) {
 		{
 			name:     "title with hyphens",
 			title:    "fix-this-bug",
-			expected: "fix-this-bug",
+			expected: "fix-this-bug", // hyphenated words are not split
 		},
 		{
 			name:     "empty title",
@@ -328,6 +328,26 @@ func TestGenerateWorkspaceName(t *testing.T) {
 			name:     "only special characters",
 			title:    "!!!@@@###",
 			expected: "",
+		},
+		{
+			name:     "removes stop words",
+			title:    "I found that the login is broken",
+			expected: "login-broken", // "I", "found", "that", "the", "is" are stop words
+		},
+		{
+			name:     "file path with stop words",
+			title:    `I found that "atlas / internal / constants / status.go" is missing 100% test coverage`,
+			expected: "atlas-internal-constants-statusgo-missin", // stop words removed, truncated to 40 chars
+		},
+		{
+			name:     "removes stop words but keeps meaningful content",
+			title:    "Add a new feature to the application",
+			expected: "add-new-feature-application", // "a", "to", "the" removed
+		},
+		{
+			name:     "only stop words",
+			title:    "I found that it is there",
+			expected: "", // all words are stop words
 		},
 	}
 
@@ -386,6 +406,80 @@ func TestSanitizeWorkspaceName(t *testing.T) {
 		assert.False(t, strings.HasPrefix(result, "-"))
 		assert.False(t, strings.HasSuffix(result, "-"))
 	})
+
+	t.Run("filters stop words from verbose titles", func(t *testing.T) {
+		t.Parallel()
+		result := SanitizeWorkspaceName("I found that there is a bug in the system")
+		// "I", "found", "that", "there", "is", "a", "in", "the" are stop words
+		assert.Equal(t, "bug-system", result)
+	})
+
+	t.Run("preserves file paths while filtering stop words", func(t *testing.T) {
+		t.Parallel()
+		result := SanitizeWorkspaceName("fix bug in internal/config/parser.go")
+		// "in" is a stop word, but file path components are preserved
+		assert.Equal(t, "fix-bug-internal-config-parsergo", result)
+	})
+
+	t.Run("handles mixed path separators", func(t *testing.T) {
+		t.Parallel()
+		result := SanitizeWorkspaceName(`add test for src\utils\helper.go`)
+		assert.Equal(t, "add-test-src-utils-helpergo", result)
+	})
+}
+
+func TestRemoveStopWords(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "removes common stop words",
+			input:    "I found that the bug is there",
+			expected: "bug",
+		},
+		{
+			name:     "preserves meaningful words",
+			input:    "fix authentication error",
+			expected: "fix authentication error",
+		},
+		{
+			name:     "handles path separators",
+			input:    "internal / config / parser",
+			expected: "internal config parser",
+		},
+		{
+			name:     "handles backslash paths",
+			input:    `src\utils\helper`,
+			expected: "src utils helper",
+		},
+		{
+			name:     "empty input",
+			input:    "",
+			expected: "",
+		},
+		{
+			name:     "only stop words",
+			input:    "I have found that it is",
+			expected: "",
+		},
+		{
+			name:     "filters stop words within quoted content",
+			input:    `fix "the bug" in parser`,
+			expected: `fix bug" parser`, // "the is a stop word, quotes are just punctuation
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			result := removeStopWords(tc.input)
+			assert.Equal(t, tc.expected, result)
+		})
+	}
 }
 
 func TestFormatLocation(t *testing.T) {

@@ -342,6 +342,96 @@ func TestAIPromoter_Analyze_ConfigOverrides(t *testing.T) {
 	})
 }
 
+func TestAIPromoter_ResolvedConfig(t *testing.T) {
+	t.Parallel()
+
+	t.Run("returns defaults with nil global and call config", func(t *testing.T) {
+		t.Parallel()
+		promoter := NewAIPromoter(nil, nil)
+
+		agent, model := promoter.ResolvedConfig(nil)
+
+		assert.Equal(t, "claude", agent)
+		assert.Equal(t, "sonnet", model)
+	})
+
+	t.Run("applies global config", func(t *testing.T) {
+		t.Parallel()
+		globalCfg := &config.AIConfig{
+			Agent: "gemini",
+			Model: "flash",
+		}
+		promoter := NewAIPromoter(nil, globalCfg)
+
+		agent, model := promoter.ResolvedConfig(nil)
+
+		assert.Equal(t, "gemini", agent)
+		assert.Equal(t, "flash", model)
+	})
+
+	t.Run("applies per-call config overrides", func(t *testing.T) {
+		t.Parallel()
+		promoter := NewAIPromoter(nil, nil)
+		callCfg := &AIPromoterConfig{
+			Agent: "codex",
+			Model: "o1",
+		}
+
+		agent, model := promoter.ResolvedConfig(callCfg)
+
+		assert.Equal(t, "codex", agent)
+		assert.Equal(t, "o1", model)
+	})
+
+	t.Run("per-call config overrides global config", func(t *testing.T) {
+		t.Parallel()
+		globalCfg := &config.AIConfig{
+			Agent: "claude",
+			Model: "sonnet",
+		}
+		promoter := NewAIPromoter(nil, globalCfg)
+		callCfg := &AIPromoterConfig{
+			Agent: "gemini",
+			Model: "pro",
+		}
+
+		agent, model := promoter.ResolvedConfig(callCfg)
+
+		assert.Equal(t, "gemini", agent)
+		assert.Equal(t, "pro", model)
+	})
+
+	t.Run("partial per-call override only overrides specified fields", func(t *testing.T) {
+		t.Parallel()
+		globalCfg := &config.AIConfig{
+			Agent: "claude",
+			Model: "opus",
+		}
+		promoter := NewAIPromoter(nil, globalCfg)
+		callCfg := &AIPromoterConfig{
+			Model: "haiku", // Only override model
+		}
+
+		agent, model := promoter.ResolvedConfig(callCfg)
+
+		assert.Equal(t, "claude", agent) // From global
+		assert.Equal(t, "haiku", model)  // From per-call
+	})
+
+	t.Run("partial global config uses defaults for unspecified fields", func(t *testing.T) {
+		t.Parallel()
+		globalCfg := &config.AIConfig{
+			Agent: "gemini", // Only agent specified
+		}
+		promoter := NewAIPromoter(nil, globalCfg)
+
+		agent, model := promoter.ResolvedConfig(nil)
+
+		assert.Equal(t, "gemini", agent)
+		assert.Equal(t, "sonnet", model) // Default
+	})
+}
+
 func TestAIPromoter_buildAnalysisPrompt(t *testing.T) {
 	t.Parallel()
 

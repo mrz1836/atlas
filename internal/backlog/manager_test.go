@@ -474,6 +474,242 @@ func TestManager_Dismiss(t *testing.T) {
 	})
 }
 
+func TestManager_Complete(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+	mgr, err := NewManager(tmpDir)
+	require.NoError(t, err)
+
+	t.Run("completes promoted discovery", func(t *testing.T) {
+		d := &Discovery{
+			Title:  "Complete test",
+			Status: StatusPromoted,
+			Content: Content{
+				Category: CategoryBug,
+				Severity: SeverityHigh,
+			},
+			Context: Context{
+				DiscoveredAt: time.Now().UTC(),
+				DiscoveredBy: "human:tester",
+			},
+			Lifecycle: Lifecycle{PromotedToTask: "task-001"},
+		}
+		err := mgr.Add(ctx, d)
+		require.NoError(t, err)
+
+		completed, err := mgr.Complete(ctx, d.ID)
+		require.NoError(t, err)
+		assert.Equal(t, StatusCompleted, completed.Status)
+		assert.False(t, completed.Lifecycle.CompletedAt.IsZero(), "CompletedAt should be set")
+
+		// Verify persisted
+		got, err := mgr.Get(ctx, d.ID)
+		require.NoError(t, err)
+		assert.Equal(t, StatusCompleted, got.Status)
+		assert.False(t, got.Lifecycle.CompletedAt.IsZero())
+	})
+
+	t.Run("fails on pending discovery", func(t *testing.T) {
+		d := &Discovery{
+			Title:  "Pending discovery",
+			Status: StatusPending,
+			Content: Content{
+				Category: CategoryBug,
+				Severity: SeverityLow,
+			},
+			Context: Context{
+				DiscoveredAt: time.Now().UTC(),
+				DiscoveredBy: "human:tester",
+			},
+		}
+		err := mgr.Add(ctx, d)
+		require.NoError(t, err)
+
+		_, err = mgr.Complete(ctx, d.ID)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid status transition")
+		// Verify it's an ExitCode2Error for CLI handling
+		assert.True(t, atlaserrors.IsExitCode2Error(err), "expected ExitCode2Error for invalid transition")
+	})
+
+	t.Run("fails on dismissed discovery", func(t *testing.T) {
+		d := &Discovery{
+			Title:  "Dismissed discovery",
+			Status: StatusDismissed,
+			Content: Content{
+				Category: CategoryBug,
+				Severity: SeverityLow,
+			},
+			Context: Context{
+				DiscoveredAt: time.Now().UTC(),
+				DiscoveredBy: "human:tester",
+			},
+			Lifecycle: Lifecycle{DismissedReason: "duplicate"},
+		}
+		err := mgr.Add(ctx, d)
+		require.NoError(t, err)
+
+		_, err = mgr.Complete(ctx, d.ID)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid status transition")
+		assert.True(t, atlaserrors.IsExitCode2Error(err))
+	})
+
+	t.Run("fails on already completed discovery", func(t *testing.T) {
+		d := &Discovery{
+			Title:  "Already completed",
+			Status: StatusCompleted,
+			Content: Content{
+				Category: CategoryBug,
+				Severity: SeverityLow,
+			},
+			Context: Context{
+				DiscoveredAt: time.Now().UTC(),
+				DiscoveredBy: "human:tester",
+			},
+			Lifecycle: Lifecycle{
+				PromotedToTask: "task-old",
+				CompletedAt:    time.Now().UTC(),
+			},
+		}
+		err := mgr.Add(ctx, d)
+		require.NoError(t, err)
+
+		_, err = mgr.Complete(ctx, d.ID)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid status transition")
+		assert.True(t, atlaserrors.IsExitCode2Error(err))
+	})
+
+	t.Run("fails on non-existent discovery", func(t *testing.T) {
+		_, err := mgr.Complete(ctx, "disc-notfnd")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "not found")
+	})
+}
+
+func TestManager_Delete(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+	mgr, err := NewManager(tmpDir)
+	require.NoError(t, err)
+
+	t.Run("deletes existing discovery", func(t *testing.T) {
+		d := &Discovery{
+			Title:  "Delete test",
+			Status: StatusPending,
+			Content: Content{
+				Category: CategoryBug,
+				Severity: SeverityLow,
+			},
+			Context: Context{
+				DiscoveredAt: time.Now().UTC(),
+				DiscoveredBy: "human:tester",
+			},
+		}
+		err := mgr.Add(ctx, d)
+		require.NoError(t, err)
+
+		// Verify it exists
+		_, err = mgr.Get(ctx, d.ID)
+		require.NoError(t, err)
+
+		// Delete it
+		err = mgr.Delete(ctx, d.ID)
+		require.NoError(t, err)
+
+		// Verify it's gone
+		_, err = mgr.Get(ctx, d.ID)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "not found")
+	})
+
+	t.Run("can delete promoted discovery", func(t *testing.T) {
+		d := &Discovery{
+			Title:  "Promoted discovery",
+			Status: StatusPromoted,
+			Content: Content{
+				Category: CategoryBug,
+				Severity: SeverityHigh,
+			},
+			Context: Context{
+				DiscoveredAt: time.Now().UTC(),
+				DiscoveredBy: "human:tester",
+			},
+			Lifecycle: Lifecycle{PromotedToTask: "task-123"},
+		}
+		err := mgr.Add(ctx, d)
+		require.NoError(t, err)
+
+		err = mgr.Delete(ctx, d.ID)
+		require.NoError(t, err)
+
+		_, err = mgr.Get(ctx, d.ID)
+		require.Error(t, err)
+	})
+
+	t.Run("can delete completed discovery", func(t *testing.T) {
+		d := &Discovery{
+			Title:  "Completed discovery",
+			Status: StatusCompleted,
+			Content: Content{
+				Category: CategoryBug,
+				Severity: SeverityLow,
+			},
+			Context: Context{
+				DiscoveredAt: time.Now().UTC(),
+				DiscoveredBy: "human:tester",
+			},
+			Lifecycle: Lifecycle{
+				PromotedToTask: "task-456",
+				CompletedAt:    time.Now().UTC(),
+			},
+		}
+		err := mgr.Add(ctx, d)
+		require.NoError(t, err)
+
+		err = mgr.Delete(ctx, d.ID)
+		require.NoError(t, err)
+
+		_, err = mgr.Get(ctx, d.ID)
+		require.Error(t, err)
+	})
+
+	t.Run("fails on non-existent discovery", func(t *testing.T) {
+		err := mgr.Delete(ctx, "disc-notfnd")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "not found")
+	})
+
+	t.Run("idempotent delete fails second time", func(t *testing.T) {
+		d := &Discovery{
+			Title:  "Double delete test",
+			Status: StatusPending,
+			Content: Content{
+				Category: CategoryBug,
+				Severity: SeverityLow,
+			},
+			Context: Context{
+				DiscoveredAt: time.Now().UTC(),
+				DiscoveredBy: "human:tester",
+			},
+		}
+		err := mgr.Add(ctx, d)
+		require.NoError(t, err)
+
+		// First delete succeeds
+		err = mgr.Delete(ctx, d.ID)
+		require.NoError(t, err)
+
+		// Second delete fails
+		err = mgr.Delete(ctx, d.ID)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "not found")
+	})
+}
+
 func TestManager_ListWithMalformedFiles(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -544,57 +780,6 @@ func TestManager_PromoteWithOptions(t *testing.T) {
 		return d
 	}
 
-	t.Run("legacy behavior with TaskID", func(t *testing.T) {
-		t.Parallel()
-		tmpDir := t.TempDir()
-		mgr, err := NewManager(tmpDir)
-		require.NoError(t, err)
-
-		d := createTestDiscovery(t, mgr)
-
-		opts := PromoteOptions{
-			TaskID: "task-legacy-001",
-		}
-
-		result, err := mgr.PromoteWithOptions(ctx, d.ID, opts, nil)
-		require.NoError(t, err)
-
-		assert.Equal(t, "task-legacy-001", result.TaskID)
-		assert.Equal(t, StatusPromoted, result.Discovery.Status)
-
-		// Verify persisted
-		got, err := mgr.Get(ctx, d.ID)
-		require.NoError(t, err)
-		assert.Equal(t, StatusPromoted, got.Status)
-		assert.Equal(t, "task-legacy-001", got.Lifecycle.PromotedToTask)
-	})
-
-	t.Run("dry-run with TaskID does not persist", func(t *testing.T) {
-		t.Parallel()
-		tmpDir := t.TempDir()
-		mgr, err := NewManager(tmpDir)
-		require.NoError(t, err)
-
-		d := createTestDiscovery(t, mgr)
-
-		opts := PromoteOptions{
-			TaskID: "task-dry-run",
-			DryRun: true,
-		}
-
-		result, err := mgr.PromoteWithOptions(ctx, d.ID, opts, nil)
-		require.NoError(t, err)
-
-		assert.True(t, result.DryRun)
-		assert.Equal(t, "task-dry-run", result.TaskID)
-
-		// Verify not persisted
-		got, err := mgr.Get(ctx, d.ID)
-		require.NoError(t, err)
-		assert.Equal(t, StatusPending, got.Status)
-		assert.Empty(t, got.Lifecycle.PromotedToTask)
-	})
-
 	t.Run("generates task config from bug category", func(t *testing.T) {
 		t.Parallel()
 		tmpDir := t.TempDir()
@@ -603,7 +788,7 @@ func TestManager_PromoteWithOptions(t *testing.T) {
 
 		d := createTestDiscovery(t, mgr)
 
-		opts := PromoteOptions{} // No TaskID - generate config
+		opts := PromoteOptions{}
 
 		result, err := mgr.PromoteWithOptions(ctx, d.ID, opts, nil)
 		require.NoError(t, err)

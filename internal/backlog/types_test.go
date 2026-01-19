@@ -18,6 +18,7 @@ func TestStatus_IsValid(t *testing.T) {
 		{"pending is valid", StatusPending, true},
 		{"promoted is valid", StatusPromoted, true},
 		{"dismissed is valid", StatusDismissed, true},
+		{"completed is valid", StatusCompleted, true},
 		{"empty is invalid", Status(""), false},
 		{"unknown is invalid", Status("unknown"), false},
 	}
@@ -78,10 +79,11 @@ func TestSeverity_IsValid(t *testing.T) {
 func TestValidStatuses(t *testing.T) {
 	t.Parallel()
 	statuses := ValidStatuses()
-	assert.Len(t, statuses, 3)
+	assert.Len(t, statuses, 4)
 	assert.Contains(t, statuses, StatusPending)
 	assert.Contains(t, statuses, StatusPromoted)
 	assert.Contains(t, statuses, StatusDismissed)
+	assert.Contains(t, statuses, StatusCompleted)
 }
 
 func TestValidCategories(t *testing.T) {
@@ -295,6 +297,7 @@ func TestDiscovery_ValidateStatus(t *testing.T) {
 		{"pending", StatusPending, false},
 		{"promoted", StatusPromoted, false},
 		{"dismissed", StatusDismissed, false},
+		{"completed", StatusCompleted, false},
 		{"empty", Status(""), true},
 		{"invalid", Status("invalid"), true},
 	}
@@ -369,6 +372,32 @@ func TestDiscovery_Validate(t *testing.T) {
 		assert.Error(t, d.Validate())
 	})
 
+	t.Run("valid completed discovery with task ID and timestamp", func(t *testing.T) {
+		t.Parallel()
+		d := validDiscovery()
+		d.Status = StatusCompleted
+		d.Lifecycle.PromotedToTask = "task-001"
+		d.Lifecycle.CompletedAt = now
+		assert.NoError(t, d.Validate())
+	})
+
+	t.Run("completed without task ID", func(t *testing.T) {
+		t.Parallel()
+		d := validDiscovery()
+		d.Status = StatusCompleted
+		d.Lifecycle.CompletedAt = now
+		assert.Error(t, d.Validate())
+	})
+
+	t.Run("completed without completed timestamp", func(t *testing.T) {
+		t.Parallel()
+		d := validDiscovery()
+		d.Status = StatusCompleted
+		d.Lifecycle.PromotedToTask = "task-001"
+		// CompletedAt is zero time
+		assert.Error(t, d.Validate())
+	})
+
 	t.Run("missing discovered_by", func(t *testing.T) {
 		t.Parallel()
 		d := validDiscovery()
@@ -388,6 +417,7 @@ func TestFilter_Match(t *testing.T) {
 	t.Parallel()
 	pending := StatusPending
 	promoted := StatusPromoted
+	completed := StatusCompleted
 	bug := CategoryBug
 	security := CategorySecurity
 	high := SeverityHigh
@@ -409,6 +439,7 @@ func TestFilter_Match(t *testing.T) {
 		{"empty filter matches all", Filter{}, true},
 		{"matching status", Filter{Status: &pending}, true},
 		{"non-matching status", Filter{Status: &promoted}, false},
+		{"non-matching completed status", Filter{Status: &completed}, false},
 		{"matching category", Filter{Category: &bug}, true},
 		{"non-matching category", Filter{Category: &security}, false},
 		{"matching severity", Filter{Severity: &high}, true},
@@ -423,6 +454,43 @@ func TestFilter_Match(t *testing.T) {
 			assert.Equal(t, tt.want, got)
 		})
 	}
+}
+
+func TestFilter_Match_CompletedDiscovery(t *testing.T) {
+	t.Parallel()
+	pending := StatusPending
+	completed := StatusCompleted
+	bug := CategoryBug
+
+	discovery := &Discovery{
+		Status: StatusCompleted,
+		Content: Content{
+			Category: CategoryBug,
+			Severity: SeverityHigh,
+		},
+		Lifecycle: Lifecycle{
+			PromotedToTask: "task-123",
+			CompletedAt:    time.Now().UTC(),
+		},
+	}
+
+	t.Run("completed status matches completed filter", func(t *testing.T) {
+		t.Parallel()
+		filter := Filter{Status: &completed}
+		assert.True(t, filter.Match(discovery))
+	})
+
+	t.Run("completed status does not match pending filter", func(t *testing.T) {
+		t.Parallel()
+		filter := Filter{Status: &pending}
+		assert.False(t, filter.Match(discovery))
+	})
+
+	t.Run("completed status with category filter", func(t *testing.T) {
+		t.Parallel()
+		filter := Filter{Status: &completed, Category: &bug}
+		assert.True(t, filter.Match(discovery))
+	})
 }
 
 func TestGenerateID(t *testing.T) {
