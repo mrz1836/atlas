@@ -514,3 +514,261 @@ func TestManager_ListWithMalformedFiles(t *testing.T) {
 	assert.Len(t, warnings, 1)
 	assert.Contains(t, warnings[0], "disc-broken.yaml")
 }
+
+func TestManager_PromoteWithOptions(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	createTestDiscovery := func(t *testing.T, mgr *Manager) *Discovery {
+		t.Helper()
+		d := &Discovery{
+			Title:  "Test Bug Discovery",
+			Status: StatusPending,
+			Content: Content{
+				Description: "Test description for bug",
+				Category:    CategoryBug,
+				Severity:    SeverityHigh,
+				Tags:        []string{"test", "bug"},
+			},
+			Location: &Location{
+				File: "main.go",
+				Line: 42,
+			},
+			Context: Context{
+				DiscoveredAt: time.Now().UTC(),
+				DiscoveredBy: "human:tester",
+			},
+		}
+		err := mgr.Add(ctx, d)
+		require.NoError(t, err)
+		return d
+	}
+
+	t.Run("legacy behavior with TaskID", func(t *testing.T) {
+		t.Parallel()
+		tmpDir := t.TempDir()
+		mgr, err := NewManager(tmpDir)
+		require.NoError(t, err)
+
+		d := createTestDiscovery(t, mgr)
+
+		opts := PromoteOptions{
+			TaskID: "task-legacy-001",
+		}
+
+		result, err := mgr.PromoteWithOptions(ctx, d.ID, opts, nil)
+		require.NoError(t, err)
+
+		assert.Equal(t, "task-legacy-001", result.TaskID)
+		assert.Equal(t, StatusPromoted, result.Discovery.Status)
+
+		// Verify persisted
+		got, err := mgr.Get(ctx, d.ID)
+		require.NoError(t, err)
+		assert.Equal(t, StatusPromoted, got.Status)
+		assert.Equal(t, "task-legacy-001", got.Lifecycle.PromotedToTask)
+	})
+
+	t.Run("dry-run with TaskID does not persist", func(t *testing.T) {
+		t.Parallel()
+		tmpDir := t.TempDir()
+		mgr, err := NewManager(tmpDir)
+		require.NoError(t, err)
+
+		d := createTestDiscovery(t, mgr)
+
+		opts := PromoteOptions{
+			TaskID: "task-dry-run",
+			DryRun: true,
+		}
+
+		result, err := mgr.PromoteWithOptions(ctx, d.ID, opts, nil)
+		require.NoError(t, err)
+
+		assert.True(t, result.DryRun)
+		assert.Equal(t, "task-dry-run", result.TaskID)
+
+		// Verify not persisted
+		got, err := mgr.Get(ctx, d.ID)
+		require.NoError(t, err)
+		assert.Equal(t, StatusPending, got.Status)
+		assert.Empty(t, got.Lifecycle.PromotedToTask)
+	})
+
+	t.Run("generates task config from bug category", func(t *testing.T) {
+		t.Parallel()
+		tmpDir := t.TempDir()
+		mgr, err := NewManager(tmpDir)
+		require.NoError(t, err)
+
+		d := createTestDiscovery(t, mgr)
+
+		opts := PromoteOptions{} // No TaskID - generate config
+
+		result, err := mgr.PromoteWithOptions(ctx, d.ID, opts, nil)
+		require.NoError(t, err)
+
+		// Bug category should map to bugfix template
+		assert.Equal(t, "bugfix", result.TemplateName)
+		assert.Equal(t, "test-bug-discovery", result.WorkspaceName)
+		assert.Equal(t, "fix/test-bug-discovery", result.BranchName)
+		assert.Contains(t, result.Description, "Test Bug Discovery")
+		assert.Contains(t, result.Description, "[HIGH]")
+	})
+
+	t.Run("generates task config from critical security category", func(t *testing.T) {
+		t.Parallel()
+		tmpDir := t.TempDir()
+		mgr, err := NewManager(tmpDir)
+		require.NoError(t, err)
+
+		d := &Discovery{
+			Title:  "Critical Security Vulnerability",
+			Status: StatusPending,
+			Content: Content{
+				Category: CategorySecurity,
+				Severity: SeverityCritical,
+			},
+			Context: Context{
+				DiscoveredAt: time.Now().UTC(),
+				DiscoveredBy: "human:tester",
+			},
+		}
+		err = mgr.Add(ctx, d)
+		require.NoError(t, err)
+
+		opts := PromoteOptions{}
+
+		result, err := mgr.PromoteWithOptions(ctx, d.ID, opts, nil)
+		require.NoError(t, err)
+
+		// Critical security should map to hotfix
+		assert.Equal(t, "hotfix", result.TemplateName)
+		assert.Equal(t, "hotfix/critical-security-vulnerability", result.BranchName)
+	})
+
+	t.Run("template override takes precedence", func(t *testing.T) {
+		t.Parallel()
+		tmpDir := t.TempDir()
+		mgr, err := NewManager(tmpDir)
+		require.NoError(t, err)
+
+		d := createTestDiscovery(t, mgr)
+
+		opts := PromoteOptions{
+			Template: "feature", // Override automatic mapping
+		}
+
+		result, err := mgr.PromoteWithOptions(ctx, d.ID, opts, nil)
+		require.NoError(t, err)
+
+		assert.Equal(t, "feature", result.TemplateName)
+		assert.Equal(t, "feat/test-bug-discovery", result.BranchName)
+	})
+
+	t.Run("workspace name override", func(t *testing.T) {
+		t.Parallel()
+		tmpDir := t.TempDir()
+		mgr, err := NewManager(tmpDir)
+		require.NoError(t, err)
+
+		d := createTestDiscovery(t, mgr)
+
+		opts := PromoteOptions{
+			WorkspaceName: "custom-workspace",
+		}
+
+		result, err := mgr.PromoteWithOptions(ctx, d.ID, opts, nil)
+		require.NoError(t, err)
+
+		assert.Equal(t, "custom-workspace", result.WorkspaceName)
+		assert.Equal(t, "fix/custom-workspace", result.BranchName)
+	})
+
+	t.Run("description override", func(t *testing.T) {
+		t.Parallel()
+		tmpDir := t.TempDir()
+		mgr, err := NewManager(tmpDir)
+		require.NoError(t, err)
+
+		d := createTestDiscovery(t, mgr)
+
+		opts := PromoteOptions{
+			Description: "Custom description for the task",
+		}
+
+		result, err := mgr.PromoteWithOptions(ctx, d.ID, opts, nil)
+		require.NoError(t, err)
+
+		assert.Equal(t, "Custom description for the task", result.Description)
+	})
+
+	t.Run("fails on non-pending discovery", func(t *testing.T) {
+		t.Parallel()
+		tmpDir := t.TempDir()
+		mgr, err := NewManager(tmpDir)
+		require.NoError(t, err)
+
+		d := &Discovery{
+			Title:  "Already promoted",
+			Status: StatusPromoted,
+			Content: Content{
+				Category: CategoryBug,
+				Severity: SeverityLow,
+			},
+			Context: Context{
+				DiscoveredAt: time.Now().UTC(),
+				DiscoveredBy: "human:tester",
+			},
+			Lifecycle: Lifecycle{PromotedToTask: "task-old"},
+		}
+		err = mgr.Add(ctx, d)
+		require.NoError(t, err)
+
+		opts := PromoteOptions{}
+
+		_, err = mgr.PromoteWithOptions(ctx, d.ID, opts, nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid status transition")
+		assert.True(t, atlaserrors.IsExitCode2Error(err))
+	})
+
+	t.Run("fails on non-existent discovery", func(t *testing.T) {
+		t.Parallel()
+		tmpDir := t.TempDir()
+		mgr, err := NewManager(tmpDir)
+		require.NoError(t, err)
+
+		opts := PromoteOptions{}
+
+		_, err = mgr.PromoteWithOptions(ctx, "disc-notfnd", opts, nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "not found")
+	})
+}
+
+func TestGetBranchPrefixForTemplate(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		template string
+		expected string
+	}{
+		{"bugfix", "fix"},
+		{"feature", "feat"},
+		{"hotfix", "hotfix"},
+		{"task", "task"},
+		{"fix", "fix"},
+		{"commit", "chore"},
+		{"unknown", "task"},
+		{"", "task"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.template, func(t *testing.T) {
+			t.Parallel()
+			result := getBranchPrefixForTemplate(tc.template)
+			assert.Equal(t, tc.expected, result)
+		})
+	}
+}

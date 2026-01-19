@@ -311,3 +311,61 @@ func (f Filter) Match(d *Discovery) bool {
 	}
 	return true
 }
+
+// PromoteOptions configures how a discovery is promoted to a task.
+type PromoteOptions struct {
+	// Template overrides the auto-detected template.
+	// If empty, the template is determined by MapCategoryToTemplate.
+	Template string
+
+	// Agent overrides the default AI agent for AI-assisted promotion.
+	Agent string
+
+	// Model overrides the default AI model for AI-assisted promotion.
+	Model string
+
+	// UseAI enables AI-assisted analysis for optimal task configuration.
+	// When true, the AIPromoter is used to determine template and description.
+	UseAI bool
+
+	// DryRun, when true, returns the promotion result without actually
+	// promoting the discovery or creating a task.
+	DryRun bool
+
+	// TaskID allows providing a pre-existing task ID (for backward compatibility).
+	// When set, no new task is created; the discovery is linked to this task.
+	TaskID string
+
+	// WorkspaceName overrides the auto-generated workspace name.
+	WorkspaceName string
+
+	// Description overrides the auto-generated task description.
+	Description string
+}
+
+// PromoteResult contains the outcome of a promotion operation.
+type PromoteResult struct {
+	// Discovery is the promoted discovery with updated status.
+	Discovery *Discovery
+
+	// TaskID is the ID of the created or linked task.
+	TaskID string
+
+	// WorkspaceName is the name of the created workspace.
+	WorkspaceName string
+
+	// BranchName is the git branch name for the task.
+	BranchName string
+
+	// TemplateName is the template used for the task.
+	TemplateName string
+
+	// Description is the task description.
+	Description string
+
+	// DryRun indicates if this was a dry-run operation.
+	DryRun bool
+
+	// AIAnalysis contains the AI analysis if UseAI was enabled.
+	AIAnalysis *AIAnalysis
+}

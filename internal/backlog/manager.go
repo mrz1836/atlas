@@ -364,6 +364,124 @@ func createSafe(path string, data []byte) error {
 	return closeErr
 }
 
+// PromoteWithOptions promotes a discovery with full options support.
+// This method supports both legacy behavior (with TaskID) and new behavior
+// (auto-generating task configuration).
+//
+// When opts.TaskID is set, it behaves like the legacy Promote method.
+// When opts.TaskID is empty, it generates task configuration from the discovery.
+// When opts.DryRun is true, it returns the result without modifying the discovery.
+//
+// Returns a PromoteResult with the generated task configuration and optionally
+// the promoted discovery.
+func (m *Manager) PromoteWithOptions(ctx context.Context, id string, opts PromoteOptions, aiPromoter *AIPromoter) (*PromoteResult, error) {
+	// Load discovery
+	d, err := m.Get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	// Validate status transition
+	if d.Status != StatusPending {
+		return nil, atlaserrors.NewExitCode2Error(
+			fmt.Errorf("%w: can only promote pending discoveries, current status is %q",
+				atlaserrors.ErrInvalidStatusTransition, d.Status))
+	}
+
+	// Build promote result
+	result := &PromoteResult{
+		Discovery: d,
+		DryRun:    opts.DryRun,
+	}
+
+	// If TaskID is provided, use legacy behavior
+	if opts.TaskID != "" {
+		result.TaskID = opts.TaskID
+
+		if !opts.DryRun {
+			d.Status = StatusPromoted
+			d.Lifecycle.PromotedToTask = opts.TaskID
+
+			if err := m.Update(ctx, d); err != nil {
+				return nil, err
+			}
+		}
+
+		return result, nil
+	}
+
+	// New behavior: generate task configuration from discovery
+	var analysis *AIAnalysis
+
+	if opts.UseAI && aiPromoter != nil {
+		// Use AI-assisted analysis
+		aiCfg := &AIPromoterConfig{
+			Agent: opts.Agent,
+			Model: opts.Model,
+		}
+		analysis = aiPromoter.AnalyzeWithFallback(ctx, d, aiCfg)
+		result.AIAnalysis = analysis
+	} else {
+		// Use deterministic analysis
+		analysis = &AIAnalysis{
+			Template:      MapCategoryToTemplate(d.Content.Category, d.Content.Severity),
+			Description:   GenerateTaskDescription(d),
+			WorkspaceName: SanitizeWorkspaceName(d.Title),
+			Priority:      severityToPriority(d.Content.Severity),
+			Reasoning:     "Deterministic mapping based on category and severity",
+		}
+	}
+
+	// Apply overrides from options
+	if opts.Template != "" {
+		result.TemplateName = opts.Template
+	} else {
+		result.TemplateName = analysis.Template
+	}
+
+	if opts.WorkspaceName != "" {
+		result.WorkspaceName = opts.WorkspaceName
+	} else {
+		result.WorkspaceName = analysis.WorkspaceName
+	}
+
+	if opts.Description != "" {
+		result.Description = opts.Description
+	} else {
+		result.Description = analysis.Description
+	}
+
+	// Generate branch name based on template
+	branchPrefix := getBranchPrefixForTemplate(result.TemplateName)
+	result.BranchName = GenerateBranchName(branchPrefix, result.WorkspaceName)
+
+	// If not dry-run, we don't create the task here - that's done by the CLI
+	// We just return the configuration for the CLI to use
+	// The CLI will create the task and then call Promote() with the task ID
+
+	return result, nil
+}
+
+// getBranchPrefixForTemplate returns the git branch prefix for a template name.
+func getBranchPrefixForTemplate(templateName string) string {
+	switch templateName {
+	case "bugfix":
+		return "fix"
+	case "feature":
+		return "feat"
+	case "hotfix":
+		return "hotfix"
+	case "task":
+		return "task"
+	case "fix":
+		return "fix"
+	case "commit":
+		return "chore"
+	default:
+		return "task"
+	}
+}
+
 // loadFile reads and parses a single discovery YAML file.
 func (m *Manager) loadFile(path string) (*Discovery, error) {
 	data, err := os.ReadFile(path) //nolint:gosec // path is constructed from trusted directory
