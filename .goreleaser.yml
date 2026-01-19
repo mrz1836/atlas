@@ -16,7 +16,7 @@ changelog:
   use: github
   sort: asc
   abbrev: 0
-  format: '[`{{ .SHA }}`]({{ .GitURL }}/commit/{{ .SHA }}): {{ .Message }}{{ with .AuthorUsername }} (@{{ . }}){{ end }}'
+  format: '[`{{ slice .SHA 0 7 }}`]({{ .GitURL }}/commit/{{ .SHA }}): {{ .Message }}{{ with .AuthorUsername }} (@{{ . }}){{ end }}'
   groups:
     - title: "Features"
       regexp: '^.*?feat(\([[:word:]]+\))??!?:.+$'
