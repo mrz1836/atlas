@@ -2135,3 +2135,96 @@ func TestCompleteLinkedDiscovery_WithNonexistentBacklogID(t *testing.T) {
 func chdir(dir string) error {
 	return syscall.Chdir(dir)
 }
+
+// TestHasStepLevelApproval tests the step-level approval detection.
+func TestHasStepLevelApproval(t *testing.T) {
+	t.Parallel()
+
+	t.Run("nil_task_returns_false", func(t *testing.T) {
+		t.Parallel()
+		assert.False(t, hasStepLevelApproval(nil))
+	})
+
+	t.Run("no_step_results_returns_false", func(t *testing.T) {
+		t.Parallel()
+		task := &domain.Task{
+			CurrentStep: 0,
+			StepResults: nil,
+		}
+		assert.False(t, hasStepLevelApproval(task))
+	})
+
+	t.Run("current_step_beyond_results_returns_false", func(t *testing.T) {
+		t.Parallel()
+		task := &domain.Task{
+			CurrentStep: 5,
+			StepResults: []domain.StepResult{
+				{StepName: "step1"},
+			},
+		}
+		assert.False(t, hasStepLevelApproval(task))
+	})
+
+	t.Run("no_approval_options_returns_false", func(t *testing.T) {
+		t.Parallel()
+		task := &domain.Task{
+			CurrentStep: 0,
+			StepResults: []domain.StepResult{
+				{
+					StepName:        "step1",
+					ApprovalOptions: nil,
+				},
+			},
+		}
+		assert.False(t, hasStepLevelApproval(task))
+	})
+
+	t.Run("empty_approval_options_returns_false", func(t *testing.T) {
+		t.Parallel()
+		task := &domain.Task{
+			CurrentStep: 0,
+			StepResults: []domain.StepResult{
+				{
+					StepName:        "step1",
+					ApprovalOptions: []domain.ApprovalOption{},
+				},
+			},
+		}
+		assert.False(t, hasStepLevelApproval(task))
+	})
+
+	t.Run("has_approval_options_returns_true", func(t *testing.T) {
+		t.Parallel()
+		task := &domain.Task{
+			CurrentStep: 0,
+			StepResults: []domain.StepResult{
+				{
+					StepName: "git_commit",
+					ApprovalOptions: []domain.ApprovalOption{
+						{Key: "r", Label: "Remove and continue", Recommended: true},
+						{Key: "i", Label: "Include anyway"},
+						{Key: "a", Label: "Abort"},
+					},
+				},
+			},
+		}
+		assert.True(t, hasStepLevelApproval(task))
+	})
+
+	t.Run("approval_options_on_later_step", func(t *testing.T) {
+		t.Parallel()
+		task := &domain.Task{
+			CurrentStep: 1, // Second step (index 1)
+			StepResults: []domain.StepResult{
+				{StepName: "step1", ApprovalOptions: nil}, // No options on first step
+				{
+					StepName: "git_commit",
+					ApprovalOptions: []domain.ApprovalOption{
+						{Key: "r", Label: "Remove"},
+					},
+				},
+			},
+		}
+		assert.True(t, hasStepLevelApproval(task))
+	})
+}

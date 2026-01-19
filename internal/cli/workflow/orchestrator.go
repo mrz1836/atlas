@@ -65,8 +65,8 @@ func (o *Orchestrator) Prompter() *Prompter {
 }
 
 // StartTask starts the task execution and handles errors.
-func (o *Orchestrator) StartTask(ctx context.Context, engine *task.Engine, ws *domain.Workspace, tmpl *domain.Template, description string) (*domain.Task, error) {
-	t, err := engine.Start(ctx, ws.Name, ws.Branch, ws.WorktreePath, tmpl, description)
+func (o *Orchestrator) StartTask(ctx context.Context, engine *task.Engine, ws *domain.Workspace, tmpl *domain.Template, description, fromBacklogID string) (*domain.Task, error) {
+	t, err := engine.Start(ctx, ws.Name, ws.Branch, ws.WorktreePath, tmpl, description, fromBacklogID)
 	if err != nil {
 		o.logger.Error().Err(err).
 			Str("workspace_name", ws.Name).

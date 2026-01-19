@@ -206,7 +206,7 @@ func TestEngine_Start_Success(t *testing.T) {
 		},
 	}
 
-	task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test description")
+	task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test description", "")
 
 	require.NoError(t, err)
 	assert.NotNil(t, task)
@@ -237,11 +237,69 @@ func TestEngine_Start_TaskIDFormat(t *testing.T) {
 		},
 	}
 
-	task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test description")
+	task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test description", "")
 
 	require.NoError(t, err)
 	// Pattern: task-{uuid} (task-[8hex]-[4hex]-[4hex]-[4hex]-[12hex])
 	assert.Regexp(t, `^task-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`, task.ID)
+}
+
+// TestEngine_Start_SetsFromBacklogIDInMetadata tests that fromBacklogID is set in metadata.
+func TestEngine_Start_SetsFromBacklogIDInMetadata(t *testing.T) {
+	ctx := context.Background()
+
+	store := newMockStore()
+	registry := steps.NewExecutorRegistry()
+	registry.Register(&mockExecutor{
+		stepType: domain.StepTypeAI,
+		result:   &domain.StepResult{Status: "success"},
+	})
+
+	engine := NewEngine(store, registry, DefaultEngineConfig(), testLogger())
+
+	template := &domain.Template{
+		Name: "test-template",
+		Steps: []domain.StepDefinition{
+			{Name: "step1", Type: domain.StepTypeAI},
+		},
+	}
+
+	// Test with fromBacklogID set
+	task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test description", "disc-abc123")
+
+	require.NoError(t, err)
+	assert.NotNil(t, task)
+	assert.Equal(t, "disc-abc123", task.Metadata["from_backlog_id"])
+}
+
+// TestEngine_Start_EmptyFromBacklogIDNotSetInMetadata tests that empty fromBacklogID is not added to metadata.
+func TestEngine_Start_EmptyFromBacklogIDNotSetInMetadata(t *testing.T) {
+	ctx := context.Background()
+
+	store := newMockStore()
+	registry := steps.NewExecutorRegistry()
+	registry.Register(&mockExecutor{
+		stepType: domain.StepTypeAI,
+		result:   &domain.StepResult{Status: "success"},
+	})
+
+	engine := NewEngine(store, registry, DefaultEngineConfig(), testLogger())
+
+	template := &domain.Template{
+		Name: "test-template",
+		Steps: []domain.StepDefinition{
+			{Name: "step1", Type: domain.StepTypeAI},
+		},
+	}
+
+	// Test with empty fromBacklogID
+	task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test description", "")
+
+	require.NoError(t, err)
+	assert.NotNil(t, task)
+	// Should not be present in metadata
+	_, exists := task.Metadata["from_backlog_id"]
+	assert.False(t, exists, "from_backlog_id should not be set in metadata when empty")
 }
 
 // TestEngine_Start_IteratesSteps tests that steps execute in order.
@@ -279,7 +337,7 @@ func TestEngine_Start_IteratesSteps(t *testing.T) {
 		},
 	}
 
-	_, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test")
+	_, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test", "")
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"step1", "step2", "step3"}, executionOrder)
@@ -301,7 +359,7 @@ func TestEngine_Start_ContextCancellation(t *testing.T) {
 		},
 	}
 
-	task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test")
+	task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test", "")
 
 	assert.Nil(t, task)
 	assert.ErrorIs(t, err, context.Canceled)
@@ -682,7 +740,7 @@ func TestEngine_StateSavedAfterEachStep(t *testing.T) {
 		},
 	}
 
-	_, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test")
+	_, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test", "")
 
 	require.NoError(t, err)
 	// Should have: 1 create + multiple updates (one per step + final)
@@ -733,7 +791,7 @@ func TestEngine_EmptyTemplateSteps(t *testing.T) {
 		Steps: []domain.StepDefinition{}, // No steps
 	}
 
-	task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test")
+	task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test", "")
 
 	require.NoError(t, err)
 	assert.NotNil(t, task)
@@ -837,7 +895,7 @@ func TestEngine_HandleStepError(t *testing.T) {
 		},
 	}
 
-	task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test")
+	task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test", "")
 
 	// Should return the original error
 	require.Error(t, err)
@@ -878,7 +936,7 @@ func TestEngine_HandleStepError_StoreFails(t *testing.T) {
 		},
 	}
 
-	task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test")
+	task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test", "")
 
 	// Should return wrapped store error
 	require.Error(t, err)
@@ -928,7 +986,7 @@ func TestEngine_RunSteps_ContextCanceledMidLoop(t *testing.T) {
 		cancel()
 	}()
 
-	task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test")
+	task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test", "")
 
 	// Should fail with context canceled
 	require.Error(t, err)
@@ -960,7 +1018,7 @@ func TestEngine_RunSteps_CheckpointSaveFails(t *testing.T) {
 	// Make update fail after first step
 	store.updateErr = atlaserrors.ErrLockTimeout
 
-	task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test")
+	task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test", "")
 
 	require.Error(t, err)
 	require.ErrorIs(t, err, atlaserrors.ErrLockTimeout)
@@ -1124,7 +1182,7 @@ func TestEngine_CompleteTask_StoreFails(t *testing.T) {
 	}
 
 	// Start task successfully, then make update fail for final save
-	task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test")
+	task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test", "")
 
 	// First call works (create), but we can't easily test completeTask store failure
 	// because it happens after all steps succeed. Let's verify the happy path works.
@@ -1187,7 +1245,7 @@ func TestEngine_RunSteps_ShouldPauseSaveSuccess(t *testing.T) {
 		},
 	}
 
-	task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test")
+	task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test", "")
 
 	require.NoError(t, err)
 	assert.NotNil(t, task)
@@ -1219,7 +1277,7 @@ func TestEngine_RunSteps_ShouldPauseSaveFails(t *testing.T) {
 		},
 	}
 
-	task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test")
+	task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test", "")
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to save checkpoint")
@@ -1267,7 +1325,7 @@ func TestEngine_CompleteTask_TransitionFails(t *testing.T) {
 		Steps: []domain.StepDefinition{},
 	}
 
-	task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test")
+	task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test", "")
 
 	// With empty steps, completeTask is called immediately
 	// It transitions Pending->Running->Validating->AwaitingApproval
@@ -1325,7 +1383,7 @@ func TestEngine_CompleteTask_StoreSaveFails(t *testing.T) {
 		},
 	}
 
-	task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test")
+	task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test", "")
 
 	// Should fail when completeTask tries to save
 	require.Error(t, err)
@@ -1348,7 +1406,7 @@ func TestEngine_Start_CreateFails(t *testing.T) {
 		Steps: []domain.StepDefinition{},
 	}
 
-	task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test")
+	task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test", "")
 
 	require.Error(t, err)
 	require.ErrorIs(t, err, atlaserrors.ErrTaskExists)
@@ -2686,7 +2744,7 @@ func TestEngine_RunSteps_HandleStepErrorPath(t *testing.T) {
 			},
 		}
 
-		task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test")
+		task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test", "")
 
 		require.Error(t, err)
 		require.ErrorIs(t, err, atlaserrors.ErrCIFailed)
@@ -2720,7 +2778,7 @@ func TestEngine_CompleteTask_TransitionErrors(t *testing.T) {
 			},
 		}
 
-		task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test")
+		task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test", "")
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to save completed state")
@@ -2827,7 +2885,7 @@ func TestEngine_Start_StepBeyondArrayBounds(t *testing.T) {
 		Steps: []domain.StepDefinition{},
 	}
 
-	task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test")
+	task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test", "")
 
 	require.NoError(t, err)
 	assert.NotNil(t, task)
@@ -2959,7 +3017,7 @@ func TestEngine_Start_TransitionFails(t *testing.T) {
 		},
 	}
 
-	task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test")
+	task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test", "")
 
 	assert.Nil(t, task)
 	assert.ErrorIs(t, err, context.Canceled)
@@ -3041,7 +3099,7 @@ func TestEngine_CompleteTask_SecondTransitionFails(t *testing.T) {
 			},
 		}
 
-		task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test")
+		task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test", "")
 
 		require.NoError(t, err)
 		assert.NotNil(t, task)
@@ -3197,7 +3255,7 @@ func TestEngine_RunSteps_MultipleStepsWithPause(t *testing.T) {
 		},
 	}
 
-	task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test")
+	task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test", "")
 
 	require.NoError(t, err)
 	assert.NotNil(t, task)
@@ -3323,7 +3381,7 @@ func TestEngine_RunSteps_ExecuteCurrentStepError(t *testing.T) {
 		},
 	}
 
-	task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test")
+	task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test", "")
 
 	// Should return the executor error
 	require.Error(t, err)
@@ -3354,7 +3412,7 @@ func TestEngine_Start_StoreCreateFails(t *testing.T) {
 		},
 	}
 
-	task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test")
+	task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test", "")
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to save task")
@@ -3386,7 +3444,7 @@ func TestEngine_RunSteps_AdvanceToNextStepError(t *testing.T) {
 		},
 	}
 
-	task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test")
+	task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test", "")
 
 	// Should return the store error from advanceToNextStep
 	require.Error(t, err)
@@ -3428,7 +3486,7 @@ func TestEngine_RunSteps_ContextErrorInLoop(t *testing.T) {
 
 	engine := NewEngine(cancellingStore, registry, DefaultEngineConfig(), testLogger())
 
-	task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test")
+	task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test", "")
 
 	// Should return context canceled error
 	require.Error(t, err)
@@ -4366,7 +4424,7 @@ func TestEngine_Start_UpdatesBacklogStatus(t *testing.T) {
 		}
 
 		// Start task with from_backlog_id metadata
-		task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test description")
+		task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test description", "")
 		require.NoError(t, err)
 		require.NotNil(t, task)
 
@@ -4407,7 +4465,7 @@ func TestEngine_Start_UpdatesBacklogStatus(t *testing.T) {
 		}
 
 		// Start task - should succeed even with invalid backlog ID
-		task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test description")
+		task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test description", "")
 		require.NoError(t, err)
 		require.NotNil(t, task)
 
@@ -4442,11 +4500,244 @@ func TestEngine_Start_UpdatesBacklogStatus(t *testing.T) {
 		}
 
 		// Start task without from_backlog_id metadata
-		task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test description")
+		task, err := engine.Start(ctx, "test-workspace", "test-branch", "/tmp/test-worktree", template, "test description", "")
 		require.NoError(t, err)
 		require.NotNil(t, task)
 
 		// Verify task has no backlog metadata
 		assert.Nil(t, task.Metadata["from_backlog_id"])
+	})
+}
+
+// TestEngine_ApplyStepApprovalChoice tests the step approval choice application.
+func TestEngine_ApplyStepApprovalChoice(t *testing.T) {
+	t.Parallel()
+
+	t.Run("applies_git_commit_remove_choice", func(t *testing.T) {
+		t.Parallel()
+		ctx := context.Background()
+
+		store := newMockStore()
+		registry := steps.NewExecutorRegistry()
+		engine := NewEngine(store, registry, DefaultEngineConfig(), testLogger())
+
+		task := &domain.Task{
+			ID:          "task-123",
+			WorkspaceID: "test",
+			CurrentStep: 0,
+			Metadata:    map[string]any{},
+		}
+
+		template := &domain.Template{
+			Steps: []domain.StepDefinition{
+				{
+					Name: "git_commit",
+					Type: domain.StepTypeGit,
+					Config: map[string]any{
+						"operation": "commit",
+					},
+				},
+			},
+		}
+
+		err := engine.applyStepApprovalChoice(ctx, task, template, "r")
+		require.NoError(t, err)
+		assert.Equal(t, "remove", task.Metadata["garbage_action"])
+	})
+
+	t.Run("applies_git_commit_include_choice", func(t *testing.T) {
+		t.Parallel()
+		ctx := context.Background()
+
+		store := newMockStore()
+		registry := steps.NewExecutorRegistry()
+		engine := NewEngine(store, registry, DefaultEngineConfig(), testLogger())
+
+		task := &domain.Task{
+			ID:          "task-123",
+			WorkspaceID: "test",
+			CurrentStep: 0,
+			Metadata:    map[string]any{},
+		}
+
+		template := &domain.Template{
+			Steps: []domain.StepDefinition{
+				{
+					Name: "git_commit",
+					Type: domain.StepTypeGit,
+					Config: map[string]any{
+						"operation": "commit",
+					},
+				},
+			},
+		}
+
+		err := engine.applyStepApprovalChoice(ctx, task, template, "i")
+		require.NoError(t, err)
+		assert.Equal(t, "include", task.Metadata["garbage_action"])
+	})
+
+	t.Run("returns_error_for_abort_choice", func(t *testing.T) {
+		t.Parallel()
+		ctx := context.Background()
+
+		store := newMockStore()
+		registry := steps.NewExecutorRegistry()
+		engine := NewEngine(store, registry, DefaultEngineConfig(), testLogger())
+
+		task := &domain.Task{
+			ID:          "task-123",
+			WorkspaceID: "test",
+			CurrentStep: 0,
+			Metadata:    map[string]any{},
+		}
+
+		template := &domain.Template{
+			Steps: []domain.StepDefinition{
+				{
+					Name: "git_commit",
+					Type: domain.StepTypeGit,
+					Config: map[string]any{
+						"operation": "commit",
+					},
+				},
+			},
+		}
+
+		err := engine.applyStepApprovalChoice(ctx, task, template, "a")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "user aborted")
+	})
+
+	t.Run("returns_error_for_invalid_step_index", func(t *testing.T) {
+		t.Parallel()
+		ctx := context.Background()
+
+		store := newMockStore()
+		registry := steps.NewExecutorRegistry()
+		engine := NewEngine(store, registry, DefaultEngineConfig(), testLogger())
+
+		task := &domain.Task{
+			ID:          "task-123",
+			WorkspaceID: "test",
+			CurrentStep: 10, // Beyond template steps
+			Metadata:    map[string]any{},
+		}
+
+		template := &domain.Template{
+			Steps: []domain.StepDefinition{
+				{Name: "step1", Type: domain.StepTypeGit},
+			},
+		}
+
+		err := engine.applyStepApprovalChoice(ctx, task, template, "r")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid current step index")
+	})
+
+	t.Run("no_action_for_non_git_steps", func(t *testing.T) {
+		t.Parallel()
+		ctx := context.Background()
+
+		store := newMockStore()
+		registry := steps.NewExecutorRegistry()
+		engine := NewEngine(store, registry, DefaultEngineConfig(), testLogger())
+
+		task := &domain.Task{
+			ID:          "task-123",
+			WorkspaceID: "test",
+			CurrentStep: 0,
+			Metadata:    map[string]any{},
+		}
+
+		template := &domain.Template{
+			Steps: []domain.StepDefinition{
+				{Name: "implement", Type: domain.StepTypeAI},
+			},
+		}
+
+		err := engine.applyStepApprovalChoice(ctx, task, template, "r")
+		require.NoError(t, err)
+		// No garbage_action should be set for non-git steps
+		_, hasAction := task.Metadata["garbage_action"]
+		assert.False(t, hasAction)
+	})
+}
+
+// TestEngine_ApplyGitGarbageChoice tests the garbage choice application.
+func TestEngine_ApplyGitGarbageChoice(t *testing.T) {
+	t.Parallel()
+
+	t.Run("remove_sets_metadata", func(t *testing.T) {
+		t.Parallel()
+		ctx := context.Background()
+
+		store := newMockStore()
+		registry := steps.NewExecutorRegistry()
+		engine := NewEngine(store, registry, DefaultEngineConfig(), testLogger())
+
+		task := &domain.Task{
+			ID:       "task-123",
+			Metadata: nil, // Test nil metadata handling
+		}
+
+		err := engine.applyGitGarbageChoice(ctx, task, "r")
+		require.NoError(t, err)
+		require.NotNil(t, task.Metadata)
+		assert.Equal(t, "remove", task.Metadata["garbage_action"])
+	})
+
+	t.Run("include_sets_metadata", func(t *testing.T) {
+		t.Parallel()
+		ctx := context.Background()
+
+		store := newMockStore()
+		registry := steps.NewExecutorRegistry()
+		engine := NewEngine(store, registry, DefaultEngineConfig(), testLogger())
+
+		task := &domain.Task{
+			ID:       "task-123",
+			Metadata: map[string]any{},
+		}
+
+		err := engine.applyGitGarbageChoice(ctx, task, "i")
+		require.NoError(t, err)
+		assert.Equal(t, "include", task.Metadata["garbage_action"])
+	})
+
+	t.Run("abort_returns_error", func(t *testing.T) {
+		t.Parallel()
+		ctx := context.Background()
+
+		store := newMockStore()
+		registry := steps.NewExecutorRegistry()
+		engine := NewEngine(store, registry, DefaultEngineConfig(), testLogger())
+
+		task := &domain.Task{
+			ID:       "task-123",
+			Metadata: map[string]any{},
+		}
+
+		err := engine.applyGitGarbageChoice(ctx, task, "a")
+		require.Error(t, err)
+		assert.ErrorIs(t, err, atlaserrors.ErrOperationCanceled)
+	})
+
+	t.Run("unknown_choice_returns_error", func(t *testing.T) {
+		t.Parallel()
+		ctx := context.Background()
+
+		store := newMockStore()
+		registry := steps.NewExecutorRegistry()
+		engine := NewEngine(store, registry, DefaultEngineConfig(), testLogger())
+
+		task := &domain.Task{
+			ID:       "task-123",
+			Metadata: map[string]any{},
+		}
+
+		err := engine.applyGitGarbageChoice(ctx, task, "x")
+		require.ErrorIs(t, err, atlaserrors.ErrInvalidArgument)
+		assert.Contains(t, err.Error(), "unknown garbage handling choice")
 	})
 }

@@ -826,19 +826,151 @@ func TestAttemptValidationRetry_CanRetryFalse(t *testing.T) {
 	assert.Equal(t, 2, attemptCount)
 }
 
-// TestBuildValidationRunnerConfig tests runner config builder
-func TestBuildValidationRunnerConfig(t *testing.T) {
+// TestBuildValidationRunnerConfig_UsesStoredCommands tests that runner config uses stored commands
+func TestBuildValidationRunnerConfig_UsesStoredCommands(t *testing.T) {
+	t.Parallel()
+
+	customFormat := []string{"custom-format"}
+	customLint := []string{"custom-lint"}
+	customTest := []string{"custom-test:race"}
+	customPreCommit := []string{"custom-pre-commit"}
+
+	store := newMockStore()
+	engine := NewEngine(
+		store,
+		nil,
+		DefaultEngineConfig(),
+		zerolog.Nop(),
+		WithValidationCommands(customFormat, customLint, customTest, customPreCommit),
+	)
+
+	task := &domain.Task{}
+	config := engine.buildValidationRunnerConfig(task)
+
+	require.NotNil(t, config)
+	assert.Equal(t, customFormat, config.FormatCommands)
+	assert.Equal(t, customLint, config.LintCommands)
+	assert.Equal(t, customTest, config.TestCommands)
+	assert.Equal(t, customPreCommit, config.PreCommitCommands)
+}
+
+// TestBuildValidationRunnerConfig_EmptyCommands tests that empty commands are properly stored
+func TestBuildValidationRunnerConfig_EmptyCommands(t *testing.T) {
+	t.Parallel()
+
+	store := newMockStore()
+	engine := NewEngine(
+		store,
+		nil,
+		DefaultEngineConfig(),
+		zerolog.Nop(),
+		WithValidationCommands([]string{}, []string{}, []string{}, []string{}),
+	)
+
+	task := &domain.Task{}
+	config := engine.buildValidationRunnerConfig(task)
+
+	require.NotNil(t, config)
+	assert.Empty(t, config.FormatCommands)
+	assert.Empty(t, config.LintCommands)
+	assert.Empty(t, config.TestCommands)
+	assert.Empty(t, config.PreCommitCommands)
+}
+
+// TestBuildValidationRunnerConfig_NilCommands tests that nil commands are properly stored
+func TestBuildValidationRunnerConfig_NilCommands(t *testing.T) {
+	t.Parallel()
+
+	store := newMockStore()
+	engine := NewEngine(
+		store,
+		nil,
+		DefaultEngineConfig(),
+		zerolog.Nop(),
+		WithValidationCommands(nil, nil, nil, nil),
+	)
+
+	task := &domain.Task{}
+	config := engine.buildValidationRunnerConfig(task)
+
+	require.NotNil(t, config)
+	assert.Nil(t, config.FormatCommands)
+	assert.Nil(t, config.LintCommands)
+	assert.Nil(t, config.TestCommands)
+	assert.Nil(t, config.PreCommitCommands)
+}
+
+// TestBuildValidationRunnerConfig_NoOption tests that without option, commands are nil
+func TestBuildValidationRunnerConfig_NoOption(t *testing.T) {
 	t.Parallel()
 
 	store := newMockStore()
 	engine := NewEngine(store, nil, DefaultEngineConfig(), zerolog.Nop())
 
 	task := &domain.Task{}
+	config := engine.buildValidationRunnerConfig(task)
 
-	cfg := engine.buildValidationRunnerConfig(task)
+	require.NotNil(t, config)
+	assert.Nil(t, config.FormatCommands)
+	assert.Nil(t, config.LintCommands)
+	assert.Nil(t, config.TestCommands)
+	assert.Nil(t, config.PreCommitCommands)
+}
 
-	// Current implementation returns nil (uses defaults)
-	assert.Nil(t, cfg)
+// TestWithValidationCommands_StoresCommands tests that WithValidationCommands option stores commands correctly
+func TestWithValidationCommands_StoresCommands(t *testing.T) {
+	t.Parallel()
+
+	customFormat := []string{"gofmt", "-w", "."}
+	customLint := []string{"golangci-lint", "run"}
+	customTest := []string{"go", "test", "-race", "./..."}
+	customPreCommit := []string{"pre-commit", "run", "--all"}
+
+	store := newMockStore()
+	engine := NewEngine(
+		store,
+		nil,
+		DefaultEngineConfig(),
+		zerolog.Nop(),
+		WithValidationCommands(customFormat, customLint, customTest, customPreCommit),
+	)
+
+	assert.Equal(t, customFormat, engine.formatCommands)
+	assert.Equal(t, customLint, engine.lintCommands)
+	assert.Equal(t, customTest, engine.testCommands)
+	assert.Equal(t, customPreCommit, engine.preCommitCommands)
+}
+
+// TestWithValidationCommands_MultipleOptions tests that multiple options can be combined
+func TestWithValidationCommands_MultipleOptions(t *testing.T) {
+	t.Parallel()
+
+	customFormat := []string{"custom-format"}
+	customLint := []string{"custom-lint"}
+	customTest := []string{"custom-test"}
+	customPreCommit := []string{"custom-pre-commit"}
+
+	store := newMockStore()
+	mockHandler := &mockValidationRetryHandler{isEnabled: true, maxAttempts: 3}
+
+	engine := NewEngine(
+		store,
+		nil,
+		DefaultEngineConfig(),
+		zerolog.Nop(),
+		WithValidationRetryHandler(mockHandler),
+		WithValidationCommands(customFormat, customLint, customTest, customPreCommit),
+	)
+
+	// Verify validation commands are set
+	assert.Equal(t, customFormat, engine.formatCommands)
+	assert.Equal(t, customLint, engine.lintCommands)
+	assert.Equal(t, customTest, engine.testCommands)
+	assert.Equal(t, customPreCommit, engine.preCommitCommands)
+
+	// Verify other options still work
+	assert.NotNil(t, engine.validationRetryHandler)
+	assert.Equal(t, mockHandler, engine.validationRetryHandler)
 }
 
 // TestConvertRetryResultToStepResult_IncludesValidationChecks tests that validation_checks is included in metadata
@@ -909,6 +1041,79 @@ func TestConvertRetryResultToStepResult_IncludesValidationChecks(t *testing.T) {
 	// "skipped" key is omitted when false, so we verify it's not present
 	_, hasSkipped := checks[3]["skipped"]
 	assert.False(t, hasSkipped, "skipped key should not be present when pre-commit was not skipped")
+}
+
+// TestAttemptValidationRetry_UsesCustomCommands tests that custom commands are passed to retry handler
+func TestAttemptValidationRetry_UsesCustomCommands(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := newMockStore()
+	workDir := t.TempDir()
+
+	customFormat := []string{"magex", "format:fix"}
+	customLint := []string{"magex", "lint"}
+	customTest := []string{"magex", "test:race"}
+	customPreCommit := []string{"go-pre-commit", "run", "--all-files"}
+
+	var receivedConfig *validation.RunnerConfig
+
+	engine := NewEngine(
+		store,
+		nil,
+		DefaultEngineConfig(),
+		zerolog.Nop(),
+		WithValidationCommands(customFormat, customLint, customTest, customPreCommit),
+	)
+
+	engine.validationRetryHandler = &mockValidationRetryHandler{
+		isEnabled:   true,
+		maxAttempts: 3,
+		retryWithAIFunc: func(_ context.Context, _ *validation.PipelineResult, _ string, _ int, cfg *validation.RunnerConfig, _ domain.Agent, _ string) (*validation.RetryResult, error) {
+			// Capture the config that was passed
+			receivedConfig = cfg
+			return &validation.RetryResult{
+				Success:       true,
+				AttemptNumber: 1,
+				PipelineResult: &validation.PipelineResult{
+					DurationMs: 500,
+				},
+				AIResult: &domain.AIResult{
+					FilesChanged: []string{"fixed.go"},
+				},
+			}, nil
+		},
+	}
+
+	task := &domain.Task{
+		ID:          "test-task-1",
+		WorkspaceID: "test-workspace",
+		Status:      constants.TaskStatusRunning,
+		Metadata: map[string]any{
+			"worktree_dir": workDir,
+		},
+	}
+
+	result := &domain.StepResult{
+		Metadata: map[string]any{
+			"pipeline_result": &validation.PipelineResult{
+				FailedStepName: "test",
+			},
+		},
+	}
+
+	retryResult, err := engine.attemptValidationRetry(ctx, task, result)
+
+	require.NoError(t, err)
+	require.NotNil(t, retryResult)
+	assert.True(t, retryResult.Success)
+
+	// Verify that the custom commands were passed to the retry handler
+	require.NotNil(t, receivedConfig, "RunnerConfig should have been passed to retry handler")
+	assert.Equal(t, customFormat, receivedConfig.FormatCommands)
+	assert.Equal(t, customLint, receivedConfig.LintCommands)
+	assert.Equal(t, customTest, receivedConfig.TestCommands)
+	assert.Equal(t, customPreCommit, receivedConfig.PreCommitCommands)
 }
 
 // Tests for BuildChecksAsMap and hasFailedResult are in internal/validation/result_test.go

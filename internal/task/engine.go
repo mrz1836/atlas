@@ -158,6 +158,12 @@ type Engine struct {
 	validationRetryHandler ValidationRetryHandler
 	metrics                Metrics
 	hookManager            HookManager
+
+	// Validation command configuration
+	formatCommands    []string
+	lintCommands      []string
+	testCommands      []string
+	preCommitCommands []string
 }
 
 // EngineOption configures an Engine.
@@ -206,6 +212,16 @@ func WithHookManager(hm HookManager) EngineOption {
 	}
 }
 
+// WithValidationCommands configures validation commands for retry operations.
+func WithValidationCommands(format, lint, test, preCommit []string) EngineOption {
+	return func(e *Engine) {
+		e.formatCommands = format
+		e.lintCommands = lint
+		e.testCommands = test
+		e.preCommitCommands = preCommit
+	}
+}
+
 // NewEngine creates a new task engine with the given dependencies.
 // The store is used for task persistence, and the registry provides
 // step executors for each step type. Optional EngineOption functions
@@ -231,11 +247,12 @@ func NewEngine(store Store, registry *steps.ExecutorRegistry, cfg EngineConfig, 
 // The branch is the git branch name for this task (used by git operations).
 // The template defines the steps to execute.
 // The description provides a human-readable summary of the task.
+// The fromBacklogID links this task to a backlog discovery (empty if not from backlog).
 //
 // Returns the created task and any error that occurred during execution.
 // Even if execution fails partway through, the task is returned so the
 // caller can inspect its state.
-func (e *Engine) Start(ctx context.Context, workspaceName, branch, worktreePath string, template *domain.Template, description string) (*domain.Task, error) {
+func (e *Engine) Start(ctx context.Context, workspaceName, branch, worktreePath string, template *domain.Template, description, fromBacklogID string) (*domain.Task, error) {
 	if err := ctxutil.Canceled(ctx); err != nil {
 		return nil, err
 	}
@@ -277,6 +294,11 @@ func (e *Engine) Start(ctx context.Context, workspaceName, branch, worktreePath 
 			"branch":       branch,
 			"worktree_dir": worktreePath,
 		},
+	}
+
+	// Set backlog ID in metadata so updateBacklogStatus can find it
+	if fromBacklogID != "" {
+		task.Metadata["from_backlog_id"] = fromBacklogID
 	}
 
 	e.logger.Info().
@@ -340,8 +362,24 @@ func (e *Engine) Resume(ctx context.Context, task *domain.Task, template *domain
 			atlaserrors.ErrInvalidTransition, task.Status)
 	}
 
+	// Check if resuming from step-level approval with a user choice
+	if choice, ok := task.Metadata["step_approval_choice"].(string); ok && choice != "" {
+		e.logger.Info().
+			Str("task_id", task.ID).
+			Str("choice", choice).
+			Msg("applying step approval choice")
+
+		// Apply choice before re-running step
+		if err := e.applyStepApprovalChoice(ctx, task, template, choice); err != nil {
+			return fmt.Errorf("failed to apply step approval choice: %w", err)
+		}
+
+		// Clear the choice so it's not re-applied
+		delete(task.Metadata, "step_approval_choice")
+	}
+
 	// Transition from error states back to Running
-	if IsErrorStatus(task.Status) {
+	if IsErrorStatus(task.Status) || task.Status == constants.TaskStatusAwaitingApproval {
 		if err := Transition(ctx, task, constants.TaskStatusRunning, "resumed by user"); err != nil {
 			return err
 		}

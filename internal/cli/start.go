@@ -287,7 +287,7 @@ func executeTask(ctx context.Context, sc *startContext, sigHandler *signal.Handl
 		Msg("workspace created")
 
 	// Start task execution
-	t, taskStore, err := startTaskExecution(ctx, ws, tmpl, description, opts.agent, opts.model, logger, out)
+	t, taskStore, err := startTaskExecution(ctx, ws, tmpl, description, opts.agent, opts.model, opts.fromBacklogID, logger, out)
 
 	// Store CLI overrides in task metadata for resume (if task was created)
 	storeCLIOverridesIfNeeded(ctx, t, taskStore, ws.Name, &opts, logger)
@@ -538,7 +538,7 @@ func safeTaskID(t *domain.Task) string {
 
 // startTaskExecution creates and starts the task engine.
 // Returns the task, task store (for subsequent updates), and any error.
-func startTaskExecution(ctx context.Context, ws *domain.Workspace, tmpl *domain.Template, description, agent, model string, logger zerolog.Logger, out tui.Output) (*domain.Task, *task.FileStore, error) {
+func startTaskExecution(ctx context.Context, ws *domain.Workspace, tmpl *domain.Template, description, agent, model, fromBacklogID string, logger zerolog.Logger, out tui.Output) (*domain.Task, *task.FileStore, error) {
 	// Create service factory
 	services := workflow.NewServiceFactory(logger)
 
@@ -605,13 +605,13 @@ func startTaskExecution(ctx context.Context, ws *domain.Workspace, tmpl *domain.
 		ProgressCallback:       createProgressCallback(ctx, out, ws.Name),
 		ValidationRetryHandler: validationRetryHandler,
 		HookManager:            hookManager,
-	})
+	}, cfg)
 
 	// Apply agent and model overrides to template
 	workflow.ApplyAgentModelOverrides(tmpl, agent, model)
 
 	// Start task
-	t, err := startTask(ctx, engine, ws, tmpl, description, logger)
+	t, err := startTask(ctx, engine, ws, tmpl, description, fromBacklogID, logger)
 	return t, taskStore, err
 }
 
@@ -682,8 +682,8 @@ func displayPRURL(out tui.Output, output string) {
 }
 
 // startTask starts the task execution and handles errors.
-func startTask(ctx context.Context, engine *task.Engine, ws *domain.Workspace, tmpl *domain.Template, description string, logger zerolog.Logger) (*domain.Task, error) {
-	t, err := engine.Start(ctx, ws.Name, ws.Branch, ws.WorktreePath, tmpl, description)
+func startTask(ctx context.Context, engine *task.Engine, ws *domain.Workspace, tmpl *domain.Template, description, fromBacklogID string, logger zerolog.Logger) (*domain.Task, error) {
+	t, err := engine.Start(ctx, ws.Name, ws.Branch, ws.WorktreePath, tmpl, description, fromBacklogID)
 	if err != nil {
 		logger.Error().Err(err).
 			Str("workspace_name", ws.Name).

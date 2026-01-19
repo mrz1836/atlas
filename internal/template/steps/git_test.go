@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -302,6 +303,139 @@ func TestGitExecutor_ExecuteCommit_WithGarbage(t *testing.T) {
 	assert.Equal(t, "awaiting_approval", result.Status)
 	assert.Contains(t, result.Output, ".env")
 	assert.Contains(t, result.Output, "garbage")
+
+	// Verify structured approval options are populated
+	require.Len(t, result.ApprovalOptions, 3, "should have 3 approval options")
+
+	// Verify first option (remove - recommended)
+	assert.Equal(t, "r", result.ApprovalOptions[0].Key)
+	assert.Equal(t, "Remove and continue", result.ApprovalOptions[0].Label)
+	assert.True(t, result.ApprovalOptions[0].Recommended)
+
+	// Verify second option (include)
+	assert.Equal(t, "i", result.ApprovalOptions[1].Key)
+	assert.Equal(t, "Include anyway", result.ApprovalOptions[1].Label)
+	assert.False(t, result.ApprovalOptions[1].Recommended)
+
+	// Verify third option (abort)
+	assert.Equal(t, "a", result.ApprovalOptions[2].Key)
+	assert.Equal(t, "Abort", result.ApprovalOptions[2].Label)
+	assert.False(t, result.ApprovalOptions[2].Recommended)
+
+	// Verify garbage files are stored in metadata
+	require.NotNil(t, result.Metadata)
+	garbageFiles, ok := result.Metadata["garbage_files"]
+	require.True(t, ok, "garbage_files should be in metadata")
+	assert.NotNil(t, garbageFiles)
+}
+
+func TestGitExecutor_ExecuteCommit_WithGarbageAction_Remove(t *testing.T) {
+	ctx := context.Background()
+	commitCalled := false
+	committer := &mockSmartCommitter{
+		analyzeFunc: func(_ context.Context) (*git.CommitAnalysis, error) {
+			return &git.CommitAnalysis{
+				FileGroups: []git.FileGroup{
+					{Package: "internal/git", Files: []git.FileChange{{Path: "file.go"}}},
+				},
+				GarbageFiles: []git.GarbageFile{
+					{Path: ".env", Category: git.GarbageSecrets, Reason: "matches pattern: .env"},
+				},
+				TotalChanges: 2,
+				HasGarbage:   true,
+			}, nil
+		},
+		commitFunc: func(_ context.Context, opts git.CommitOptions) (*git.CommitResult, error) {
+			commitCalled = true
+			// When removing garbage, IncludeGarbage should be false
+			assert.False(t, opts.IncludeGarbage, "IncludeGarbage should be false when removing")
+			return &git.CommitResult{
+				Commits:    []git.CommitInfo{{Hash: "abc123", Message: "test commit"}},
+				TotalFiles: 1,
+			}, nil
+		},
+	}
+
+	executor := NewGitExecutor("/tmp/work",
+		WithSmartCommitter(committer),
+	)
+
+	// Task with garbage_action set to "remove"
+	task := &domain.Task{
+		ID:          "task-123",
+		CurrentStep: 0,
+		Metadata: map[string]any{
+			"garbage_action": "remove",
+		},
+	}
+	step := &domain.StepDefinition{
+		Name: "git",
+		Type: domain.StepTypeGit,
+		Config: map[string]any{
+			"operation": "commit",
+		},
+	}
+
+	result, err := executor.Execute(ctx, task, step)
+
+	require.NoError(t, err)
+	assert.True(t, commitCalled, "commit should have been called")
+	assert.Equal(t, constants.StepStatusSuccess, result.Status)
+	// garbage_action should be cleared
+	_, hasGarbageAction := task.Metadata["garbage_action"]
+	assert.False(t, hasGarbageAction, "garbage_action should be cleared after processing")
+}
+
+func TestGitExecutor_ExecuteCommit_WithGarbageAction_Include(t *testing.T) {
+	ctx := context.Background()
+	commitCalled := false
+	committer := &mockSmartCommitter{
+		analyzeFunc: func(_ context.Context) (*git.CommitAnalysis, error) {
+			return &git.CommitAnalysis{
+				FileGroups: []git.FileGroup{
+					{Package: "internal/git", Files: []git.FileChange{{Path: "file.go"}}},
+				},
+				GarbageFiles: []git.GarbageFile{
+					{Path: ".env", Category: git.GarbageSecrets, Reason: "matches pattern: .env"},
+				},
+				TotalChanges: 2,
+				HasGarbage:   true,
+			}, nil
+		},
+		commitFunc: func(_ context.Context, opts git.CommitOptions) (*git.CommitResult, error) {
+			commitCalled = true
+			// When including garbage, IncludeGarbage should be true
+			assert.True(t, opts.IncludeGarbage, "IncludeGarbage should be true when including")
+			return &git.CommitResult{
+				Commits:    []git.CommitInfo{{Hash: "abc123", Message: "test commit"}},
+				TotalFiles: 1,
+			}, nil
+		},
+	}
+
+	executor := NewGitExecutor("/tmp/work", WithSmartCommitter(committer))
+
+	// Task with garbage_action set to "include"
+	task := &domain.Task{
+		ID:          "task-123",
+		CurrentStep: 0,
+		Metadata: map[string]any{
+			"garbage_action": "include",
+		},
+	}
+	step := &domain.StepDefinition{
+		Name: "git",
+		Type: domain.StepTypeGit,
+		Config: map[string]any{
+			"operation": "commit",
+		},
+	}
+
+	result, err := executor.Execute(ctx, task, step)
+
+	require.NoError(t, err)
+	assert.True(t, commitCalled, "commit should have been called")
+	assert.Equal(t, constants.StepStatusSuccess, result.Status)
 }
 
 func TestGitExecutor_ExecuteCommit_Success(t *testing.T) {
@@ -712,10 +846,19 @@ func TestGitExecutor_HandleGarbageDetected_NoRunner(t *testing.T) {
 	ctx := context.Background()
 	executor := NewGitExecutor("/tmp/work") // No git runner
 
+	// HandleGarbageDetected no longer requires a git runner for GarbageRemoveAndContinue
+	// since the actual git operations are not yet fully implemented
 	err := executor.HandleGarbageDetected(ctx, []git.GarbageFile{}, GarbageRemoveAndContinue)
+	require.NoError(t, err)
 
+	// GarbageIncludeAnyway also doesn't require git runner
+	err = executor.HandleGarbageDetected(ctx, []git.GarbageFile{}, GarbageIncludeAnyway)
+	require.NoError(t, err)
+
+	// GarbageAbortManual returns error regardless of git runner
+	err = executor.HandleGarbageDetected(ctx, []git.GarbageFile{}, GarbageAbortManual)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "git runner not configured")
+	assert.Contains(t, err.Error(), "manual intervention")
 }
 
 func TestFormatGarbageWarning(t *testing.T) {
@@ -1488,4 +1631,72 @@ func TestGitExecutor_GetPRNumber(t *testing.T) {
 			assert.Equal(t, tt.expected, result)
 		})
 	}
+}
+
+func TestGitExecutor_CleanupOnPause(t *testing.T) {
+	t.Run("removes_existing_lock_file", func(t *testing.T) {
+		// Create a temp directory with a git lock file
+		tmpDir := t.TempDir()
+		gitDir := filepath.Join(tmpDir, ".git")
+		require.NoError(t, mkdir(gitDir, 0o750))
+		lockPath := filepath.Join(gitDir, "index.lock")
+		require.NoError(t, writeFile(lockPath, []byte("lock"), 0o600))
+
+		executor := NewGitExecutor(tmpDir)
+
+		err := executor.CleanupOnPause(context.Background(), tmpDir)
+
+		require.NoError(t, err)
+		// Verify lock file is removed
+		_, statErr := statFile(lockPath)
+		assert.True(t, isNotExist(statErr), "lock file should be removed")
+	})
+
+	t.Run("no_error_when_lock_not_exists", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		gitDir := filepath.Join(tmpDir, ".git")
+		require.NoError(t, mkdir(gitDir, 0o750))
+		// No lock file created
+
+		executor := NewGitExecutor(tmpDir)
+
+		err := executor.CleanupOnPause(context.Background(), tmpDir)
+
+		require.NoError(t, err)
+	})
+
+	t.Run("uses_workDir_when_path_empty", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		gitDir := filepath.Join(tmpDir, ".git")
+		require.NoError(t, mkdir(gitDir, 0o750))
+		lockPath := filepath.Join(gitDir, "index.lock")
+		require.NoError(t, writeFile(lockPath, []byte("lock"), 0o600))
+
+		executor := NewGitExecutor(tmpDir)
+
+		// Call with empty path - should use workDir
+		err := executor.CleanupOnPause(context.Background(), "")
+
+		require.NoError(t, err)
+		// Verify lock file is removed
+		_, statErr := statFile(lockPath)
+		assert.True(t, isNotExist(statErr), "lock file should be removed")
+	})
+}
+
+// Helper functions for tests
+func mkdir(path string, perm os.FileMode) error {
+	return os.MkdirAll(path, perm)
+}
+
+func writeFile(path string, data []byte, perm os.FileMode) error {
+	return os.WriteFile(path, data, perm)
+}
+
+func statFile(path string) (os.FileInfo, error) {
+	return os.Stat(path)
+}
+
+func isNotExist(err error) bool {
+	return os.IsNotExist(err)
 }

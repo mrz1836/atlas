@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -214,18 +215,32 @@ func (e *GitExecutor) Type() domain.StepType {
 	return domain.StepTypeGit
 }
 
-// HandleGarbageDetected processes garbage files according to the specified action.
-func (e *GitExecutor) HandleGarbageDetected(_ context.Context, garbageFiles []git.GarbageFile, action GarbageHandlingAction) error {
-	if e.gitRunner == nil {
-		return fmt.Errorf("git runner not configured: %w", atlaserrors.ErrGitOperation)
+// CleanupOnPause removes stale git lock files when task pauses mid-operation.
+// This prevents git errors like "Another git process seems to be running" on resume.
+func (e *GitExecutor) CleanupOnPause(_ context.Context, worktreePath string) error {
+	if worktreePath == "" {
+		worktreePath = e.workDir
 	}
 
+	lockPath := filepath.Join(worktreePath, ".git", "index.lock")
+	if _, err := os.Stat(lockPath); err == nil {
+		e.logger.Warn().Str("path", lockPath).Msg("removing stale git lock file")
+		if removeErr := os.Remove(lockPath); removeErr != nil {
+			e.logger.Warn().Err(removeErr).Str("path", lockPath).Msg("failed to remove git lock file")
+			return removeErr
+		}
+	}
+	return nil
+}
+
+// HandleGarbageDetected processes garbage files according to the specified action.
+func (e *GitExecutor) HandleGarbageDetected(_ context.Context, garbageFiles []git.GarbageFile, action GarbageHandlingAction) error {
 	switch action {
 	case GarbageRemoveAndContinue:
 		// Unstage garbage files using git rm --cached
+		// TODO: Full implementation requires git.Runner.Remove method
+		// For now, just log the action
 		for _, gf := range garbageFiles {
-			// We need to use the runner to execute git rm --cached
-			// For now, log the action - full implementation requires git.Runner.Remove method
 			e.logger.Info().Str("file", gf.Path).Msg("would remove garbage file from staging")
 		}
 		return nil
@@ -251,19 +266,17 @@ func (e *GitExecutor) executeCommit(ctx context.Context, step *domain.StepDefini
 		return nil, fmt.Errorf("smart committer not configured: %w", atlaserrors.ErrGitOperation)
 	}
 
+	garbageAction := e.extractGarbageAction(task)
+
 	// Step 1: Analyze worktree for garbage detection
 	analysis, err := e.smartCommitter.Analyze(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to analyze worktree: %w", err)
 	}
 
-	// If garbage files are detected, return awaiting_approval status.
-	// The garbage file info is stored in the step output.
-	if analysis.HasGarbage {
-		return &domain.StepResult{
-			Status: constants.StepStatusAwaitingApproval,
-			Output: formatGarbageWarning(analysis.GarbageFiles),
-		}, nil
+	// Handle garbage detection flow
+	if result := e.handleGarbageDetection(ctx, analysis, garbageAction); result != nil {
+		return result, nil
 	}
 
 	// No changes to commit - return no_changes status so engine can skip push/PR steps
@@ -275,27 +288,88 @@ func (e *GitExecutor) executeCommit(ctx context.Context, step *domain.StepDefini
 	}
 
 	// Step 2: Execute smart commit with file grouping
-	// Trailers are deprecated - commit messages now include an AI-generated synopsis body
-	commitOpts := git.CommitOptions{}
+	commitOpts := git.CommitOptions{
+		IncludeGarbage: garbageAction == "include",
+	}
 
 	result, err := e.smartCommitter.Commit(ctx, commitOpts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create commit: %w", err)
 	}
 
-	// Step 3: Save commit artifacts
+	// Step 3: Build step result with artifacts and metadata
+	return e.buildCommitStepResult(ctx, task, step, result), nil
+}
+
+// extractGarbageAction retrieves and clears the garbage_action from task metadata.
+func (e *GitExecutor) extractGarbageAction(task *domain.Task) string {
+	if task.Metadata == nil {
+		return ""
+	}
+	action, ok := task.Metadata["garbage_action"].(string)
+	if ok {
+		delete(task.Metadata, "garbage_action")
+	}
+	return action
+}
+
+// handleGarbageDetection processes garbage file detection and returns appropriate result.
+// Returns nil if no garbage handling is needed and execution should continue.
+func (e *GitExecutor) handleGarbageDetection(ctx context.Context, analysis *git.CommitAnalysis, garbageAction string) *domain.StepResult {
+	if !analysis.HasGarbage {
+		return nil
+	}
+
+	// If garbage detected but no user choice, request approval
+	if garbageAction == "" {
+		return &domain.StepResult{
+			Status: constants.StepStatusAwaitingApproval,
+			Output: formatGarbageWarning(analysis.GarbageFiles),
+			ApprovalOptions: []domain.ApprovalOption{
+				{Key: "r", Label: "Remove and continue", Description: "Remove garbage files from staging", Recommended: true},
+				{Key: "i", Label: "Include anyway", Description: "Commit garbage files anyway"},
+				{Key: "a", Label: "Abort", Description: "Stop and fix manually"},
+			},
+			Metadata: map[string]any{
+				"garbage_files": analysis.GarbageFiles,
+			},
+		}
+	}
+
+	// Process user's garbage handling choice
+	e.processGarbageChoice(ctx, analysis.GarbageFiles, garbageAction)
+	return nil
+}
+
+// processGarbageChoice executes the user's chosen garbage handling action.
+func (e *GitExecutor) processGarbageChoice(ctx context.Context, garbageFiles []git.GarbageFile, action string) {
+	switch action {
+	case "remove":
+		if garbageErr := e.HandleGarbageDetected(ctx, garbageFiles, GarbageRemoveAndContinue); garbageErr == nil {
+			e.logger.Info().
+				Int("count", len(garbageFiles)).
+				Msg("removed garbage files from staging per user choice")
+		}
+	case "include":
+		e.logger.Warn().
+			Int("count", len(garbageFiles)).
+			Msg("including garbage files in commit per user choice")
+	}
+}
+
+// buildCommitStepResult creates a StepResult from commit result with artifacts and metadata.
+func (e *GitExecutor) buildCommitStepResult(ctx context.Context, task *domain.Task, step *domain.StepDefinition, result *git.CommitResult) *domain.StepResult {
+	// Collect artifact paths
 	artifactPaths := []string{}
 	if result.ArtifactPath != "" {
 		artifactPaths = append(artifactPaths, result.ArtifactPath)
 	}
-
-	// Also save detailed commit result as JSON
 	if jsonPath := e.saveCommitResultJSON(ctx, task, step.Name, result); jsonPath != "" {
 		artifactPaths = append(artifactPaths, jsonPath)
 	}
 
 	// Collect all changed files from all commits
-	var filesChanged []string
+	filesChanged := make([]string, 0, result.TotalFiles)
 	for _, commit := range result.Commits {
 		filesChanged = append(filesChanged, commit.FilesChanged...)
 	}
@@ -314,7 +388,7 @@ func (e *GitExecutor) executeCommit(ctx context.Context, step *domain.StepDefini
 		Metadata: map[string]any{
 			"commit_messages": commitMessages,
 		},
-	}, nil
+	}
 }
 
 // executePush handles the push operation.

@@ -90,7 +90,7 @@ func TestCreateEngine_WithHookManager(t *testing.T) {
 			TaskStore:   taskStore,
 			Logger:      logger,
 			HookManager: hookManager,
-		})
+		}, cfg)
 
 		assert.NotNil(t, engine)
 	})
@@ -104,13 +104,14 @@ func TestCreateEngine_WithHookManager(t *testing.T) {
 		require.NoError(t, err)
 
 		factory := NewServiceFactory(logger)
+		cfg := config.DefaultConfig()
 
 		// Create engine without hook manager
 		engine := factory.CreateEngine(EngineDeps{
 			TaskStore:   taskStore,
 			Logger:      logger,
 			HookManager: nil, // Explicitly nil
-		})
+		}, cfg)
 
 		assert.NotNil(t, engine)
 	})

@@ -189,7 +189,7 @@ type EngineDeps struct {
 }
 
 // CreateEngine creates the task engine with progress callback.
-func (f *ServiceFactory) CreateEngine(deps EngineDeps) *task.Engine {
+func (f *ServiceFactory) CreateEngine(deps EngineDeps, cfg *config.Config) *task.Engine {
 	engineCfg := task.DefaultEngineConfig()
 	engineCfg.ProgressCallback = deps.ProgressCallback
 
@@ -202,6 +202,15 @@ func (f *ServiceFactory) CreateEngine(deps EngineDeps) *task.Engine {
 	if deps.HookManager != nil {
 		opts = append(opts, task.WithHookManager(deps.HookManager))
 	}
+
+	// Pass validation commands from config to engine for retry operations
+	opts = append(opts, task.WithValidationCommands(
+		cfg.Validation.Commands.Format,
+		cfg.Validation.Commands.Lint,
+		cfg.Validation.Commands.Test,
+		cfg.Validation.Commands.PreCommit,
+	))
+
 	return task.NewEngine(deps.TaskStore, deps.ExecRegistry, engineCfg, deps.Logger, opts...)
 }
 

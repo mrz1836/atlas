@@ -29,7 +29,11 @@ func (e *Engine) advanceToNextStep(ctx context.Context, task *domain.Task) error
 }
 
 // saveAndPause saves the task state and logs that the task is paused.
+// It also performs cleanup of step resources (e.g., git lock files).
 func (e *Engine) saveAndPause(ctx context.Context, task *domain.Task) error {
+	// Cleanup step resources before pausing (e.g., remove stale git lock files)
+	e.cleanupOnPause(ctx, task)
+
 	if err := e.store.Update(ctx, task.WorkspaceID, task); err != nil {
 		return fmt.Errorf("failed to save checkpoint: %w", err)
 	}
@@ -38,6 +42,30 @@ func (e *Engine) saveAndPause(ctx context.Context, task *domain.Task) error {
 		Str("status", string(task.Status)).
 		Msg("task paused")
 	return nil
+}
+
+// cleanupOnPause performs cleanup of step-specific resources when task pauses.
+// This prevents issues like stale git lock files when resuming.
+func (e *Engine) cleanupOnPause(ctx context.Context, task *domain.Task) {
+	// Get worktree path from task metadata
+	worktreePath := ""
+	if task.Metadata != nil {
+		if path, ok := task.Metadata["worktree_dir"].(string); ok {
+			worktreePath = path
+		}
+	}
+
+	// Try to cleanup git lock files if we have a git executor
+	if gitExec, err := e.registry.Get(domain.StepTypeGit); err == nil {
+		// Check if it has CleanupOnPause method via interface type assertion
+		if cleaner, ok := gitExec.(interface {
+			CleanupOnPause(ctx context.Context, worktreePath string) error
+		}); ok {
+			if err := cleaner.CleanupOnPause(ctx, worktreePath); err != nil {
+				e.logger.Warn().Err(err).Msg("failed to cleanup git resources on pause")
+			}
+		}
+	}
 }
 
 // shouldPause returns true if the task should pause execution.
@@ -171,6 +199,51 @@ func (e *Engine) completeTask(ctx context.Context, task *domain.Task) error {
 		Str("task_id", task.ID).
 		Str("status", string(task.Status)).
 		Msg("task awaiting approval")
+
+	return nil
+}
+
+// applyStepApprovalChoice applies the user's step-level approval choice.
+// This is called by Resume when the user has made a choice during step-level approval.
+func (e *Engine) applyStepApprovalChoice(ctx context.Context, task *domain.Task, template *domain.Template, choice string) error {
+	if task.CurrentStep >= len(template.Steps) {
+		return fmt.Errorf("invalid current step index %d: %w", task.CurrentStep, atlaserrors.ErrInvalidArgument)
+	}
+
+	step := &template.Steps[task.CurrentStep]
+
+	// Handle git commit garbage choices
+	if step.Type == domain.StepTypeGit {
+		operation, _ := step.Config["operation"].(string)
+		if operation == "" || operation == "commit" {
+			return e.applyGitGarbageChoice(ctx, task, choice)
+		}
+	}
+
+	return nil
+}
+
+// applyGitGarbageChoice handles garbage file choices for git commit operations.
+func (e *Engine) applyGitGarbageChoice(_ context.Context, task *domain.Task, choice string) error {
+	switch choice {
+	case "r":
+		// Remove garbage files from staging - set metadata flag for commit to skip garbage
+		e.setMetadata(task, "garbage_action", "remove")
+		e.logger.Info().Str("task_id", task.ID).Msg("garbage files will be removed from staging")
+
+	case "i":
+		// Include garbage files anyway - set metadata flag for commit to include them
+		e.setMetadata(task, "garbage_action", "include")
+		e.logger.Info().Str("task_id", task.ID).Msg("garbage files will be included in commit")
+
+	case "a":
+		// Abort - transition to an error state
+		e.logger.Info().Str("task_id", task.ID).Msg("user chose to abort garbage handling")
+		return fmt.Errorf("user aborted: garbage files require manual intervention: %w", atlaserrors.ErrOperationCanceled)
+
+	default:
+		return fmt.Errorf("unknown garbage handling choice %q: %w", choice, atlaserrors.ErrInvalidArgument)
+	}
 
 	return nil
 }

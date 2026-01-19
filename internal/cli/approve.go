@@ -408,8 +408,23 @@ func runAutoApprove(ctx context.Context, out tui.Output, taskStore task.Store, w
 	return nil
 }
 
+// hasStepLevelApproval checks if the current step has approval options.
+// This indicates the step requires user input before proceeding (e.g., garbage file handling).
+func hasStepLevelApproval(t *domain.Task) bool {
+	if t == nil || t.CurrentStep >= len(t.StepResults) {
+		return false
+	}
+	result := t.StepResults[t.CurrentStep]
+	return len(result.ApprovalOptions) > 0
+}
+
 // runInteractiveApproval runs the interactive approval flow with action menu.
 func runInteractiveApproval(ctx context.Context, out tui.Output, taskStore task.Store, ws *domain.Workspace, t *domain.Task, notifier *tui.Notifier, verbose bool) error {
+	// Check for step-level approval first (e.g., garbage file handling)
+	if hasStepLevelApproval(t) {
+		return runStepLevelApproval(ctx, out, taskStore, ws, t, notifier)
+	}
+
 	// Display approval summary (AC: #2)
 	summary := tui.NewApprovalSummary(t, ws)
 	_ = out // Mark out as used - printApprovalSummary writes to stdout directly for styled output
@@ -417,6 +432,53 @@ func runInteractiveApproval(ctx context.Context, out tui.Output, taskStore task.
 
 	// Action menu loop (AC: #3, #4)
 	return runApprovalActionLoop(ctx, out, taskStore, ws, t, notifier)
+}
+
+// runStepLevelApproval handles approval for step-specific choices (e.g., garbage file handling).
+// It displays the step output and shows a menu with the step's approval options.
+// After the user makes a choice, it automatically resumes the task.
+func runStepLevelApproval(ctx context.Context, out tui.Output, taskStore task.Store, ws *domain.Workspace, t *domain.Task, notifier *tui.Notifier) error {
+	stepResult := t.StepResults[t.CurrentStep]
+
+	// Display step output (the garbage warning or other step-specific message)
+	out.Warning(stepResult.Output)
+
+	// Build menu from step options
+	options := make([]tui.Option, len(stepResult.ApprovalOptions))
+	for i, opt := range stepResult.ApprovalOptions {
+		label := opt.Label
+		if opt.Recommended {
+			label += " (recommended)"
+		}
+		options[i] = tui.Option{Label: label, Description: opt.Description, Value: opt.Key}
+	}
+
+	selected, err := tuiSelectFunc("How would you like to proceed?", options)
+	if err != nil {
+		if errors.Is(err, tui.ErrMenuCanceled) {
+			out.Info("Approval canceled.")
+			return nil
+		}
+		return fmt.Errorf("select step action: %w", err)
+	}
+
+	// Store choice in task metadata for Resume to use
+	if t.Metadata == nil {
+		t.Metadata = make(map[string]any)
+	}
+	t.Metadata["step_approval_choice"] = selected
+
+	// Save the task with the choice
+	if err := taskStore.Update(ctx, t.WorkspaceID, t); err != nil {
+		return fmt.Errorf("failed to save approval choice: %w", err)
+	}
+
+	out.Success(fmt.Sprintf("Choice '%s' saved.", selected))
+
+	// Inform user to resume the task
+	out.Info(fmt.Sprintf("Run 'atlas resume %s' to continue the task with your choice.", ws.Name))
+	notifier.Bell()
+	return nil
 }
 
 // printApprovalSummaryTo prints the approval summary to the specified writer.

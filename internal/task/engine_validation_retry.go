@@ -213,9 +213,14 @@ func (e *Engine) getValidationWorkDir(task *domain.Task) string {
 }
 
 // buildValidationRunnerConfig creates runner config from task config.
-// Returns nil to use defaults - the validation executor already has the commands.
+// Returns the validation commands stored in the engine during initialization.
 func (e *Engine) buildValidationRunnerConfig(_ *domain.Task) *validation.RunnerConfig {
-	return nil
+	return &validation.RunnerConfig{
+		FormatCommands:    e.formatCommands,
+		LintCommands:      e.lintCommands,
+		TestCommands:      e.testCommands,
+		PreCommitCommands: e.preCommitCommands,
+	}
 }
 
 // convertRetryResultToStepResult converts a successful retry result to a StepResult.

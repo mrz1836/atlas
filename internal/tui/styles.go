@@ -28,9 +28,9 @@ import (
 	"os"
 	"strings"
 	"sync"
-	"unicode/utf8"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/mattn/go-runewidth"
 	"github.com/muesli/termenv"
 
 	"github.com/mrz1836/atlas/internal/constants"
@@ -602,7 +602,7 @@ func skipOSCSequence(runes []rune, i int) int {
 func padRight(s string, width int) string {
 	// Strip ANSI codes to get visible character count
 	visible := stripANSI(s)
-	runeCount := utf8.RuneCountInString(visible)
+	runeCount := runewidth.StringWidth(visible)
 	if runeCount >= width {
 		// Truncate to width runes (not bytes)
 		runes := []rune(s)
