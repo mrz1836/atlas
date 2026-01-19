@@ -16,6 +16,8 @@ import (
 	"github.com/mrz1836/atlas/internal/domain"
 )
 
+const testWorkspaceID = "workspace-1"
+
 var (
 	errKeyNotAvailable   = errors.New("key not available")
 	errCompilationFailed = errors.New("compilation failed")
@@ -57,12 +59,14 @@ func TestManager_CreateValidationReceipt(t *testing.T) {
 
 		// Create task and hook
 		taskID := "test-task-no-sign"
-		task := &domain.Task{ID: taskID}
+		workspaceID := testWorkspaceID
+		task := &domain.Task{ID: taskID, WorkspaceID: workspaceID}
 
-		// Create hook directory and hook
-		taskDir := filepath.Join(tmpDir, taskID)
+		// Create hook directory and hook (using resolved path)
+		taskPath := resolveTaskPath(workspaceID, taskID)
+		taskDir := filepath.Join(tmpDir, taskPath)
 		require.NoError(t, os.MkdirAll(taskDir, 0o750))
-		_, err := store.Create(ctx, taskID, "workspace-1")
+		_, err := store.Create(ctx, taskPath, workspaceID)
 		require.NoError(t, err)
 
 		// Create validation result
@@ -82,7 +86,7 @@ func TestManager_CreateValidationReceipt(t *testing.T) {
 		require.NoError(t, err)
 
 		// Verify receipt was created but without signature
-		hook, err := store.Get(ctx, taskID)
+		hook, err := store.Get(ctx, taskPath)
 		require.NoError(t, err)
 		require.Len(t, hook.Receipts, 1)
 
@@ -103,11 +107,13 @@ func TestManager_CreateValidationReceipt(t *testing.T) {
 
 		// Create task and hook
 		taskID := "test-task-signed"
-		task := &domain.Task{ID: taskID}
+		workspaceID := testWorkspaceID
+		task := &domain.Task{ID: taskID, WorkspaceID: workspaceID}
 
-		taskDir := filepath.Join(tmpDir, taskID)
+		taskPath := resolveTaskPath(workspaceID, taskID)
+		taskDir := filepath.Join(tmpDir, taskPath)
 		require.NoError(t, os.MkdirAll(taskDir, 0o750))
-		_, err := store.Create(ctx, taskID, "workspace-1")
+		_, err := store.Create(ctx, taskPath, workspaceID)
 		require.NoError(t, err)
 
 		// Create validation result
@@ -127,7 +133,7 @@ func TestManager_CreateValidationReceipt(t *testing.T) {
 		require.NoError(t, err)
 
 		// Verify receipt was created WITH signature
-		hook, err := store.Get(ctx, taskID)
+		hook, err := store.Get(ctx, taskPath)
 		require.NoError(t, err)
 		require.Len(t, hook.Receipts, 1)
 
@@ -154,11 +160,13 @@ func TestManager_CreateValidationReceipt(t *testing.T) {
 
 		// Create task and hook
 		taskID := "test-task-sign-fail"
-		task := &domain.Task{ID: taskID}
+		workspaceID := testWorkspaceID
+		task := &domain.Task{ID: taskID, WorkspaceID: workspaceID}
 
-		taskDir := filepath.Join(tmpDir, taskID)
+		taskPath := resolveTaskPath(workspaceID, taskID)
+		taskDir := filepath.Join(tmpDir, taskPath)
 		require.NoError(t, os.MkdirAll(taskDir, 0o750))
-		_, err := store.Create(ctx, taskID, "workspace-1")
+		_, err := store.Create(ctx, taskPath, workspaceID)
 		require.NoError(t, err)
 
 		// Create validation result
@@ -178,7 +186,7 @@ func TestManager_CreateValidationReceipt(t *testing.T) {
 		require.NoError(t, err)
 
 		// Verify receipt was created but without signature
-		hook, err := store.Get(ctx, taskID)
+		hook, err := store.Get(ctx, taskPath)
 		require.NoError(t, err)
 		require.Len(t, hook.Receipts, 1)
 		assert.Empty(t, hook.Receipts[0].Signature) // Signing failed, but receipt saved
@@ -204,11 +212,13 @@ func TestManager_CreateValidationReceipt(t *testing.T) {
 
 		// Create task and hook
 		taskID := "test-task-multi-receipt"
-		task := &domain.Task{ID: taskID}
+		workspaceID := testWorkspaceID
+		task := &domain.Task{ID: taskID, WorkspaceID: workspaceID}
 
-		taskDir := filepath.Join(tmpDir, taskID)
+		taskPath := resolveTaskPath(workspaceID, taskID)
+		taskDir := filepath.Join(tmpDir, taskPath)
 		require.NoError(t, os.MkdirAll(taskDir, 0o750))
-		_, err := store.Create(ctx, taskID, "workspace-1")
+		_, err := store.Create(ctx, taskPath, workspaceID)
 		require.NoError(t, err)
 
 		// Create multiple receipts
@@ -256,13 +266,15 @@ func TestManager_StartIntervalCheckpointing(t *testing.T) {
 
 		// Create task and hook
 		taskID := "test-interval-start"
-		task := &domain.Task{ID: taskID}
+		workspaceID := testWorkspaceID
+		task := &domain.Task{ID: taskID, WorkspaceID: workspaceID}
 
-		taskDir := filepath.Join(tmpDir, taskID)
+		taskPath := resolveTaskPath(workspaceID, taskID)
+		taskDir := filepath.Join(tmpDir, taskPath)
 		require.NoError(t, os.MkdirAll(taskDir, 0o750))
 
 		hook := &domain.Hook{
-			TaskID:      taskID,
+			TaskID:      taskPath,
 			State:       domain.HookStateStepRunning,
 			Checkpoints: []domain.StepCheckpoint{},
 		}
@@ -272,9 +284,9 @@ func TestManager_StartIntervalCheckpointing(t *testing.T) {
 		err := m.StartIntervalCheckpointing(ctx, task)
 		require.NoError(t, err)
 
-		// Verify checkpointer was started
+		// Verify checkpointer was started (keyed by taskPath)
 		m.checkpointsMu.Lock()
-		_, exists := m.intervalCheckers[taskID]
+		_, exists := m.intervalCheckers[taskPath]
 		m.checkpointsMu.Unlock()
 		assert.True(t, exists)
 
@@ -291,13 +303,15 @@ func TestManager_StartIntervalCheckpointing(t *testing.T) {
 		m := NewManager(store, cfg)
 
 		taskID := "test-interval-restart"
-		task := &domain.Task{ID: taskID}
+		workspaceID := testWorkspaceID
+		task := &domain.Task{ID: taskID, WorkspaceID: workspaceID}
 
-		taskDir := filepath.Join(tmpDir, taskID)
+		taskPath := resolveTaskPath(workspaceID, taskID)
+		taskDir := filepath.Join(tmpDir, taskPath)
 		require.NoError(t, os.MkdirAll(taskDir, 0o750))
 
 		hook := &domain.Hook{
-			TaskID:      taskID,
+			TaskID:      taskPath,
 			State:       domain.HookStateStepRunning,
 			Checkpoints: []domain.StepCheckpoint{},
 		}
@@ -320,7 +334,7 @@ func TestManager_StartIntervalCheckpointing(t *testing.T) {
 		cfg := &config.HookConfig{}
 		m := NewManager(store, cfg)
 
-		task := &domain.Task{ID: "non-existent-task"}
+		task := &domain.Task{ID: "non-existent-task", WorkspaceID: testWorkspaceID}
 
 		err := m.StartIntervalCheckpointing(ctx, task)
 		assert.Error(t, err)
@@ -339,13 +353,15 @@ func TestManager_StopIntervalCheckpointing(t *testing.T) {
 		m := NewManager(store, cfg)
 
 		taskID := "test-interval-stop"
-		task := &domain.Task{ID: taskID}
+		workspaceID := testWorkspaceID
+		task := &domain.Task{ID: taskID, WorkspaceID: workspaceID}
 
-		taskDir := filepath.Join(tmpDir, taskID)
+		taskPath := resolveTaskPath(workspaceID, taskID)
+		taskDir := filepath.Join(tmpDir, taskPath)
 		require.NoError(t, os.MkdirAll(taskDir, 0o750))
 
 		hook := &domain.Hook{
-			TaskID:      taskID,
+			TaskID:      taskPath,
 			State:       domain.HookStateStepRunning,
 			Checkpoints: []domain.StepCheckpoint{},
 		}
@@ -358,9 +374,9 @@ func TestManager_StopIntervalCheckpointing(t *testing.T) {
 		err = m.StopIntervalCheckpointing(ctx, task)
 		require.NoError(t, err)
 
-		// Verify checkpointer was removed
+		// Verify checkpointer was removed (keyed by taskPath)
 		m.checkpointsMu.Lock()
-		_, exists := m.intervalCheckers[taskID]
+		_, exists := m.intervalCheckers[taskPath]
 		m.checkpointsMu.Unlock()
 		assert.False(t, exists)
 	})
@@ -371,7 +387,7 @@ func TestManager_StopIntervalCheckpointing(t *testing.T) {
 		cfg := &config.HookConfig{}
 		m := NewManager(store, cfg)
 
-		task := &domain.Task{ID: "not-running"}
+		task := &domain.Task{ID: "not-running", WorkspaceID: testWorkspaceID}
 
 		// Should not error
 		err := m.StopIntervalCheckpointing(ctx, task)
@@ -436,14 +452,16 @@ func TestManager_ConcurrentAccess(t *testing.T) {
 		m := NewManager(store, cfg, WithReceiptSigner(signer))
 
 		taskID := "concurrent-test"
-		task := &domain.Task{ID: taskID}
+		workspaceID := testWorkspaceID
+		task := &domain.Task{ID: taskID, WorkspaceID: workspaceID}
 
-		taskDir := filepath.Join(tmpDir, taskID)
+		taskPath := resolveTaskPath(workspaceID, taskID)
+		taskDir := filepath.Join(tmpDir, taskPath)
 		require.NoError(t, os.MkdirAll(taskDir, 0o750))
 
 		// Create initial hook
 		hook := &domain.Hook{
-			TaskID:      taskID,
+			TaskID:      taskPath,
 			State:       domain.HookStateStepRunning,
 			Checkpoints: []domain.StepCheckpoint{},
 			CurrentStep: &domain.StepContext{
@@ -477,7 +495,7 @@ func TestManager_ConcurrentAccess(t *testing.T) {
 		_ = m.StopIntervalCheckpointing(ctx, task)
 
 		// Verify final state is consistent (no panics, no corruption)
-		finalHook, err := store.Get(ctx, taskID)
+		finalHook, err := store.Get(ctx, taskPath)
 		require.NoError(t, err)
 		assert.NotNil(t, finalHook)
 
@@ -496,14 +514,16 @@ func TestManager_TransitionStep(t *testing.T) {
 		m := NewManager(store, cfg)
 
 		taskID := "test-transition"
-		task := &domain.Task{ID: taskID}
+		workspaceID := testWorkspaceID
+		task := &domain.Task{ID: taskID, WorkspaceID: workspaceID}
 
-		taskDir := filepath.Join(tmpDir, taskID)
+		taskPath := resolveTaskPath(workspaceID, taskID)
+		taskDir := filepath.Join(tmpDir, taskPath)
 		require.NoError(t, os.MkdirAll(taskDir, 0o750))
 
 		// Create hook in step_pending state (valid source for step_running)
 		hook := &domain.Hook{
-			TaskID:      taskID,
+			TaskID:      taskPath,
 			State:       domain.HookStateStepPending,
 			Checkpoints: []domain.StepCheckpoint{},
 		}
@@ -512,7 +532,7 @@ func TestManager_TransitionStep(t *testing.T) {
 		err := m.TransitionStep(ctx, task, "implement", 2)
 		require.NoError(t, err)
 
-		updatedHook, err := store.Get(ctx, taskID)
+		updatedHook, err := store.Get(ctx, taskPath)
 		require.NoError(t, err)
 		assert.Equal(t, domain.HookStateStepRunning, updatedHook.State)
 		assert.Equal(t, "implement", updatedHook.CurrentStep.StepName)
@@ -530,13 +550,15 @@ func TestManager_CompleteStep(t *testing.T) {
 		m := NewManager(store, cfg)
 
 		taskID := "test-complete"
-		task := &domain.Task{ID: taskID}
+		workspaceID := testWorkspaceID
+		task := &domain.Task{ID: taskID, WorkspaceID: workspaceID}
 
-		taskDir := filepath.Join(tmpDir, taskID)
+		taskPath := resolveTaskPath(workspaceID, taskID)
+		taskDir := filepath.Join(tmpDir, taskPath)
 		require.NoError(t, os.MkdirAll(taskDir, 0o750))
 
 		hook := &domain.Hook{
-			TaskID: taskID,
+			TaskID: taskPath,
 			State:  domain.HookStateStepRunning,
 			CurrentStep: &domain.StepContext{
 				StepName:  "analyze",
@@ -549,7 +571,7 @@ func TestManager_CompleteStep(t *testing.T) {
 		err := m.CompleteStep(ctx, task, "analyze", []string{"file1.go", "file2.go"})
 		require.NoError(t, err)
 
-		updatedHook, err := store.Get(ctx, taskID)
+		updatedHook, err := store.Get(ctx, taskPath)
 		require.NoError(t, err)
 		assert.Equal(t, domain.HookStateStepPending, updatedHook.State)
 		assert.Len(t, updatedHook.Checkpoints, 1)
@@ -565,9 +587,11 @@ func TestManager_CompleteStep(t *testing.T) {
 		m := NewManager(store, cfg)
 
 		taskID := "test-complete-snapshot"
-		task := &domain.Task{ID: taskID}
+		workspaceID := testWorkspaceID
+		task := &domain.Task{ID: taskID, WorkspaceID: workspaceID}
 
-		taskDir := filepath.Join(tmpDir, taskID)
+		taskPath := resolveTaskPath(workspaceID, taskID)
+		taskDir := filepath.Join(tmpDir, taskPath)
 		require.NoError(t, os.MkdirAll(taskDir, 0o750))
 
 		// Create actual test files so snapshotFiles can stat them
@@ -577,7 +601,7 @@ func TestManager_CompleteStep(t *testing.T) {
 		require.NoError(t, os.WriteFile(testFile2, []byte("package test2"), 0o600))
 
 		hook := &domain.Hook{
-			TaskID: taskID,
+			TaskID: taskPath,
 			State:  domain.HookStateStepRunning,
 			CurrentStep: &domain.StepContext{
 				StepName:  "implement",
@@ -592,7 +616,7 @@ func TestManager_CompleteStep(t *testing.T) {
 		require.NoError(t, err)
 
 		// Verify FilesSnapshot is populated in the persisted checkpoint
-		updatedHook, err := store.Get(ctx, taskID)
+		updatedHook, err := store.Get(ctx, taskPath)
 		require.NoError(t, err)
 		require.Len(t, updatedHook.Checkpoints, 1)
 
@@ -614,9 +638,11 @@ func TestManager_CompleteStep(t *testing.T) {
 		m := NewManager(store, cfg)
 
 		taskID := "test-complete-fallback"
-		task := &domain.Task{ID: taskID}
+		workspaceID := testWorkspaceID
+		task := &domain.Task{ID: taskID, WorkspaceID: workspaceID}
 
-		taskDir := filepath.Join(tmpDir, taskID)
+		taskPath := resolveTaskPath(workspaceID, taskID)
+		taskDir := filepath.Join(tmpDir, taskPath)
 		require.NoError(t, os.MkdirAll(taskDir, 0o750))
 
 		// Create test file
@@ -624,7 +650,7 @@ func TestManager_CompleteStep(t *testing.T) {
 		require.NoError(t, os.WriteFile(testFile, []byte("package touched"), 0o600))
 
 		hook := &domain.Hook{
-			TaskID: taskID,
+			TaskID: taskPath,
 			State:  domain.HookStateStepRunning,
 			CurrentStep: &domain.StepContext{
 				StepName:     "implement",
@@ -639,7 +665,7 @@ func TestManager_CompleteStep(t *testing.T) {
 		err := m.CompleteStep(ctx, task, "implement", nil)
 		require.NoError(t, err)
 
-		updatedHook, err := store.Get(ctx, taskID)
+		updatedHook, err := store.Get(ctx, taskPath)
 		require.NoError(t, err)
 		require.Len(t, updatedHook.Checkpoints, 1)
 
@@ -660,14 +686,16 @@ func TestManager_CompleteStep_NilCurrentStep(t *testing.T) {
 		m := NewManager(store, cfg)
 
 		taskID := "test-nil-current-step"
-		task := &domain.Task{ID: taskID}
+		workspaceID := testWorkspaceID
+		task := &domain.Task{ID: taskID, WorkspaceID: workspaceID}
 
-		taskDir := filepath.Join(tmpDir, taskID)
+		taskPath := resolveTaskPath(workspaceID, taskID)
+		taskDir := filepath.Join(tmpDir, taskPath)
 		require.NoError(t, os.MkdirAll(taskDir, 0o750))
 
 		// Create hook WITHOUT CurrentStep set
 		hook := &domain.Hook{
-			TaskID:      taskID,
+			TaskID:      taskPath,
 			State:       domain.HookStateStepPending, // No current step context
 			CurrentStep: nil,                         // Explicitly nil
 			Checkpoints: []domain.StepCheckpoint{},
@@ -692,14 +720,16 @@ func TestManager_CompleteStep_StepNameMismatch(t *testing.T) {
 		m := NewManager(store, cfg)
 
 		taskID := "test-step-mismatch"
-		task := &domain.Task{ID: taskID}
+		workspaceID := testWorkspaceID
+		task := &domain.Task{ID: taskID, WorkspaceID: workspaceID}
 
-		taskDir := filepath.Join(tmpDir, taskID)
+		taskPath := resolveTaskPath(workspaceID, taskID)
+		taskDir := filepath.Join(tmpDir, taskPath)
 		require.NoError(t, os.MkdirAll(taskDir, 0o750))
 
 		// Create hook with CurrentStep set to "analyze"
 		hook := &domain.Hook{
-			TaskID: taskID,
+			TaskID: taskPath,
 			State:  domain.HookStateStepRunning,
 			CurrentStep: &domain.StepContext{
 				StepName:  "analyze",
@@ -726,14 +756,16 @@ func TestManager_CompleteStep_StepNameMismatch(t *testing.T) {
 		m := NewManager(store, cfg)
 
 		taskID := "test-step-match"
-		task := &domain.Task{ID: taskID}
+		workspaceID := testWorkspaceID
+		task := &domain.Task{ID: taskID, WorkspaceID: workspaceID}
 
-		taskDir := filepath.Join(tmpDir, taskID)
+		taskPath := resolveTaskPath(workspaceID, taskID)
+		taskDir := filepath.Join(tmpDir, taskPath)
 		require.NoError(t, os.MkdirAll(taskDir, 0o750))
 
 		// Create hook with CurrentStep set to "analyze"
 		hook := &domain.Hook{
-			TaskID: taskID,
+			TaskID: taskPath,
 			State:  domain.HookStateStepRunning,
 			CurrentStep: &domain.StepContext{
 				StepName:  "analyze",
@@ -749,7 +781,7 @@ func TestManager_CompleteStep_StepNameMismatch(t *testing.T) {
 		require.NoError(t, err)
 
 		// Verify state transition
-		updated, err := store.Get(ctx, taskID)
+		updated, err := store.Get(ctx, taskPath)
 		require.NoError(t, err)
 		assert.Equal(t, domain.HookStateStepPending, updated.State)
 	})
@@ -765,13 +797,15 @@ func TestManager_FailStep(t *testing.T) {
 		m := NewManager(store, cfg)
 
 		taskID := "test-fail"
-		task := &domain.Task{ID: taskID}
+		workspaceID := testWorkspaceID
+		task := &domain.Task{ID: taskID, WorkspaceID: workspaceID}
 
-		taskDir := filepath.Join(tmpDir, taskID)
+		taskPath := resolveTaskPath(workspaceID, taskID)
+		taskDir := filepath.Join(tmpDir, taskPath)
 		require.NoError(t, os.MkdirAll(taskDir, 0o750))
 
 		hook := &domain.Hook{
-			TaskID: taskID,
+			TaskID: taskPath,
 			State:  domain.HookStateStepRunning,
 		}
 		require.NoError(t, store.Save(ctx, hook))
@@ -779,7 +813,7 @@ func TestManager_FailStep(t *testing.T) {
 		err := m.FailStep(ctx, task, "implement", errCompilationFailed)
 		require.NoError(t, err)
 
-		updatedHook, err := store.Get(ctx, taskID)
+		updatedHook, err := store.Get(ctx, taskPath)
 		require.NoError(t, err)
 		assert.Equal(t, domain.HookStateAwaitingHuman, updatedHook.State)
 		assert.Len(t, updatedHook.History, 1)
@@ -797,13 +831,15 @@ func TestManager_CompleteTask(t *testing.T) {
 		m := NewManager(store, cfg)
 
 		taskID := "test-complete-task"
-		task := &domain.Task{ID: taskID}
+		workspaceID := testWorkspaceID
+		task := &domain.Task{ID: taskID, WorkspaceID: workspaceID}
 
-		taskDir := filepath.Join(tmpDir, taskID)
+		taskPath := resolveTaskPath(workspaceID, taskID)
+		taskDir := filepath.Join(tmpDir, taskPath)
 		require.NoError(t, os.MkdirAll(taskDir, 0o750))
 
 		hook := &domain.Hook{
-			TaskID: taskID,
+			TaskID: taskPath,
 			State:  domain.HookStateStepPending,
 			CurrentStep: &domain.StepContext{
 				StepName: "final",
@@ -814,7 +850,7 @@ func TestManager_CompleteTask(t *testing.T) {
 		err := m.CompleteTask(ctx, task)
 		require.NoError(t, err)
 
-		updatedHook, err := store.Get(ctx, taskID)
+		updatedHook, err := store.Get(ctx, taskPath)
 		require.NoError(t, err)
 		assert.Equal(t, domain.HookStateCompleted, updatedHook.State)
 		assert.Nil(t, updatedHook.CurrentStep)
@@ -831,13 +867,15 @@ func TestManager_FailTask(t *testing.T) {
 		m := NewManager(store, cfg)
 
 		taskID := "test-fail-task"
-		task := &domain.Task{ID: taskID}
+		workspaceID := testWorkspaceID
+		task := &domain.Task{ID: taskID, WorkspaceID: workspaceID}
 
-		taskDir := filepath.Join(tmpDir, taskID)
+		taskPath := resolveTaskPath(workspaceID, taskID)
+		taskDir := filepath.Join(tmpDir, taskPath)
 		require.NoError(t, os.MkdirAll(taskDir, 0o750))
 
 		hook := &domain.Hook{
-			TaskID: taskID,
+			TaskID: taskPath,
 			State:  domain.HookStateStepRunning,
 		}
 		require.NoError(t, store.Save(ctx, hook))
@@ -845,7 +883,7 @@ func TestManager_FailTask(t *testing.T) {
 		err := m.FailTask(ctx, task, errFatalError)
 		require.NoError(t, err)
 
-		updatedHook, err := store.Get(ctx, taskID)
+		updatedHook, err := store.Get(ctx, taskPath)
 		require.NoError(t, err)
 		assert.Equal(t, domain.HookStateFailed, updatedHook.State)
 		assert.Len(t, updatedHook.History, 1)
@@ -863,14 +901,16 @@ func TestManager_InvalidStateTransitions(t *testing.T) {
 		m := NewManager(store, cfg)
 
 		taskID := "test-invalid-transition-step"
-		task := &domain.Task{ID: taskID}
+		workspaceID := testWorkspaceID
+		task := &domain.Task{ID: taskID, WorkspaceID: workspaceID}
 
-		taskDir := filepath.Join(tmpDir, taskID)
+		taskPath := resolveTaskPath(workspaceID, taskID)
+		taskDir := filepath.Join(tmpDir, taskPath)
 		require.NoError(t, os.MkdirAll(taskDir, 0o750))
 
 		// Create hook in completed (terminal) state
 		hook := &domain.Hook{
-			TaskID: taskID,
+			TaskID: taskPath,
 			State:  domain.HookStateCompleted,
 		}
 		require.NoError(t, store.Save(ctx, hook))
@@ -888,14 +928,16 @@ func TestManager_InvalidStateTransitions(t *testing.T) {
 		m := NewManager(store, cfg)
 
 		taskID := "test-invalid-complete-step"
-		task := &domain.Task{ID: taskID}
+		workspaceID := testWorkspaceID
+		task := &domain.Task{ID: taskID, WorkspaceID: workspaceID}
 
-		taskDir := filepath.Join(tmpDir, taskID)
+		taskPath := resolveTaskPath(workspaceID, taskID)
+		taskDir := filepath.Join(tmpDir, taskPath)
 		require.NoError(t, os.MkdirAll(taskDir, 0o750))
 
 		// Create hook in failed (terminal) state with a CurrentStep to pass the nil check
 		hook := &domain.Hook{
-			TaskID: taskID,
+			TaskID: taskPath,
 			State:  domain.HookStateFailed,
 			CurrentStep: &domain.StepContext{
 				StepName:  "implement",
@@ -917,14 +959,16 @@ func TestManager_InvalidStateTransitions(t *testing.T) {
 		m := NewManager(store, cfg)
 
 		taskID := "test-invalid-fail-step"
-		task := &domain.Task{ID: taskID}
+		workspaceID := testWorkspaceID
+		task := &domain.Task{ID: taskID, WorkspaceID: workspaceID}
 
-		taskDir := filepath.Join(tmpDir, taskID)
+		taskPath := resolveTaskPath(workspaceID, taskID)
+		taskDir := filepath.Join(tmpDir, taskPath)
 		require.NoError(t, os.MkdirAll(taskDir, 0o750))
 
 		// Create hook in completed (terminal) state
 		hook := &domain.Hook{
-			TaskID: taskID,
+			TaskID: taskPath,
 			State:  domain.HookStateCompleted,
 		}
 		require.NoError(t, store.Save(ctx, hook))
@@ -942,14 +986,16 @@ func TestManager_InvalidStateTransitions(t *testing.T) {
 		m := NewManager(store, cfg)
 
 		taskID := "test-invalid-complete-task"
-		task := &domain.Task{ID: taskID}
+		workspaceID := testWorkspaceID
+		task := &domain.Task{ID: taskID, WorkspaceID: workspaceID}
 
-		taskDir := filepath.Join(tmpDir, taskID)
+		taskPath := resolveTaskPath(workspaceID, taskID)
+		taskDir := filepath.Join(tmpDir, taskPath)
 		require.NoError(t, os.MkdirAll(taskDir, 0o750))
 
 		// Create hook in already completed state
 		hook := &domain.Hook{
-			TaskID: taskID,
+			TaskID: taskPath,
 			State:  domain.HookStateCompleted,
 		}
 		require.NoError(t, store.Save(ctx, hook))
@@ -967,14 +1013,16 @@ func TestManager_InvalidStateTransitions(t *testing.T) {
 		m := NewManager(store, cfg)
 
 		taskID := "test-invalid-fail-task"
-		task := &domain.Task{ID: taskID}
+		workspaceID := testWorkspaceID
+		task := &domain.Task{ID: taskID, WorkspaceID: workspaceID}
 
-		taskDir := filepath.Join(tmpDir, taskID)
+		taskPath := resolveTaskPath(workspaceID, taskID)
+		taskDir := filepath.Join(tmpDir, taskPath)
 		require.NoError(t, os.MkdirAll(taskDir, 0o750))
 
 		// Create hook in already failed state
 		hook := &domain.Hook{
-			TaskID: taskID,
+			TaskID: taskPath,
 			State:  domain.HookStateFailed,
 		}
 		require.NoError(t, store.Save(ctx, hook))
@@ -992,14 +1040,16 @@ func TestManager_InvalidStateTransitions(t *testing.T) {
 		m := NewManager(store, cfg)
 
 		taskID := "test-invalid-complete-from-running"
-		task := &domain.Task{ID: taskID}
+		workspaceID := testWorkspaceID
+		task := &domain.Task{ID: taskID, WorkspaceID: workspaceID}
 
-		taskDir := filepath.Join(tmpDir, taskID)
+		taskPath := resolveTaskPath(workspaceID, taskID)
+		taskDir := filepath.Join(tmpDir, taskPath)
 		require.NoError(t, os.MkdirAll(taskDir, 0o750))
 
 		// Create hook in step_running state (cannot transition directly to completed)
 		hook := &domain.Hook{
-			TaskID: taskID,
+			TaskID: taskPath,
 			State:  domain.HookStateStepRunning,
 		}
 		require.NoError(t, store.Save(ctx, hook))

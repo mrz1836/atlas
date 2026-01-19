@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -76,10 +77,17 @@ func NewManager(store *FileStore, cfg *config.HookConfig, opts ...ManagerOption)
 	return m
 }
 
+// resolveTaskPath constructs the storage path from workspace and task IDs.
+// Path format: workspaces/<workspace>/tasks/<taskID>
+func resolveTaskPath(workspaceID, taskID string) string {
+	return filepath.Join("workspaces", workspaceID, "tasks", taskID)
+}
+
 // CreateHook initializes a hook for a new task.
 func (m *Manager) CreateHook(ctx context.Context, task *domain.Task) error {
 	// Create hook via store (which handles initialization)
-	_, err := m.store.Create(ctx, task.ID, task.WorkspaceID)
+	taskPath := resolveTaskPath(task.WorkspaceID, task.ID)
+	_, err := m.store.Create(ctx, taskPath, task.WorkspaceID)
 	return err
 }
 
@@ -93,7 +101,8 @@ func (m *Manager) TransitionStep(ctx context.Context, task *domain.Task, stepNam
 		return fmt.Errorf("%w: %d", ErrNegativeStepIndex, stepIndex)
 	}
 
-	return m.store.Update(ctx, task.ID, func(h *domain.Hook) error {
+	taskPath := resolveTaskPath(task.WorkspaceID, task.ID)
+	return m.store.Update(ctx, taskPath, func(h *domain.Hook) error {
 		// Validate transition before applying
 		if err := domain.ValidateTransition(h.State, domain.HookStateStepRunning); err != nil {
 			return fmt.Errorf("transition to step_running: %w", err)
@@ -138,7 +147,8 @@ func (m *Manager) TransitionStep(ctx context.Context, task *domain.Task, stepNam
 // CompleteStep updates the hook when a step completes successfully.
 // filesChanged contains the list of files modified during the step.
 func (m *Manager) CompleteStep(ctx context.Context, task *domain.Task, stepName string, filesChanged []string) error {
-	return m.store.Update(ctx, task.ID, func(h *domain.Hook) error {
+	taskPath := resolveTaskPath(task.WorkspaceID, task.ID)
+	return m.store.Update(ctx, taskPath, func(h *domain.Hook) error {
 		// Guard: CurrentStep must be set before completing
 		if h.CurrentStep == nil {
 			return fmt.Errorf("cannot complete step %q: %w (state: %s)", stepName, ErrNoCurrentStepContext, h.State)
@@ -216,7 +226,8 @@ func (m *Manager) CompleteStep(ctx context.Context, task *domain.Task, stepName 
 
 // FailStep updates the hook when a step fails.
 func (m *Manager) FailStep(ctx context.Context, task *domain.Task, stepName string, stepErr error) error {
-	return m.store.Update(ctx, task.ID, func(h *domain.Hook) error {
+	taskPath := resolveTaskPath(task.WorkspaceID, task.ID)
+	return m.store.Update(ctx, taskPath, func(h *domain.Hook) error {
 		// Validate transition before applying
 		if err := domain.ValidateTransition(h.State, domain.HookStateAwaitingHuman); err != nil {
 			return fmt.Errorf("transition to awaiting_human: %w", err)
@@ -252,7 +263,8 @@ func (m *Manager) CompleteTask(ctx context.Context, task *domain.Task) error {
 		_ = m.StopIntervalCheckpointing(ctx, task)
 	}()
 
-	return m.store.Update(ctx, task.ID, func(h *domain.Hook) error {
+	taskPath := resolveTaskPath(task.WorkspaceID, task.ID)
+	return m.store.Update(ctx, taskPath, func(h *domain.Hook) error {
 		// Validate transition before applying
 		if err := domain.ValidateTransition(h.State, domain.HookStateCompleted); err != nil {
 			return fmt.Errorf("transition to completed: %w", err)
@@ -285,7 +297,8 @@ func (m *Manager) FailTask(ctx context.Context, task *domain.Task, taskErr error
 		_ = m.StopIntervalCheckpointing(ctx, task)
 	}()
 
-	return m.store.Update(ctx, task.ID, func(h *domain.Hook) error {
+	taskPath := resolveTaskPath(task.WorkspaceID, task.ID)
+	return m.store.Update(ctx, taskPath, func(h *domain.Hook) error {
 		// Validate transition before applying
 		if err := domain.ValidateTransition(h.State, domain.HookStateFailed); err != nil {
 			return fmt.Errorf("transition to failed: %w", err)
@@ -319,31 +332,33 @@ func (m *Manager) StartIntervalCheckpointing(ctx context.Context, task *domain.T
 	m.checkpointsMu.Lock()
 	defer m.checkpointsMu.Unlock()
 
+	taskPath := resolveTaskPath(task.WorkspaceID, task.ID)
+
 	// Stop any existing interval checkpointer for this task
-	if existing, ok := m.intervalCheckers[task.ID]; ok {
+	if existing, ok := m.intervalCheckers[taskPath]; ok {
 		existing.Stop()
-		delete(m.intervalCheckers, task.ID)
+		delete(m.intervalCheckers, taskPath)
 	}
 
 	// Verify the hook exists before starting interval checkpointing
-	if _, err := m.store.Get(ctx, task.ID); err != nil {
+	if _, err := m.store.Get(ctx, taskPath); err != nil {
 		return err
 	}
 
 	// Create checkpointer and interval checkpointer
-	// Pass taskID instead of hook pointer to avoid data races
+	// Pass taskPath instead of just taskID to avoid path resolution issues
 	checkpointer := NewCheckpointer(m.cfg, m.store)
 	interval := DefaultCheckpointInterval
 	if m.cfg != nil && m.cfg.CheckpointInterval > 0 {
 		interval = m.cfg.CheckpointInterval
 	}
-	ic := NewIntervalCheckpointer(checkpointer, task.ID, m.store, interval, m.logger)
+	ic := NewIntervalCheckpointer(checkpointer, taskPath, m.store, interval, m.logger)
 
 	// Start interval checkpointing
 	ic.Start(ctx)
 
-	// Store for later cleanup
-	m.intervalCheckers[task.ID] = ic
+	// Store for later cleanup (keyed by taskPath for consistency)
+	m.intervalCheckers[taskPath] = ic
 
 	return nil
 }
@@ -353,9 +368,10 @@ func (m *Manager) StopIntervalCheckpointing(_ context.Context, task *domain.Task
 	m.checkpointsMu.Lock()
 	defer m.checkpointsMu.Unlock()
 
-	if ic, ok := m.intervalCheckers[task.ID]; ok {
+	taskPath := resolveTaskPath(task.WorkspaceID, task.ID)
+	if ic, ok := m.intervalCheckers[taskPath]; ok {
 		ic.Stop()
-		delete(m.intervalCheckers, task.ID)
+		delete(m.intervalCheckers, taskPath)
 	}
 
 	return nil
@@ -365,7 +381,8 @@ func (m *Manager) StopIntervalCheckpointing(_ context.Context, task *domain.Task
 // If signing fails (e.g., no master key), the receipt is still created but without a signature.
 // The taskIndex for key derivation is computed from the number of existing receipts.
 func (m *Manager) CreateValidationReceipt(ctx context.Context, task *domain.Task, stepName string, result *domain.StepResult) error {
-	return m.store.Update(ctx, task.ID, func(h *domain.Hook) error {
+	taskPath := resolveTaskPath(task.WorkspaceID, task.ID)
+	return m.store.Update(ctx, taskPath, func(h *domain.Hook) error {
 		// Extract command info from result metadata
 		command := ""
 		exitCode := 0
