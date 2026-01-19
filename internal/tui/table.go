@@ -656,3 +656,407 @@ func (t *StatusTable) renderActionCellPadded(status constants.TaskStatus, custom
 	}
 	return styledText + strings.Repeat(" ", width-plainWidth)
 }
+
+// ========================================
+// HierarchicalStatusTable - Nested Task Display
+// ========================================
+
+// MaxTasksPerWorkspace is the maximum number of tasks shown per workspace.
+// Additional tasks are indicated with "+N more".
+const MaxTasksPerWorkspace = 3
+
+// RowType identifies whether a row represents a workspace or a task.
+type RowType string
+
+const (
+	// RowTypeWorkspace indicates a workspace row.
+	RowTypeWorkspace RowType = "workspace"
+	// RowTypeTask indicates a task row nested under a workspace.
+	RowTypeTask RowType = "task"
+	// RowTypeMore indicates a "+N more" indicator row.
+	RowTypeMore RowType = "more"
+)
+
+// TaskInfo contains information about a single task for hierarchical display.
+type TaskInfo struct {
+	ID          string
+	Path        string // Full path for hyperlink
+	Template    string
+	Status      constants.TaskStatus
+	CurrentStep int
+	TotalSteps  int
+}
+
+// HierarchicalRow represents a row in the hierarchical status table.
+// Can be either a workspace row or a task row.
+type HierarchicalRow struct {
+	Type RowType
+
+	// Workspace fields (for RowTypeWorkspace)
+	Workspace  string
+	Branch     string
+	TaskCount  int // Total tasks in workspace
+	Tasks      []TaskInfo
+	TasksShown int // Number of tasks actually shown (may be limited)
+
+	// Task fields (for RowTypeTask)
+	Task   *TaskInfo
+	IsLast bool // True if this is the last task in the workspace
+
+	// More indicator (for RowTypeMore)
+	MoreCount int
+}
+
+// WorkspaceGroup holds a workspace and all its tasks for hierarchical display.
+type WorkspaceGroup struct {
+	Name       string
+	Branch     string
+	Status     constants.TaskStatus // Aggregate status from most recent task
+	Tasks      []TaskInfo
+	TotalTasks int
+}
+
+// HierarchicalStatusTable renders workspace status with nested tasks.
+type HierarchicalStatusTable struct {
+	groups []WorkspaceGroup
+	styles *TableStyles
+	config StatusTableConfig
+}
+
+// NewHierarchicalStatusTable creates a new hierarchical status table.
+func NewHierarchicalStatusTable(groups []WorkspaceGroup, opts ...StatusTableOption) *HierarchicalStatusTable {
+	t := &HierarchicalStatusTable{
+		groups: groups,
+		styles: NewTableStyles(),
+		config: StatusTableConfig{
+			TerminalWidth: detectTerminalWidth(),
+		},
+	}
+
+	t.config.Narrow = t.config.TerminalWidth > 0 && t.config.TerminalWidth < TerminalWidthNarrow
+
+	// Apply options using adapter (StatusTableOption works on StatusTable)
+	adapter := &StatusTable{config: t.config}
+	for _, opt := range opts {
+		opt(adapter)
+	}
+	t.config = adapter.config
+
+	return t
+}
+
+// Groups returns the workspace groups.
+func (t *HierarchicalStatusTable) Groups() []WorkspaceGroup {
+	return t.groups
+}
+
+// Headers returns the column headers for the hierarchical table.
+func (t *HierarchicalStatusTable) Headers() []string {
+	if t.config.Narrow {
+		return []string{"WS", "BRANCH", "STAT", "TASKS"}
+	}
+	return []string{"WORKSPACE", "BRANCH", "STATUS", "TASKS"}
+}
+
+// FullHeaders returns the full (non-abbreviated) column headers.
+func (t *HierarchicalStatusTable) FullHeaders() []string {
+	return []string{"WORKSPACE", "BRANCH", "STATUS", "TASKS"}
+}
+
+// HierarchicalColumnWidths holds the widths for hierarchical table columns.
+type HierarchicalColumnWidths struct {
+	Workspace int
+	Branch    int
+	Status    int
+	Tasks     int
+}
+
+// MinHierarchicalColumnWidths defines minimum widths for hierarchical columns.
+//
+//nolint:gochecknoglobals // Intentional package-level constant
+var MinHierarchicalColumnWidths = HierarchicalColumnWidths{
+	Workspace: 10,
+	Branch:    12,
+	Status:    18,
+	Tasks:     8,
+}
+
+// Render writes the hierarchical status table to the writer.
+func (t *HierarchicalStatusTable) Render(w io.Writer) error {
+	if len(t.groups) == 0 {
+		return nil
+	}
+
+	headers := t.Headers()
+	widths := t.calculateColumnWidths()
+
+	// Render header
+	headerParts := []string{
+		t.styles.Header.Render(padRight(headers[0], widths.Workspace)),
+		t.styles.Header.Render(padRight(headers[1], widths.Branch)),
+		t.styles.Header.Render(padRight(headers[2], widths.Status)),
+		t.styles.Header.Render(padRight(headers[3], widths.Tasks)),
+	}
+	if _, err := fmt.Fprintln(w, strings.Join(headerParts, "  ")); err != nil {
+		return err
+	}
+
+	// Render each workspace group
+	for _, group := range t.groups {
+		if err := t.renderWorkspaceGroup(w, group, widths); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// ToJSONData converts the hierarchical table to JSON-compatible format.
+func (t *HierarchicalStatusTable) ToJSONData() []HierarchicalJSONWorkspace {
+	result := make([]HierarchicalJSONWorkspace, len(t.groups))
+
+	for i, group := range t.groups {
+		tasks := make([]HierarchicalJSONTask, len(group.Tasks))
+		for j, task := range group.Tasks {
+			tasks[j] = HierarchicalJSONTask{
+				ID:       task.ID,
+				Status:   string(task.Status),
+				Step:     fmt.Sprintf("%d/%d", task.CurrentStep, task.TotalSteps),
+				Template: task.Template,
+			}
+		}
+
+		result[i] = HierarchicalJSONWorkspace{
+			Name:       group.Name,
+			Branch:     group.Branch,
+			Status:     string(group.Status),
+			Tasks:      tasks,
+			TotalTasks: group.TotalTasks,
+		}
+	}
+
+	return result
+}
+
+// calculateColumnWidths calculates column widths based on content.
+func (t *HierarchicalStatusTable) calculateColumnWidths() HierarchicalColumnWidths {
+	headers := t.Headers()
+	widths := HierarchicalColumnWidths{
+		Workspace: max(MinHierarchicalColumnWidths.Workspace, utf8.RuneCountInString(headers[0])),
+		Branch:    max(MinHierarchicalColumnWidths.Branch, utf8.RuneCountInString(headers[1])),
+		Status:    max(MinHierarchicalColumnWidths.Status, utf8.RuneCountInString(headers[2])),
+		Tasks:     max(MinHierarchicalColumnWidths.Tasks, utf8.RuneCountInString(headers[3])),
+	}
+
+	for _, group := range t.groups {
+		// Workspace name
+		if w := utf8.RuneCountInString(group.Name); w > widths.Workspace {
+			widths.Workspace = w
+		}
+		// Branch
+		if w := utf8.RuneCountInString(group.Branch); w > widths.Branch {
+			widths.Branch = w
+		}
+		// Status (icon + space + text)
+		statusText := TaskStatusIcon(group.Status) + " " + string(group.Status)
+		if w := utf8.RuneCountInString(statusText); w > widths.Status {
+			widths.Status = w
+		}
+		// Tasks column for workspace row
+		tasksText := fmt.Sprintf("%d tasks", group.TotalTasks)
+		if group.TotalTasks == 1 {
+			tasksText = "1 task"
+		}
+		if w := utf8.RuneCountInString(tasksText); w > widths.Tasks {
+			widths.Tasks = w
+		}
+		// Task rows content width
+		for _, task := range group.Tasks {
+			taskContent := fmt.Sprintf("%d/%d  %s", task.CurrentStep, task.TotalSteps, task.Template)
+			if w := utf8.RuneCountInString(taskContent); w > widths.Tasks {
+				widths.Tasks = w
+			}
+		}
+	}
+
+	// Constrain to terminal width
+	widths = t.constrainWidths(widths)
+
+	return widths
+}
+
+// constrainWidths reduces column widths to fit terminal.
+func (t *HierarchicalStatusTable) constrainWidths(widths HierarchicalColumnWidths) HierarchicalColumnWidths {
+	const separatorWidth = 6 // 3 columns with 2-space separators
+	totalWidth := widths.Workspace + widths.Branch + widths.Status + widths.Tasks + separatorWidth
+
+	if t.config.TerminalWidth <= 0 || totalWidth <= t.config.TerminalWidth {
+		return widths
+	}
+
+	overflow := totalWidth - t.config.TerminalWidth
+
+	// Reduce Branch first, then Workspace
+	if widths.Branch > MinHierarchicalColumnWidths.Branch {
+		reduction := min(overflow, widths.Branch-MinHierarchicalColumnWidths.Branch)
+		widths.Branch -= reduction
+		overflow -= reduction
+	}
+
+	if overflow > 0 && widths.Workspace > MinHierarchicalColumnWidths.Workspace {
+		reduction := min(overflow, widths.Workspace-MinHierarchicalColumnWidths.Workspace)
+		widths.Workspace -= reduction
+	}
+
+	return widths
+}
+
+// renderWorkspaceGroup renders a workspace and its nested tasks.
+func (t *HierarchicalStatusTable) renderWorkspaceGroup(w io.Writer, group WorkspaceGroup, widths HierarchicalColumnWidths) error {
+	// Workspace row
+	statusCell := t.renderStatusCell(group.Status, widths.Status)
+	tasksText := fmt.Sprintf("%d tasks", group.TotalTasks)
+	switch group.TotalTasks {
+	case 1:
+		tasksText = "1 task"
+	case 0:
+		tasksText = "—"
+	}
+
+	row := []string{
+		padRight(truncateString(group.Name, widths.Workspace), widths.Workspace),
+		padRight(truncateString(group.Branch, widths.Branch), widths.Branch),
+		statusCell,
+		padRight(tasksText, widths.Tasks),
+	}
+	if _, err := fmt.Fprintln(w, strings.Join(row, "  ")); err != nil {
+		return err
+	}
+
+	// Task rows (limited to MaxTasksPerWorkspace)
+	tasksToShow := group.Tasks
+	if len(tasksToShow) > MaxTasksPerWorkspace {
+		tasksToShow = tasksToShow[:MaxTasksPerWorkspace]
+	}
+
+	for i, task := range tasksToShow {
+		isLast := i == len(tasksToShow)-1 && len(group.Tasks) <= MaxTasksPerWorkspace
+		if err := t.renderTaskRow(w, task, isLast, widths); err != nil {
+			return err
+		}
+	}
+
+	// "+N more" indicator if tasks were truncated
+	if len(group.Tasks) > MaxTasksPerWorkspace {
+		moreCount := len(group.Tasks) - MaxTasksPerWorkspace
+		if err := t.renderMoreRow(w, moreCount, widths); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// renderTaskRow renders a single task row with tree prefix.
+func (t *HierarchicalStatusTable) renderTaskRow(w io.Writer, task TaskInfo, isLast bool, widths HierarchicalColumnWidths) error {
+	// Tree prefix
+	prefix := TreeChars.Branch
+	if isLast {
+		prefix = TreeChars.LastBranch
+	}
+
+	// Task ID (dimmed, with hyperlink if path available)
+	taskID := task.ID
+	if task.Path != "" {
+		taskID = RenderFileHyperlink(taskID, task.Path)
+	}
+	dimStyle := lipgloss.NewStyle().Foreground(ColorMuted)
+	taskIDStyled := dimStyle.Render(taskID)
+
+	// Calculate visible width (prefix + task ID text only, no escape sequences)
+	visibleFirstCol := prefix + task.ID
+	visibleWidth := utf8.RuneCountInString(visibleFirstCol)
+
+	// Pad to fill WORKSPACE + separator + BRANCH columns so status aligns correctly
+	targetWidth := widths.Workspace + 2 + widths.Branch
+	padding := ""
+	if visibleWidth < targetWidth {
+		padding = strings.Repeat(" ", targetWidth-visibleWidth)
+	}
+
+	// Status cell
+	statusCell := t.renderStatusCell(task.Status, widths.Status)
+
+	// Step progress + template
+	stepInfo := fmt.Sprintf("%d/%d  %s", task.CurrentStep, task.TotalSteps, task.Template)
+
+	// Build row manually: prefix + taskID + padding + separator + status + separator + tasks
+	// This ensures proper alignment despite invisible escape sequences in taskIDStyled
+	line := prefix + taskIDStyled + padding + "  " + statusCell + "  " + stepInfo
+
+	if _, err := fmt.Fprintln(w, line); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// renderMoreRow renders the "+N more" indicator.
+func (t *HierarchicalStatusTable) renderMoreRow(w io.Writer, count int, widths HierarchicalColumnWidths) error {
+	prefix := TreeChars.LastBranch
+	dimStyle := lipgloss.NewStyle().Foreground(ColorMuted)
+	moreTextPlain := fmt.Sprintf("+%d more", count)
+	moreTextStyled := dimStyle.Render(moreTextPlain)
+
+	// Calculate visible width (prefix + plain text, no escape sequences)
+	visibleWidth := utf8.RuneCountInString(prefix + moreTextPlain)
+
+	// Pad to fill WORKSPACE + separator + BRANCH columns for alignment
+	targetWidth := widths.Workspace + 2 + widths.Branch
+	padding := ""
+	if visibleWidth < targetWidth {
+		padding = strings.Repeat(" ", targetWidth-visibleWidth)
+	}
+
+	// Build row manually with proper alignment
+	line := prefix + moreTextStyled + padding
+
+	if _, err := fmt.Fprintln(w, line); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// renderStatusCell renders the status with icon and color.
+func (t *HierarchicalStatusTable) renderStatusCell(status constants.TaskStatus, width int) string {
+	icon := TaskStatusIcon(status)
+	color := TaskStatusColors()[status]
+	style := lipgloss.NewStyle().Foreground(color)
+
+	plainText := icon + " " + string(status)
+	styledText := icon + " " + style.Render(string(status))
+
+	plainWidth := utf8.RuneCountInString(plainText)
+	if plainWidth >= width {
+		return styledText
+	}
+	return styledText + strings.Repeat(" ", width-plainWidth)
+}
+
+// HierarchicalJSONWorkspace is the JSON representation of a workspace with tasks.
+type HierarchicalJSONWorkspace struct {
+	Name       string                 `json:"name"`
+	Branch     string                 `json:"branch"`
+	Status     string                 `json:"status"`
+	Tasks      []HierarchicalJSONTask `json:"tasks"`
+	TotalTasks int                    `json:"total_tasks"`
+}
+
+// HierarchicalJSONTask is the JSON representation of a task.
+type HierarchicalJSONTask struct {
+	ID       string `json:"id"`
+	Status   string `json:"status"`
+	Step     string `json:"step"`
+	Template string `json:"template"`
+}
