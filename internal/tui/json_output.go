@@ -99,6 +99,16 @@ func (o *JSONOutput) Info(msg string) {
 	})
 }
 
+// Text outputs plain text as JSON.
+// Format: {"type": "text", "message": "..."}
+func (o *JSONOutput) Text(msg string) {
+	//nolint:errchkjson // Method has no error return per interface contract
+	_ = o.encoder.Encode(jsonMessage{
+		Type:    "text",
+		Message: msg,
+	})
+}
+
 // Table outputs tabular data as an array of objects (AC: #5).
 // Format: [{"col1": "val1", ...}, ...]
 func (o *JSONOutput) Table(headers []string, rows [][]string) {

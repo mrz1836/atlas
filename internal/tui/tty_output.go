@@ -64,6 +64,11 @@ func (o *TTYOutput) Info(msg string) {
 	_, _ = fmt.Fprintln(o.w, o.styles.Info.Render("ℹ "+msg))
 }
 
+// Text outputs plain text without any prefix (for copyable content).
+func (o *TTYOutput) Text(msg string) {
+	_, _ = fmt.Fprintln(o.w, msg)
+}
+
 // Table outputs tabular data with aligned columns (AC: #5).
 // Applies TableStyles from styles.go for headers and cells.
 func (o *TTYOutput) Table(headers []string, rows [][]string) {

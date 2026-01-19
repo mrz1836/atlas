@@ -24,6 +24,7 @@
 package tui
 
 import (
+	"fmt"
 	"os"
 	"strings"
 	"sync"
@@ -644,4 +645,38 @@ func IsNarrowTerminal() bool {
 		return true
 	}
 	return width < TerminalWidthNarrow
+}
+
+// TreeChars contains Unicode box-drawing characters for tree rendering.
+// Used to display hierarchical task relationships in status output.
+//
+//nolint:gochecknoglobals // Intentional package-level constant
+var TreeChars = struct {
+	Branch     string // ├─ for non-last items
+	LastBranch string // └─ for last item
+	Indent     string // spacing for alignment
+}{
+	Branch:     "├─ ",
+	LastBranch: "└─ ",
+	Indent:     "   ",
+}
+
+// RenderHyperlink wraps text in OSC 8 terminal hyperlink escape sequence.
+// When supported by the terminal, clicking the text opens the URL.
+// Falls back to plain text when colors/hyperlinks are disabled.
+//
+// OSC 8 format: \x1b]8;;URL\x07TEXT\x1b]8;;\x07
+// See: https://gist.github.com/egmontkob/eb114294efbcd5adb1944c9f3cb5feda
+func RenderHyperlink(text, url string) string {
+	if !HasColorSupport() {
+		return text
+	}
+	// OSC 8 hyperlink: ESC ] 8 ; ; URL BEL TEXT ESC ] 8 ; ; BEL
+	return fmt.Sprintf("\x1b]8;;%s\x07%s\x1b]8;;\x07", url, text)
+}
+
+// RenderFileHyperlink creates a clickable file:// URL for the given path.
+// Useful for opening folders/files in the system file manager.
+func RenderFileHyperlink(text, path string) string {
+	return RenderHyperlink(text, "file://"+path)
 }

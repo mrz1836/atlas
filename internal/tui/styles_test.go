@@ -668,3 +668,75 @@ func TestBoxStyle_Render_WithColoredContent(t *testing.T) {
 		assert.Equal(t, 40, visibleWidth, "line %d should have visible width of 40, got %d: %q", i, visibleWidth, visibleLine)
 	}
 }
+
+// TestTreeChars verifies tree character constants are correctly defined.
+func TestTreeChars_Constants(t *testing.T) {
+	t.Parallel()
+
+	// Verify tree characters use proper Unicode box-drawing characters
+	assert.Equal(t, "├─ ", TreeChars.Branch, "branch character should be ├─ with space")
+	assert.Equal(t, "└─ ", TreeChars.LastBranch, "last branch character should be └─ with space")
+	assert.Equal(t, "   ", TreeChars.Indent, "indent should be 3 spaces")
+
+	// Verify all have the same visible width for alignment (using rune count, not byte count)
+	branchWidth := utf8.RuneCountInString(TreeChars.Branch)
+	lastBranchWidth := utf8.RuneCountInString(TreeChars.LastBranch)
+	indentWidth := utf8.RuneCountInString(TreeChars.Indent)
+
+	assert.Equal(t, branchWidth, lastBranchWidth, "branch chars should have same visible width")
+	assert.Equal(t, branchWidth, indentWidth, "indent should match branch visible width")
+	assert.Equal(t, 3, branchWidth, "branch should be 3 characters wide")
+}
+
+// TestRenderHyperlink_Styles tests hyperlink rendering in styles package.
+func TestRenderHyperlink_Styles(t *testing.T) {
+	t.Parallel()
+
+	t.Run("creates OSC 8 hyperlink when colors enabled", func(t *testing.T) {
+		// Save and restore NO_COLOR
+		original := os.Getenv("NO_COLOR")
+		_ = os.Unsetenv("NO_COLOR")
+		defer func() {
+			if original != "" {
+				_ = os.Setenv("NO_COLOR", original)
+			}
+		}()
+
+		result := RenderHyperlink("link text", "https://example.com/path")
+
+		// Verify OSC 8 structure: ESC ] 8 ; ; URL BEL TEXT ESC ] 8 ; ; BEL
+		assert.Contains(t, result, "\x1b]8;;https://example.com/path\x07", "should contain opening OSC 8 sequence")
+		assert.Contains(t, result, "link text", "should contain link text")
+		assert.Contains(t, result, "\x1b]8;;\x07", "should contain closing OSC 8 sequence")
+	})
+
+	t.Run("returns plain text when NO_COLOR set", func(t *testing.T) {
+		_ = os.Setenv("NO_COLOR", "1")
+		defer func() { _ = os.Unsetenv("NO_COLOR") }()
+
+		result := RenderHyperlink("plain text", "https://example.com")
+		assert.Equal(t, "plain text", result, "should return plain text without hyperlink")
+		assert.NotContains(t, result, "\x1b", "should not contain escape sequences")
+	})
+}
+
+// TestRenderFileHyperlink_Styles tests file hyperlink rendering.
+func TestRenderFileHyperlink_Styles(t *testing.T) {
+	t.Parallel()
+
+	t.Run("creates file:// URL hyperlink", func(t *testing.T) {
+		// Save and restore NO_COLOR
+		original := os.Getenv("NO_COLOR")
+		_ = os.Unsetenv("NO_COLOR")
+		defer func() {
+			if original != "" {
+				_ = os.Setenv("NO_COLOR", original)
+			}
+		}()
+
+		result := RenderFileHyperlink("Click to open", "/Users/test/workspace/task")
+
+		assert.Contains(t, result, "file:///Users/test/workspace/task", "should contain file:// URL")
+		assert.Contains(t, result, "Click to open", "should contain display text")
+	})
+}

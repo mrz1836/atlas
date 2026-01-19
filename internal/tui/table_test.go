@@ -2,6 +2,8 @@ package tui
 
 import (
 	"bytes"
+	"fmt"
+	"os"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -720,5 +722,322 @@ func TestStatusTable_ConstrainToTerminalWidth(t *testing.T) {
 		for i, row := range dataRows {
 			assert.Len(t, row, 5, "Row %d should have 5 columns", i)
 		}
+	})
+}
+
+// ========================================
+// HierarchicalStatusTable Tests
+// ========================================
+
+func TestHierarchicalStatusTable_NewHierarchicalStatusTable(t *testing.T) {
+	t.Parallel()
+
+	groups := []WorkspaceGroup{
+		{
+			Name:       "auth",
+			Branch:     "feat/auth",
+			Status:     constants.TaskStatusRunning,
+			TotalTasks: 2,
+			Tasks: []TaskInfo{
+				{ID: "task-1", Status: constants.TaskStatusRunning, CurrentStep: 3, TotalSteps: 7},
+				{ID: "task-2", Status: constants.TaskStatusCompleted, CurrentStep: 7, TotalSteps: 7},
+			},
+		},
+	}
+
+	table := NewHierarchicalStatusTable(groups)
+	assert.NotNil(t, table)
+	assert.Len(t, table.Groups(), 1)
+}
+
+func TestHierarchicalStatusTable_Headers(t *testing.T) {
+	t.Parallel()
+
+	t.Run("standard headers in wide terminal", func(t *testing.T) {
+		groups := []WorkspaceGroup{}
+		table := NewHierarchicalStatusTable(groups, WithTerminalWidth(120))
+		headers := table.Headers()
+
+		assert.Equal(t, []string{"WORKSPACE", "BRANCH", "STATUS", "TASKS"}, headers)
+	})
+
+	t.Run("abbreviated headers in narrow terminal", func(t *testing.T) {
+		groups := []WorkspaceGroup{}
+		table := NewHierarchicalStatusTable(groups, WithTerminalWidth(70))
+		headers := table.Headers()
+
+		assert.Equal(t, []string{"WS", "BRANCH", "STAT", "TASKS"}, headers)
+	})
+}
+
+func TestHierarchicalStatusTable_Render(t *testing.T) {
+	t.Parallel()
+
+	t.Run("renders workspace with nested tasks", func(t *testing.T) {
+		groups := []WorkspaceGroup{
+			{
+				Name:       "auth",
+				Branch:     "feat/auth",
+				Status:     constants.TaskStatusRunning,
+				TotalTasks: 2,
+				Tasks: []TaskInfo{
+					{ID: "task-1", Status: constants.TaskStatusRunning, CurrentStep: 3, TotalSteps: 7, Template: "feature"},
+					{ID: "task-2", Status: constants.TaskStatusCompleted, CurrentStep: 7, TotalSteps: 7, Template: "bugfix"},
+				},
+			},
+		}
+
+		table := NewHierarchicalStatusTable(groups, WithTerminalWidth(120))
+		var buf bytes.Buffer
+		err := table.Render(&buf)
+		require.NoError(t, err)
+
+		output := buf.String()
+		// Workspace row
+		assert.Contains(t, output, "auth")
+		assert.Contains(t, output, "feat/auth")
+		assert.Contains(t, output, "running")
+		assert.Contains(t, output, "2 tasks")
+		// Task rows with tree characters
+		assert.Contains(t, output, "├─")
+		assert.Contains(t, output, "└─")
+		assert.Contains(t, output, "task-1")
+		assert.Contains(t, output, "task-2")
+		assert.Contains(t, output, "3/7")
+		assert.Contains(t, output, "7/7")
+		assert.Contains(t, output, "feature")
+		assert.Contains(t, output, "bugfix")
+	})
+
+	t.Run("truncates tasks when more than max", func(t *testing.T) {
+		tasks := make([]TaskInfo, 5)
+		for i := range tasks {
+			tasks[i] = TaskInfo{
+				ID:          fmt.Sprintf("task-%d", i+1),
+				Status:      constants.TaskStatusCompleted,
+				CurrentStep: 7,
+				TotalSteps:  7,
+				Template:    "feature",
+			}
+		}
+
+		groups := []WorkspaceGroup{
+			{
+				Name:       "auth",
+				Branch:     "feat/auth",
+				Status:     constants.TaskStatusCompleted,
+				TotalTasks: 5,
+				Tasks:      tasks,
+			},
+		}
+
+		table := NewHierarchicalStatusTable(groups, WithTerminalWidth(120))
+		var buf bytes.Buffer
+		err := table.Render(&buf)
+		require.NoError(t, err)
+
+		output := buf.String()
+		// Should show first 3 tasks
+		assert.Contains(t, output, "task-1")
+		assert.Contains(t, output, "task-2")
+		assert.Contains(t, output, "task-3")
+		// Should NOT show task-4 and task-5
+		assert.NotContains(t, output, "task-4")
+		assert.NotContains(t, output, "task-5")
+		// Should show "+2 more" indicator
+		assert.Contains(t, output, "+2 more")
+	})
+
+	t.Run("handles empty task list", func(t *testing.T) {
+		groups := []WorkspaceGroup{
+			{
+				Name:       "auth",
+				Branch:     "feat/auth",
+				Status:     constants.TaskStatusPending,
+				TotalTasks: 0,
+				Tasks:      []TaskInfo{},
+			},
+		}
+
+		table := NewHierarchicalStatusTable(groups, WithTerminalWidth(120))
+		var buf bytes.Buffer
+		err := table.Render(&buf)
+		require.NoError(t, err)
+
+		output := buf.String()
+		assert.Contains(t, output, "auth")
+		assert.Contains(t, output, "—") // Em-dash for no tasks
+	})
+
+	t.Run("handles single task with correct tree character", func(t *testing.T) {
+		groups := []WorkspaceGroup{
+			{
+				Name:       "auth",
+				Branch:     "feat/auth",
+				Status:     constants.TaskStatusRunning,
+				TotalTasks: 1,
+				Tasks: []TaskInfo{
+					{ID: "task-1", Status: constants.TaskStatusRunning, CurrentStep: 3, TotalSteps: 7},
+				},
+			},
+		}
+
+		table := NewHierarchicalStatusTable(groups, WithTerminalWidth(120))
+		var buf bytes.Buffer
+		err := table.Render(&buf)
+		require.NoError(t, err)
+
+		output := buf.String()
+		// Single task should use └─ (last branch)
+		assert.Contains(t, output, "└─")
+		assert.NotContains(t, output, "├─")
+	})
+}
+
+func TestHierarchicalStatusTable_ToJSONData(t *testing.T) {
+	t.Parallel()
+
+	groups := []WorkspaceGroup{
+		{
+			Name:       "auth",
+			Branch:     "feat/auth",
+			Status:     constants.TaskStatusRunning,
+			TotalTasks: 2,
+			Tasks: []TaskInfo{
+				{ID: "task-1", Status: constants.TaskStatusRunning, CurrentStep: 3, TotalSteps: 7, Template: "feature"},
+				{ID: "task-2", Status: constants.TaskStatusCompleted, CurrentStep: 7, TotalSteps: 7, Template: "bugfix"},
+			},
+		},
+	}
+
+	table := NewHierarchicalStatusTable(groups)
+	jsonData := table.ToJSONData()
+
+	require.Len(t, jsonData, 1)
+	assert.Equal(t, "auth", jsonData[0].Name)
+	assert.Equal(t, "feat/auth", jsonData[0].Branch)
+	assert.Equal(t, "running", jsonData[0].Status)
+	assert.Equal(t, 2, jsonData[0].TotalTasks)
+
+	require.Len(t, jsonData[0].Tasks, 2)
+	assert.Equal(t, "task-1", jsonData[0].Tasks[0].ID)
+	assert.Equal(t, "running", jsonData[0].Tasks[0].Status)
+	assert.Equal(t, "3/7", jsonData[0].Tasks[0].Step)
+	assert.Equal(t, "feature", jsonData[0].Tasks[0].Template)
+
+	assert.Equal(t, "task-2", jsonData[0].Tasks[1].ID)
+	assert.Equal(t, "completed", jsonData[0].Tasks[1].Status)
+	assert.Equal(t, "7/7", jsonData[0].Tasks[1].Step)
+}
+
+func TestHierarchicalStatusTable_ColumnWidths(t *testing.T) {
+	t.Parallel()
+
+	t.Run("calculates widths based on content", func(t *testing.T) {
+		groups := []WorkspaceGroup{
+			{
+				Name:       "very-long-workspace-name",
+				Branch:     "feature/a-long-branch-name",
+				Status:     constants.TaskStatusRunning,
+				TotalTasks: 10,
+				Tasks: []TaskInfo{
+					{ID: "task-1", Status: constants.TaskStatusRunning, CurrentStep: 10, TotalSteps: 15, Template: "feature"},
+				},
+			},
+		}
+
+		table := NewHierarchicalStatusTable(groups, WithTerminalWidth(200))
+		var buf bytes.Buffer
+		err := table.Render(&buf)
+		require.NoError(t, err)
+
+		output := buf.String()
+		// Verify long content is rendered
+		assert.Contains(t, output, "very-long-workspace-name")
+		assert.Contains(t, output, "feature/a-long-branch-name")
+	})
+
+	t.Run("constrains widths for narrow terminal", func(t *testing.T) {
+		groups := []WorkspaceGroup{
+			{
+				Name:       "very-long-workspace-name",
+				Branch:     "feature/a-very-long-branch-name-that-should-be-truncated",
+				Status:     constants.TaskStatusRunning,
+				TotalTasks: 1,
+				Tasks: []TaskInfo{
+					{ID: "task-1", Status: constants.TaskStatusRunning, CurrentStep: 1, TotalSteps: 7},
+				},
+			},
+		}
+
+		table := NewHierarchicalStatusTable(groups, WithTerminalWidth(60))
+		var buf bytes.Buffer
+		err := table.Render(&buf)
+		require.NoError(t, err)
+
+		// Should render without error even with constrained width
+		output := buf.String()
+		assert.Contains(t, output, "task-1")
+	})
+}
+
+// TestTreeChars tests that tree characters are correctly defined.
+func TestTreeChars(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, "├─ ", TreeChars.Branch)
+	assert.Equal(t, "└─ ", TreeChars.LastBranch)
+	assert.Equal(t, "   ", TreeChars.Indent)
+}
+
+// TestRenderHyperlink tests OSC 8 hyperlink rendering.
+func TestRenderHyperlink(t *testing.T) {
+	t.Parallel()
+
+	t.Run("renders hyperlink with OSC 8 escape sequence", func(t *testing.T) {
+		// Need to ensure color support for hyperlink rendering
+		// Store and restore NO_COLOR
+		original := os.Getenv("NO_COLOR")
+		_ = os.Unsetenv("NO_COLOR")
+		defer func() {
+			if original != "" {
+				_ = os.Setenv("NO_COLOR", original)
+			}
+		}()
+
+		result := RenderHyperlink("click me", "https://example.com")
+
+		// Check for OSC 8 escape sequence structure
+		assert.Contains(t, result, "\x1b]8;;https://example.com\x07")
+		assert.Contains(t, result, "click me")
+		assert.Contains(t, result, "\x1b]8;;\x07")
+	})
+
+	t.Run("returns plain text when colors disabled", func(t *testing.T) {
+		_ = os.Setenv("NO_COLOR", "1")
+		defer func() { _ = os.Unsetenv("NO_COLOR") }()
+
+		result := RenderHyperlink("click me", "https://example.com")
+		assert.Equal(t, "click me", result)
+	})
+}
+
+// TestRenderFileHyperlink tests file:// URL hyperlink rendering.
+func TestRenderFileHyperlink(t *testing.T) {
+	t.Parallel()
+
+	t.Run("creates file:// URL", func(t *testing.T) {
+		// Need to ensure color support
+		original := os.Getenv("NO_COLOR")
+		_ = os.Unsetenv("NO_COLOR")
+		defer func() {
+			if original != "" {
+				_ = os.Setenv("NO_COLOR", original)
+			}
+		}()
+
+		result := RenderFileHyperlink("open folder", "/path/to/folder")
+		assert.Contains(t, result, "file:///path/to/folder")
+		assert.Contains(t, result, "open folder")
 	})
 }

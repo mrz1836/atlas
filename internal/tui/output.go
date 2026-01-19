@@ -53,6 +53,12 @@ type Output interface {
 	// TTY: Clickable OSC 8 hyperlink in supported terminals, underlined fallback otherwise.
 	// JSON: Structured JSON with url and display fields.
 	URL(url, displayText string)
+
+	// Text outputs plain text without any prefix or styling.
+	// Useful for commands, code blocks, or content users may want to copy.
+	// TTY: Raw text output.
+	// JSON: Structured JSON with type "text".
+	Text(msg string)
 }
 
 // Spinner is the interface for progress indication during long-running operations (AC: #6).

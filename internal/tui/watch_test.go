@@ -261,9 +261,21 @@ func TestWatchModel_View_WithData(t *testing.T) {
 
 	cfg := DefaultWatchConfig()
 	model := NewWatchModel(context.Background(), mockWs, mockTask, cfg)
+	// Set hierarchical groups (new format)
+	model.groups = []WorkspaceGroup{
+		{
+			Name: "auth", Branch: "feat/auth", Status: constants.TaskStatusRunning, TotalTasks: 1,
+			Tasks: []TaskInfo{{ID: "task-1", Status: constants.TaskStatusRunning, CurrentStep: 3, TotalSteps: 7}},
+		},
+		{
+			Name: "payment", Branch: "fix/pay", Status: constants.TaskStatusAwaitingApproval, TotalTasks: 1,
+			Tasks: []TaskInfo{{ID: "task-2", Status: constants.TaskStatusAwaitingApproval, CurrentStep: 5, TotalSteps: 7}},
+		},
+	}
+	// Also set rows for footer compatibility
 	model.rows = []StatusRow{
-		{Workspace: "auth", Branch: "feat/auth", Status: constants.TaskStatusRunning, CurrentStep: 3, TotalSteps: 7},
-		{Workspace: "payment", Branch: "fix/pay", Status: constants.TaskStatusAwaitingApproval, CurrentStep: 5, TotalSteps: 7},
+		{Workspace: "auth", Branch: "feat/auth", Status: constants.TaskStatusRunning},
+		{Workspace: "payment", Branch: "fix/pay", Status: constants.TaskStatusAwaitingApproval},
 	}
 	model.lastUpdate = time.Now()
 
@@ -292,6 +304,13 @@ func TestWatchModel_View_Quiet(t *testing.T) {
 		Quiet:       true,
 	}
 	model := NewWatchModel(context.Background(), mockWs, mockTask, cfg)
+	// Set hierarchical groups (new format)
+	model.groups = []WorkspaceGroup{
+		{
+			Name: "auth", Branch: "feat/auth", Status: constants.TaskStatusRunning, TotalTasks: 1,
+			Tasks: []TaskInfo{{ID: "task-1", Status: constants.TaskStatusRunning, CurrentStep: 1, TotalSteps: 7}},
+		},
+	}
 	model.rows = []StatusRow{
 		{Workspace: "auth", Branch: "feat/auth", Status: constants.TaskStatusRunning},
 	}
@@ -301,7 +320,8 @@ func TestWatchModel_View_Quiet(t *testing.T) {
 
 	// Quiet mode should NOT show header or footer
 	assert.NotContains(t, view, "ATLAS")
-	assert.NotContains(t, view, "workspaces")
+	// The footer would contain "1 workspace," in non-quiet mode
+	assert.NotContains(t, view, "1 workspace,")
 	// But should still show quit hint and timestamp
 	assert.Contains(t, view, "Press 'q' to quit")
 	assert.Contains(t, view, "Last updated:")
@@ -997,8 +1017,15 @@ func TestWatchModel_TableRendering(t *testing.T) {
 
 	cfg := DefaultWatchConfig()
 	model := NewWatchModel(context.Background(), mockWs, mockTask, cfg)
+	// Set hierarchical groups (new format)
+	model.groups = []WorkspaceGroup{
+		{
+			Name: "auth", Branch: "feat/auth", Status: constants.TaskStatusRunning, TotalTasks: 1,
+			Tasks: []TaskInfo{{ID: "task-1", Status: constants.TaskStatusRunning, CurrentStep: 3, TotalSteps: 7}},
+		},
+	}
 	model.rows = []StatusRow{
-		{Workspace: "auth", Branch: "feat/auth", Status: constants.TaskStatusRunning, CurrentStep: 3, TotalSteps: 7},
+		{Workspace: "auth", Branch: "feat/auth", Status: constants.TaskStatusRunning},
 	}
 	model.lastUpdate = time.Now()
 	model.width = 120 // Set a wide terminal

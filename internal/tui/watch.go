@@ -50,7 +50,9 @@ type TaskLister interface {
 // WatchModel is the Bubble Tea model for watch mode.
 // It implements tea.Model interface (Init, Update, View).
 type WatchModel struct {
-	// Current status data
+	// Current status data (hierarchical)
+	groups []WorkspaceGroup
+	// Legacy rows for footer compatibility
 	rows []StatusRow
 	// Previous status per workspace for change detection
 	previousRows map[string]constants.TaskStatus
@@ -78,8 +80,9 @@ type TickMsg time.Time
 
 // RefreshMsg carries new data from a refresh operation.
 type RefreshMsg struct {
-	Rows []StatusRow
-	Err  error
+	Groups []WorkspaceGroup
+	Rows   []StatusRow // Legacy, for footer compatibility
+	Err    error
 }
 
 // BellMsg signals that a bell should be emitted.
@@ -142,6 +145,7 @@ func (m *WatchModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.err = msg.Err
 			return m, m.tick()
 		}
+		m.groups = msg.Groups
 		m.rows = msg.Rows
 		m.lastUpdate = time.Now()
 		m.err = nil
@@ -178,16 +182,16 @@ func (m *WatchModel) View() string {
 	}
 
 	// Table or empty message
-	if len(m.rows) == 0 {
+	if len(m.groups) == 0 {
 		b.WriteString("No workspaces. Run 'atlas start' to create one.\n")
 	} else {
-		m.renderStatusContent(&b)
+		m.renderHierarchicalContent(&b)
 	}
 
 	// Footer summary (unless quiet)
 	if !m.config.Quiet {
 		b.WriteString("\n")
-		b.WriteString(m.buildFooter())
+		b.WriteString(m.buildHierarchicalFooter())
 		b.WriteString("\n")
 	}
 
@@ -246,9 +250,13 @@ func (m *WatchModel) refreshData() tea.Cmd {
 			return RefreshMsg{Err: fmt.Errorf("failed to list workspaces: %w", err)}
 		}
 
-		rows := m.buildStatusRows(m.baseCtx, workspaces)
-		m.sortByStatusPriority(rows)
-		return RefreshMsg{Rows: rows}
+		groups := m.buildWorkspaceGroups(m.baseCtx, workspaces)
+		m.sortGroupsByStatusPriority(groups)
+
+		// Build legacy rows for footer compatibility
+		rows := m.groupsToStatusRows(groups)
+
+		return RefreshMsg{Groups: groups, Rows: rows}
 	}
 }
 
@@ -398,14 +406,70 @@ func (m *WatchModel) buildActionableSuggestion(row *StatusRow) string {
 	return "\nRun: " + action + " " + row.Workspace
 }
 
-// renderStatusContent renders the status table and optional progress bars.
-func (m *WatchModel) renderStatusContent(b *strings.Builder) {
-	table := NewStatusTable(m.rows, WithTerminalWidth(m.width))
+// buildWorkspaceGroups builds hierarchical workspace groups from workspaces.
+func (m *WatchModel) buildWorkspaceGroups(ctx context.Context, workspaces []*domain.Workspace) []WorkspaceGroup {
+	groups := make([]WorkspaceGroup, 0, len(workspaces))
+
+	for _, ws := range workspaces {
+		group := WorkspaceGroup{
+			Name:   ws.Name,
+			Branch: ws.Branch,
+			Status: constants.TaskStatusPending, // Default
+		}
+
+		// Load all tasks for the workspace
+		tasks, err := m.taskStore.List(ctx, ws.Name)
+		if err == nil && len(tasks) > 0 {
+			group.TotalTasks = len(tasks)
+			group.Status = tasks[0].Status // Aggregate status from most recent
+
+			// Build task info list
+			group.Tasks = make([]TaskInfo, len(tasks))
+			for i, t := range tasks {
+				group.Tasks[i] = TaskInfo{
+					ID:          t.ID,
+					Template:    t.TemplateID,
+					Status:      t.Status,
+					CurrentStep: t.CurrentStep + 1, // 1-indexed for display
+					TotalSteps:  len(t.Steps),
+				}
+			}
+		}
+
+		groups = append(groups, group)
+	}
+
+	return groups
+}
+
+// sortGroupsByStatusPriority sorts workspace groups by status priority.
+func (m *WatchModel) sortGroupsByStatusPriority(groups []WorkspaceGroup) {
+	sort.SliceStable(groups, func(i, j int) bool {
+		return m.statusPriority(groups[i].Status) > m.statusPriority(groups[j].Status)
+	})
+}
+
+// groupsToStatusRows converts workspace groups to status rows for footer compatibility.
+func (m *WatchModel) groupsToStatusRows(groups []WorkspaceGroup) []StatusRow {
+	rows := make([]StatusRow, 0, len(groups))
+	for _, group := range groups {
+		rows = append(rows, StatusRow{
+			Workspace: group.Name,
+			Branch:    group.Branch,
+			Status:    group.Status,
+		})
+	}
+	return rows
+}
+
+// renderHierarchicalContent renders the hierarchical status table and optional progress bars.
+func (m *WatchModel) renderHierarchicalContent(b *strings.Builder) {
+	table := NewHierarchicalStatusTable(m.groups, WithTerminalWidth(m.width))
 	_ = table.Render(b)
 
 	// Progress bars (if enabled and there are active tasks)
 	if m.config.ShowProgress {
-		progressRows := m.buildProgressRows()
+		progressRows := m.buildHierarchicalProgressRows()
 		if len(progressRows) > 0 {
 			b.WriteString("\n")
 			pd := NewProgressDashboard(progressRows, WithTermWidth(m.width))
@@ -414,9 +478,75 @@ func (m *WatchModel) renderStatusContent(b *strings.Builder) {
 	}
 }
 
-// buildProgressRows converts status rows to progress rows for the dashboard.
-// Only includes rows with active tasks (running or validating states).
-// Delegates to shared helper to avoid code duplication with CLI status command.
-func (m *WatchModel) buildProgressRows() []ProgressRow {
-	return BuildProgressRowsFromStatus(m.rows)
+// buildHierarchicalProgressRows converts workspace groups to progress rows.
+func (m *WatchModel) buildHierarchicalProgressRows() []ProgressRow {
+	var progressRows []ProgressRow
+	for _, group := range m.groups {
+		for _, task := range group.Tasks {
+			if task.Status == constants.TaskStatusRunning || task.Status == constants.TaskStatusValidating {
+				percent := 0.0
+				if task.TotalSteps > 0 {
+					percent = float64(task.CurrentStep) / float64(task.TotalSteps)
+				}
+				progressRows = append(progressRows, ProgressRow{
+					Name:        fmt.Sprintf("%s/%s", group.Name, task.ID),
+					Percent:     percent,
+					CurrentStep: task.CurrentStep,
+					TotalSteps:  task.TotalSteps,
+					StepName:    task.Template,
+				})
+			}
+		}
+	}
+	return progressRows
+}
+
+// buildHierarchicalFooter creates the footer summary for hierarchical display.
+func (m *WatchModel) buildHierarchicalFooter() string {
+	attentionCount := 0
+	var firstAttention *WorkspaceGroup
+
+	for i := range m.groups {
+		if IsAttentionStatus(m.groups[i].Status) {
+			attentionCount++
+			if firstAttention == nil {
+				firstAttention = &m.groups[i]
+			}
+		}
+	}
+
+	// Count total tasks
+	totalTasks := 0
+	for _, group := range m.groups {
+		totalTasks += group.TotalTasks
+	}
+
+	// Summary line
+	workspaceWord := "workspaces"
+	if len(m.groups) == 1 {
+		workspaceWord = "workspace"
+	}
+	taskWord := "tasks"
+	if totalTasks == 1 {
+		taskWord = "task"
+	}
+	summary := fmt.Sprintf("%d %s, %d %s", len(m.groups), workspaceWord, totalTasks, taskWord)
+
+	if attentionCount > 0 {
+		needWord := "need"
+		if attentionCount == 1 {
+			needWord = "needs"
+		}
+		summary += fmt.Sprintf(", %d %s attention", attentionCount, needWord)
+	}
+
+	// Actionable command
+	if firstAttention != nil {
+		action := SuggestedAction(firstAttention.Status)
+		if action != "" {
+			summary += "\nRun: " + action + " " + firstAttention.Name
+		}
+	}
+
+	return summary
 }

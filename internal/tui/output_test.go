@@ -103,6 +103,18 @@ func TestTTYOutput_Info(t *testing.T) {
 	assert.Contains(t, output, "test info")
 }
 
+func TestTTYOutput_Text(t *testing.T) {
+	var buf bytes.Buffer
+	out := NewTTYOutput(&buf)
+	out.Text("plain text message")
+	output := buf.String()
+	assert.Contains(t, output, "plain text message")
+	assert.NotContains(t, output, "ℹ")
+	assert.NotContains(t, output, "✓")
+	assert.NotContains(t, output, "⚠")
+	assert.NotContains(t, output, "✗")
+}
+
 func TestTTYOutput_Table(t *testing.T) {
 	t.Run("basic table", func(t *testing.T) {
 		var buf bytes.Buffer
@@ -281,6 +293,18 @@ func TestJSONOutput_Info(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "info", result.Type)
 	assert.Equal(t, "test info", result.Message)
+}
+
+func TestJSONOutput_Text(t *testing.T) {
+	var buf bytes.Buffer
+	out := NewJSONOutput(&buf)
+	out.Text("plain text message")
+
+	var result jsonMessage
+	err := json.Unmarshal(buf.Bytes(), &result)
+	require.NoError(t, err)
+	assert.Equal(t, "text", result.Type)
+	assert.Equal(t, "plain text message", result.Message)
 }
 
 func TestJSONOutput_Table(t *testing.T) {
