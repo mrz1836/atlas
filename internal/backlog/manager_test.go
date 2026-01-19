@@ -351,7 +351,7 @@ func TestManager_Promote(t *testing.T) {
 	mgr, err := NewManager(tmpDir)
 	require.NoError(t, err)
 
-	t.Run("promotes pending discovery", func(t *testing.T) {
+	t.Run("stores task ID but keeps status pending", func(t *testing.T) {
 		d := &Discovery{
 			Title:  "Promote test",
 			Status: StatusPending,
@@ -369,13 +369,15 @@ func TestManager_Promote(t *testing.T) {
 
 		promoted, err := mgr.Promote(ctx, d.ID, "task-001")
 		require.NoError(t, err)
-		assert.Equal(t, StatusPromoted, promoted.Status)
+		// Status should remain pending (changes when task starts)
+		assert.Equal(t, StatusPending, promoted.Status)
 		assert.Equal(t, "task-001", promoted.Lifecycle.PromotedToTask)
 
 		// Verify persisted
 		got, err := mgr.Get(ctx, d.ID)
 		require.NoError(t, err)
-		assert.Equal(t, StatusPromoted, got.Status)
+		assert.Equal(t, StatusPending, got.Status)
+		assert.Equal(t, "task-001", got.Lifecycle.PromotedToTask)
 	})
 
 	t.Run("fails on non-pending discovery", func(t *testing.T) {
@@ -584,6 +586,151 @@ func TestManager_Complete(t *testing.T) {
 
 	t.Run("fails on non-existent discovery", func(t *testing.T) {
 		_, err := mgr.Complete(ctx, "disc-notfnd")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "not found")
+	})
+}
+
+func TestManager_StartTask(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+	mgr, err := NewManager(tmpDir)
+	require.NoError(t, err)
+
+	t.Run("starts pending discovery", func(t *testing.T) {
+		d := &Discovery{
+			Title:  "Start task test",
+			Status: StatusPending,
+			Content: Content{
+				Category: CategoryBug,
+				Severity: SeverityHigh,
+			},
+			Context: Context{
+				DiscoveredAt: time.Now().UTC(),
+				DiscoveredBy: "human:tester",
+			},
+		}
+		err := mgr.Add(ctx, d)
+		require.NoError(t, err)
+
+		started, err := mgr.StartTask(ctx, d.ID, "task-001")
+		require.NoError(t, err)
+		assert.Equal(t, StatusPromoted, started.Status)
+		assert.Equal(t, "task-001", started.Lifecycle.PromotedToTask)
+
+		// Verify persisted
+		got, err := mgr.Get(ctx, d.ID)
+		require.NoError(t, err)
+		assert.Equal(t, StatusPromoted, got.Status)
+		assert.Equal(t, "task-001", got.Lifecycle.PromotedToTask)
+	})
+
+	t.Run("idempotent for same task ID", func(t *testing.T) {
+		d := &Discovery{
+			Title:  "Idempotent test",
+			Status: StatusPending,
+			Content: Content{
+				Category: CategoryBug,
+				Severity: SeverityMedium,
+			},
+			Context: Context{
+				DiscoveredAt: time.Now().UTC(),
+				DiscoveredBy: "human:tester",
+			},
+		}
+		err := mgr.Add(ctx, d)
+		require.NoError(t, err)
+
+		// Start task first time
+		_, err = mgr.StartTask(ctx, d.ID, "task-002")
+		require.NoError(t, err)
+
+		// Start task second time with same task ID (should succeed - handles resume)
+		started, err := mgr.StartTask(ctx, d.ID, "task-002")
+		require.NoError(t, err)
+		assert.Equal(t, StatusPromoted, started.Status)
+		assert.Equal(t, "task-002", started.Lifecycle.PromotedToTask)
+	})
+
+	t.Run("fails when already promoted with different task ID", func(t *testing.T) {
+		d := &Discovery{
+			Title:  "Different task ID test",
+			Status: StatusPending,
+			Content: Content{
+				Category: CategoryBug,
+				Severity: SeverityLow,
+			},
+			Context: Context{
+				DiscoveredAt: time.Now().UTC(),
+				DiscoveredBy: "human:tester",
+			},
+		}
+		err := mgr.Add(ctx, d)
+		require.NoError(t, err)
+
+		// Start with first task ID
+		_, err = mgr.StartTask(ctx, d.ID, "task-003")
+		require.NoError(t, err)
+
+		// Try to start with different task ID (should fail)
+		_, err = mgr.StartTask(ctx, d.ID, "task-004")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid status transition")
+		assert.True(t, atlaserrors.IsExitCode2Error(err))
+	})
+
+	t.Run("fails on dismissed discovery", func(t *testing.T) {
+		d := &Discovery{
+			Title:  "Dismissed discovery",
+			Status: StatusDismissed,
+			Content: Content{
+				Category: CategoryBug,
+				Severity: SeverityLow,
+			},
+			Context: Context{
+				DiscoveredAt: time.Now().UTC(),
+				DiscoveredBy: "human:tester",
+			},
+			Lifecycle: Lifecycle{DismissedReason: "duplicate"},
+		}
+		err := mgr.Add(ctx, d)
+		require.NoError(t, err)
+
+		_, err = mgr.StartTask(ctx, d.ID, "task-005")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid status transition")
+		assert.True(t, atlaserrors.IsExitCode2Error(err))
+	})
+
+	t.Run("fails on completed discovery", func(t *testing.T) {
+		d := &Discovery{
+			Title:  "Completed discovery",
+			Status: StatusCompleted,
+			Content: Content{
+				Category: CategoryBug,
+				Severity: SeverityLow,
+			},
+			Context: Context{
+				DiscoveredAt: time.Now().UTC(),
+				DiscoveredBy: "human:tester",
+			},
+			Lifecycle: Lifecycle{
+				PromotedToTask: "task-old",
+				CompletedAt:    time.Now().UTC(),
+			},
+		}
+		err := mgr.Add(ctx, d)
+		require.NoError(t, err)
+
+		_, err = mgr.StartTask(ctx, d.ID, "task-006")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid status transition")
+		assert.True(t, atlaserrors.IsExitCode2Error(err))
+	})
+
+	t.Run("fails on non-existent discovery", func(t *testing.T) {
+		_, err := mgr.StartTask(ctx, "disc-notfnd", "task-007")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "not found")
 	})

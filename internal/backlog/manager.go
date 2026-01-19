@@ -316,7 +316,8 @@ func (m *Manager) Update(_ context.Context, d *Discovery) error {
 	return nil
 }
 
-// Promote changes a discovery's status to promoted with the given task ID.
+// Promote stores the task ID in a discovery's lifecycle metadata for planning purposes.
+// Status remains 'pending' until the task actually starts.
 // Only pending discoveries can be promoted.
 func (m *Manager) Promote(ctx context.Context, id, taskID string) (*Discovery, error) {
 	d, err := m.Get(ctx, id)
@@ -324,16 +325,16 @@ func (m *Manager) Promote(ctx context.Context, id, taskID string) (*Discovery, e
 		return nil, err
 	}
 
-	// Validate status transition
+	// Validate discovery is pending
 	if d.Status != StatusPending {
 		return nil, atlaserrors.NewExitCode2Error(
 			fmt.Errorf("%w: can only promote pending discoveries, current status is %q",
 				atlaserrors.ErrInvalidStatusTransition, d.Status))
 	}
 
-	// Update status and lifecycle
-	d.Status = StatusPromoted
+	// Store task ID for planning (status changes when task starts)
 	d.Lifecycle.PromotedToTask = taskID
+	// Status remains 'pending' until task starts with this discovery
 
 	if err := m.Update(ctx, d); err != nil {
 		return nil, err
@@ -386,6 +387,37 @@ func (m *Manager) Complete(ctx context.Context, id string) (*Discovery, error) {
 	// Update status and lifecycle
 	d.Status = StatusCompleted
 	d.Lifecycle.CompletedAt = time.Now().UTC()
+
+	if err := m.Update(ctx, d); err != nil {
+		return nil, err
+	}
+
+	return d, nil
+}
+
+// StartTask marks a discovery as promoted when a task starts working on it.
+// Only pending discoveries can be started.
+// Idempotent: returns success if already promoted with same task ID (handles resume).
+func (m *Manager) StartTask(ctx context.Context, id, taskID string) (*Discovery, error) {
+	d, err := m.Get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	// Validate status transition
+	if d.Status != StatusPending {
+		// Allow idempotent calls for task resume scenarios
+		if d.Status == StatusPromoted && d.Lifecycle.PromotedToTask == taskID {
+			return d, nil
+		}
+		return nil, atlaserrors.NewExitCode2Error(
+			fmt.Errorf("%w: can only start pending discoveries, current status is %q",
+				atlaserrors.ErrInvalidStatusTransition, d.Status))
+	}
+
+	// Update status and lifecycle
+	d.Status = StatusPromoted
+	d.Lifecycle.PromotedToTask = taskID
 
 	if err := m.Update(ctx, d); err != nil {
 		return nil, err
@@ -447,6 +479,13 @@ func (m *Manager) PromoteWithOptions(ctx context.Context, id string, opts Promot
 		return nil, atlaserrors.NewExitCode2Error(
 			fmt.Errorf("%w: can only promote pending discoveries, current status is %q",
 				atlaserrors.ErrInvalidStatusTransition, d.Status))
+	}
+
+	// Check if already promoted to a task
+	if d.Lifecycle.PromotedToTask != "" {
+		return nil, atlaserrors.NewExitCode2Error(
+			fmt.Errorf("%w: discovery already promoted to task %q",
+				atlaserrors.ErrInvalidStatusTransition, d.Lifecycle.PromotedToTask))
 	}
 
 	// Build promote result
