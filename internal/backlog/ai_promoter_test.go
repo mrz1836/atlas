@@ -813,3 +813,248 @@ func TestAIPromoter_Analyze_WhitespaceHandling(t *testing.T) {
 		})
 	}
 }
+
+func TestAIPromoter_buildAnalysisPrompt_GitContext(t *testing.T) {
+	t.Parallel()
+
+	promoter := NewAIPromoter(nil, nil)
+
+	t.Run("includes git context when present", func(t *testing.T) {
+		t.Parallel()
+		d := &Discovery{
+			Title: "Test issue",
+			Content: Content{
+				Category: CategoryBug,
+				Severity: SeverityMedium,
+			},
+			Context: Context{
+				DiscoveredAt: time.Now(),
+				DiscoveredBy: "human:tester",
+				Git: &GitContext{
+					Branch: "feature/test-branch",
+					Commit: "abc123f",
+				},
+			},
+		}
+
+		prompt := promoter.buildAnalysisPrompt(d)
+
+		assert.Contains(t, prompt, "Discovery git context:")
+		assert.Contains(t, prompt, "Found on branch: feature/test-branch")
+		assert.Contains(t, prompt, "Commit: abc123f")
+	})
+
+	t.Run("omits git context when not present", func(t *testing.T) {
+		t.Parallel()
+		d := &Discovery{
+			Title: "Test issue",
+			Content: Content{
+				Category: CategoryBug,
+				Severity: SeverityMedium,
+			},
+			Context: Context{
+				DiscoveredAt: time.Now(),
+				DiscoveredBy: "human:tester",
+				// No Git context
+			},
+		}
+
+		prompt := promoter.buildAnalysisPrompt(d)
+
+		assert.NotContains(t, prompt, "Discovery git context:")
+		assert.NotContains(t, prompt, "Found on branch:")
+	})
+}
+
+func TestAIPromoter_buildAnalysisPrompt_AtlasStartFlags(t *testing.T) {
+	t.Parallel()
+
+	promoter := NewAIPromoter(nil, nil)
+	d := validDiscoveryForAI()
+
+	prompt := promoter.buildAnalysisPrompt(d)
+
+	// Verify all atlas start flags are mentioned
+	assert.Contains(t, prompt, "Available 'atlas start' command options:")
+	assert.Contains(t, prompt, "--template/-t")
+	assert.Contains(t, prompt, "--workspace/-w")
+	assert.Contains(t, prompt, "--branch/-b")
+	assert.Contains(t, prompt, "--target")
+	assert.Contains(t, prompt, "--use-local")
+	assert.Contains(t, prompt, "--verify")
+	assert.Contains(t, prompt, "--no-verify")
+	assert.Contains(t, prompt, "--agent/-a")
+	assert.Contains(t, prompt, "--model/-m")
+	assert.Contains(t, prompt, "--from-backlog")
+
+	// Verify new fields in JSON schema
+	assert.Contains(t, prompt, "base_branch")
+	assert.Contains(t, prompt, "use_verify")
+}
+
+func TestAIPromoter_Analyze_NewFields(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	t.Run("parses base_branch field", func(t *testing.T) {
+		t.Parallel()
+		runner := &mockAIRunner{
+			response: &domain.AIResult{
+				Success: true,
+				Output: `{
+					"template": "bugfix",
+					"description": "Fix issue",
+					"reasoning": "Test reasoning",
+					"base_branch": "develop"
+				}`,
+			},
+		}
+
+		promoter := NewAIPromoter(runner, nil)
+		d := validDiscoveryForAI()
+
+		analysis, err := promoter.Analyze(ctx, d, nil)
+
+		require.NoError(t, err)
+		assert.Equal(t, "develop", analysis.BaseBranch)
+	})
+
+	t.Run("parses use_verify true", func(t *testing.T) {
+		t.Parallel()
+		runner := &mockAIRunner{
+			response: &domain.AIResult{
+				Success: true,
+				Output: `{
+					"template": "hotfix",
+					"description": "Critical fix",
+					"reasoning": "Security issue",
+					"use_verify": true
+				}`,
+			},
+		}
+
+		promoter := NewAIPromoter(runner, nil)
+		d := validDiscoveryForAI()
+
+		analysis, err := promoter.Analyze(ctx, d, nil)
+
+		require.NoError(t, err)
+		require.NotNil(t, analysis.UseVerify)
+		assert.True(t, *analysis.UseVerify)
+	})
+
+	t.Run("parses use_verify false", func(t *testing.T) {
+		t.Parallel()
+		runner := &mockAIRunner{
+			response: &domain.AIResult{
+				Success: true,
+				Output: `{
+					"template": "task",
+					"description": "Simple task",
+					"reasoning": "Documentation update",
+					"use_verify": false
+				}`,
+			},
+		}
+
+		promoter := NewAIPromoter(runner, nil)
+		d := validDiscoveryForAI()
+
+		analysis, err := promoter.Analyze(ctx, d, nil)
+
+		require.NoError(t, err)
+		require.NotNil(t, analysis.UseVerify)
+		assert.False(t, *analysis.UseVerify)
+	})
+
+	t.Run("handles missing optional new fields", func(t *testing.T) {
+		t.Parallel()
+		runner := &mockAIRunner{
+			response: &domain.AIResult{
+				Success: true,
+				Output: `{
+					"template": "bugfix",
+					"description": "Fix issue",
+					"reasoning": "Test reasoning"
+				}`,
+			},
+		}
+
+		promoter := NewAIPromoter(runner, nil)
+		d := validDiscoveryForAI()
+
+		analysis, err := promoter.Analyze(ctx, d, nil)
+
+		require.NoError(t, err)
+		assert.Empty(t, analysis.BaseBranch)
+		assert.Nil(t, analysis.UseVerify)
+	})
+}
+
+func TestAIPromoter_fallbackAnalysis_UseVerify(t *testing.T) {
+	t.Parallel()
+
+	promoter := NewAIPromoter(nil, nil)
+
+	t.Run("sets UseVerify true for security category", func(t *testing.T) {
+		t.Parallel()
+		d := &Discovery{
+			Title: "Security vulnerability",
+			Content: Content{
+				Category: CategorySecurity,
+				Severity: SeverityHigh,
+			},
+		}
+
+		analysis := promoter.fallbackAnalysis(d)
+
+		require.NotNil(t, analysis.UseVerify)
+		assert.True(t, *analysis.UseVerify)
+	})
+
+	t.Run("sets UseVerify true for critical severity", func(t *testing.T) {
+		t.Parallel()
+		d := &Discovery{
+			Title: "Critical bug",
+			Content: Content{
+				Category: CategoryBug,
+				Severity: SeverityCritical,
+			},
+		}
+
+		analysis := promoter.fallbackAnalysis(d)
+
+		require.NotNil(t, analysis.UseVerify)
+		assert.True(t, *analysis.UseVerify)
+	})
+
+	t.Run("does not set UseVerify for non-critical non-security", func(t *testing.T) {
+		t.Parallel()
+		d := &Discovery{
+			Title: "Simple testing task",
+			Content: Content{
+				Category: CategoryTesting,
+				Severity: SeverityLow,
+			},
+		}
+
+		analysis := promoter.fallbackAnalysis(d)
+
+		assert.Nil(t, analysis.UseVerify)
+	})
+
+	t.Run("does not set UseVerify for medium severity bug", func(t *testing.T) {
+		t.Parallel()
+		d := &Discovery{
+			Title: "Medium bug",
+			Content: Content{
+				Category: CategoryBug,
+				Severity: SeverityMedium,
+			},
+		}
+
+		analysis := promoter.fallbackAnalysis(d)
+
+		assert.Nil(t, analysis.UseVerify)
+	})
+}

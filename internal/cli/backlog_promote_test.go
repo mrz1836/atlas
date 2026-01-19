@@ -1071,3 +1071,253 @@ func TestRunBacklogPromote_AIProgress_JSONOutput_NoProgress(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, result["success"].(bool))
 }
+
+func TestBuildStartCommand(t *testing.T) {
+	t.Parallel()
+
+	t.Run("includes branch flag", func(t *testing.T) {
+		t.Parallel()
+		result := &backlog.PromoteResult{
+			TemplateName:  "bugfix",
+			WorkspaceName: "fix-bug",
+			BranchName:    "fix/fix-bug",
+			Discovery: &backlog.Discovery{
+				ID: "disc-abc123",
+			},
+		}
+
+		cmd := buildStartCommand(result)
+
+		assert.Contains(t, cmd, "-b fix/fix-bug")
+		assert.Contains(t, cmd, "-t bugfix")
+		assert.Contains(t, cmd, "-w fix-bug")
+		assert.Contains(t, cmd, "--from-backlog disc-abc123")
+	})
+
+	t.Run("includes verify flag when UseVerify is true", func(t *testing.T) {
+		t.Parallel()
+		useVerify := true
+		result := &backlog.PromoteResult{
+			TemplateName:  "hotfix",
+			WorkspaceName: "security-fix",
+			BranchName:    "hotfix/security-fix",
+			Discovery: &backlog.Discovery{
+				ID: "disc-sec123",
+			},
+			AIAnalysis: &backlog.AIAnalysis{
+				UseVerify: &useVerify,
+			},
+		}
+
+		cmd := buildStartCommand(result)
+
+		assert.Contains(t, cmd, "--verify")
+		assert.NotContains(t, cmd, "--no-verify")
+	})
+
+	t.Run("includes no-verify flag when UseVerify is false", func(t *testing.T) {
+		t.Parallel()
+		useVerify := false
+		result := &backlog.PromoteResult{
+			TemplateName:  "task",
+			WorkspaceName: "simple-task",
+			BranchName:    "task/simple-task",
+			Discovery: &backlog.Discovery{
+				ID: "disc-tsk123",
+			},
+			AIAnalysis: &backlog.AIAnalysis{
+				UseVerify: &useVerify,
+			},
+		}
+
+		cmd := buildStartCommand(result)
+
+		assert.Contains(t, cmd, "--no-verify")
+		assert.NotContains(t, cmd, "--verify ")
+	})
+
+	t.Run("omits verify flags when UseVerify is nil", func(t *testing.T) {
+		t.Parallel()
+		result := &backlog.PromoteResult{
+			TemplateName:  "bugfix",
+			WorkspaceName: "some-bug",
+			BranchName:    "fix/some-bug",
+			Discovery: &backlog.Discovery{
+				ID: "disc-def456",
+			},
+			AIAnalysis: &backlog.AIAnalysis{
+				UseVerify: nil,
+			},
+		}
+
+		cmd := buildStartCommand(result)
+
+		assert.NotContains(t, cmd, "--verify")
+		assert.NotContains(t, cmd, "--no-verify")
+	})
+
+	t.Run("works without AIAnalysis", func(t *testing.T) {
+		t.Parallel()
+		result := &backlog.PromoteResult{
+			TemplateName:  "bugfix",
+			WorkspaceName: "another-bug",
+			BranchName:    "fix/another-bug",
+			Discovery: &backlog.Discovery{
+				ID: "disc-xyz789",
+			},
+			AIAnalysis: nil,
+		}
+
+		cmd := buildStartCommand(result)
+
+		assert.Contains(t, cmd, "atlas start")
+		assert.Contains(t, cmd, "-b fix/another-bug")
+		assert.NotContains(t, cmd, "--verify")
+		assert.NotContains(t, cmd, "--no-verify")
+	})
+}
+
+func TestRunBacklogPromote_OutputIncludesBranch(t *testing.T) {
+	// Cannot use t.Parallel() - test changes working directory
+	ctx := context.Background()
+
+	tmpDir := t.TempDir()
+	origDir, _ := os.Getwd()
+	require.NoError(t, os.Chdir(tmpDir))
+	t.Cleanup(func() { _ = os.Chdir(origDir) })
+
+	mgr, err := backlog.NewManager("")
+	require.NoError(t, err)
+	d := &backlog.Discovery{
+		Title:  "Branch Output Test",
+		Status: backlog.StatusPending,
+		Content: backlog.Content{
+			Category: backlog.CategoryBug,
+			Severity: backlog.SeverityMedium,
+		},
+		Context: backlog.Context{
+			DiscoveredAt: time.Now().UTC(),
+			DiscoveredBy: "human:tester",
+		},
+	}
+	err = mgr.Add(ctx, d)
+	require.NoError(t, err)
+
+	cmd := newBacklogPromoteCmd()
+
+	var buf bytes.Buffer
+
+	opts := promoteOptions{
+		dryRun: true,
+	}
+
+	err = runBacklogPromote(ctx, cmd, &buf, d.ID, opts)
+	require.NoError(t, err)
+
+	output := buf.String()
+	// Should include -b flag in the suggested command
+	assert.Contains(t, output, "-b fix/")
+}
+
+func TestRunBacklogPromote_JSONOutput_IncludesStartCommand(t *testing.T) {
+	// Cannot use t.Parallel() - test changes working directory
+	ctx := context.Background()
+
+	tmpDir := t.TempDir()
+	origDir, _ := os.Getwd()
+	require.NoError(t, os.Chdir(tmpDir))
+	t.Cleanup(func() { _ = os.Chdir(origDir) })
+
+	mgr, err := backlog.NewManager("")
+	require.NoError(t, err)
+	d := &backlog.Discovery{
+		Title:  "JSON Start Command Test",
+		Status: backlog.StatusPending,
+		Content: backlog.Content{
+			Category: backlog.CategoryBug,
+			Severity: backlog.SeverityMedium,
+		},
+		Context: backlog.Context{
+			DiscoveredAt: time.Now().UTC(),
+			DiscoveredBy: "human:tester",
+		},
+	}
+	err = mgr.Add(ctx, d)
+	require.NoError(t, err)
+
+	cmd := newBacklogPromoteCmd()
+	root := &cobra.Command{Use: "atlas"}
+	AddGlobalFlags(root, &GlobalFlags{})
+	root.AddCommand(cmd)
+
+	var buf bytes.Buffer
+
+	opts := promoteOptions{
+		jsonOutput: true,
+		dryRun:     true,
+	}
+
+	err = runBacklogPromote(ctx, cmd, &buf, d.ID, opts)
+	require.NoError(t, err)
+
+	var result map[string]any
+	err = json.Unmarshal(buf.Bytes(), &result)
+	require.NoError(t, err)
+
+	// Should include start_command in JSON output
+	startCmd, ok := result["start_command"].(string)
+	require.True(t, ok, "start_command should be a string")
+	assert.Contains(t, startCmd, "atlas start")
+	assert.Contains(t, startCmd, "-b")
+	assert.Contains(t, startCmd, "--from-backlog")
+}
+
+func TestRunBacklogPromote_CriticalSecurity_IncludesVerify(t *testing.T) {
+	// Cannot use t.Parallel() - test changes working directory
+	ctx := context.Background()
+
+	tmpDir := t.TempDir()
+	origDir, _ := os.Getwd()
+	require.NoError(t, os.Chdir(tmpDir))
+	t.Cleanup(func() { _ = os.Chdir(origDir) })
+
+	mgr, err := backlog.NewManager("")
+	require.NoError(t, err)
+	d := &backlog.Discovery{
+		Title:  "Critical Security Issue",
+		Status: backlog.StatusPending,
+		Content: backlog.Content{
+			Category: backlog.CategorySecurity,
+			Severity: backlog.SeverityCritical,
+		},
+		Context: backlog.Context{
+			DiscoveredAt: time.Now().UTC(),
+			DiscoveredBy: "human:tester",
+		},
+	}
+	err = mgr.Add(ctx, d)
+	require.NoError(t, err)
+
+	// Use AI promoter with mock runner that returns fallback (error triggers fallback)
+	aiRunner := &mockCLIAIRunner{
+		err: atlaserrors.ErrClaudeInvocation, // Triggers fallback analysis
+	}
+	aiPromoter := backlog.NewAIPromoter(aiRunner, nil)
+
+	opts := backlog.PromoteOptions{
+		UseAI:  true,
+		DryRun: true,
+	}
+
+	result, err := mgr.PromoteWithOptions(ctx, d.ID, opts, aiPromoter)
+	require.NoError(t, err)
+
+	// Critical security issues should have UseVerify set to true in fallback analysis
+	require.NotNil(t, result.AIAnalysis)
+	require.NotNil(t, result.AIAnalysis.UseVerify)
+	assert.True(t, *result.AIAnalysis.UseVerify)
+
+	// Verify the start command includes --verify
+	cmd := buildStartCommand(result)
+	assert.Contains(t, cmd, "--verify")
+}
