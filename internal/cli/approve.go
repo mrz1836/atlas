@@ -15,6 +15,7 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
+	"github.com/mrz1836/atlas/internal/backlog"
 	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/domain"
@@ -786,6 +787,9 @@ func approveAndOutputJSON(ctx context.Context, w io.Writer, taskStore task.Store
 		return outputApproveErrorJSON(w, ws.Name, t.ID, err.Error())
 	}
 
+	// Complete linked backlog discovery if present
+	completeLinkedDiscovery(ctx, t)
+
 	// Close workspace if requested
 	workspaceClosed := false
 	var closeWarning string
@@ -1023,7 +1027,46 @@ func executeApproveTaskStep(ctx context.Context, stepCtx *approveStepContext) (s
 	if err := approveTask(ctx, stepCtx.taskStore, stepCtx.t); err != nil {
 		return "", fmt.Errorf("failed to approve task: %w", err)
 	}
+
+	// Complete linked backlog discovery if present
+	completeLinkedDiscovery(ctx, stepCtx.t)
+
 	return "Task approved", nil
+}
+
+// completeLinkedDiscovery marks a linked backlog discovery as completed.
+// This is a best-effort operation - failures are logged but don't fail the approval.
+func completeLinkedDiscovery(ctx context.Context, t *domain.Task) {
+	if t == nil || t.Metadata == nil {
+		return
+	}
+
+	backlogID, ok := t.Metadata["from_backlog_id"].(string)
+	if !ok || backlogID == "" {
+		return
+	}
+
+	logger := Logger()
+	mgr, err := backlog.NewManager("")
+	if err != nil {
+		logger.Warn().Err(err).
+			Str("discovery_id", backlogID).
+			Msg("failed to create backlog manager for discovery completion")
+		return
+	}
+
+	_, err = mgr.Complete(ctx, backlogID)
+	if err != nil {
+		logger.Warn().Err(err).
+			Str("discovery_id", backlogID).
+			Msg("failed to complete backlog discovery")
+		return
+	}
+
+	logger.Info().
+		Str("discovery_id", backlogID).
+		Str("task_id", t.ID).
+		Msg("backlog discovery marked as completed")
 }
 
 // executeCloseWorkspaceStep handles workspace closure

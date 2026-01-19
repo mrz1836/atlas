@@ -12,6 +12,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
 
+	"github.com/mrz1836/atlas/internal/backlog"
 	"github.com/mrz1836/atlas/internal/cli/workflow"
 	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/constants"
@@ -43,6 +44,7 @@ type startOptions struct {
 	verify        bool
 	noVerify      bool
 	dryRun        bool
+	fromBacklogID string // Discovery ID to link and promote after task creation
 }
 
 // newStartCmd creates the start command.
@@ -59,6 +61,7 @@ func newStartCmd() *cobra.Command {
 		verify        bool
 		noVerify      bool
 		dryRun        bool
+		fromBacklogID string
 	)
 
 	cmd := &cobra.Command{
@@ -90,6 +93,7 @@ Examples:
 				verify:        verify,
 				noVerify:      noVerify,
 				dryRun:        dryRun,
+				fromBacklogID: fromBacklogID,
 			})
 		},
 	}
@@ -116,6 +120,8 @@ Examples:
 		"Disable AI verification step")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false,
 		"Show what would happen without making changes")
+	cmd.Flags().StringVar(&fromBacklogID, "from-backlog", "",
+		"Link this task to a backlog discovery (auto-promotes the discovery)")
 
 	return cmd
 }
@@ -285,12 +291,7 @@ func executeTask(ctx context.Context, sc *startContext, sigHandler *signal.Handl
 	t, taskStore, err := startTaskExecution(ctx, ws, tmpl, description, opts.agent, opts.model, logger, out)
 
 	// Store CLI overrides in task metadata for resume (if task was created)
-	if t != nil && taskStore != nil {
-		workflow.StoreCLIOverrides(t, opts.verify, opts.noVerify, opts.agent, opts.model)
-		if updateErr := taskStore.Update(ctx, ws.Name, t); updateErr != nil {
-			logger.Warn().Err(updateErr).Msg("failed to persist CLI overrides")
-		}
-	}
+	storeCLIOverridesIfNeeded(ctx, t, taskStore, ws.Name, &opts, logger)
 
 	// Check if we were interrupted by Ctrl+C
 	select {
@@ -314,7 +315,40 @@ func executeTask(ctx context.Context, sc *startContext, sigHandler *signal.Handl
 		Int("total_steps", len(t.Steps)).
 		Msg("task started")
 
+	// Promote backlog discovery if --from-backlog was specified
+	if opts.fromBacklogID != "" && t != nil {
+		promoteBacklogDiscovery(ctx, opts.fromBacklogID, t.ID, logger, out)
+	}
+
 	return displayTaskStatus(out, outputFormat, ws, t, nil)
+}
+
+// promoteBacklogDiscovery promotes a backlog discovery to link it with the created task.
+// This is a best-effort operation - failures are logged as warnings but don't fail the task.
+func promoteBacklogDiscovery(ctx context.Context, discoveryID, taskID string, logger zerolog.Logger, out tui.Output) {
+	mgr, err := backlog.NewManager("")
+	if err != nil {
+		logger.Warn().Err(err).
+			Str("discovery_id", discoveryID).
+			Msg("failed to create backlog manager for promotion")
+		return
+	}
+
+	_, err = mgr.Promote(ctx, discoveryID, taskID)
+	if err != nil {
+		logger.Warn().Err(err).
+			Str("discovery_id", discoveryID).
+			Str("task_id", taskID).
+			Msg("failed to promote backlog discovery")
+		out.Warning(fmt.Sprintf("Warning: Failed to link backlog discovery %s: %s", discoveryID, err.Error()))
+		return
+	}
+
+	logger.Info().
+		Str("discovery_id", discoveryID).
+		Str("task_id", taskID).
+		Msg("backlog discovery promoted")
+	out.Success(fmt.Sprintf("Linked backlog discovery %s to task", discoveryID))
 }
 
 // logConfigSources logs which config sources were loaded and key metrics.
@@ -423,6 +457,27 @@ func (sc *startContext) updateWorkspaceStatusToPaused(ctx context.Context, ws *d
 				Str("worktree_path", ws.WorktreePath).
 				Msg("CRITICAL: worktree directory missing after pause - possible race condition or external deletion")
 		}
+	}
+}
+
+// storeCLIOverridesIfNeeded stores CLI overrides and backlog metadata in the task if present.
+func storeCLIOverridesIfNeeded(ctx context.Context, t *domain.Task, taskStore *task.FileStore, workspaceName string, opts *startOptions, logger zerolog.Logger) {
+	if t == nil || taskStore == nil {
+		return
+	}
+
+	workflow.StoreCLIOverrides(t, opts.verify, opts.noVerify, opts.agent, opts.model)
+
+	// Store backlog discovery ID in metadata so approve can complete it
+	if opts.fromBacklogID != "" {
+		if t.Metadata == nil {
+			t.Metadata = make(map[string]any)
+		}
+		t.Metadata["from_backlog_id"] = opts.fromBacklogID
+	}
+
+	if updateErr := taskStore.Update(ctx, workspaceName, t); updateErr != nil {
+		logger.Warn().Err(updateErr).Msg("failed to persist CLI overrides")
 	}
 }
 

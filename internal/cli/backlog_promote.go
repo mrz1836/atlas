@@ -17,9 +17,6 @@ import (
 
 // promoteOptions holds the flags for the promote command.
 type promoteOptions struct {
-	// taskID is the legacy task ID to link (for backward compatibility).
-	taskID string
-
 	// template overrides the auto-detected template.
 	template string
 
@@ -46,16 +43,11 @@ func newBacklogPromoteCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "promote <id>",
 		Short: "Promote a discovery to a task",
-		Long: `Promote a discovery to a task, optionally creating the task automatically.
+		Long: `Promote a discovery to a task, creating the task configuration automatically.
 
-This command supports two modes:
-
-1. Auto-create mode (default): Generates task configuration from the discovery
-   based on category and severity. Critical security issues use the hotfix
-   template; bugs use bugfix; other categories use the task template.
-
-2. Legacy mode (--task-id): Links the discovery to an existing task ID without
-   creating a new task.
+Generates task configuration from the discovery based on category and severity.
+Critical security issues use the hotfix template; bugs use bugfix; other
+categories use the task template.
 
 The --ai flag enables AI-assisted analysis to determine the optimal task
 configuration (template, description, workspace name).
@@ -75,9 +67,6 @@ Examples:
   # Override template selection
   atlas backlog promote disc-abc123 --template feature
 
-  # Legacy mode: link to existing task
-  atlas backlog promote disc-abc123 --task-id task-20260118-150000
-
 Exit codes:
   0: Success
   1: Discovery not found or error
@@ -89,7 +78,6 @@ Exit codes:
 	}
 
 	// Flags
-	cmd.Flags().StringVar(&opts.taskID, "task-id", "", "Link to existing task ID (legacy mode)")
 	cmd.Flags().StringVarP(&opts.template, "template", "t", "", "Override template selection (bugfix, feature, task, hotfix)")
 	cmd.Flags().BoolVar(&opts.ai, "ai", false, "Use AI to determine optimal task configuration")
 	cmd.Flags().StringVar(&opts.agent, "agent", "", "Override AI agent (claude, gemini, codex)")
@@ -120,7 +108,6 @@ func runBacklogPromote(ctx context.Context, cmd *cobra.Command, w io.Writer, id 
 
 	// Build promote options
 	promoteOpts := backlog.PromoteOptions{
-		TaskID:   opts.taskID,
 		Template: opts.template,
 		Agent:    opts.agent,
 		Model:    opts.model,
@@ -141,6 +128,16 @@ func runBacklogPromote(ctx context.Context, cmd *cobra.Command, w io.Writer, id 
 		// Create AI runner
 		aiRunner := workflow.CreateAIRunner(cfg)
 		aiPromoter = backlog.NewAIPromoter(aiRunner, &cfg.AI)
+
+		// Show progress for AI analysis (only in non-JSON mode)
+		if outputFormat != OutputJSON {
+			aiCfg := &backlog.AIPromoterConfig{
+				Agent: opts.agent,
+				Model: opts.model,
+			}
+			agent, model := aiPromoter.ResolvedConfig(aiCfg)
+			out.Info(fmt.Sprintf("AI Analysis (%s/%s)...", agent, model))
+		}
 	}
 
 	// Promote with options
@@ -151,6 +148,11 @@ func runBacklogPromote(ctx context.Context, cmd *cobra.Command, w io.Writer, id 
 			return err
 		}
 		return outputBacklogError(w, outputFormat, "promote", err)
+	}
+
+	// Show completion for AI analysis
+	if opts.ai && outputFormat != OutputJSON {
+		out.Success("AI Analysis complete")
 	}
 
 	// Output results
@@ -173,10 +175,6 @@ func outputPromoteResultJSON(out tui.Output, result *backlog.PromoteResult) erro
 		"workspace_name": result.WorkspaceName,
 		"branch_name":    result.BranchName,
 		"description":    result.Description,
-	}
-
-	if result.TaskID != "" {
-		response["task_id"] = result.TaskID
 	}
 
 	if result.AIAnalysis != nil {
@@ -205,18 +203,7 @@ func displayPromoteResult(out tui.Output, result *backlog.PromoteResult) {
 	out.Info(fmt.Sprintf("  Category: %s", result.Discovery.Content.Category))
 	out.Info(fmt.Sprintf("  Severity: %s", result.Discovery.Content.Severity))
 
-	// If TaskID is set, we're in legacy mode
-	if result.TaskID != "" {
-		if result.DryRun {
-			out.Info(fmt.Sprintf("\nWould link to task: %s", result.TaskID))
-		} else {
-			out.Success(fmt.Sprintf("\nPromoted discovery %s", result.Discovery.ID))
-			out.Info(fmt.Sprintf("  Linked to task: %s", result.TaskID))
-		}
-		return
-	}
-
-	// New mode: show generated configuration
+	// Show generated configuration
 	out.Info("\nTask configuration:")
 	out.Info(fmt.Sprintf("  Template:  %s", result.TemplateName))
 	out.Info(fmt.Sprintf("  Workspace: %s", result.WorkspaceName))
@@ -231,19 +218,20 @@ func displayPromoteResult(out tui.Output, result *backlog.PromoteResult) {
 	}
 
 	if result.DryRun {
-		out.Info("\nTo create the task, run without --dry-run:")
-		out.Info(fmt.Sprintf("  atlas backlog promote %s", result.Discovery.ID))
+		out.Text("\nTo create the task, run without --dry-run:")
+		out.Text(fmt.Sprintf("  atlas backlog promote %s", result.Discovery.ID))
 		if result.TemplateName != "" {
-			out.Info("\nOr start the task directly with:")
-			out.Info(fmt.Sprintf("  atlas start %q -t %s -w %s",
-				result.Description, result.TemplateName, result.WorkspaceName))
+			out.Text("\nOr start the task directly with:")
+			out.Text(fmt.Sprintf("  atlas start -t %s -w %s --from-backlog %s \\", result.TemplateName, result.WorkspaceName, result.Discovery.ID))
+			out.Text(fmt.Sprintf("    %q", result.Discovery.Title))
 		}
 	} else {
 		// Not dry-run: show instructions for next steps
 		out.Success(fmt.Sprintf("\nDiscovery %s ready for task creation", result.Discovery.ID))
-		out.Info("\nTo create and start the task, run:")
-		out.Info(fmt.Sprintf("  atlas start %q -t %s -w %s",
-			truncateDescription(result.Description, 60), result.TemplateName, result.WorkspaceName))
+		out.Text("\nTo create and start the task, run:")
+		out.Text(fmt.Sprintf("  atlas start -t %s -w %s --from-backlog %s \\", result.TemplateName, result.WorkspaceName, result.Discovery.ID))
+		out.Text(fmt.Sprintf("    %q", result.Discovery.Title))
+		out.Text(fmt.Sprintf("\nDiscovery file: .atlas/backlog/%s.yaml", result.Discovery.ID))
 	}
 }
 

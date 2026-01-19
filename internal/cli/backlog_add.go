@@ -1,11 +1,14 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
+	"os/user"
 	"strings"
 
 	"github.com/charmbracelet/huh"
@@ -41,7 +44,7 @@ When called without a title argument, launches an interactive form (for humans).
 When called with a title argument and flags, adds the discovery directly (for AI/scripts).
 
 The discoverer is automatically detected:
-- Interactive mode: human:<git-username>
+- Interactive mode: human:<github-username>
 - Flag mode with --ai: ai:<agent>:<model>
 - Flag mode with env vars: ai:<ATLAS_AGENT>:<ATLAS_MODEL>
 
@@ -316,18 +319,15 @@ func runBacklogAddInteractive(ctx context.Context, mgr *backlog.Manager) (*backl
 }
 
 // detectDiscoverer determines the discoverer identifier.
-// For interactive mode, uses "human:<git-username>".
+// For interactive mode, uses "human:<github-username>".
 // For flag mode, checks environment variables or defaults to AI detection.
 func detectDiscoverer(ctx context.Context, projectRoot string, interactive bool) string {
 	if interactive {
-		// Try to get git username
-		username, err := git.RunCommand(ctx, projectRoot, "config", "user.name")
-		if err != nil || username == "" {
+		username := getGitHubUsername(ctx, projectRoot)
+		if username == "" {
 			return "human:unknown"
 		}
-		// Sanitize username for the format
-		username = strings.ToLower(strings.ReplaceAll(username, " ", "-"))
-		return "human:" + username
+		return "human:" + strings.ToLower(username)
 	}
 
 	// Check environment variables for AI agent detection
@@ -347,13 +347,58 @@ func detectDiscoverer(ctx context.Context, projectRoot string, interactive bool)
 		return "ai:claude-code:" + model
 	}
 
-	// Default to human with git username
-	username, err := git.RunCommand(ctx, projectRoot, "config", "user.name")
-	if err != nil || username == "" {
+	// Default to human with GitHub username
+	username := getGitHubUsername(ctx, projectRoot)
+	if username == "" {
 		return "human:unknown"
 	}
-	username = strings.ToLower(strings.ReplaceAll(username, " ", "-"))
-	return "human:" + username
+	return "human:" + strings.ToLower(username)
+}
+
+// getGitHubUsername attempts to detect the GitHub username using multiple methods.
+// Priority: env vars > git config > gh CLI > OS username.
+func getGitHubUsername(ctx context.Context, projectRoot string) string {
+	// Method 1: Environment variables (fastest, no I/O)
+	if username := os.Getenv("GITHUB_USER"); username != "" {
+		return username
+	}
+	if username := os.Getenv("GITHUB_ACTOR"); username != "" {
+		return username
+	}
+
+	// Method 2: Custom git config (fast, local file read)
+	if username, err := git.RunCommand(ctx, projectRoot, "config", "user.github"); err == nil && username != "" {
+		return username
+	}
+
+	// Method 3: GitHub CLI (authoritative but slower)
+	if username := getGitHubUsernameViaCLI(ctx, projectRoot); username != "" {
+		return username
+	}
+
+	// Method 4: OS username fallback
+	if currentUser, err := user.Current(); err == nil && currentUser.Username != "" {
+		return currentUser.Username
+	}
+
+	return ""
+}
+
+// getGitHubUsernameViaCLI attempts to get the GitHub username via gh CLI.
+// Returns empty string if gh is not installed or not authenticated.
+func getGitHubUsernameViaCLI(ctx context.Context, workDir string) string {
+	cmd := exec.CommandContext(ctx, "gh", "api", "user", "--jq", ".login") //#nosec G204 -- args are constant
+	cmd.Dir = workDir
+
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = nil // Suppress stderr
+
+	if err := cmd.Run(); err != nil {
+		return ""
+	}
+
+	return strings.TrimSpace(stdout.String())
 }
 
 // displayBacklogAddSuccess displays the success message for add command.

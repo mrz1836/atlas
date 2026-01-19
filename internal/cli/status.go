@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"sort"
 	"time"
 
@@ -198,8 +199,8 @@ func runStatusWithDeps(
 	if len(workspaces) == 0 {
 		if opts.Output == OutputJSON {
 			// Story 7.9: Use structured JSON format for consistency
-			emptyOutput := statusJSONOutput{
-				Workspaces: []map[string]string{},
+			emptyOutput := hierarchicalJSONOutput{
+				Workspaces: []tui.HierarchicalJSONWorkspace{},
 			}
 			encoder := json.NewEncoder(w)
 			encoder.SetIndent("", "  ")
@@ -209,68 +210,94 @@ func runStatusWithDeps(
 		return nil
 	}
 
-	// Build status rows from workspaces
-	rows, err := buildStatusRows(ctx, workspaces, deps.TaskStore)
+	// Build hierarchical workspace groups
+	groups, err := buildWorkspaceGroups(ctx, workspaces, deps.TaskStore)
 	if err != nil {
-		return fmt.Errorf("failed to build status rows: %w", err)
+		return fmt.Errorf("failed to build workspace groups: %w", err)
 	}
 
 	// Sort by status priority (attention first)
-	sortByStatusPriority(rows)
+	sortGroupsByStatusPriority(groups)
 
 	// Output based on format
 	if opts.Output == OutputJSON {
-		return outputStatusJSON(w, rows)
+		return outputHierarchicalJSON(w, groups)
 	}
 
-	return outputStatusTable(w, rows, opts.Quiet, opts.ShowProgress)
+	return outputHierarchicalTable(w, groups, opts.Quiet, opts.ShowProgress)
 }
 
-// buildStatusRows builds StatusRow slice from workspaces.
-func buildStatusRows(
+// buildWorkspaceGroups builds hierarchical workspace groups from workspaces.
+// Each workspace includes all its tasks for nested display.
+func buildWorkspaceGroups(
 	ctx context.Context,
 	workspaces []*domain.Workspace,
 	taskStore TaskLister,
-) ([]tui.StatusRow, error) {
-	rows := make([]tui.StatusRow, 0, len(workspaces))
+) ([]tui.WorkspaceGroup, error) {
+	groups := make([]tui.WorkspaceGroup, 0, len(workspaces))
 
 	for _, ws := range workspaces {
 		// Check for cancellation during iteration
 		select {
 		case <-ctx.Done():
-			return nil, fmt.Errorf("building status rows canceled: %w", ctx.Err())
+			return nil, fmt.Errorf("building workspace groups canceled: %w", ctx.Err())
 		default:
 		}
 
-		row := tui.StatusRow{
-			Workspace: ws.Name,
-			Branch:    ws.Branch,
-			Status:    constants.TaskStatusPending, // Default
+		group := tui.WorkspaceGroup{
+			Name:   ws.Name,
+			Branch: ws.Branch,
+			Status: constants.TaskStatusPending, // Default
 		}
 
-		// Load tasks directly from store (authoritative source)
+		// Load all tasks for the workspace
 		tasks, err := taskStore.List(ctx, ws.Name)
 		if err == nil && len(tasks) > 0 {
-			mostRecent := tasks[0] // Already sorted newest first
-			row.Status = mostRecent.Status
-			row.CurrentStep = mostRecent.CurrentStep + 1 // 1-indexed for display
-			row.TotalSteps = len(mostRecent.Steps)
-			// Extract current step name for display
-			if mostRecent.CurrentStep >= 0 && mostRecent.CurrentStep < len(mostRecent.Steps) {
-				row.StepName = mostRecent.Steps[mostRecent.CurrentStep].Name
+			group.TotalTasks = len(tasks)
+			group.Status = tasks[0].Status // Aggregate status from most recent
+
+			// Build task info list
+			group.Tasks = make([]tui.TaskInfo, len(tasks))
+			for i, t := range tasks {
+				group.Tasks[i] = tui.TaskInfo{
+					ID:          t.ID,
+					Path:        taskPath(ws.Name, t.ID),
+					Template:    t.TemplateID,
+					Status:      t.Status,
+					CurrentStep: t.CurrentStep + 1, // 1-indexed for display
+					TotalSteps:  len(t.Steps),
+				}
 			}
 		}
 
-		rows = append(rows, row)
+		groups = append(groups, group)
 	}
 
-	return rows, nil
+	return groups, nil
+}
+
+// taskPath computes the full file system path to a task directory.
+// Used for generating clickable hyperlinks in terminals that support OSC 8.
+// Task data is stored in ~/.atlas/, not the project directory.
+func taskPath(workspaceName, taskID string) string {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(homeDir, ".atlas", constants.WorkspacesDir, workspaceName, constants.TasksDir, taskID)
 }
 
 // sortByStatusPriority sorts rows by status priority (attention first, then running).
 func sortByStatusPriority(rows []tui.StatusRow) {
 	sort.SliceStable(rows, func(i, j int) bool {
 		return statusPriority(rows[i].Status) > statusPriority(rows[j].Status)
+	})
+}
+
+// sortGroupsByStatusPriority sorts workspace groups by status priority.
+func sortGroupsByStatusPriority(groups []tui.WorkspaceGroup) {
+	sort.SliceStable(groups, func(i, j int) bool {
+		return statusPriority(groups[i].Status) > statusPriority(groups[j].Status)
 	})
 }
 
@@ -288,43 +315,24 @@ func statusPriority(status constants.TaskStatus) int {
 
 // statusJSONOutput is the structured JSON output for the status command.
 // Includes workspaces and attention_items per Story 7.9.
+// Deprecated: Use hierarchicalJSONOutput for new code.
 type statusJSONOutput struct {
 	Workspaces     []map[string]string `json:"workspaces"`
 	AttentionItems []map[string]string `json:"attention_items,omitempty"`
 }
 
-// outputStatusJSON outputs status as JSON with workspaces and attention items.
-func outputStatusJSON(w io.Writer, rows []tui.StatusRow) error {
-	table := tui.NewStatusTable(rows)
-	headers, data := table.ToJSONData()
+// hierarchicalJSONOutput is the structured JSON output with nested tasks.
+type hierarchicalJSONOutput struct {
+	Workspaces     []tui.HierarchicalJSONWorkspace `json:"workspaces"`
+	AttentionItems []attentionItem                 `json:"attention_items,omitempty"`
+}
 
-	// Convert to array of objects with full field names
-	workspaces := make([]map[string]string, len(data))
-	for i, row := range data {
-		obj := make(map[string]string)
-		for j, header := range headers {
-			// Use lowercase field names for JSON
-			key := toLowerCamelCase(header)
-			if j < len(row) {
-				obj[key] = row[j]
-			}
-		}
-		workspaces[i] = obj
-	}
-
-	// Build attention items from StatusFooter (Story 7.9)
-	footer := tui.NewStatusFooter(rows)
-	attentionItems := footer.ToJSON()
-
-	// Build output structure
-	output := statusJSONOutput{
-		Workspaces:     workspaces,
-		AttentionItems: attentionItems,
-	}
-
-	encoder := json.NewEncoder(w)
-	encoder.SetIndent("", "  ")
-	return encoder.Encode(output)
+// attentionItem represents an item that needs user attention.
+type attentionItem struct {
+	Workspace string `json:"workspace"`
+	TaskID    string `json:"task_id"`
+	Status    string `json:"status"`
+	Action    string `json:"action"`
 }
 
 // toLowerCamelCase converts UPPER_CASE to lowercase.
@@ -345,9 +353,41 @@ func toLowerCamelCase(s string) string {
 	}
 }
 
-// outputStatusTable outputs status as styled table with header and footer.
-func outputStatusTable(w io.Writer, rows []tui.StatusRow, quiet, showProgress bool) error {
-	table := tui.NewStatusTable(rows)
+// outputHierarchicalJSON outputs status as hierarchical JSON with nested tasks.
+func outputHierarchicalJSON(w io.Writer, groups []tui.WorkspaceGroup) error {
+	table := tui.NewHierarchicalStatusTable(groups)
+
+	// Build attention items
+	var attention []attentionItem
+	for _, group := range groups {
+		for _, task := range group.Tasks {
+			if tui.IsAttentionStatus(task.Status) {
+				action := tui.SuggestedAction(task.Status)
+				if action != "" {
+					attention = append(attention, attentionItem{
+						Workspace: group.Name,
+						TaskID:    task.ID,
+						Status:    string(task.Status),
+						Action:    fmt.Sprintf("%s %s", action, group.Name),
+					})
+				}
+			}
+		}
+	}
+
+	output := hierarchicalJSONOutput{
+		Workspaces:     table.ToJSONData(),
+		AttentionItems: attention,
+	}
+
+	encoder := json.NewEncoder(w)
+	encoder.SetIndent("", "  ")
+	return encoder.Encode(output)
+}
+
+// outputHierarchicalTable outputs status as hierarchical table with nested tasks.
+func outputHierarchicalTable(w io.Writer, groups []tui.WorkspaceGroup, quiet, showProgress bool) error {
+	table := tui.NewHierarchicalStatusTable(groups)
 
 	// Header (unless quiet)
 	if !quiet {
@@ -355,14 +395,14 @@ func outputStatusTable(w io.Writer, rows []tui.StatusRow, quiet, showProgress bo
 		_, _ = fmt.Fprintln(w)
 	}
 
-	// Table
+	// Hierarchical table
 	if err := table.Render(w); err != nil {
-		return fmt.Errorf("render status table: %w", err)
+		return fmt.Errorf("render hierarchical table: %w", err)
 	}
 
 	// Progress bars (if enabled)
 	if showProgress {
-		progressRows := buildProgressRows(rows)
+		progressRows := buildProgressRowsFromGroups(groups)
 		if len(progressRows) > 0 {
 			_, _ = fmt.Fprintln(w)
 			pd := tui.NewProgressDashboard(progressRows)
@@ -373,17 +413,103 @@ func outputStatusTable(w io.Writer, rows []tui.StatusRow, quiet, showProgress bo
 	// Footer summary (unless quiet)
 	if !quiet {
 		_, _ = fmt.Fprintln(w)
-		_, _ = fmt.Fprintln(w, buildFooter(rows))
+		_, _ = fmt.Fprintln(w, buildHierarchicalFooter(groups))
 	}
 
-	// Action indicators footer (Story 7.9) - shows copy-paste commands
-	// Render even in quiet mode since these are actionable commands
+	// Action indicators footer - shows copy-paste commands
+	rows := groupsToStatusRows(groups)
 	footer := tui.NewStatusFooter(rows)
 	if footer.HasItems() {
 		_ = footer.Render(w)
 	}
 
 	return nil
+}
+
+// groupsToStatusRows converts workspace groups to status rows for footer compatibility.
+func groupsToStatusRows(groups []tui.WorkspaceGroup) []tui.StatusRow {
+	rows := make([]tui.StatusRow, 0, len(groups))
+	for _, group := range groups {
+		rows = append(rows, tui.StatusRow{
+			Workspace: group.Name,
+			Branch:    group.Branch,
+			Status:    group.Status,
+		})
+	}
+	return rows
+}
+
+// buildProgressRowsFromGroups converts workspace groups to progress rows.
+func buildProgressRowsFromGroups(groups []tui.WorkspaceGroup) []tui.ProgressRow {
+	var progressRows []tui.ProgressRow
+	for _, group := range groups {
+		for _, task := range group.Tasks {
+			if task.Status == constants.TaskStatusRunning || task.Status == constants.TaskStatusValidating {
+				percent := 0.0
+				if task.TotalSteps > 0 {
+					percent = float64(task.CurrentStep) / float64(task.TotalSteps)
+				}
+				progressRows = append(progressRows, tui.ProgressRow{
+					Name:        fmt.Sprintf("%s/%s", group.Name, task.ID),
+					Percent:     percent,
+					CurrentStep: task.CurrentStep,
+					TotalSteps:  task.TotalSteps,
+					StepName:    task.Template,
+				})
+			}
+		}
+	}
+	return progressRows
+}
+
+// buildHierarchicalFooter creates the footer summary for hierarchical display.
+func buildHierarchicalFooter(groups []tui.WorkspaceGroup) string {
+	attentionCount := 0
+	var firstAttention *tui.WorkspaceGroup
+
+	for i := range groups {
+		if tui.IsAttentionStatus(groups[i].Status) {
+			attentionCount++
+			if firstAttention == nil {
+				firstAttention = &groups[i]
+			}
+		}
+	}
+
+	// Count total tasks
+	totalTasks := 0
+	for _, group := range groups {
+		totalTasks += group.TotalTasks
+	}
+
+	// Summary line
+	workspaceWord := "workspaces"
+	if len(groups) == 1 {
+		workspaceWord = "workspace"
+	}
+	taskWord := "tasks"
+	if totalTasks == 1 {
+		taskWord = "task"
+	}
+	summary := fmt.Sprintf("%d %s, %d %s", len(groups), workspaceWord, totalTasks, taskWord)
+
+	if attentionCount > 0 {
+		needWord := "need"
+		if attentionCount == 1 {
+			needWord = "needs"
+		}
+		summary += fmt.Sprintf(", %d %s attention", attentionCount, needWord)
+	}
+
+	// Actionable command
+	if firstAttention != nil {
+		action := tui.SuggestedAction(firstAttention.Status)
+		if action != "" {
+			summary += fmt.Sprintf("\nRun: %s %s", action, firstAttention.Name)
+		}
+	}
+
+	return summary
 }
 
 // buildProgressRows converts status rows to progress rows for the dashboard.

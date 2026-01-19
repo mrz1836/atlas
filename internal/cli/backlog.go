@@ -21,7 +21,7 @@ Examples:
   atlas backlog add "Missing error handling"    # Add a new discovery
   atlas backlog list                            # List pending discoveries
   atlas backlog view disc-abc123                # View discovery details
-  atlas backlog promote disc-abc123 --task-id T001  # Promote to task
+  atlas backlog promote disc-abc123             # Promote to task
   atlas backlog dismiss disc-abc123 --reason "duplicate"  # Dismiss`,
 	}
 

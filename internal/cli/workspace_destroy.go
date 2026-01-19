@@ -16,7 +16,9 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
+	"github.com/mrz1836/atlas/internal/backlog"
 	"github.com/mrz1836/atlas/internal/errors"
+	"github.com/mrz1836/atlas/internal/task"
 	"github.com/mrz1836/atlas/internal/tui"
 	"github.com/mrz1836/atlas/internal/workspace"
 )
@@ -175,6 +177,9 @@ func executeDestroy(ctx context.Context, store *workspace.FileStore, name, outpu
 		worktreePath = ws.WorktreePath
 		branch = ws.Branch
 	}
+
+	// Delete linked backlog discoveries before destroying workspace (best-effort)
+	deleteLinkedDiscoveries(ctx, name, logger)
 
 	// Get repo path for worktree runner
 	repoPath, err := detectRepoPath()
@@ -341,4 +346,58 @@ func outputDestroyErrorJSON(w io.Writer, name, errMsg string) error {
 	encoder := json.NewEncoder(w)
 	encoder.SetIndent("", "  ")
 	return encoder.Encode(result)
+}
+
+// deleteLinkedDiscoveries removes backlog discovery files linked to tasks in the workspace.
+// This is a best-effort operation - failures are logged but don't prevent workspace destruction.
+// Git history provides the audit trail for deleted discoveries.
+func deleteLinkedDiscoveries(ctx context.Context, workspaceName string, logger zerolog.Logger) {
+	// Create task store to list tasks for the workspace
+	taskStore, err := task.NewFileStore("")
+	if err != nil {
+		logger.Debug().Err(err).Msg("could not create task store for discovery cleanup")
+		return
+	}
+
+	// List all tasks in the workspace
+	tasks, err := taskStore.List(ctx, workspaceName)
+	if err != nil {
+		logger.Debug().Err(err).
+			Str("workspace_name", workspaceName).
+			Msg("could not list tasks for discovery cleanup")
+		return
+	}
+
+	// Create backlog manager
+	backlogMgr, err := backlog.NewManager("")
+	if err != nil {
+		logger.Debug().Err(err).Msg("could not create backlog manager for discovery cleanup")
+		return
+	}
+
+	// Check each task for linked discoveries and delete them
+	for _, t := range tasks {
+		if t.Metadata == nil {
+			continue
+		}
+
+		backlogID, ok := t.Metadata["from_backlog_id"].(string)
+		if !ok || backlogID == "" {
+			continue
+		}
+
+		// Delete the discovery file (best-effort)
+		if deleteErr := backlogMgr.Delete(ctx, backlogID); deleteErr != nil {
+			logger.Debug().Err(deleteErr).
+				Str("discovery_id", backlogID).
+				Str("task_id", t.ID).
+				Msg("could not delete linked discovery")
+		} else {
+			logger.Info().
+				Str("discovery_id", backlogID).
+				Str("task_id", t.ID).
+				Str("workspace_name", workspaceName).
+				Msg("deleted linked backlog discovery")
+		}
+	}
 }
