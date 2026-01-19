@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"sync"
 
 	"github.com/charmbracelet/glamour"
 	"github.com/spf13/cobra"
@@ -13,6 +14,26 @@ import (
 	"github.com/mrz1836/atlas/internal/backlog"
 	"github.com/mrz1836/atlas/internal/tui"
 )
+
+var (
+	glamourRenderer     *glamour.TermRenderer //nolint:gochecknoglobals // cached renderer for performance
+	glamourRendererOnce sync.Once             //nolint:gochecknoglobals // sync.Once for renderer initialization
+)
+
+// getGlamourRenderer returns a cached glamour renderer for markdown rendering.
+// The renderer is initialized once and reused across all calls.
+func getGlamourRenderer() *glamour.TermRenderer {
+	glamourRendererOnce.Do(func() {
+		r, err := glamour.NewTermRenderer(
+			glamour.WithAutoStyle(),
+			glamour.WithWordWrap(80),
+		)
+		if err == nil {
+			glamourRenderer = r
+		}
+	})
+	return glamourRenderer
+}
 
 // newBacklogViewCmd creates the backlog view command.
 func newBacklogViewCmd() *cobra.Command {
@@ -46,10 +67,7 @@ Exit codes:
 
 // runBacklogView executes the backlog view command.
 func runBacklogView(ctx context.Context, cmd *cobra.Command, w io.Writer, id string, jsonOutput bool) error {
-	outputFormat := cmd.Flag("output").Value.String()
-	if jsonOutput {
-		outputFormat = OutputJSON
-	}
+	outputFormat := getOutputFormat(cmd, jsonOutput)
 	out := tui.NewOutput(w, outputFormat)
 
 	// Create manager
@@ -140,26 +158,15 @@ func displayBacklogView(out tui.Output, w io.Writer, d *backlog.Discovery) {
 
 // renderDescription renders markdown description using glamour.
 func renderDescription(w io.Writer, description string) {
-	// Try to render with glamour
-	renderer, err := glamour.NewTermRenderer(
-		glamour.WithAutoStyle(),
-		glamour.WithWordWrap(80),
-	)
-	if err != nil {
-		// Fallback to plain text
-		_, _ = fmt.Fprintf(w, "  %s\n", description)
-		return
+	if renderer := getGlamourRenderer(); renderer != nil {
+		if rendered, err := renderer.Render(description); err == nil {
+			// Indent the rendered output
+			for _, line := range strings.Split(rendered, "\n") {
+				_, _ = fmt.Fprintf(w, "  %s\n", line)
+			}
+			return
+		}
 	}
-
-	rendered, err := renderer.Render(description)
-	if err != nil {
-		// Fallback to plain text
-		_, _ = fmt.Fprintf(w, "  %s\n", description)
-		return
-	}
-
-	// Indent the rendered output
-	for _, line := range strings.Split(rendered, "\n") {
-		_, _ = fmt.Fprintf(w, "  %s\n", line)
-	}
+	// Fallback to plain text
+	_, _ = fmt.Fprintf(w, "  %s\n", description)
 }
