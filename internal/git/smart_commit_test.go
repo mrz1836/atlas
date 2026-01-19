@@ -876,3 +876,261 @@ func TestSmartCommitRunner_GenerateCommitMessage_UsesSuggestedMessage(t *testing
 	message := runner.generateCommitMessage(context.Background(), group)
 	assert.Equal(t, "fix(git): handle nil pointer in runner", message)
 }
+
+// LockRetryMockRunner implements Runner interface for testing lock retry behavior.
+type LockRetryMockRunner struct {
+	resetCallCount  int
+	addCallCount    int
+	commitCallCount int
+
+	resetErrors []error // sequence of errors for Reset calls
+	addErrors   []error // sequence of errors for Add calls
+}
+
+func (m *LockRetryMockRunner) Status(_ context.Context) (*Status, error) {
+	return &Status{
+		Staged: []FileChange{{Path: "test.go", Status: ChangeModified}},
+	}, nil
+}
+
+func (m *LockRetryMockRunner) Reset(_ context.Context) error {
+	m.resetCallCount++
+	idx := m.resetCallCount - 1
+	if idx < len(m.resetErrors) && m.resetErrors[idx] != nil {
+		return m.resetErrors[idx]
+	}
+	return nil
+}
+
+func (m *LockRetryMockRunner) Add(_ context.Context, _ []string) error {
+	m.addCallCount++
+	idx := m.addCallCount - 1
+	if idx < len(m.addErrors) && m.addErrors[idx] != nil {
+		return m.addErrors[idx]
+	}
+	return nil
+}
+
+func (m *LockRetryMockRunner) Commit(_ context.Context, _ string) error {
+	m.commitCallCount++
+	return nil
+}
+
+func (m *LockRetryMockRunner) Push(_ context.Context, _, _ string, _ bool) error { return nil }
+func (m *LockRetryMockRunner) CurrentBranch(_ context.Context) (string, error)   { return "main", nil }
+func (m *LockRetryMockRunner) CreateBranch(_ context.Context, _, _ string) error { return nil }
+func (m *LockRetryMockRunner) Diff(_ context.Context, _ bool) (string, error)    { return "", nil }
+func (m *LockRetryMockRunner) DiffUnstaged(_ context.Context) (string, error)    { return "", nil }
+func (m *LockRetryMockRunner) DiffStaged(_ context.Context) (string, error)      { return "", nil }
+func (m *LockRetryMockRunner) BranchExists(_ context.Context, _ string) (bool, error) {
+	return false, nil
+}
+func (m *LockRetryMockRunner) Fetch(_ context.Context, _ string) error  { return nil }
+func (m *LockRetryMockRunner) Rebase(_ context.Context, _ string) error { return nil }
+func (m *LockRetryMockRunner) RebaseAbort(_ context.Context) error      { return nil }
+
+// Compile-time interface check
+var _ Runner = (*LockRetryMockRunner)(nil)
+
+func TestSmartCommitRunner_CommitGroup_ResetLockRetry(t *testing.T) {
+	lockErr := fmt.Errorf("fatal: unable to create '/path/.git/index.lock': file exists") //nolint:err113 // test error
+
+	tests := []struct {
+		name            string
+		resetErrors     []error
+		expectedResets  int
+		expectError     bool
+		expectedCommits int
+	}{
+		{
+			name:            "success on first try",
+			resetErrors:     []error{nil},
+			expectedResets:  1,
+			expectError:     false,
+			expectedCommits: 1,
+		},
+		{
+			name:            "success after 2 lock errors",
+			resetErrors:     []error{lockErr, lockErr, nil},
+			expectedResets:  3,
+			expectError:     false,
+			expectedCommits: 1,
+		},
+		{
+			name:            "success after 4 lock errors",
+			resetErrors:     []error{lockErr, lockErr, lockErr, lockErr, nil},
+			expectedResets:  5,
+			expectError:     false,
+			expectedCommits: 1,
+		},
+		{
+			name:            "exhausted retries",
+			resetErrors:     []error{lockErr, lockErr, lockErr, lockErr, lockErr},
+			expectedResets:  5,
+			expectError:     true,
+			expectedCommits: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockRunner := &LockRetryMockRunner{
+				resetErrors: tt.resetErrors,
+			}
+
+			runner := NewSmartCommitRunner(mockRunner, "/tmp", nil)
+
+			group := FileGroup{
+				Package:    "test",
+				Files:      []FileChange{{Path: "test.go", Status: ChangeModified}},
+				CommitType: CommitTypeFeat,
+			}
+
+			_, err := runner.commitGroup(context.Background(), group)
+
+			if tt.expectError {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "failed to reset staging")
+			} else {
+				require.NoError(t, err)
+			}
+
+			assert.Equal(t, tt.expectedResets, mockRunner.resetCallCount, "unexpected reset call count")
+			assert.Equal(t, tt.expectedCommits, mockRunner.commitCallCount, "unexpected commit call count")
+		})
+	}
+}
+
+func TestSmartCommitRunner_CommitGroup_AddLockRetry(t *testing.T) {
+	lockErr := fmt.Errorf("another git process seems to be running in this repository") //nolint:err113 // test error
+
+	tests := []struct {
+		name            string
+		addErrors       []error
+		expectedAdds    int
+		expectError     bool
+		expectedCommits int
+	}{
+		{
+			name:            "success on first try",
+			addErrors:       []error{nil},
+			expectedAdds:    1,
+			expectError:     false,
+			expectedCommits: 1,
+		},
+		{
+			name:            "success after 1 lock error",
+			addErrors:       []error{lockErr, nil},
+			expectedAdds:    2,
+			expectError:     false,
+			expectedCommits: 1,
+		},
+		{
+			name:            "success after 3 lock errors",
+			addErrors:       []error{lockErr, lockErr, lockErr, nil},
+			expectedAdds:    4,
+			expectError:     false,
+			expectedCommits: 1,
+		},
+		{
+			name:            "exhausted retries",
+			addErrors:       []error{lockErr, lockErr, lockErr, lockErr, lockErr},
+			expectedAdds:    5,
+			expectError:     true,
+			expectedCommits: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockRunner := &LockRetryMockRunner{
+				addErrors: tt.addErrors,
+			}
+
+			runner := NewSmartCommitRunner(mockRunner, "/tmp", nil)
+
+			group := FileGroup{
+				Package:    "test",
+				Files:      []FileChange{{Path: "test.go", Status: ChangeModified}},
+				CommitType: CommitTypeFeat,
+			}
+
+			_, err := runner.commitGroup(context.Background(), group)
+
+			if tt.expectError {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "failed to stage files")
+			} else {
+				require.NoError(t, err)
+			}
+
+			assert.Equal(t, tt.expectedAdds, mockRunner.addCallCount, "unexpected add call count")
+			assert.Equal(t, tt.expectedCommits, mockRunner.commitCallCount, "unexpected commit call count")
+		})
+	}
+}
+
+func TestSmartCommitRunner_CommitGroup_NonLockError_NoRetry(t *testing.T) {
+	nonLockErr := fmt.Errorf("permission denied") //nolint:err113 // test error
+
+	t.Run("reset non-lock error", func(t *testing.T) {
+		mockRunner := &LockRetryMockRunner{
+			resetErrors: []error{nonLockErr},
+		}
+
+		runner := NewSmartCommitRunner(mockRunner, "/tmp", nil)
+		group := FileGroup{
+			Package: "test",
+			Files:   []FileChange{{Path: "test.go", Status: ChangeModified}},
+		}
+
+		_, err := runner.commitGroup(context.Background(), group)
+
+		require.Error(t, err)
+		// Non-lock error should NOT trigger retry - only 1 call
+		assert.Equal(t, 1, mockRunner.resetCallCount)
+	})
+
+	t.Run("add non-lock error", func(t *testing.T) {
+		mockRunner := &LockRetryMockRunner{
+			addErrors: []error{nonLockErr},
+		}
+
+		runner := NewSmartCommitRunner(mockRunner, "/tmp", nil)
+		group := FileGroup{
+			Package: "test",
+			Files:   []FileChange{{Path: "test.go", Status: ChangeModified}},
+		}
+
+		_, err := runner.commitGroup(context.Background(), group)
+
+		require.Error(t, err)
+		// Non-lock error should NOT trigger retry - only 1 call
+		assert.Equal(t, 1, mockRunner.addCallCount)
+	})
+}
+
+func TestSmartCommitRunner_CommitGroup_MixedLockErrors(t *testing.T) {
+	lockErr := fmt.Errorf("index.lock: file exists") //nolint:err113 // test error
+
+	// Reset succeeds after 2 tries, Add succeeds after 3 tries
+	mockRunner := &LockRetryMockRunner{
+		resetErrors: []error{lockErr, nil},
+		addErrors:   []error{lockErr, lockErr, nil},
+	}
+
+	runner := NewSmartCommitRunner(mockRunner, "/tmp", nil)
+
+	group := FileGroup{
+		Package:    "test",
+		Files:      []FileChange{{Path: "test.go", Status: ChangeModified}},
+		CommitType: CommitTypeFeat,
+	}
+
+	_, err := runner.commitGroup(context.Background(), group)
+
+	require.NoError(t, err)
+	assert.Equal(t, 2, mockRunner.resetCallCount, "expected 2 reset calls")
+	assert.Equal(t, 3, mockRunner.addCallCount, "expected 3 add calls")
+	assert.Equal(t, 1, mockRunner.commitCallCount, "expected 1 commit call")
+}

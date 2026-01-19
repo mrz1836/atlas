@@ -326,13 +326,20 @@ func (r *SmartCommitRunner) buildCommitResult(commits []CommitInfo) (*CommitResu
 func (r *SmartCommitRunner) commitGroup(ctx context.Context, group FileGroup) (*CommitInfo, error) {
 	// Reset staging to ensure clean state for this group
 	// This prevents files from other groups (or pre-staged files) from being included
-	if err := r.runner.Reset(ctx); err != nil {
+	// Use lock retry to handle concurrent git operations
+	err := RunWithLockRetryVoid(ctx, DefaultLockRetryConfig(), r.logger, func(ctx context.Context) error {
+		return r.runner.Reset(ctx)
+	})
+	if err != nil {
 		return nil, fmt.Errorf("failed to reset staging: %w", err)
 	}
 
-	// Stage only this group's files
+	// Stage only this group's files with lock retry
 	paths := GetFilePaths(group.Files)
-	if err := r.runner.Add(ctx, paths); err != nil {
+	err = RunWithLockRetryVoid(ctx, DefaultLockRetryConfig(), r.logger, func(ctx context.Context) error {
+		return r.runner.Add(ctx, paths)
+	})
+	if err != nil {
 		return nil, fmt.Errorf("failed to stage files: %w", err)
 	}
 
