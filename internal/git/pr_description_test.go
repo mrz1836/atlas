@@ -1098,3 +1098,92 @@ func TestAIDescriptionGenerator_HandlesCodeBlockWithPreamble(t *testing.T) {
 	assert.Equal(t, "feat(ui): add dark mode toggle", desc.Title)
 	assert.Contains(t, desc.Body, "## Summary")
 }
+
+func TestParseResponse_EdgeCases(t *testing.T) {
+	gen := &AIDescriptionGenerator{logger: zerolog.Nop()}
+
+	tests := []struct {
+		name        string
+		output      string
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name:        "BODY before TITLE should error",
+			output:      "BODY:\n## Summary\nTITLE: feat: something",
+			wantErr:     true,
+			errContains: "BODY: before TITLE:",
+		},
+		{
+			name:        "body contains TITLE marker should error",
+			output:      "TITLE: feat: test\nBODY:\n## Summary\nSee TITLE: above for context",
+			wantErr:     true,
+			errContains: "contains TITLE:",
+		},
+		{
+			name:    "valid output parses correctly",
+			output:  "TITLE: feat(api): add endpoint\nBODY:\n## Summary\nTest\n## Changes\n- file\n## Test Plan\nPass",
+			wantErr: false,
+		},
+		{
+			name:        "empty TITLE value should error",
+			output:      "TITLE:   \nBODY:\n## Summary\nContent",
+			wantErr:     true,
+			errContains: "empty TITLE",
+		},
+		{
+			name:        "empty BODY value should error",
+			output:      "TITLE: feat: test\nBODY:   ",
+			wantErr:     true,
+			errContains: "empty BODY",
+		},
+		{
+			name:    "TITLE and BODY on separate lines with extra whitespace",
+			output:  "TITLE:   feat(cli): add command   \n\nBODY:\n## Summary\nAdded new command.\n## Changes\n- cli.go\n## Test Plan\nManual test",
+			wantErr: false,
+		},
+		{
+			name:    "lowercase markers work",
+			output:  "title: fix(config): update settings\nbody:\n## Summary\nFixed config.\n## Changes\n- config.go\n## Test Plan\nTests pass",
+			wantErr: false,
+		},
+		{
+			name:    "mixed case markers work",
+			output:  "Title: docs(readme): update docs\nBody:\n## Summary\nUpdated readme.\n## Changes\n- README.md\n## Test Plan\nReviewed",
+			wantErr: false,
+		},
+		{
+			name:        "missing TITLE marker should error",
+			output:      "BODY:\n## Summary\nContent",
+			wantErr:     true,
+			errContains: "missing TITLE:",
+		},
+		{
+			name:        "missing BODY marker should error",
+			output:      "TITLE: feat: test\nNo body marker here",
+			wantErr:     true,
+			errContains: "missing BODY:",
+		},
+		{
+			name:        "raw AI output with both markers in wrong order",
+			output:      "Here's your PR:\nBODY:\n## Summary\nTITLE: feat: wrong order\n## Changes\n- file",
+			wantErr:     true,
+			errContains: "BODY: before TITLE:",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			desc, err := gen.parseResponse(tt.output, "feature")
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errContains)
+			} else {
+				require.NoError(t, err)
+				assert.NotContains(t, strings.ToLower(desc.Body), "title:")
+				assert.NotEmpty(t, desc.Title)
+				assert.NotEmpty(t, desc.Body)
+			}
+		})
+	}
+}

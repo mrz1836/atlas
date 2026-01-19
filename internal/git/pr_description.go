@@ -27,16 +27,10 @@ var (
 	// conventionalTitlePattern validates conventional commits format.
 	conventionalTitlePattern = regexp.MustCompile(`^(feat|fix|docs|style|refactor|test|chore|build|ci|perf|revert)(\([a-zA-Z0-9_-]+\))?:\s+.+$`)
 
-	// titleMarkerPattern extracts title from AI response.
-	titleMarkerPattern = regexp.MustCompile(`(?im)^TITLE:\s*(.+)$`)
-
-	// bodyMarkerPattern extracts body from AI response.
-	bodyMarkerPattern = regexp.MustCompile(`(?is)BODY:\s*(.+)$`)
-
 	// conventionalTypePattern extracts the commit type from title.
 	conventionalTypePattern = regexp.MustCompile(`^(feat|fix|docs|style|refactor|test|chore|build|ci|perf|revert)`)
 
-	// scopePattern extracts the scope from title.
+	// titleScopePattern extracts the scope from title.
 	titleScopePattern = regexp.MustCompile(`^\w+\(([^)]+)\):`)
 
 	// codeBlockPattern strips markdown code blocks from AI output.
@@ -296,15 +290,15 @@ REQUIREMENTS:
 
 ACCURACY:
 3. Base your description on the actual commit messages and diff content provided below
-4. Be accurate and specific about what actually changed - do not assume from filenames alone
+4. Be accurate and specific about what actually changed
 
-OUTPUT FORMAT:
-Return ONLY the title and body in this exact format.
-IMPORTANT:
-- Do NOT use markdown code blocks or backticks around your response
-- Start your response IMMEDIATELY with "TITLE:" (no preamble or explanation)
-- Use these exact markers: TITLE: and BODY:
+OUTPUT FORMAT - CRITICAL:
+5. TITLE: must appear FIRST, followed by title text on the same line
+6. BODY: must appear on a SEPARATE line AFTER the title
+7. Do NOT include any text before TITLE: or after the body content
+8. Do NOT use markdown code blocks around your response
 
+EXACT FORMAT (follow this precisely):
 TITLE: <type>(<scope>): <description>
 BODY:
 ## Summary
@@ -315,18 +309,6 @@ BODY:
 
 ## Test Plan
 <test plan>
-
-EXAMPLE OUTPUT:
-TITLE: feat(api): add user authentication endpoint
-BODY:
-## Summary
-Added new authentication endpoint for user login.
-
-## Changes
-- api/auth.go - New authentication handler
-
-## Test Plan
-- Unit tests added and passing
 
 `
 
@@ -421,7 +403,7 @@ func (g *AIDescriptionGenerator) writeMetadataSection(sb *strings.Builder, opts 
 
 // parseResponse extracts the PR description from AI output.
 // It expects the output to contain "TITLE:" and "BODY:" markers (case-insensitive).
-// Handles variations like markdown code blocks and different casing.
+// Uses positional parsing to correctly handle edge cases like BODY appearing before TITLE.
 // Returns an error if the expected format is not found (caller should use template fallback).
 func (g *AIDescriptionGenerator) parseResponse(output, templateName string) (*PRDescription, error) {
 	desc := &PRDescription{}
@@ -429,22 +411,47 @@ func (g *AIDescriptionGenerator) parseResponse(output, templateName string) (*PR
 	// Preprocess: strip markdown code blocks (AI sometimes wraps output in ```)
 	output = stripMarkdownCodeBlocks(output)
 
-	// Extract title - case insensitive, require TITLE: marker at start of line
-	if match := titleMarkerPattern.FindStringSubmatch(output); len(match) > 1 {
-		desc.Title = strings.TrimSpace(match[1])
-	}
+	// Find positions of markers (case-insensitive)
+	outputLower := strings.ToLower(output)
+	titleIdx := strings.Index(outputLower, "title:")
+	bodyIdx := strings.Index(outputLower, "body:")
 
-	// Extract body - case insensitive, require BODY: marker
-	if match := bodyMarkerPattern.FindStringSubmatch(output); len(match) > 1 {
-		desc.Body = strings.TrimSpace(match[1])
-	}
-
-	// Strict validation: both markers must be present
-	if desc.Title == "" {
+	// Both markers must exist and TITLE must come first
+	if titleIdx == -1 {
 		return nil, fmt.Errorf("AI response missing TITLE: marker: %w", atlaserrors.ErrAIInvalidFormat)
 	}
-	if desc.Body == "" {
+	if bodyIdx == -1 {
 		return nil, fmt.Errorf("AI response missing BODY: marker: %w", atlaserrors.ErrAIInvalidFormat)
+	}
+	if titleIdx > bodyIdx {
+		return nil, fmt.Errorf("AI response has BODY: before TITLE: marker: %w", atlaserrors.ErrAIInvalidFormat)
+	}
+
+	// Extract title: from TITLE: to BODY: (accounting for newlines)
+	titleStart := titleIdx + len("title:")
+	titleEnd := bodyIdx
+	if newlineIdx := strings.Index(output[titleStart:], "\n"); newlineIdx != -1 && titleStart+newlineIdx < bodyIdx {
+		titleEnd = titleStart + newlineIdx
+	}
+	desc.Title = strings.TrimSpace(output[titleStart:titleEnd])
+
+	// Extract body: from BODY: to end
+	bodyStart := bodyIdx + len("body:")
+	desc.Body = strings.TrimSpace(output[bodyStart:])
+
+	// Validation: title must not be empty
+	if desc.Title == "" {
+		return nil, fmt.Errorf("AI response has empty TITLE: %w", atlaserrors.ErrAIInvalidFormat)
+	}
+
+	// Validation: body must not be empty
+	if desc.Body == "" {
+		return nil, fmt.Errorf("AI response has empty BODY: %w", atlaserrors.ErrAIInvalidFormat)
+	}
+
+	// Validation: body should NOT contain TITLE: marker (indicates parsing went wrong)
+	if strings.Contains(strings.ToLower(desc.Body), "title:") {
+		return nil, fmt.Errorf("parsed body contains TITLE: marker: %w", atlaserrors.ErrAIInvalidFormat)
 	}
 
 	// Extract conventional type from title
