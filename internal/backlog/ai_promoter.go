@@ -8,18 +8,13 @@ import (
 	"time"
 
 	"github.com/mrz1836/atlas/internal/config"
+	"github.com/mrz1836/atlas/internal/contracts"
 	"github.com/mrz1836/atlas/internal/domain"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 )
 
 // defaultAnalysisBudgetUSD is the default maximum cost for AI analysis.
 const defaultAnalysisBudgetUSD = 0.10
-
-// AIRunner defines the interface for AI execution.
-// This matches the ai.Runner interface and is defined here to avoid circular imports.
-type AIRunner interface {
-	Run(ctx context.Context, req *domain.AIRequest) (*domain.AIResult, error)
-}
 
 // AIAnalysis contains the AI's analysis of a discovery for optimal task configuration.
 type AIAnalysis struct {
@@ -41,12 +36,12 @@ type AIAnalysis struct {
 
 // AIPromoter provides AI-assisted analysis for discovery promotion.
 type AIPromoter struct {
-	aiRunner AIRunner
+	aiRunner contracts.AIRunner
 	cfg      *config.AIConfig
 }
 
 // NewAIPromoter creates a new AIPromoter with the given AI runner and config.
-func NewAIPromoter(runner AIRunner, cfg *config.AIConfig) *AIPromoter {
+func NewAIPromoter(runner contracts.AIRunner, cfg *config.AIConfig) *AIPromoter {
 	return &AIPromoter{
 		aiRunner: runner,
 		cfg:      cfg,
