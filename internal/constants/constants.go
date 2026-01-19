@@ -245,3 +245,20 @@ const (
 	// GitPRRetryCount is the number of retry attempts for git PR creation operations.
 	GitPRRetryCount = 2
 )
+
+// CLI override metadata keys for task persistence.
+// These keys store CLI flag overrides in task metadata so they can be
+// re-applied when resuming a task.
+const (
+	// MetaKeyVerifyOverride stores the --verify flag value.
+	MetaKeyVerifyOverride = "cli_verify"
+
+	// MetaKeyNoVerifyOverride stores the --no-verify flag value.
+	MetaKeyNoVerifyOverride = "cli_no_verify"
+
+	// MetaKeyAgentOverride stores the --agent flag value.
+	MetaKeyAgentOverride = "cli_agent"
+
+	// MetaKeyModelOverride stores the --model flag value.
+	MetaKeyModelOverride = "cli_model"
+)

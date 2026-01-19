@@ -187,3 +187,42 @@ func propagateVerifyModel(step *domain.StepDefinition, verifyModel string) {
 		step.Config["model"] = verifyModel
 	}
 }
+
+// StoreCLIOverrides saves CLI flag overrides to task metadata for resume.
+// Only stores flags that were explicitly set (non-zero values).
+// This allows `atlas resume` to restore the original execution context.
+func StoreCLIOverrides(task *domain.Task, verify, noVerify bool, agent, model string) {
+	if task.Metadata == nil {
+		task.Metadata = make(map[string]any)
+	}
+	// Only store if flags were explicitly set
+	if verify {
+		task.Metadata[constants.MetaKeyVerifyOverride] = true
+	}
+	if noVerify {
+		task.Metadata[constants.MetaKeyNoVerifyOverride] = true
+	}
+	if agent != "" {
+		task.Metadata[constants.MetaKeyAgentOverride] = agent
+	}
+	if model != "" {
+		task.Metadata[constants.MetaKeyModelOverride] = model
+	}
+}
+
+// ApplyCLIOverridesFromTask re-applies CLI overrides from task metadata to template.
+// This is called during `atlas resume` to restore the original execution context
+// from the flags used during `atlas start`.
+func ApplyCLIOverridesFromTask(task *domain.Task, tmpl *domain.Template) {
+	if task.Metadata == nil {
+		return
+	}
+
+	verify, _ := task.Metadata[constants.MetaKeyVerifyOverride].(bool)
+	noVerify, _ := task.Metadata[constants.MetaKeyNoVerifyOverride].(bool)
+	agent, _ := task.Metadata[constants.MetaKeyAgentOverride].(string)
+	model, _ := task.Metadata[constants.MetaKeyModelOverride].(string)
+
+	ApplyVerifyOverrides(tmpl, verify, noVerify)
+	ApplyAgentModelOverrides(tmpl, agent, model)
+}

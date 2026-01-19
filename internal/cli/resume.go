@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/mrz1836/atlas/internal/ai"
+	"github.com/mrz1836/atlas/internal/cli/workflow"
 	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/domain"
@@ -177,6 +178,9 @@ func prepareResumeTemplate(currentTask *domain.Task, opts resumeOptions, outputF
 	if err != nil {
 		return nil, handleResumeError(outputFormat, w, workspaceName, currentTask.ID, fmt.Errorf("failed to get template: %w", err))
 	}
+
+	// Re-apply CLI overrides from original start command
+	workflow.ApplyCLIOverridesFromTask(currentTask, tmpl)
 
 	if opts.aiFix {
 		return nil, handleResumeError(outputFormat, w, workspaceName, currentTask.ID,
