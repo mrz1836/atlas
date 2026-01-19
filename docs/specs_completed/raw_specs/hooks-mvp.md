@@ -366,7 +366,7 @@ Signature: VALID ✓ (verified with HD key m/44'/236'/0'/0/2)
 If this recovery context seems incorrect:
 
 1. Run `atlas status` to see ATLAS's view of the task
-2. Run `atlas recover` to enter manual recovery mode
+2. Run `atlas resume` to enter manual recovery mode
 3. Run `atlas abandon` to give up and start fresh
 
 ---

@@ -2,6 +2,8 @@
 
 Status: review
 
+> **Note**: The `atlas recover` command mentioned in this document was consolidated into `atlas resume` in commit d8c73f1. All references to `atlas recover` should now use `atlas resume` instead. The resume command provides all recovery functionality through an interactive menu.
+
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
 ## Story
