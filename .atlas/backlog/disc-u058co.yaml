@@ -1,0 +1,16 @@
+schema_version: "1.0"
+id: disc-u058co
+title: I found that "atlas / internal / constants / status.go" is missing 100% test coverage and there are two easy tests to add
+status: pending
+content:
+  description: 2 missing tests
+  category: testing
+  severity: low
+location:
+  file: atlas / internal / constants / status.go
+context:
+  discovered_at: 2026-01-19T17:46:52.735034Z
+  discovered_by: human:mr.-z
+  git:
+    branch: master
+    commit: 5ade0f6
