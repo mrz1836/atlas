@@ -527,6 +527,12 @@ func startTaskExecution(ctx context.Context, ws *domain.Workspace, tmpl *domain.
 		return nil, nil, err
 	}
 
+	// Create hook manager for crash recovery
+	hookManager := services.CreateHookManager(cfg, logger)
+	if hookManager != nil {
+		logger.Debug().Msg("hook manager enabled for crash recovery")
+	}
+
 	// Create notifiers
 	notifier, stateNotifier := services.CreateNotifiers(cfg)
 
@@ -577,6 +583,7 @@ func startTaskExecution(ctx context.Context, ws *domain.Workspace, tmpl *domain.
 		StateNotifier:          stateNotifier,
 		ProgressCallback:       createProgressCallback(ctx, out, ws.Name),
 		ValidationRetryHandler: validationRetryHandler,
+		HookManager:            hookManager,
 	})
 
 	// Apply agent and model overrides to template

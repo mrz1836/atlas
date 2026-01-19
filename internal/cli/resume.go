@@ -282,6 +282,10 @@ func createResumeEngine(ctx context.Context, ws *domain.Workspace, taskStore *ta
 		cfg = config.DefaultConfig()
 	}
 
+	// Create hook manager for resume (via service factory for consistency)
+	services := workflow.NewServiceFactory(logger)
+	hookManager := services.CreateHookManager(cfg, logger)
+
 	notifier := tui.NewNotifier(cfg.Notifications.Bell, false)
 	stateNotifier := task.NewStateChangeNotifier(task.NotificationConfig{
 		BellEnabled: cfg.Notifications.Bell,
@@ -343,6 +347,9 @@ func createResumeEngine(ctx context.Context, ws *domain.Workspace, taskStore *ta
 	engineOpts := []task.EngineOption{task.WithNotifier(stateNotifier)}
 	if validationRetryHandler != nil {
 		engineOpts = append(engineOpts, task.WithValidationRetryHandler(validationRetryHandler))
+	}
+	if hookManager != nil {
+		engineOpts = append(engineOpts, task.WithHookManager(hookManager))
 	}
 
 	return task.NewEngine(taskStore, execRegistry, engineCfg, logger, engineOpts...), nil

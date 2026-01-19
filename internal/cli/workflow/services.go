@@ -4,14 +4,18 @@ package workflow
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/rs/zerolog"
 
 	"github.com/mrz1836/atlas/internal/ai"
 	"github.com/mrz1836/atlas/internal/config"
+	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/domain"
 	"github.com/mrz1836/atlas/internal/git"
+	"github.com/mrz1836/atlas/internal/hook"
 	"github.com/mrz1836/atlas/internal/task"
 	"github.com/mrz1836/atlas/internal/template/steps"
 	"github.com/mrz1836/atlas/internal/tui"
@@ -181,6 +185,7 @@ type EngineDeps struct {
 	StateNotifier          *task.StateChangeNotifier
 	ProgressCallback       func(task.StepProgressEvent)
 	ValidationRetryHandler *validation.RetryHandler
+	HookManager            task.HookManager
 }
 
 // CreateEngine creates the task engine with progress callback.
@@ -193,6 +198,9 @@ func (f *ServiceFactory) CreateEngine(deps EngineDeps) *task.Engine {
 	}
 	if deps.ValidationRetryHandler != nil {
 		opts = append(opts, task.WithValidationRetryHandler(deps.ValidationRetryHandler))
+	}
+	if deps.HookManager != nil {
+		opts = append(opts, task.WithHookManager(deps.HookManager))
 	}
 	return task.NewEngine(deps.TaskStore, deps.ExecRegistry, engineCfg, deps.Logger, opts...)
 }
@@ -213,6 +221,32 @@ func (f *ServiceFactory) CreateValidationRetryHandler(aiRunner ai.Runner, cfg *c
 		cfg.Validation.AIRetryEnabled,
 		cfg.Validation.MaxAIRetryAttempts,
 		f.logger,
+	)
+}
+
+// CreateHookManager creates the hook manager for crash recovery and checkpointing.
+// Returns nil if creation fails (hooks are optional, non-blocking).
+func (f *ServiceFactory) CreateHookManager(cfg *config.Config, logger zerolog.Logger) task.HookManager {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		f.logger.Warn().Err(err).Msg("failed to get home directory, hooks disabled")
+		return nil
+	}
+
+	basePath := filepath.Join(homeDir, constants.AtlasHome)
+
+	// Create markdown generator for HOOK.md
+	mdGen := hook.NewMarkdownGenerator()
+
+	// Create file store with optional markdown generator
+	hookStore := hook.NewFileStore(basePath,
+		hook.WithMarkdownGenerator(mdGen),
+		hook.WithLogger(&logger),
+	)
+
+	// Create and return manager
+	return hook.NewManager(hookStore, &cfg.Hooks,
+		hook.WithManagerLogger(logger),
 	)
 }
 
