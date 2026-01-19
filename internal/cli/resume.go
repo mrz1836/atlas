@@ -768,34 +768,83 @@ func displayRecoveryErrorContext(out tui.Output, ws *domain.Workspace, t *domain
 	out.Info("")
 	out.Info(fmt.Sprintf("❌ Task failed: %s", t.Description))
 	out.Info(fmt.Sprintf("   Workspace: %s", ws.Name))
+
+	// Show which step failed
+	if t.CurrentStep < len(t.Steps) {
+		stepName := t.Steps[t.CurrentStep].Name
+		out.Info(fmt.Sprintf("   Failed at step %d/%d: %s", t.CurrentStep+1, len(t.Steps), stepName))
+	}
+
 	out.Info(fmt.Sprintf("   Status: %s", tui.TaskStatusIcon(t.Status)+" "+string(t.Status)))
+
+	displayStatusSpecificContext(out, t)
+
+	out.Info("")
+	out.Info("What would you like to do?")
+}
+
+// displayStatusSpecificContext shows context specific to the task's error status.
+func displayStatusSpecificContext(out tui.Output, t *domain.Task) {
+	// Collect error message from step or metadata
+	errMsg := getTaskErrorMessage(t)
 
 	// Show error-specific context
 	//nolint:exhaustive // Only showing context for specific error states
 	switch t.Status {
 	case constants.TaskStatusValidationFailed:
-		if t.Metadata != nil {
-			if errCount, ok := t.Metadata["validation_error_count"].(int); ok {
-				out.Info(fmt.Sprintf("   Errors: %d validation failures", errCount))
-			}
-		}
+		displayValidationContext(out, t)
 	case constants.TaskStatusGHFailed:
-		// Error details are in metadata if available
-		if t.Metadata != nil {
-			if errMsg, ok := t.Metadata["error"].(string); ok && errMsg != "" {
-				out.Info(fmt.Sprintf("   Error: %s", errMsg))
-			}
+		// Error details may also be in metadata (fallback if step error is empty)
+		if errMsg == "" {
+			errMsg = getMetadataError(t)
 		}
 	case constants.TaskStatusCIFailed, constants.TaskStatusCITimeout:
-		if t.Metadata != nil {
-			if ciURL, ok := t.Metadata["ci_url"].(string); ok && ciURL != "" {
-				out.Info(fmt.Sprintf("   CI Run: %s", ciURL))
-			}
-		}
+		displayCIContext(out, t)
 	}
 
-	out.Info("")
-	out.Info("What would you like to do?")
+	// Display error message (truncate if too long)
+	if errMsg != "" {
+		if len(errMsg) > 150 {
+			errMsg = errMsg[:150] + "..."
+		}
+		out.Info(fmt.Sprintf("   Error: %s", errMsg))
+	}
+}
+
+// getTaskErrorMessage retrieves the error message from the current step.
+func getTaskErrorMessage(t *domain.Task) string {
+	if t.CurrentStep < len(t.Steps) && t.Steps[t.CurrentStep].Error != "" {
+		return t.Steps[t.CurrentStep].Error
+	}
+	return ""
+}
+
+// getMetadataError retrieves the error message from task metadata.
+func getMetadataError(t *domain.Task) string {
+	if t.Metadata != nil {
+		if metaErr, ok := t.Metadata["error"].(string); ok {
+			return metaErr
+		}
+	}
+	return ""
+}
+
+// displayValidationContext shows validation-specific error details.
+func displayValidationContext(out tui.Output, t *domain.Task) {
+	if t.Metadata != nil {
+		if errCount, ok := t.Metadata["validation_error_count"].(int); ok {
+			out.Info(fmt.Sprintf("   Errors: %d validation failures", errCount))
+		}
+	}
+}
+
+// displayCIContext shows CI-specific error details.
+func displayCIContext(out tui.Output, t *domain.Task) {
+	if t.Metadata != nil {
+		if ciURL, ok := t.Metadata["ci_url"].(string); ok && ciURL != "" {
+			out.Info(fmt.Sprintf("   CI Run: %s", ciURL))
+		}
+	}
 }
 
 // selectRecoveryAction selects the appropriate recovery menu based on task state.
