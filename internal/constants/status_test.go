@@ -245,3 +245,73 @@ func TestWorkspaceStatus_JSONDeserialization(t *testing.T) {
 		})
 	}
 }
+
+func TestValidationProgressStatus_String(t *testing.T) {
+	tests := []struct {
+		name     string
+		status   ValidationProgressStatus
+		expected string
+	}{
+		{
+			name:     "starting status",
+			status:   ValidationProgressStarting,
+			expected: "starting",
+		},
+		{
+			name:     "completed status",
+			status:   ValidationProgressCompleted,
+			expected: "completed",
+		},
+		{
+			name:     "failed status",
+			status:   ValidationProgressFailed,
+			expected: "failed",
+		},
+		{
+			name:     "skipped status",
+			status:   ValidationProgressSkipped,
+			expected: "skipped",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, tt.status.String())
+		})
+	}
+}
+
+func TestStepResultStatus_String(t *testing.T) {
+	tests := []struct {
+		name     string
+		status   StepResultStatus
+		expected string
+	}{
+		{
+			name:     "success status",
+			status:   StepResultSuccess,
+			expected: "success",
+		},
+		{
+			name:     "failed status",
+			status:   StepResultFailed,
+			expected: "failed",
+		},
+		{
+			name:     "awaiting_approval status",
+			status:   StepResultAwaitingApproval,
+			expected: "awaiting_approval",
+		},
+		{
+			name:     "skipped status",
+			status:   StepResultSkipped,
+			expected: "skipped",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, tt.status.String())
+		})
+	}
+}
