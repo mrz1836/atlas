@@ -1,0 +1,16 @@
+schema_version: "1.0"
+id: disc-6buh1f
+title: Add test coverage for the entire file the best you can.
+status: pending
+content:
+  description: Use the same testing patterns as other files.
+  category: testing
+  severity: low
+location:
+  file: internal/crypto/native/signer.go
+context:
+  discovered_at: 2026-01-19T21:43:41.432928Z
+  discovered_by: human:mrz1836
+  git:
+    branch: master
+    commit: 3f736ce
