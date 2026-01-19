@@ -40,14 +40,14 @@ func (r *Registry) Get(name string) (*domain.Template, error) {
 }
 
 // List returns all registered templates.
-// The returned slice is safe to modify without affecting the registry.
+// The returned slice and templates are clones, safe to modify without affecting the registry.
 func (r *Registry) List() []*domain.Template {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
 	result := make([]*domain.Template, 0, len(r.templates))
 	for _, t := range r.templates {
-		result = append(result, t)
+		result = append(result, t.Clone())
 	}
 	return result
 }
