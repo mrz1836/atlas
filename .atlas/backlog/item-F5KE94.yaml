@@ -1,0 +1,17 @@
+schema_version: "1.1"
+id: item-F5KE94
+guid: 8dbe9a5b-30be-4e24-9509-8fa6fc79c982
+title: Add more test coverage for this file and associated functions. >=80% would be excellent coverage
+status: pending
+content:
+  description: Follow test patterns already available
+  category: testing
+  severity: low
+location:
+  file: internal/cli/resume.go
+context:
+  discovered_at: 2026-01-20T13:49:26.925865Z
+  discovered_by: human:mrz1836
+  git:
+    branch: master
+    commit: f340f48
