@@ -15,9 +15,15 @@ import (
 	"github.com/mrz1836/atlas/internal/cli/workflow"
 	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/constants"
+	"github.com/mrz1836/atlas/internal/contracts"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 	"github.com/mrz1836/atlas/internal/tui"
 )
+
+// aiRunnerFactory allows tests to inject mock AI runners.
+// This is only used in tests to avoid slow real AI CLI calls.
+// When nil (the default), the real workflow.CreateAIRunner is used.
+var aiRunnerFactory func(*config.Config) contracts.AIRunner //nolint:gochecknoglobals // Test dependency injection
 
 // promoteOptions holds the flags for the promote command.
 type promoteOptions struct {
@@ -163,30 +169,7 @@ func runBacklogPromote(ctx context.Context, cmd *cobra.Command, w io.Writer, id 
 	}
 
 	// Create AI promoter if AI mode is enabled
-	var aiPromoter *backlog.AIPromoter
-	if opts.ai {
-		// Load config to get AI settings
-		cfg, cfgErr := config.Load(ctx)
-		if cfgErr != nil {
-			// Use defaults if config loading fails
-			cfg = config.DefaultConfig()
-		}
-
-		// Create AI runner
-		aiRunner := workflow.CreateAIRunner(cfg)
-		aiPromoter = backlog.NewAIPromoter(aiRunner, &cfg.AI)
-
-		// Show progress for AI analysis (only in non-JSON mode)
-		if outputFormat != OutputJSON {
-			aiCfg := &backlog.AIPromoterConfig{
-				Agent:           opts.agent,
-				Model:           opts.model,
-				AvailableAgents: availableAgents,
-			}
-			agent, model := aiPromoter.ResolvedConfig(aiCfg)
-			out.Info(fmt.Sprintf("AI Analysis (%s/%s)...", agent, model))
-		}
-	}
+	aiPromoter := createAIPromoterIfEnabled(ctx, opts, availableAgents, outputFormat, out)
 
 	// Promote with options
 	result, err := mgr.PromoteWithOptions(ctx, id, promoteOpts, aiPromoter)
@@ -217,6 +200,49 @@ func runBacklogPromote(ctx context.Context, cmd *cobra.Command, w io.Writer, id 
 	}
 
 	return nil
+}
+
+// createAIPromoterIfEnabled creates an AI promoter if AI mode is enabled.
+// Returns nil if AI mode is disabled.
+func createAIPromoterIfEnabled(
+	ctx context.Context,
+	opts promoteOptions,
+	availableAgents []string,
+	outputFormat string,
+	out tui.Output,
+) *backlog.AIPromoter {
+	if !opts.ai {
+		return nil
+	}
+
+	// Load config to get AI settings
+	cfg, cfgErr := config.Load(ctx)
+	if cfgErr != nil {
+		// Use defaults if config loading fails
+		cfg = config.DefaultConfig()
+	}
+
+	// Create AI runner (use test factory if available, otherwise real runner)
+	var aiRunner contracts.AIRunner
+	if aiRunnerFactory != nil {
+		aiRunner = aiRunnerFactory(cfg)
+	} else {
+		aiRunner = workflow.CreateAIRunner(cfg)
+	}
+	aiPromoter := backlog.NewAIPromoter(aiRunner, &cfg.AI)
+
+	// Show progress for AI analysis (only in non-JSON mode)
+	if outputFormat != OutputJSON {
+		aiCfg := &backlog.AIPromoterConfig{
+			Agent:           opts.agent,
+			Model:           opts.model,
+			AvailableAgents: availableAgents,
+		}
+		agent, model := aiPromoter.ResolvedConfig(aiCfg)
+		out.Info(fmt.Sprintf("AI Analysis (%s/%s)...", agent, model))
+	}
+
+	return aiPromoter
 }
 
 // outputPromoteResultJSON outputs the promote result as JSON.

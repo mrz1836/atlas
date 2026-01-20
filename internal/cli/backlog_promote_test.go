@@ -14,6 +14,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/mrz1836/atlas/internal/backlog"
+	"github.com/mrz1836/atlas/internal/config"
+	"github.com/mrz1836/atlas/internal/contracts"
 	"github.com/mrz1836/atlas/internal/domain"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 )
@@ -949,6 +951,21 @@ func TestRunBacklogPromote_AIProgress_TTYOutput(t *testing.T) {
 	err = mgr.Add(ctx, d)
 	require.NoError(t, err)
 
+	// Set up mock AI runner to avoid real CLI calls
+	aiRunnerFactory = func(_ *config.Config) contracts.AIRunner {
+		return &mockCLIAIRunner{
+			result: &domain.AIResult{
+				Success: true,
+				Output: `{
+					"template": "bugfix",
+					"description": "AI generated description",
+					"reasoning": "Test reasoning"
+				}`,
+			},
+		}
+	}
+	t.Cleanup(func() { aiRunnerFactory = nil })
+
 	cmd := newBacklogPromoteCmd()
 
 	var buf bytes.Buffer
@@ -996,6 +1013,21 @@ func TestRunBacklogPromote_AIProgress_WithAgentOverride(t *testing.T) {
 	err = mgr.Add(ctx, d)
 	require.NoError(t, err)
 
+	// Set up mock AI runner to avoid real CLI calls
+	aiRunnerFactory = func(_ *config.Config) contracts.AIRunner {
+		return &mockCLIAIRunner{
+			result: &domain.AIResult{
+				Success: true,
+				Output: `{
+					"template": "bugfix",
+					"description": "AI generated description",
+					"reasoning": "Test reasoning"
+				}`,
+			},
+		}
+	}
+	t.Cleanup(func() { aiRunnerFactory = nil })
+
 	cmd := newBacklogPromoteCmd()
 
 	var buf bytes.Buffer
@@ -1042,6 +1074,21 @@ func TestRunBacklogPromote_AIProgress_JSONOutput_NoProgress(t *testing.T) {
 	}
 	err = mgr.Add(ctx, d)
 	require.NoError(t, err)
+
+	// Set up mock AI runner to avoid real CLI calls
+	aiRunnerFactory = func(_ *config.Config) contracts.AIRunner {
+		return &mockCLIAIRunner{
+			result: &domain.AIResult{
+				Success: true,
+				Output: `{
+					"template": "bugfix",
+					"description": "AI generated description",
+					"reasoning": "Test reasoning"
+				}`,
+			},
+		}
+	}
+	t.Cleanup(func() { aiRunnerFactory = nil })
 
 	cmd := newBacklogPromoteCmd()
 	// Add global output flag
