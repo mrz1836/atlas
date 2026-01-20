@@ -91,84 +91,34 @@ func NewGitWorktreeRunner(ctx context.Context, repoPath string, logger zerolog.L
 //   - New branch mode (BranchType set): Creates a new branch from BaseBranch
 //   - Existing branch mode (ExistingBranch set): Checks out an existing branch
 func (r *GitWorktreeRunner) Create(ctx context.Context, opts WorktreeCreateOptions) (*WorktreeInfo, error) {
-	// Check for cancellation
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	default:
 	}
 
-	// Validate workspace name
-	if opts.WorkspaceName == "" {
-		return nil, fmt.Errorf("workspace name cannot be empty: %w", atlaserrors.ErrEmptyValue)
-	}
-	if len(opts.WorkspaceName) > constants.MaxWorkspaceNameLength {
-		return nil, fmt.Errorf("workspace name exceeds maximum length of %d characters: %w",
-			constants.MaxWorkspaceNameLength, atlaserrors.ErrEmptyValue)
+	if err := r.validateWorktreeOptions(opts); err != nil {
+		return nil, err
 	}
 
-	// Validate mutual exclusivity: either BranchType (new branch) or ExistingBranch (checkout existing)
-	if opts.ExistingBranch != "" && opts.BranchType != "" {
-		return nil, fmt.Errorf("cannot specify both BranchType and ExistingBranch: %w", atlaserrors.ErrConflictingFlags)
-	}
-	if opts.ExistingBranch == "" && opts.BranchType == "" {
-		return nil, fmt.Errorf("either BranchType or ExistingBranch must be specified: %w", atlaserrors.ErrEmptyValue)
-	}
-
-	// Calculate sibling path
 	wtPath := siblingPath(r.repoPath, opts.WorkspaceName)
-
-	// Clean up orphaned directory if it exists but isn't a registered worktree
 	if err := r.cleanupOrphanedPath(ctx, wtPath); err != nil {
-		// Log but continue - worst case ensureUniquePath will add a suffix
 		r.logger.Debug().Err(err).Str("path", wtPath).Msg("failed to cleanup orphaned path")
 	}
 
-	wtPath, err := ensureUniquePath(wtPath)
+	var err error
+	wtPath, err = ensureUniquePath(wtPath)
 	if err != nil {
 		return nil, err
 	}
 
-	var branchName string
-	var args []string
-
-	//nolint:nestif // Branch mode logic requires conditional nesting for validation
-	if opts.ExistingBranch != "" {
-		// MODE: Checkout existing branch
-		branchName = opts.ExistingBranch
-
-		// Validate the branch exists (local or remote)
-		if branchErr := r.ensureBranchExists(ctx, opts.ExistingBranch); branchErr != nil {
-			return nil, branchErr
-		}
-
-		// Check if branch is already checked out elsewhere
-		existingPath := r.FindByBranch(ctx, opts.ExistingBranch)
-		if existingPath != "" {
-			return nil, fmt.Errorf("branch '%s' is already checked out at '%s': %w",
-				opts.ExistingBranch, existingPath, atlaserrors.ErrBranchExists)
-		}
-
-		// Build worktree add command for existing branch (no -b flag)
-		args = []string{"worktree", "add", wtPath, opts.ExistingBranch}
-	} else {
-		// MODE: Create new branch (existing behavior)
-		baseBranch := generateBranchName(opts.BranchType, opts.WorkspaceName)
-		branchName, err = r.generateUniqueBranchName(ctx, baseBranch)
-		if err != nil {
-			return nil, fmt.Errorf("failed to generate branch name: %w", err)
-		}
-
-		// Build worktree add command with -b flag for new branch
-		args = []string{"worktree", "add", wtPath, "-b", branchName}
-		if opts.BaseBranch != "" {
-			args = append(args, opts.BaseBranch)
-		}
+	branchName, args, err := r.buildWorktreeCommand(ctx, opts, wtPath)
+	if err != nil {
+		return nil, err
 	}
 
 	_, err = git.RunCommand(ctx, r.repoPath, args...)
 	if err != nil {
-		// CRITICAL: Clean up on failure (atomic creation)
 		_ = os.RemoveAll(wtPath)
 		r.logger.Error().
 			Err(err).
@@ -181,7 +131,11 @@ func (r *GitWorktreeRunner) Create(ctx context.Context, opts WorktreeCreateOptio
 		return nil, fmt.Errorf("failed to create worktree: %w", err)
 	}
 
-	// Log successful worktree creation
+	gitDir := filepath.Join(wtPath, ".git")
+	if err := git.CleanupStaleLockFiles(ctx, gitDir, git.DefaultLockStalenessThreshold, r.logger); err != nil {
+		r.logger.Warn().Err(err).Str("path", wtPath).Msg("failed to cleanup stale locks")
+	}
+
 	logEvent := r.logger.Info().
 		Str("branch_name", branchName).
 		Str("workspace_name", opts.WorkspaceName).
@@ -401,6 +355,67 @@ func (r *GitWorktreeRunner) FindByBranch(ctx context.Context, branch string) str
 	}
 
 	return ""
+}
+
+// CleanupLocks removes stale lock files from a worktree directory.
+// This is useful for cleaning up lock files left by crashed git processes.
+func (r *GitWorktreeRunner) CleanupLocks(ctx context.Context, path string) error {
+	gitDir := filepath.Join(path, ".git")
+	return git.CleanupStaleLockFiles(ctx, gitDir, git.DefaultLockStalenessThreshold, r.logger)
+}
+
+// validateWorktreeOptions validates the options for creating a worktree
+func (r *GitWorktreeRunner) validateWorktreeOptions(opts WorktreeCreateOptions) error {
+	if opts.WorkspaceName == "" {
+		return fmt.Errorf("workspace name cannot be empty: %w", atlaserrors.ErrEmptyValue)
+	}
+	if len(opts.WorkspaceName) > constants.MaxWorkspaceNameLength {
+		return fmt.Errorf("workspace name exceeds maximum length of %d characters: %w",
+			constants.MaxWorkspaceNameLength, atlaserrors.ErrEmptyValue)
+	}
+	if opts.ExistingBranch != "" && opts.BranchType != "" {
+		return fmt.Errorf("cannot specify both BranchType and ExistingBranch: %w", atlaserrors.ErrConflictingFlags)
+	}
+	if opts.ExistingBranch == "" && opts.BranchType == "" {
+		return fmt.Errorf("either BranchType or ExistingBranch must be specified: %w", atlaserrors.ErrEmptyValue)
+	}
+	return nil
+}
+
+// buildWorktreeCommandForExisting builds command for checking out an existing branch
+func (r *GitWorktreeRunner) buildWorktreeCommandForExisting(ctx context.Context, branch, wtPath string) ([]string, error) {
+	if err := r.ensureBranchExists(ctx, branch); err != nil {
+		return nil, err
+	}
+	existingPath := r.FindByBranch(ctx, branch)
+	if existingPath != "" {
+		return nil, fmt.Errorf("branch '%s' is already checked out at '%s': %w",
+			branch, existingPath, atlaserrors.ErrBranchExists)
+	}
+	return []string{"worktree", "add", wtPath, branch}, nil
+}
+
+// buildWorktreeCommandForNew builds command for creating a new branch
+func (r *GitWorktreeRunner) buildWorktreeCommandForNew(ctx context.Context, branchType, workspaceName, baseBranch, wtPath string) (string, []string, error) {
+	baseName := generateBranchName(branchType, workspaceName)
+	branchName, err := r.generateUniqueBranchName(ctx, baseName)
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to generate branch name: %w", err)
+	}
+	args := []string{"worktree", "add", wtPath, "-b", branchName}
+	if baseBranch != "" {
+		args = append(args, baseBranch)
+	}
+	return branchName, args, nil
+}
+
+// buildWorktreeCommand builds the git worktree add command for existing or new branch mode
+func (r *GitWorktreeRunner) buildWorktreeCommand(ctx context.Context, opts WorktreeCreateOptions, wtPath string) (string, []string, error) {
+	if opts.ExistingBranch != "" {
+		args, err := r.buildWorktreeCommandForExisting(ctx, opts.ExistingBranch, wtPath)
+		return opts.ExistingBranch, args, err
+	}
+	return r.buildWorktreeCommandForNew(ctx, opts.BranchType, opts.WorkspaceName, opts.BaseBranch, wtPath)
 }
 
 // ensureBranchExists validates that a branch exists locally or on remote.

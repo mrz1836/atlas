@@ -19,6 +19,7 @@ func (m mockClock) Now() time.Time {
 }
 
 func TestRelativeTime(t *testing.T) {
+	t.Parallel()
 	// Use a fixed reference time for deterministic testing
 	fixedNow := time.Date(2024, 6, 15, 12, 0, 0, 0, time.UTC)
 	mc := mockClock{fixedTime: fixedNow}
@@ -77,6 +78,7 @@ func TestRelativeTime(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			// Use RelativeTimeWith for deterministic testing
 			result := RelativeTimeWith(tc.input, mc)
 			assert.Equal(t, tc.expected, result)
@@ -85,6 +87,7 @@ func TestRelativeTime(t *testing.T) {
 }
 
 func TestRelativeTime_WithDefaultClock(t *testing.T) {
+	t.Parallel()
 	// Test that RelativeTime still works with the default clock
 	// This test uses real time so it's less deterministic but verifies the default path
 	now := time.Now()
@@ -93,6 +96,7 @@ func TestRelativeTime_WithDefaultClock(t *testing.T) {
 }
 
 func TestRelativeTimeWith_EnsuresClockInterfaceIsUsed(t *testing.T) {
+	t.Parallel()
 	// Verify that we can pass any Clock implementation
 	var c clock.Clock = clock.RealClock{}
 

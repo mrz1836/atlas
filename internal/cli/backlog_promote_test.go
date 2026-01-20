@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -14,6 +13,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/mrz1836/atlas/internal/backlog"
+	"github.com/mrz1836/atlas/internal/config"
+	"github.com/mrz1836/atlas/internal/contracts"
 	"github.com/mrz1836/atlas/internal/domain"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 )
@@ -46,18 +47,12 @@ func TestNewBacklogPromoteCmd(t *testing.T) {
 	})
 }
 
-// Tests that change working directory cannot use t.Parallel() due to race conditions
-
 func TestRunBacklogPromote_DryRun(t *testing.T) {
-	// Cannot use t.Parallel() - test changes working directory
+	t.Parallel()
 	ctx := context.Background()
 
 	tmpDir := t.TempDir()
-	origDir, _ := os.Getwd()
-	require.NoError(t, os.Chdir(tmpDir))
-	t.Cleanup(func() { _ = os.Chdir(origDir) })
-
-	mgr, err := backlog.NewManager("")
+	mgr, err := backlog.NewManager(tmpDir)
 	require.NoError(t, err)
 	d := &backlog.Discovery{
 		Title:  "Dry Run Test",
@@ -79,7 +74,8 @@ func TestRunBacklogPromote_DryRun(t *testing.T) {
 	var buf bytes.Buffer
 
 	opts := promoteOptions{
-		dryRun: true,
+		dryRun:      true,
+		projectRoot: tmpDir,
 	}
 
 	err = runBacklogPromote(ctx, cmd, &buf, d.ID, opts)
@@ -96,15 +92,11 @@ func TestRunBacklogPromote_DryRun(t *testing.T) {
 }
 
 func TestRunBacklogPromote_JSONOutput(t *testing.T) {
-	// Cannot use t.Parallel() - test changes working directory
+	t.Parallel()
 	ctx := context.Background()
 
 	tmpDir := t.TempDir()
-	origDir, _ := os.Getwd()
-	require.NoError(t, os.Chdir(tmpDir))
-	t.Cleanup(func() { _ = os.Chdir(origDir) })
-
-	mgr, err := backlog.NewManager("")
+	mgr, err := backlog.NewManager(tmpDir)
 	require.NoError(t, err)
 	d := &backlog.Discovery{
 		Title:  "JSON Output Test",
@@ -130,8 +122,9 @@ func TestRunBacklogPromote_JSONOutput(t *testing.T) {
 	var buf bytes.Buffer
 
 	opts := promoteOptions{
-		jsonOutput: true,
-		dryRun:     true,
+		jsonOutput:  true,
+		dryRun:      true,
+		projectRoot: tmpDir,
 	}
 
 	err = runBacklogPromote(ctx, cmd, &buf, d.ID, opts)
@@ -148,15 +141,11 @@ func TestRunBacklogPromote_JSONOutput(t *testing.T) {
 }
 
 func TestRunBacklogPromote_TemplateOverride(t *testing.T) {
-	// Cannot use t.Parallel() - test changes working directory
+	t.Parallel()
 	ctx := context.Background()
 
 	tmpDir := t.TempDir()
-	origDir, _ := os.Getwd()
-	require.NoError(t, os.Chdir(tmpDir))
-	t.Cleanup(func() { _ = os.Chdir(origDir) })
-
-	mgr, err := backlog.NewManager("")
+	mgr, err := backlog.NewManager(tmpDir)
 	require.NoError(t, err)
 	d := &backlog.Discovery{
 		Title:  "Template Override Test",
@@ -178,8 +167,9 @@ func TestRunBacklogPromote_TemplateOverride(t *testing.T) {
 	var buf bytes.Buffer
 
 	opts := promoteOptions{
-		template: "feature", // Override to feature instead of bugfix
-		dryRun:   true,
+		template:    "feature", // Override to feature instead of bugfix
+		dryRun:      true,
+		projectRoot: tmpDir,
 	}
 
 	err = runBacklogPromote(ctx, cmd, &buf, d.ID, opts)
@@ -209,19 +199,18 @@ func TestRunBacklogPromote_InvalidTemplate(t *testing.T) {
 }
 
 func TestRunBacklogPromote_NotFound(t *testing.T) {
-	// Cannot use t.Parallel() - test changes working directory
+	t.Parallel()
 	ctx := context.Background()
 
 	tmpDir := t.TempDir()
-	origDir, _ := os.Getwd()
-	require.NoError(t, os.Chdir(tmpDir))
-	t.Cleanup(func() { _ = os.Chdir(origDir) })
 
 	cmd := newBacklogPromoteCmd()
 
 	var buf bytes.Buffer
 
-	opts := promoteOptions{}
+	opts := promoteOptions{
+		projectRoot: tmpDir,
+	}
 
 	err := runBacklogPromote(ctx, cmd, &buf, "disc-notfnd", opts)
 	require.Error(t, err)
@@ -229,15 +218,11 @@ func TestRunBacklogPromote_NotFound(t *testing.T) {
 }
 
 func TestRunBacklogPromote_AlreadyPromoted(t *testing.T) {
-	// Cannot use t.Parallel() - test changes working directory
+	t.Parallel()
 	ctx := context.Background()
 
 	tmpDir := t.TempDir()
-	origDir, _ := os.Getwd()
-	require.NoError(t, os.Chdir(tmpDir))
-	t.Cleanup(func() { _ = os.Chdir(origDir) })
-
-	mgr, err := backlog.NewManager("")
+	mgr, err := backlog.NewManager(tmpDir)
 	require.NoError(t, err)
 	d := &backlog.Discovery{
 		Title:  "Already Promoted",
@@ -261,7 +246,9 @@ func TestRunBacklogPromote_AlreadyPromoted(t *testing.T) {
 
 	var buf bytes.Buffer
 
-	opts := promoteOptions{}
+	opts := promoteOptions{
+		projectRoot: tmpDir,
+	}
 
 	err = runBacklogPromote(ctx, cmd, &buf, d.ID, opts)
 	require.Error(t, err)
@@ -386,15 +373,11 @@ func (m *mockCLIAIRunner) Run(_ context.Context, _ *domain.AIRequest) (*domain.A
 }
 
 func TestRunBacklogPromote_WithLocation(t *testing.T) {
-	// Cannot use t.Parallel() - test changes working directory
+	t.Parallel()
 	ctx := context.Background()
 
 	tmpDir := t.TempDir()
-	origDir, _ := os.Getwd()
-	require.NoError(t, os.Chdir(tmpDir))
-	t.Cleanup(func() { _ = os.Chdir(origDir) })
-
-	mgr, err := backlog.NewManager("")
+	mgr, err := backlog.NewManager(tmpDir)
 	require.NoError(t, err)
 	d := &backlog.Discovery{
 		Title:  "Bug in payment processor",
@@ -421,7 +404,8 @@ func TestRunBacklogPromote_WithLocation(t *testing.T) {
 	var buf bytes.Buffer
 
 	opts := promoteOptions{
-		dryRun: true,
+		dryRun:      true,
+		projectRoot: tmpDir,
 	}
 
 	err = runBacklogPromote(ctx, cmd, &buf, d.ID, opts)
@@ -433,15 +417,11 @@ func TestRunBacklogPromote_WithLocation(t *testing.T) {
 }
 
 func TestRunBacklogPromote_WithTags(t *testing.T) {
-	// Cannot use t.Parallel() - test changes working directory
+	t.Parallel()
 	ctx := context.Background()
 
 	tmpDir := t.TempDir()
-	origDir, _ := os.Getwd()
-	require.NoError(t, os.Chdir(tmpDir))
-	t.Cleanup(func() { _ = os.Chdir(origDir) })
-
-	mgr, err := backlog.NewManager("")
+	mgr, err := backlog.NewManager(tmpDir)
 	require.NoError(t, err)
 	d := &backlog.Discovery{
 		Title:  "Performance issue in API",
@@ -465,7 +445,8 @@ func TestRunBacklogPromote_WithTags(t *testing.T) {
 	var buf bytes.Buffer
 
 	opts := promoteOptions{
-		dryRun: true,
+		dryRun:      true,
+		projectRoot: tmpDir,
 	}
 
 	err = runBacklogPromote(ctx, cmd, &buf, d.ID, opts)
@@ -477,15 +458,11 @@ func TestRunBacklogPromote_WithTags(t *testing.T) {
 }
 
 func TestRunBacklogPromote_LongTitle(t *testing.T) {
-	// Cannot use t.Parallel() - test changes working directory
+	t.Parallel()
 	ctx := context.Background()
 
 	tmpDir := t.TempDir()
-	origDir, _ := os.Getwd()
-	require.NoError(t, os.Chdir(tmpDir))
-	t.Cleanup(func() { _ = os.Chdir(origDir) })
-
-	mgr, err := backlog.NewManager("")
+	mgr, err := backlog.NewManager(tmpDir)
 	require.NoError(t, err)
 
 	longTitle := "This is a very long title that exceeds the normal display length and should be truncated when displayed in the output"
@@ -509,7 +486,8 @@ func TestRunBacklogPromote_LongTitle(t *testing.T) {
 	var buf bytes.Buffer
 
 	opts := promoteOptions{
-		dryRun: true,
+		dryRun:      true,
+		projectRoot: tmpDir,
 	}
 
 	err = runBacklogPromote(ctx, cmd, &buf, d.ID, opts)
@@ -521,15 +499,11 @@ func TestRunBacklogPromote_LongTitle(t *testing.T) {
 }
 
 func TestRunBacklogPromote_SpecialCharsInTitle(t *testing.T) {
-	// Cannot use t.Parallel() - test changes working directory
+	t.Parallel()
 	ctx := context.Background()
 
 	tmpDir := t.TempDir()
-	origDir, _ := os.Getwd()
-	require.NoError(t, os.Chdir(tmpDir))
-	t.Cleanup(func() { _ = os.Chdir(origDir) })
-
-	mgr, err := backlog.NewManager("")
+	mgr, err := backlog.NewManager(tmpDir)
 	require.NoError(t, err)
 
 	// Title with special characters that need sanitization for workspace name
@@ -566,15 +540,11 @@ func TestRunBacklogPromote_SpecialCharsInTitle(t *testing.T) {
 }
 
 func TestRunBacklogPromote_AIWithTemplateOverride(t *testing.T) {
-	// Cannot use t.Parallel() - test changes working directory
+	t.Parallel()
 	ctx := context.Background()
 
 	tmpDir := t.TempDir()
-	origDir, _ := os.Getwd()
-	require.NoError(t, os.Chdir(tmpDir))
-	t.Cleanup(func() { _ = os.Chdir(origDir) })
-
-	mgr, err := backlog.NewManager("")
+	mgr, err := backlog.NewManager(tmpDir)
 	require.NoError(t, err)
 	d := &backlog.Discovery{
 		Title:  "AI Override Test",
@@ -625,15 +595,11 @@ func TestRunBacklogPromote_AIWithTemplateOverride(t *testing.T) {
 }
 
 func TestRunBacklogPromote_DismissedDiscovery(t *testing.T) {
-	// Cannot use t.Parallel() - test changes working directory
+	t.Parallel()
 	ctx := context.Background()
 
 	tmpDir := t.TempDir()
-	origDir, _ := os.Getwd()
-	require.NoError(t, os.Chdir(tmpDir))
-	t.Cleanup(func() { _ = os.Chdir(origDir) })
-
-	mgr, err := backlog.NewManager("")
+	mgr, err := backlog.NewManager(tmpDir)
 	require.NoError(t, err)
 	d := &backlog.Discovery{
 		Title:  "Dismissed Discovery",
@@ -657,7 +623,9 @@ func TestRunBacklogPromote_DismissedDiscovery(t *testing.T) {
 
 	var buf bytes.Buffer
 
-	opts := promoteOptions{}
+	opts := promoteOptions{
+		projectRoot: tmpDir,
+	}
 
 	err = runBacklogPromote(ctx, cmd, &buf, d.ID, opts)
 	require.Error(t, err)
@@ -745,15 +713,11 @@ func TestPromoteResult_BranchNames(t *testing.T) {
 }
 
 func TestRunBacklogPromote_JSONOutput_WithAIAnalysis(t *testing.T) {
-	// Cannot use t.Parallel() - test changes working directory
+	t.Parallel()
 	ctx := context.Background()
 
 	tmpDir := t.TempDir()
-	origDir, _ := os.Getwd()
-	require.NoError(t, os.Chdir(tmpDir))
-	t.Cleanup(func() { _ = os.Chdir(origDir) })
-
-	mgr, err := backlog.NewManager("")
+	mgr, err := backlog.NewManager(tmpDir)
 	require.NoError(t, err)
 	d := &backlog.Discovery{
 		Title:  "JSON AI Output Test",
@@ -805,15 +769,11 @@ func TestRunBacklogPromote_JSONOutput_WithAIAnalysis(t *testing.T) {
 }
 
 func TestRunBacklogPromote_AIMode_Fallback(t *testing.T) {
-	// Cannot use t.Parallel() - test changes working directory
+	t.Parallel()
 	ctx := context.Background()
 
 	tmpDir := t.TempDir()
-	origDir, _ := os.Getwd()
-	require.NoError(t, os.Chdir(tmpDir))
-	t.Cleanup(func() { _ = os.Chdir(origDir) })
-
-	mgr, err := backlog.NewManager("")
+	mgr, err := backlog.NewManager(tmpDir)
 	require.NoError(t, err)
 	d := &backlog.Discovery{
 		Title:  "AI Fallback Test",
@@ -854,15 +814,11 @@ func TestRunBacklogPromote_AIMode_Fallback(t *testing.T) {
 }
 
 func TestRunBacklogPromote_AIMode_ConfigOverrides(t *testing.T) {
-	// Cannot use t.Parallel() - test changes working directory
+	t.Parallel()
 	ctx := context.Background()
 
 	tmpDir := t.TempDir()
-	origDir, _ := os.Getwd()
-	require.NoError(t, os.Chdir(tmpDir))
-	t.Cleanup(func() { _ = os.Chdir(origDir) })
-
-	mgr, err := backlog.NewManager("")
+	mgr, err := backlog.NewManager(tmpDir)
 	require.NoError(t, err)
 	d := &backlog.Discovery{
 		Title:  "Config Override Test",
@@ -924,15 +880,11 @@ func (m *mockCLIAIRunnerRecorder) Run(_ context.Context, req *domain.AIRequest) 
 }
 
 func TestRunBacklogPromote_AIProgress_TTYOutput(t *testing.T) {
-	// Cannot use t.Parallel() - test changes working directory
+	// Cannot use t.Parallel() - test modifies global aiRunnerFactory
 	ctx := context.Background()
 
 	tmpDir := t.TempDir()
-	origDir, _ := os.Getwd()
-	require.NoError(t, os.Chdir(tmpDir))
-	t.Cleanup(func() { _ = os.Chdir(origDir) })
-
-	mgr, err := backlog.NewManager("")
+	mgr, err := backlog.NewManager(tmpDir)
 	require.NoError(t, err)
 	d := &backlog.Discovery{
 		Title:  "AI Progress Test",
@@ -949,13 +901,29 @@ func TestRunBacklogPromote_AIProgress_TTYOutput(t *testing.T) {
 	err = mgr.Add(ctx, d)
 	require.NoError(t, err)
 
+	// Set up mock AI runner to avoid real CLI calls
+	aiRunnerFactory = func(_ *config.Config) contracts.AIRunner {
+		return &mockCLIAIRunner{
+			result: &domain.AIResult{
+				Success: true,
+				Output: `{
+					"template": "bugfix",
+					"description": "AI generated description",
+					"reasoning": "Test reasoning"
+				}`,
+			},
+		}
+	}
+	t.Cleanup(func() { aiRunnerFactory = nil })
+
 	cmd := newBacklogPromoteCmd()
 
 	var buf bytes.Buffer
 
 	opts := promoteOptions{
-		ai:     true,
-		dryRun: true,
+		ai:          true,
+		dryRun:      true,
+		projectRoot: tmpDir,
 	}
 
 	err = runBacklogPromote(ctx, cmd, &buf, d.ID, opts)
@@ -971,15 +939,11 @@ func TestRunBacklogPromote_AIProgress_TTYOutput(t *testing.T) {
 }
 
 func TestRunBacklogPromote_AIProgress_WithAgentOverride(t *testing.T) {
-	// Cannot use t.Parallel() - test changes working directory
+	// Cannot use t.Parallel() - test modifies global aiRunnerFactory
 	ctx := context.Background()
 
 	tmpDir := t.TempDir()
-	origDir, _ := os.Getwd()
-	require.NoError(t, os.Chdir(tmpDir))
-	t.Cleanup(func() { _ = os.Chdir(origDir) })
-
-	mgr, err := backlog.NewManager("")
+	mgr, err := backlog.NewManager(tmpDir)
 	require.NoError(t, err)
 	d := &backlog.Discovery{
 		Title:  "AI Progress Agent Override Test",
@@ -996,15 +960,31 @@ func TestRunBacklogPromote_AIProgress_WithAgentOverride(t *testing.T) {
 	err = mgr.Add(ctx, d)
 	require.NoError(t, err)
 
+	// Set up mock AI runner to avoid real CLI calls
+	aiRunnerFactory = func(_ *config.Config) contracts.AIRunner {
+		return &mockCLIAIRunner{
+			result: &domain.AIResult{
+				Success: true,
+				Output: `{
+					"template": "bugfix",
+					"description": "AI generated description",
+					"reasoning": "Test reasoning"
+				}`,
+			},
+		}
+	}
+	t.Cleanup(func() { aiRunnerFactory = nil })
+
 	cmd := newBacklogPromoteCmd()
 
 	var buf bytes.Buffer
 
 	opts := promoteOptions{
-		ai:     true,
-		agent:  "gemini",
-		model:  "flash",
-		dryRun: true,
+		ai:          true,
+		agent:       "gemini",
+		model:       "flash",
+		dryRun:      true,
+		projectRoot: tmpDir,
 	}
 
 	err = runBacklogPromote(ctx, cmd, &buf, d.ID, opts)
@@ -1018,15 +998,11 @@ func TestRunBacklogPromote_AIProgress_WithAgentOverride(t *testing.T) {
 }
 
 func TestRunBacklogPromote_AIProgress_JSONOutput_NoProgress(t *testing.T) {
-	// Cannot use t.Parallel() - test changes working directory
+	// Cannot use t.Parallel() - test modifies global aiRunnerFactory
 	ctx := context.Background()
 
 	tmpDir := t.TempDir()
-	origDir, _ := os.Getwd()
-	require.NoError(t, os.Chdir(tmpDir))
-	t.Cleanup(func() { _ = os.Chdir(origDir) })
-
-	mgr, err := backlog.NewManager("")
+	mgr, err := backlog.NewManager(tmpDir)
 	require.NoError(t, err)
 	d := &backlog.Discovery{
 		Title:  "AI JSON No Progress Test",
@@ -1043,6 +1019,21 @@ func TestRunBacklogPromote_AIProgress_JSONOutput_NoProgress(t *testing.T) {
 	err = mgr.Add(ctx, d)
 	require.NoError(t, err)
 
+	// Set up mock AI runner to avoid real CLI calls
+	aiRunnerFactory = func(_ *config.Config) contracts.AIRunner {
+		return &mockCLIAIRunner{
+			result: &domain.AIResult{
+				Success: true,
+				Output: `{
+					"template": "bugfix",
+					"description": "AI generated description",
+					"reasoning": "Test reasoning"
+				}`,
+			},
+		}
+	}
+	t.Cleanup(func() { aiRunnerFactory = nil })
+
 	cmd := newBacklogPromoteCmd()
 	// Add global output flag
 	root := &cobra.Command{Use: "atlas"}
@@ -1052,9 +1043,10 @@ func TestRunBacklogPromote_AIProgress_JSONOutput_NoProgress(t *testing.T) {
 	var buf bytes.Buffer
 
 	opts := promoteOptions{
-		ai:         true,
-		jsonOutput: true,
-		dryRun:     true,
+		ai:          true,
+		jsonOutput:  true,
+		dryRun:      true,
+		projectRoot: tmpDir,
 	}
 
 	err = runBacklogPromote(ctx, cmd, &buf, d.ID, opts)
@@ -1190,15 +1182,11 @@ func TestBuildStartCommand(t *testing.T) {
 }
 
 func TestRunBacklogPromote_OutputIncludesBranch(t *testing.T) {
-	// Cannot use t.Parallel() - test changes working directory
+	t.Parallel()
 	ctx := context.Background()
 
 	tmpDir := t.TempDir()
-	origDir, _ := os.Getwd()
-	require.NoError(t, os.Chdir(tmpDir))
-	t.Cleanup(func() { _ = os.Chdir(origDir) })
-
-	mgr, err := backlog.NewManager("")
+	mgr, err := backlog.NewManager(tmpDir)
 	require.NoError(t, err)
 	d := &backlog.Discovery{
 		Title:  "Branch Output Test",
@@ -1224,7 +1212,8 @@ func TestRunBacklogPromote_OutputIncludesBranch(t *testing.T) {
 	var buf bytes.Buffer
 
 	opts := promoteOptions{
-		dryRun: true,
+		dryRun:      true,
+		projectRoot: tmpDir,
 	}
 
 	err = runBacklogPromote(ctx, cmd, &buf, d.ID, opts)
@@ -1236,15 +1225,11 @@ func TestRunBacklogPromote_OutputIncludesBranch(t *testing.T) {
 }
 
 func TestRunBacklogPromote_JSONOutput_IncludesStartCommand(t *testing.T) {
-	// Cannot use t.Parallel() - test changes working directory
+	t.Parallel()
 	ctx := context.Background()
 
 	tmpDir := t.TempDir()
-	origDir, _ := os.Getwd()
-	require.NoError(t, os.Chdir(tmpDir))
-	t.Cleanup(func() { _ = os.Chdir(origDir) })
-
-	mgr, err := backlog.NewManager("")
+	mgr, err := backlog.NewManager(tmpDir)
 	require.NoError(t, err)
 	d := &backlog.Discovery{
 		Title:  "JSON Start Command Test",
@@ -1269,8 +1254,9 @@ func TestRunBacklogPromote_JSONOutput_IncludesStartCommand(t *testing.T) {
 	var buf bytes.Buffer
 
 	opts := promoteOptions{
-		jsonOutput: true,
-		dryRun:     true,
+		jsonOutput:  true,
+		dryRun:      true,
+		projectRoot: tmpDir,
 	}
 
 	err = runBacklogPromote(ctx, cmd, &buf, d.ID, opts)
@@ -1289,15 +1275,11 @@ func TestRunBacklogPromote_JSONOutput_IncludesStartCommand(t *testing.T) {
 }
 
 func TestRunBacklogPromote_CriticalSecurity_IncludesVerify(t *testing.T) {
-	// Cannot use t.Parallel() - test changes working directory
+	t.Parallel()
 	ctx := context.Background()
 
 	tmpDir := t.TempDir()
-	origDir, _ := os.Getwd()
-	require.NoError(t, os.Chdir(tmpDir))
-	t.Cleanup(func() { _ = os.Chdir(origDir) })
-
-	mgr, err := backlog.NewManager("")
+	mgr, err := backlog.NewManager(tmpDir)
 	require.NoError(t, err)
 	d := &backlog.Discovery{
 		Title:  "Critical Security Issue",

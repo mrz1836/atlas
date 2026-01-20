@@ -13,6 +13,7 @@ import (
 )
 
 func TestNewFormatCmd(t *testing.T) {
+	t.Parallel()
 	cmd := newFormatCmd()
 
 	assert.Equal(t, "format", cmd.Use)
@@ -22,6 +23,7 @@ func TestNewFormatCmd(t *testing.T) {
 }
 
 func TestAddFormatCommand(t *testing.T) {
+	t.Parallel()
 	root := &cobra.Command{Use: "atlas"}
 	AddFormatCommand(root)
 
@@ -33,6 +35,7 @@ func TestAddFormatCommand(t *testing.T) {
 }
 
 func TestRunFormat_ContextCancellation(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately
 
@@ -72,12 +75,14 @@ func TestRunFormat_WithJSONOutput(t *testing.T) {
 }
 
 func TestFormatCommand_HasNoArgs(t *testing.T) {
+	t.Parallel()
 	cmd := newFormatCmd()
 	// Format command should accept no arguments
 	assert.Nil(t, cmd.Args)
 }
 
 func TestFormatCommand_Examples(t *testing.T) {
+	t.Parallel()
 	cmd := newFormatCmd()
 	// Verify examples are present
 	assert.Contains(t, cmd.Long, "atlas format")
@@ -138,11 +143,13 @@ func TestRunFormat_VerboseMode(t *testing.T) {
 }
 
 func TestNewFormatCmd_RunEFunctionExists(t *testing.T) {
+	t.Parallel()
 	cmd := newFormatCmd()
 	assert.NotNil(t, cmd.RunE, "format command should have RunE function")
 }
 
 func TestAddFormatCommand_AddsToRoot(t *testing.T) {
+	t.Parallel()
 	root := &cobra.Command{Use: "atlas"}
 	initialCmdCount := len(root.Commands())
 
@@ -180,6 +187,7 @@ func TestFormatCommand_RunEExecution(t *testing.T) {
 }
 
 func TestFormatCommand_GetWdError(t *testing.T) {
+	t.Parallel()
 	// Test error path when os.Getwd() fails
 	// This is difficult to test in isolation without mocking,
 	// but we can verify the error handling exists by reading the code

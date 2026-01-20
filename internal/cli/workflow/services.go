@@ -107,10 +107,30 @@ func (f *ServiceFactory) CreateNotifiers(cfg *config.Config) (*tui.Notifier, *ta
 
 // CreateAIRunner creates and configures the AI runner with all supported agents.
 func (f *ServiceFactory) CreateAIRunner(cfg *config.Config) ai.Runner {
+	return f.CreateAIRunnerWithActivity(cfg, nil)
+}
+
+// CreateAIRunnerWithActivity creates an AI runner with optional activity streaming.
+// If activityOpts is nil, activity streaming is disabled.
+func (f *ServiceFactory) CreateAIRunnerWithActivity(cfg *config.Config, activityOpts *ai.ActivityOptions) ai.Runner {
 	runnerRegistry := ai.NewRunnerRegistry()
-	runnerRegistry.Register(domain.AgentClaude, ai.NewClaudeCodeRunner(&cfg.AI, nil))
-	runnerRegistry.Register(domain.AgentGemini, ai.NewGeminiRunner(&cfg.AI, nil, ai.WithGeminiLogger(f.logger)))
-	runnerRegistry.Register(domain.AgentCodex, ai.NewCodexRunner(&cfg.AI, nil))
+
+	if activityOpts != nil && activityOpts.Callback != nil {
+		// Create runners with activity streaming
+		runnerRegistry.Register(domain.AgentClaude, ai.NewClaudeCodeRunner(&cfg.AI, nil,
+			ai.WithClaudeActivityCallback(*activityOpts)))
+		runnerRegistry.Register(domain.AgentGemini, ai.NewGeminiRunner(&cfg.AI, nil,
+			ai.WithGeminiLogger(f.logger),
+			ai.WithGeminiActivityCallback(*activityOpts)))
+		runnerRegistry.Register(domain.AgentCodex, ai.NewCodexRunner(&cfg.AI, nil,
+			ai.WithCodexActivityCallback(*activityOpts)))
+	} else {
+		// Create runners without activity streaming
+		runnerRegistry.Register(domain.AgentClaude, ai.NewClaudeCodeRunner(&cfg.AI, nil))
+		runnerRegistry.Register(domain.AgentGemini, ai.NewGeminiRunner(&cfg.AI, nil, ai.WithGeminiLogger(f.logger)))
+		runnerRegistry.Register(domain.AgentCodex, ai.NewCodexRunner(&cfg.AI, nil))
+	}
+
 	return ai.NewMultiRunner(runnerRegistry)
 }
 

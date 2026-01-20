@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -217,18 +216,15 @@ func (e *GitExecutor) Type() domain.StepType {
 
 // CleanupOnPause removes stale git lock files when task pauses mid-operation.
 // This prevents git errors like "Another git process seems to be running" on resume.
-func (e *GitExecutor) CleanupOnPause(_ context.Context, worktreePath string) error {
+func (e *GitExecutor) CleanupOnPause(ctx context.Context, worktreePath string) error {
 	if worktreePath == "" {
 		worktreePath = e.workDir
 	}
 
-	lockPath := filepath.Join(worktreePath, ".git", "index.lock")
-	if _, err := os.Stat(lockPath); err == nil {
-		e.logger.Warn().Str("path", lockPath).Msg("removing stale git lock file")
-		if removeErr := os.Remove(lockPath); removeErr != nil {
-			e.logger.Warn().Err(removeErr).Str("path", lockPath).Msg("failed to remove git lock file")
-			return removeErr
-		}
+	gitDir := filepath.Join(worktreePath, ".git")
+	if err := git.CleanupStaleLockFiles(ctx, gitDir, git.DefaultLockStalenessThreshold, e.logger); err != nil {
+		e.logger.Warn().Err(err).Str("path", gitDir).Msg("failed to cleanup stale locks")
+		return err
 	}
 	return nil
 }
@@ -264,6 +260,11 @@ func (e *GitExecutor) HandleGarbageDetected(_ context.Context, garbageFiles []gi
 func (e *GitExecutor) executeCommit(ctx context.Context, step *domain.StepDefinition, task *domain.Task) (*domain.StepResult, error) {
 	if e.smartCommitter == nil {
 		return nil, fmt.Errorf("smart committer not configured: %w", atlaserrors.ErrGitOperation)
+	}
+
+	// Proactively clean up any stale lock files before commit analysis
+	if err := e.CleanupOnPause(ctx, e.workDir); err != nil {
+		e.logger.Debug().Err(err).Msg("pre-commit lock cleanup failed")
 	}
 
 	garbageAction := e.extractGarbageAction(task)

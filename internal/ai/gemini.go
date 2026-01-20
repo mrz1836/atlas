@@ -27,8 +27,9 @@ var geminiCLIInfo = CLIInfo{
 // It builds command-line arguments and executes the gemini CLI,
 // parsing the JSON response into an AIResult.
 type GeminiRunner struct {
-	base   BaseRunner     // Embedded BaseRunner for timeout/retry handling
-	logger zerolog.Logger // Logger for debug output
+	base            BaseRunner       // Embedded BaseRunner for timeout/retry handling
+	logger          zerolog.Logger   // Logger for debug output
+	activityOptions *ActivityOptions // Activity streaming options
 }
 
 // GeminiRunnerOption is a functional option for configuring GeminiRunner.
@@ -38,6 +39,13 @@ type GeminiRunnerOption func(*GeminiRunner)
 func WithGeminiLogger(logger zerolog.Logger) GeminiRunnerOption {
 	return func(r *GeminiRunner) {
 		r.logger = logger
+	}
+}
+
+// WithGeminiActivityCallback configures the activity callback for streaming activity events.
+func WithGeminiActivityCallback(opts ActivityOptions) GeminiRunnerOption {
+	return func(r *GeminiRunner) {
+		r.activityOptions = &opts
 	}
 }
 
@@ -58,6 +66,12 @@ func NewGeminiRunner(cfg *config.AIConfig, executor CommandExecutor, opts ...Gem
 	for _, opt := range opts {
 		opt(r)
 	}
+
+	// If activity streaming is enabled, swap executor for StreamingExecutor
+	if r.activityOptions != nil && r.activityOptions.Callback != nil {
+		r.base.Executor = NewStreamingExecutor(*r.activityOptions)
+	}
+
 	return r
 }
 

@@ -12,7 +12,8 @@ import (
 )
 
 func TestSmartCommitConfig_Defaults(t *testing.T) {
-	cfg, err := Load(context.Background())
+	t.Parallel()
+	cfg, err := LoadFromPaths(context.Background(), "", "")
 	require.NoError(t, err)
 
 	// Verify smart_commit defaults
@@ -22,6 +23,7 @@ func TestSmartCommitConfig_Defaults(t *testing.T) {
 }
 
 func TestSmartCommitConfig_LoadFromFile(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	// Create a config file with custom smart_commit settings
@@ -38,16 +40,11 @@ smart_commit:
   retry_backoff_factor: 2.0
 `
 
-	projectConfigPath := filepath.Join(tmpDir, ".atlas", "config.yaml")
-	require.NoError(t, os.MkdirAll(filepath.Dir(projectConfigPath), 0o750))
-	require.NoError(t, os.WriteFile(projectConfigPath, []byte(configContent), 0o600))
+	configPath := filepath.Join(tmpDir, ".atlas", "config.yaml")
+	require.NoError(t, os.MkdirAll(filepath.Dir(configPath), 0o750))
+	require.NoError(t, os.WriteFile(configPath, []byte(configContent), 0o600))
 
-	// Change to temp directory
-	oldWd, _ := os.Getwd()
-	defer os.Chdir(oldWd) //nolint:errcheck // test cleanup, error doesn't affect test outcome // test cleanup, error doesn't affect test outcome
-	require.NoError(t, os.Chdir(tmpDir))
-
-	cfg, err := Load(context.Background())
+	cfg, err := LoadFromPaths(context.Background(), configPath, "")
 	require.NoError(t, err)
 
 	// Verify smart_commit config was loaded
@@ -59,6 +56,7 @@ smart_commit:
 }
 
 func TestSmartCommitConfig_TimeoutParsing(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name           string
 		timeoutStr     string
@@ -72,6 +70,7 @@ func TestSmartCommitConfig_TimeoutParsing(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			tmpDir := t.TempDir()
 
 			configContent := `
@@ -79,15 +78,11 @@ smart_commit:
   timeout: ` + tt.timeoutStr + `
 `
 
-			projectConfigPath := filepath.Join(tmpDir, ".atlas", "config.yaml")
-			require.NoError(t, os.MkdirAll(filepath.Dir(projectConfigPath), 0o750))
-			require.NoError(t, os.WriteFile(projectConfigPath, []byte(configContent), 0o600))
+			configPath := filepath.Join(tmpDir, ".atlas", "config.yaml")
+			require.NoError(t, os.MkdirAll(filepath.Dir(configPath), 0o750))
+			require.NoError(t, os.WriteFile(configPath, []byte(configContent), 0o600))
 
-			oldWd, _ := os.Getwd()
-			defer os.Chdir(oldWd) //nolint:errcheck // test cleanup, error doesn't affect test outcome // test cleanup, error doesn't affect test outcome
-			require.NoError(t, os.Chdir(tmpDir))
-
-			cfg, err := Load(context.Background())
+			cfg, err := LoadFromPaths(context.Background(), configPath, "")
 			require.NoError(t, err)
 
 			assert.Equal(t, tt.expectedResult, cfg.SmartCommit.Timeout)
@@ -96,6 +91,7 @@ smart_commit:
 }
 
 func TestSmartCommitConfig_PartialConfig(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	// Only specify some smart_commit fields
@@ -105,15 +101,11 @@ smart_commit:
   # max_retries and retry_backoff_factor use defaults
 `
 
-	projectConfigPath := filepath.Join(tmpDir, ".atlas", "config.yaml")
-	require.NoError(t, os.MkdirAll(filepath.Dir(projectConfigPath), 0o750))
-	require.NoError(t, os.WriteFile(projectConfigPath, []byte(configContent), 0o600))
+	configPath := filepath.Join(tmpDir, ".atlas", "config.yaml")
+	require.NoError(t, os.MkdirAll(filepath.Dir(configPath), 0o750))
+	require.NoError(t, os.WriteFile(configPath, []byte(configContent), 0o600))
 
-	oldWd, _ := os.Getwd()
-	defer os.Chdir(oldWd) //nolint:errcheck // test cleanup, error doesn't affect test outcome
-	require.NoError(t, os.Chdir(tmpDir))
-
-	cfg, err := Load(context.Background())
+	cfg, err := LoadFromPaths(context.Background(), configPath, "")
 	require.NoError(t, err)
 
 	// Custom value
@@ -125,6 +117,7 @@ smart_commit:
 }
 
 func TestSmartCommitConfig_ZeroValues(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	// Explicitly set to zero/empty values
@@ -135,15 +128,11 @@ smart_commit:
   retry_backoff_factor: 0
 `
 
-	projectConfigPath := filepath.Join(tmpDir, ".atlas", "config.yaml")
-	require.NoError(t, os.MkdirAll(filepath.Dir(projectConfigPath), 0o750))
-	require.NoError(t, os.WriteFile(projectConfigPath, []byte(configContent), 0o600))
+	configPath := filepath.Join(tmpDir, ".atlas", "config.yaml")
+	require.NoError(t, os.MkdirAll(filepath.Dir(configPath), 0o750))
+	require.NoError(t, os.WriteFile(configPath, []byte(configContent), 0o600))
 
-	oldWd, _ := os.Getwd()
-	defer os.Chdir(oldWd) //nolint:errcheck // test cleanup, error doesn't affect test outcome
-	require.NoError(t, os.Chdir(tmpDir))
-
-	cfg, err := Load(context.Background())
+	cfg, err := LoadFromPaths(context.Background(), configPath, "")
 	require.NoError(t, err)
 
 	// Zero values should be preserved (not replaced with defaults)
@@ -153,6 +142,7 @@ smart_commit:
 }
 
 func TestSmartCommitConfig_AgentModelFallback(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	// smart_commit.agent and smart_commit.model are empty, should use ai.agent and ai.model
@@ -166,15 +156,11 @@ smart_commit:
   # agent and model not specified, should fall back to ai.* in CLI code
 `
 
-	projectConfigPath := filepath.Join(tmpDir, ".atlas", "config.yaml")
-	require.NoError(t, os.MkdirAll(filepath.Dir(projectConfigPath), 0o750))
-	require.NoError(t, os.WriteFile(projectConfigPath, []byte(configContent), 0o600))
+	configPath := filepath.Join(tmpDir, ".atlas", "config.yaml")
+	require.NoError(t, os.MkdirAll(filepath.Dir(configPath), 0o750))
+	require.NoError(t, os.WriteFile(configPath, []byte(configContent), 0o600))
 
-	oldWd, _ := os.Getwd()
-	defer os.Chdir(oldWd) //nolint:errcheck // test cleanup, error doesn't affect test outcome
-	require.NoError(t, os.Chdir(tmpDir))
-
-	cfg, err := Load(context.Background())
+	cfg, err := LoadFromPaths(context.Background(), configPath, "")
 	require.NoError(t, err)
 
 	// SmartCommit should have empty agent/model (fallback happens in CLI layer)
@@ -190,6 +176,7 @@ smart_commit:
 }
 
 func TestSmartCommitConfig_ExtremeValues(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	// Test with extreme but valid values
@@ -200,15 +187,11 @@ smart_commit:
   retry_backoff_factor: 5.0
 `
 
-	projectConfigPath := filepath.Join(tmpDir, ".atlas", "config.yaml")
-	require.NoError(t, os.MkdirAll(filepath.Dir(projectConfigPath), 0o750))
-	require.NoError(t, os.WriteFile(projectConfigPath, []byte(configContent), 0o600))
+	configPath := filepath.Join(tmpDir, ".atlas", "config.yaml")
+	require.NoError(t, os.MkdirAll(filepath.Dir(configPath), 0o750))
+	require.NoError(t, os.WriteFile(configPath, []byte(configContent), 0o600))
 
-	oldWd, _ := os.Getwd()
-	defer os.Chdir(oldWd) //nolint:errcheck // test cleanup, error doesn't affect test outcome
-	require.NoError(t, os.Chdir(tmpDir))
-
-	cfg, err := Load(context.Background())
+	cfg, err := LoadFromPaths(context.Background(), configPath, "")
 	require.NoError(t, err)
 
 	assert.Equal(t, 10*time.Minute, cfg.SmartCommit.Timeout)
@@ -217,20 +200,17 @@ smart_commit:
 }
 
 func TestSmartCommitConfig_EmptyConfigFile(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	// Empty config file - should use all defaults
 	configContent := ``
 
-	projectConfigPath := filepath.Join(tmpDir, ".atlas", "config.yaml")
-	require.NoError(t, os.MkdirAll(filepath.Dir(projectConfigPath), 0o750))
-	require.NoError(t, os.WriteFile(projectConfigPath, []byte(configContent), 0o600))
+	configPath := filepath.Join(tmpDir, ".atlas", "config.yaml")
+	require.NoError(t, os.MkdirAll(filepath.Dir(configPath), 0o750))
+	require.NoError(t, os.WriteFile(configPath, []byte(configContent), 0o600))
 
-	oldWd, _ := os.Getwd()
-	defer os.Chdir(oldWd) //nolint:errcheck // test cleanup, error doesn't affect test outcome
-	require.NoError(t, os.Chdir(tmpDir))
-
-	cfg, err := Load(context.Background())
+	cfg, err := LoadFromPaths(context.Background(), configPath, "")
 	require.NoError(t, err)
 
 	// All should be defaults
@@ -240,7 +220,7 @@ func TestSmartCommitConfig_EmptyConfigFile(t *testing.T) {
 }
 
 func TestSmartCommitConfig_DecimalBackoffFactor(t *testing.T) {
-	tmpDir := t.TempDir()
+	t.Parallel()
 
 	// Test various decimal values
 	tests := []struct {
@@ -257,20 +237,19 @@ func TestSmartCommitConfig_DecimalBackoffFactor(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.factor, func(t *testing.T) {
+			t.Parallel()
+			tmpDir := t.TempDir()
+
 			configContent := `
 smart_commit:
   retry_backoff_factor: ` + tt.factor + `
 `
 
-			projectConfigPath := filepath.Join(tmpDir, ".atlas", "config.yaml")
-			require.NoError(t, os.MkdirAll(filepath.Dir(projectConfigPath), 0o750))
-			require.NoError(t, os.WriteFile(projectConfigPath, []byte(configContent), 0o600))
+			configPath := filepath.Join(tmpDir, ".atlas", "config.yaml")
+			require.NoError(t, os.MkdirAll(filepath.Dir(configPath), 0o750))
+			require.NoError(t, os.WriteFile(configPath, []byte(configContent), 0o600))
 
-			oldWd, _ := os.Getwd()
-			defer os.Chdir(oldWd) //nolint:errcheck // test cleanup, error doesn't affect test outcome // test cleanup, error doesn't affect test outcome
-			require.NoError(t, os.Chdir(tmpDir))
-
-			cfg, err := Load(context.Background())
+			cfg, err := LoadFromPaths(context.Background(), configPath, "")
 			require.NoError(t, err)
 
 			assert.InDelta(t, tt.expected, cfg.SmartCommit.RetryBackoffFactor, 0.001)

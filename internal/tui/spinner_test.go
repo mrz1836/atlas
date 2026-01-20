@@ -218,6 +218,10 @@ func TestFormatDuration(t *testing.T) {
 }
 
 func TestSpinner_AnimationUpdatesAtInterval(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping slow animation test in short mode")
+	}
+
 	buf := &safeSpinnerBuffer{}
 	spinner := tui.NewTerminalSpinner(buf)
 
@@ -263,6 +267,10 @@ func TestSpinner_NonBlockingOperation(t *testing.T) {
 }
 
 func TestSpinner_UpdateRateReasonable(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping slow rate test in short mode")
+	}
+
 	buf := &safeSpinnerBuffer{}
 	spinner := tui.NewTerminalSpinner(buf)
 

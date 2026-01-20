@@ -5,8 +5,11 @@ package git
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/rs/zerolog"
 
 	"github.com/mrz1836/atlas/internal/ctxutil"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
@@ -56,6 +59,9 @@ func (r *CLIRunner) Add(ctx context.Context, paths []string) error {
 		return err
 	}
 
+	// Proactively clean up stale lock files
+	r.cleanupStaleLocks(ctx)
+
 	args := []string{"add"}
 	if len(paths) == 0 {
 		// Stage all changes
@@ -82,6 +88,9 @@ func (r *CLIRunner) Commit(ctx context.Context, message string) error {
 	if message == "" {
 		return fmt.Errorf("commit message cannot be empty: %w", atlaserrors.ErrEmptyValue)
 	}
+
+	// Proactively clean up stale lock files
+	r.cleanupStaleLocks(ctx)
 
 	// Use --cleanup=strip to handle formatting (removes trailing whitespace, leading/trailing blank lines)
 	_, err := r.runGitCommand(ctx, "commit", "-m", message, "--cleanup=strip")
@@ -264,6 +273,9 @@ func (r *CLIRunner) Reset(ctx context.Context) error {
 		return err
 	}
 
+	// Proactively clean up stale lock files
+	r.cleanupStaleLocks(ctx)
+
 	_, err := r.runGitCommand(ctx, "reset", "HEAD")
 	if err != nil {
 		// Ignore "not a valid ref" error when there are no commits yet
@@ -300,6 +312,17 @@ func (r *CLIRunner) diff(ctx context.Context, cached bool) (string, error) {
 // This is a convenience wrapper around RunCommand that uses the runner's workDir.
 func (r *CLIRunner) runGitCommand(ctx context.Context, args ...string) (string, error) {
 	return RunCommand(ctx, r.workDir, args...)
+}
+
+// cleanupStaleLocks proactively removes stale lock files before git operations.
+// This is defensive programming to prevent lock file errors from crashed processes.
+// Uses a no-op logger since CLIRunner doesn't have a logger field.
+// Errors are silently ignored - the retry mechanism will handle any remaining locks.
+func (r *CLIRunner) cleanupStaleLocks(ctx context.Context) {
+	gitDir := filepath.Join(r.workDir, ".git")
+	// Use a no-op logger since we don't have a logger in CLIRunner
+	// Cleanup failures are non-critical - retry mechanism will handle active locks
+	_ = CleanupStaleLockFiles(ctx, gitDir, DefaultLockStalenessThreshold, zerolog.Nop())
 }
 
 // parseGitStatus parses git status --porcelain --branch output.

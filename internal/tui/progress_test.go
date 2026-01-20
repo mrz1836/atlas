@@ -3,7 +3,6 @@ package tui
 
 import (
 	"bytes"
-	"os"
 	"strings"
 	"testing"
 
@@ -12,12 +11,14 @@ import (
 )
 
 func TestNewProgressBar_CreatesBar(t *testing.T) {
+	t.Parallel()
 	bar := NewProgressBar(40)
 	require.NotNil(t, bar)
 	assert.Equal(t, 40, bar.Width())
 }
 
 func TestProgressBar_Render_VariousPercentages(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		percent float64
@@ -52,6 +53,7 @@ func TestProgressBar_Render_VariousPercentages(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			bar := NewProgressBar(40)
 			result := bar.Render(tt.percent)
 			assert.GreaterOrEqual(t, len(result), tt.wantLen, "bar should render content")
@@ -60,6 +62,7 @@ func TestProgressBar_Render_VariousPercentages(t *testing.T) {
 }
 
 func TestProgressBar_Render_ClampsNegative(t *testing.T) {
+	t.Parallel()
 	bar := NewProgressBar(40)
 	result := bar.Render(-0.5)
 	// Should not panic and should render something
@@ -67,6 +70,7 @@ func TestProgressBar_Render_ClampsNegative(t *testing.T) {
 }
 
 func TestProgressBar_Render_ClampsOver100(t *testing.T) {
+	t.Parallel()
 	bar := NewProgressBar(40)
 	result := bar.Render(1.5)
 	// Should not panic and should render something
@@ -74,6 +78,7 @@ func TestProgressBar_Render_ClampsOver100(t *testing.T) {
 }
 
 func TestProgressBar_WidthAdaptation(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name  string
 		width int
@@ -85,6 +90,7 @@ func TestProgressBar_WidthAdaptation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			bar := NewProgressBar(tt.width)
 			assert.Equal(t, tt.width, bar.Width())
 			result := bar.Render(0.5)
@@ -94,6 +100,7 @@ func TestProgressBar_WidthAdaptation(t *testing.T) {
 }
 
 func TestProgressBar_SetWidth(t *testing.T) {
+	t.Parallel()
 	bar := NewProgressBar(40)
 	assert.Equal(t, 40, bar.Width())
 
@@ -102,23 +109,14 @@ func TestProgressBar_SetWidth(t *testing.T) {
 }
 
 func TestProgressBar_WithWidthOption(t *testing.T) {
+	t.Parallel()
 	bar := NewProgressBar(40, WithWidth(60))
 	assert.Equal(t, 60, bar.Width())
 }
 
 func TestProgressBar_NoColor(t *testing.T) {
-	// Save and restore NO_COLOR
-	oldNoColor, hadNoColor := os.LookupEnv("NO_COLOR")
-	defer func() {
-		if hadNoColor {
-			_ = os.Setenv("NO_COLOR", oldNoColor)
-		} else {
-			_ = os.Unsetenv("NO_COLOR")
-		}
-	}()
-
-	// Set NO_COLOR
-	_ = os.Setenv("NO_COLOR", "1")
+	// Cannot use t.Parallel() - test uses t.Setenv
+	t.Setenv("NO_COLOR", "1")
 
 	bar := NewProgressBar(40)
 	result := bar.Render(0.5)
@@ -128,6 +126,7 @@ func TestProgressBar_NoColor(t *testing.T) {
 }
 
 func TestFormatStepCounter(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		current  int
@@ -142,6 +141,7 @@ func TestFormatStepCounter(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			result := FormatStepCounter(tt.current, tt.total)
 			assert.Equal(t, tt.expected, result)
 		})
@@ -149,6 +149,7 @@ func TestFormatStepCounter(t *testing.T) {
 }
 
 func TestFormatStepWithName(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		current  int
@@ -163,6 +164,7 @@ func TestFormatStepWithName(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			result := FormatStepWithName(tt.current, tt.total, tt.stepName)
 			assert.Equal(t, tt.expected, result)
 		})
@@ -170,6 +172,7 @@ func TestFormatStepWithName(t *testing.T) {
 }
 
 func TestDefaultStepNameLookup(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		stepType string
 		expected string
@@ -200,6 +203,7 @@ func TestDefaultStepNameLookup(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.stepType, func(t *testing.T) {
+			t.Parallel()
 			result := defaultStepNameLookup(tt.stepType)
 			assert.Equal(t, tt.expected, result)
 		})
@@ -207,6 +211,7 @@ func TestDefaultStepNameLookup(t *testing.T) {
 }
 
 func TestDetermineMode(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name      string
 		taskCount int
@@ -221,6 +226,7 @@ func TestDetermineMode(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			mode := DetermineMode(tt.taskCount)
 			assert.Equal(t, tt.expected, mode)
 		})
@@ -228,6 +234,7 @@ func TestDetermineMode(t *testing.T) {
 }
 
 func TestProgressRowCompact(t *testing.T) {
+	t.Parallel()
 	row := ProgressRow{
 		Name:        "auth",
 		Percent:     0.40,
@@ -244,6 +251,7 @@ func TestProgressRowCompact(t *testing.T) {
 }
 
 func TestProgressRowCompact_LongStepName(t *testing.T) {
+	t.Parallel()
 	row := ProgressRow{
 		Name:        "workspace",
 		Percent:     0.50,
@@ -259,6 +267,7 @@ func TestProgressRowCompact_LongStepName(t *testing.T) {
 }
 
 func TestProgressRowCompact_NoStepName(t *testing.T) {
+	t.Parallel()
 	row := ProgressRow{
 		Name:        "workspace",
 		Percent:     0.50,
@@ -275,6 +284,7 @@ func TestProgressRowCompact_NoStepName(t *testing.T) {
 }
 
 func TestProgressRowExpanded(t *testing.T) {
+	t.Parallel()
 	row := ProgressRow{
 		Name:        "auth",
 		Percent:     0.40,
@@ -300,6 +310,7 @@ func TestProgressRowExpanded(t *testing.T) {
 }
 
 func TestProgressRowExpanded_NoDuration(t *testing.T) {
+	t.Parallel()
 	row := ProgressRow{
 		Name:        "auth",
 		Percent:     0.40,
@@ -319,6 +330,7 @@ func TestProgressRowExpanded_NoDuration(t *testing.T) {
 }
 
 func TestProgressRowExpanded_LongName(t *testing.T) {
+	t.Parallel()
 	row := ProgressRow{
 		Name:        "very-long-workspace-name",
 		Percent:     0.50,
@@ -333,6 +345,7 @@ func TestProgressRowExpanded_LongName(t *testing.T) {
 }
 
 func TestNewProgressDashboard_AutoMode(t *testing.T) {
+	t.Parallel()
 	// 5 rows -> expanded
 	rows5 := make([]ProgressRow, 5)
 	for i := range rows5 {
@@ -351,6 +364,7 @@ func TestNewProgressDashboard_AutoMode(t *testing.T) {
 }
 
 func TestNewProgressDashboard_ManualModeOverride(t *testing.T) {
+	t.Parallel()
 	rows := make([]ProgressRow, 10) // Would normally be compact
 	for i := range rows {
 		rows[i] = ProgressRow{Name: "test", Percent: 0.5}
@@ -361,6 +375,7 @@ func TestNewProgressDashboard_ManualModeOverride(t *testing.T) {
 }
 
 func TestProgressDashboard_Render_Empty(t *testing.T) {
+	t.Parallel()
 	pd := NewProgressDashboard([]ProgressRow{})
 
 	var buf bytes.Buffer
@@ -371,6 +386,7 @@ func TestProgressDashboard_Render_Empty(t *testing.T) {
 }
 
 func TestProgressDashboard_Render_SingleRow(t *testing.T) {
+	t.Parallel()
 	rows := []ProgressRow{
 		{Name: "auth", Percent: 0.40, CurrentStep: 3, TotalSteps: 7},
 	}
@@ -386,6 +402,7 @@ func TestProgressDashboard_Render_SingleRow(t *testing.T) {
 }
 
 func TestProgressDashboard_Render_MultipleRowsExpanded(t *testing.T) {
+	t.Parallel()
 	rows := []ProgressRow{
 		{Name: "auth", Percent: 0.40, CurrentStep: 3, TotalSteps: 7},
 		{Name: "payment", Percent: 0.85, CurrentStep: 6, TotalSteps: 7},
@@ -405,6 +422,7 @@ func TestProgressDashboard_Render_MultipleRowsExpanded(t *testing.T) {
 }
 
 func TestProgressDashboard_Render_MultipleRowsCompact(t *testing.T) {
+	t.Parallel()
 	rows := make([]ProgressRow, 7)
 	for i := range rows {
 		rows[i] = ProgressRow{
@@ -429,6 +447,7 @@ func TestProgressDashboard_Render_MultipleRowsCompact(t *testing.T) {
 }
 
 func TestProgressDashboard_Rows(t *testing.T) {
+	t.Parallel()
 	rows := []ProgressRow{
 		{Name: "test", Percent: 0.5},
 	}
@@ -443,6 +462,7 @@ func TestProgressDashboard_Rows(t *testing.T) {
 }
 
 func TestProgressDashboard_WidthAdaptation(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name      string
 		width     int
@@ -456,6 +476,7 @@ func TestProgressDashboard_WidthAdaptation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			pd := &ProgressDashboard{
 				width: tt.width,
 			}
@@ -466,7 +487,9 @@ func TestProgressDashboard_WidthAdaptation(t *testing.T) {
 }
 
 func TestProgressDashboard_EdgeCases(t *testing.T) {
+	t.Parallel()
 	t.Run("0 tasks", func(t *testing.T) {
+		t.Parallel()
 		pd := NewProgressDashboard([]ProgressRow{})
 		var buf bytes.Buffer
 		err := pd.Render(&buf)
@@ -475,11 +498,13 @@ func TestProgressDashboard_EdgeCases(t *testing.T) {
 	})
 
 	t.Run("1 task", func(t *testing.T) {
+		t.Parallel()
 		pd := NewProgressDashboard([]ProgressRow{{Name: "single", Percent: 0.5}})
 		assert.Equal(t, DensityExpanded, pd.Mode())
 	})
 
 	t.Run("negative percentage", func(t *testing.T) {
+		t.Parallel()
 		pd := NewProgressDashboard([]ProgressRow{{Name: "neg", Percent: -0.5}})
 		var buf bytes.Buffer
 		err := pd.Render(&buf)
@@ -488,6 +513,7 @@ func TestProgressDashboard_EdgeCases(t *testing.T) {
 	})
 
 	t.Run("percentage over 100", func(t *testing.T) {
+		t.Parallel()
 		pd := NewProgressDashboard([]ProgressRow{{Name: "over", Percent: 1.5}})
 		var buf bytes.Buffer
 		err := pd.Render(&buf)
@@ -497,6 +523,7 @@ func TestProgressDashboard_EdgeCases(t *testing.T) {
 }
 
 func TestStepProgress_Struct(t *testing.T) {
+	t.Parallel()
 	sp := StepProgress{
 		Current:  3,
 		Total:    7,
@@ -509,6 +536,7 @@ func TestStepProgress_Struct(t *testing.T) {
 }
 
 func TestTruncateToRuneWidth(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		input    string
@@ -524,6 +552,7 @@ func TestTruncateToRuneWidth(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			result := truncateToRuneWidth(tt.input, tt.maxWidth)
 			assert.Equal(t, tt.expected, result)
 		})
@@ -531,6 +560,7 @@ func TestTruncateToRuneWidth(t *testing.T) {
 }
 
 func TestBuildProgressRowsFromStatus(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		rows     []StatusRow
@@ -562,6 +592,7 @@ func TestBuildProgressRowsFromStatus(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			result := BuildProgressRowsFromStatus(tt.rows)
 			assert.Len(t, result, tt.expected)
 		})
@@ -569,6 +600,7 @@ func TestBuildProgressRowsFromStatus(t *testing.T) {
 }
 
 func TestBuildProgressRowsFromStatus_ProgressCalculation(t *testing.T) {
+	t.Parallel()
 	rows := []StatusRow{
 		{Workspace: "test-ws", Status: "running", CurrentStep: 3, TotalSteps: 6},
 	}

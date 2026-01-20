@@ -2,7 +2,7 @@ schema_version: "1.1"
 id: item-M3UWK5
 guid: f0ce06df-74bd-4fe1-ab45-7080112126ba
 title: Add test coverage, refactor as needed, add mocking if needed. Raise the coverage of this file.
-status: pending
+status: promoted
 content:
   category: testing
   severity: low
@@ -14,3 +14,5 @@ context:
   git:
     branch: master
     commit: fbaa667
+lifecycle:
+  promoted_to_task: task-26a61270-41d4-4423-ac1b-e60685d5669d

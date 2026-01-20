@@ -46,6 +46,11 @@ func DefaultConfig() *Config {
 			// MaxBudgetUSD: 0 means unlimited budget.
 			// Users can set a positive value to limit AI spending per session.
 			MaxBudgetUSD: 0.0,
+
+			// ActivityVerbosity: "medium" is the default verbosity level.
+			// Shows phases + file operations + key decisions.
+			// Users can set "low" for minimal output or "high" for verbose output.
+			ActivityVerbosity: "medium",
 		},
 		Git: GitConfig{
 			// BaseBranch: "main" is the modern Git default.
@@ -58,6 +63,14 @@ func DefaultConfig() *Config {
 
 			// Remote: "origin" is the standard Git remote name.
 			Remote: "origin",
+
+			// LockCleanupThreshold: 60 seconds is the default staleness threshold.
+			// Lock files older than this are considered stale and safe to remove.
+			LockCleanupThreshold: 60 * time.Second,
+
+			// LockCleanupEnabled: true enables automatic cleanup of stale lock files.
+			// This prevents errors from crashed git processes.
+			LockCleanupEnabled: true,
 		},
 		Worktree: WorktreeConfig{
 			// BaseDir: empty means use default location.

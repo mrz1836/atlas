@@ -49,6 +49,7 @@ func TestLoad_ReturnsDefaultsWhenNoConfigFile(t *testing.T) {
 }
 
 func TestLoadFromPaths_ProjectConfigOverridesGlobal(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	// Create temp directories for configs
@@ -87,6 +88,7 @@ ai:
 }
 
 func TestLoadFromPaths_GlobalConfigOnly(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	// Create temp directory for global config
@@ -275,6 +277,7 @@ func TestLoadWithOverrides_NilOverrides(t *testing.T) {
 }
 
 func TestLoadFromPaths_DurationParsing(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	// Create temp directory for config
@@ -340,6 +343,7 @@ func TestLoad_WithActualProjectConfig(t *testing.T) {
 }
 
 func TestLoadFromPaths_InvalidConfigFile(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	// Create temp directory for config
@@ -360,6 +364,7 @@ ai:
 }
 
 func TestLoadFromPaths_ValidationFailure(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	// Create temp directory for config
@@ -379,6 +384,7 @@ ai:
 }
 
 func TestLoad_MergesGlobalAndProjectConfigs(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	// Create a temp directory structure simulating a project with both configs
@@ -431,6 +437,7 @@ ai:
 }
 
 func TestPaths(t *testing.T) {
+	t.Parallel()
 	// Test ProjectConfigDir
 	assert.Equal(t, ".atlas", ProjectConfigDir(), "project config dir should be .atlas")
 
@@ -590,6 +597,7 @@ ai:
 // For example: global has ai.model and ai.timeout, project has only ai.model.
 // Result should have project's ai.model and global's ai.timeout.
 func TestConfig_Precedence_NestedKeyMerging(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	// Create temp directories for configs
@@ -848,6 +856,7 @@ templates:
 }
 
 func TestLoadWithWorktree_SameAsMainRepo(t *testing.T) {
+	t.Parallel()
 	// When worktree path equals main repo path, worktree config should be skipped
 	tempDir := t.TempDir()
 
@@ -875,6 +884,7 @@ func TestLoadWithWorktree_SameAsMainRepo(t *testing.T) {
 }
 
 func TestLoadWithWorktree_DifferentPaths(t *testing.T) {
+	t.Parallel()
 	// Setup main repo with config
 	mainRepo := t.TempDir()
 	mainConfigDir := filepath.Join(mainRepo, ".atlas")
@@ -915,6 +925,7 @@ git:
 }
 
 func TestLoadWithWorktree_NoWorktreeConfig(t *testing.T) {
+	t.Parallel()
 	// Setup main repo with config
 	mainRepo := t.TempDir()
 	mainConfigDir := filepath.Join(mainRepo, ".atlas")
@@ -941,6 +952,7 @@ func TestLoadWithWorktree_NoWorktreeConfig(t *testing.T) {
 }
 
 func TestLoadWithWorktree_InvalidWorktreeConfig(t *testing.T) {
+	t.Parallel()
 	// Setup main repo with valid config
 	mainRepo := t.TempDir()
 	mainConfigDir := filepath.Join(mainRepo, ".atlas")
@@ -974,6 +986,7 @@ func TestLoadWithWorktree_InvalidWorktreeConfig(t *testing.T) {
 }
 
 func TestLoadWithWorktree_ValidationFailsAfterMerge(t *testing.T) {
+	t.Parallel()
 	// Setup main repo with valid config
 	mainRepo := t.TempDir()
 	mainConfigDir := filepath.Join(mainRepo, ".atlas")
@@ -1126,6 +1139,7 @@ func TestLoad_CorruptedProjectConfig(t *testing.T) {
 }
 
 func TestLoadWithWorktree_CorruptedMainConfig(t *testing.T) {
+	t.Parallel()
 	// Setup main repo with corrupted config
 	mainRepo := t.TempDir()
 	mainConfigDir := filepath.Join(mainRepo, ".atlas")

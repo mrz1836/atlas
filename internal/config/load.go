@@ -260,6 +260,7 @@ func setDefaults(v *viper.Viper) {
 	})
 	v.SetDefault("ai.timeout", "30m")
 	v.SetDefault("ai.max_turns", 10)
+	v.SetDefault("ai.activity_verbosity", "medium")
 
 	// Git defaults
 	v.SetDefault("git.base_branch", "main")

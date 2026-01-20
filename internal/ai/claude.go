@@ -52,22 +52,43 @@ func (e *DefaultExecutor) Execute(_ context.Context, cmd *exec.Cmd) ([]byte, []b
 // It builds command-line arguments and executes the claude CLI,
 // parsing the JSON response into an AIResult.
 type ClaudeCodeRunner struct {
-	base BaseRunner // Embedded BaseRunner for timeout/retry handling
+	base            BaseRunner // Embedded BaseRunner for timeout/retry handling
+	activityOptions *ActivityOptions
+}
+
+// ClaudeRunnerOption is a functional option for configuring ClaudeCodeRunner.
+type ClaudeRunnerOption func(*ClaudeCodeRunner)
+
+// WithClaudeActivityCallback configures the activity callback for streaming activity events.
+func WithClaudeActivityCallback(opts ActivityOptions) ClaudeRunnerOption {
+	return func(r *ClaudeCodeRunner) {
+		r.activityOptions = &opts
+	}
 }
 
 // NewClaudeCodeRunner creates a new ClaudeCodeRunner with the given configuration.
 // If executor is nil, a DefaultExecutor is used for production subprocess execution.
-func NewClaudeCodeRunner(cfg *config.AIConfig, executor CommandExecutor) *ClaudeCodeRunner {
+func NewClaudeCodeRunner(cfg *config.AIConfig, executor CommandExecutor, opts ...ClaudeRunnerOption) *ClaudeCodeRunner {
 	if executor == nil {
 		executor = &DefaultExecutor{}
 	}
-	return &ClaudeCodeRunner{
+	r := &ClaudeCodeRunner{
 		base: BaseRunner{
 			Config:   cfg,
 			Executor: executor,
 			ErrType:  atlaserrors.ErrClaudeInvocation,
 		},
 	}
+	for _, opt := range opts {
+		opt(r)
+	}
+
+	// If activity streaming is enabled, swap executor for StreamingExecutor
+	if r.activityOptions != nil && r.activityOptions.Callback != nil {
+		r.base.Executor = NewStreamingExecutor(*r.activityOptions)
+	}
+
+	return r
 }
 
 // Run executes an AI request using the Claude Code CLI.

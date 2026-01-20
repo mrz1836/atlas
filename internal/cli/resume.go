@@ -132,7 +132,7 @@ func runResume(ctx context.Context, cmd *cobra.Command, w io.Writer, workspaceNa
 	}
 
 	// Create engine
-	engine, err := createResumeEngine(ctx, ws, taskStore, logger, out) //nolint:contextcheck // ctx inherits from parent via signal.NewHandler
+	engine, err := createResumeEngine(ctx, ws, taskStore, currentTask, logger, out) //nolint:contextcheck // ctx inherits from parent via signal.NewHandler
 	if err != nil {
 		return handleResumeError(outputFormat, w, workspaceName, currentTask.ID, err)
 	}
@@ -351,7 +351,7 @@ func displayResumeResult(out tui.Output, ws *domain.Workspace, t *domain.Task, e
 }
 
 // createResumeEngine creates the task engine with all required dependencies.
-func createResumeEngine(ctx context.Context, ws *domain.Workspace, taskStore *task.FileStore, logger zerolog.Logger, out tui.Output) (*task.Engine, error) {
+func createResumeEngine(ctx context.Context, ws *domain.Workspace, taskStore *task.FileStore, currentTask *domain.Task, logger zerolog.Logger, out tui.Output) (*task.Engine, error) {
 	cfg, err := config.Load(ctx)
 	if err != nil {
 		logger.Warn().Err(err).Msg("failed to load config, using default notification settings")
@@ -421,25 +421,27 @@ func createResumeEngine(ctx context.Context, ws *domain.Workspace, taskStore *ta
 		}
 	}
 
-	execRegistry := steps.NewDefaultRegistry(steps.ExecutorDeps{
-		WorkDir:                ws.WorktreePath,
-		ArtifactSaver:          taskStore,
-		Notifier:               notifier,
-		AIRunner:               aiRunner,
-		Logger:                 logger,
-		SmartCommitter:         smartCommitter,
-		Pusher:                 pusher,
-		HubRunner:              hubRunner,
-		PRDescriptionGenerator: prDescGen,
-		GitRunner:              gitRunner,
-		CIFailureHandler:       ciFailureHandler,
-		BaseBranch:             cfg.Git.BaseBranch,
-		CIConfig:               &cfg.CI,
-		FormatCommands:         cfg.Validation.Commands.Format,
-		LintCommands:           cfg.Validation.Commands.Lint,
-		TestCommands:           cfg.Validation.Commands.Test,
-		PreCommitCommands:      cfg.Validation.Commands.PreCommit,
-		ProgressCallback:       executorProgressCallback,
+	// Create validation progress callback for consistent step progress display (like start.go)
+	validationProgressCallback := createValidationProgressAdapter(progressCallback, ws.Name, len(currentTask.Steps))
+
+	// Create executor registry using service factory (same approach as start.go)
+	execRegistry := services.CreateExecutorRegistry(workflow.RegistryDeps{
+		WorkDir:   ws.WorktreePath,
+		TaskStore: taskStore,
+		Notifier:  notifier,
+		AIRunner:  aiRunner,
+		Logger:    logger,
+		GitServices: &workflow.GitServices{
+			Runner:           gitRunner,
+			SmartCommitter:   smartCommitter,
+			Pusher:           pusher,
+			HubRunner:        hubRunner,
+			PRDescGen:        prDescGen,
+			CIFailureHandler: ciFailureHandler,
+		},
+		Config:                     cfg,
+		ProgressCallback:           executorProgressCallback,
+		ValidationProgressCallback: validationProgressCallback,
 	})
 
 	validationRetryHandler := createResumeValidationRetryHandler(aiRunner, cfg, logger)

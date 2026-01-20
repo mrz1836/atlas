@@ -25,22 +25,43 @@ var codexCLIInfo = CLIInfo{
 // It builds command-line arguments and executes the codex CLI,
 // parsing the JSON response into an AIResult.
 type CodexRunner struct {
-	base BaseRunner // Embedded BaseRunner for timeout/retry handling
+	base            BaseRunner       // Embedded BaseRunner for timeout/retry handling
+	activityOptions *ActivityOptions // Activity streaming options
+}
+
+// CodexRunnerOption is a functional option for configuring CodexRunner.
+type CodexRunnerOption func(*CodexRunner)
+
+// WithCodexActivityCallback configures the activity callback for streaming activity events.
+func WithCodexActivityCallback(opts ActivityOptions) CodexRunnerOption {
+	return func(r *CodexRunner) {
+		r.activityOptions = &opts
+	}
 }
 
 // NewCodexRunner creates a new CodexRunner with the given configuration.
 // If executor is nil, a DefaultExecutor is used for production subprocess execution.
-func NewCodexRunner(cfg *config.AIConfig, executor CommandExecutor) *CodexRunner {
+func NewCodexRunner(cfg *config.AIConfig, executor CommandExecutor, opts ...CodexRunnerOption) *CodexRunner {
 	if executor == nil {
 		executor = &DefaultExecutor{}
 	}
-	return &CodexRunner{
+	r := &CodexRunner{
 		base: BaseRunner{
 			Config:   cfg,
 			Executor: executor,
 			ErrType:  atlaserrors.ErrCodexInvocation,
 		},
 	}
+	for _, opt := range opts {
+		opt(r)
+	}
+
+	// If activity streaming is enabled, swap executor for StreamingExecutor
+	if r.activityOptions != nil && r.activityOptions.Callback != nil {
+		r.base.Executor = NewStreamingExecutor(*r.activityOptions)
+	}
+
+	return r
 }
 
 // Run executes an AI request using the Codex CLI.

@@ -64,8 +64,10 @@ func StageModifiedFilesWithRunner(ctx context.Context, workDir string, runner Gi
 	default:
 	}
 
-	// Check for modified files using git status --porcelain
-	output, err := runner.Run(ctx, workDir, "status", "--porcelain")
+	// Check for modified files using git status --porcelain with lock retry
+	output, err := git.RunWithLockRetry(ctx, git.DefaultLockRetryConfig(), *log, func(ctx context.Context) (string, error) {
+		return runner.Run(ctx, workDir, "status", "--porcelain")
+	})
 	if err != nil {
 		return fmt.Errorf("failed to check git status: %w", err)
 	}

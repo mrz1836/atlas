@@ -15,11 +15,12 @@ import (
 
 // backlogListFlags holds the flags for the list command.
 type backlogListFlags struct {
-	status   string
-	category string
-	all      bool
-	limit    int
-	json     bool
+	status      string
+	category    string
+	all         bool
+	limit       int
+	json        bool
+	projectRoot string // used for testing
 }
 
 // newBacklogListCmd creates the backlog list command.
@@ -66,7 +67,7 @@ func runBacklogList(ctx context.Context, cmd *cobra.Command, w io.Writer, flags 
 	out := tui.NewOutput(w, outputFormat)
 
 	// Create manager
-	mgr, err := backlog.NewManager("")
+	mgr, err := backlog.NewManager(flags.projectRoot)
 	if err != nil {
 		return outputBacklogError(w, outputFormat, "list", err)
 	}
