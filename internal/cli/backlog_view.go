@@ -34,9 +34,15 @@ func getGlamourRenderer() *glamour.TermRenderer {
 	return glamourRenderer
 }
 
+// backlogViewFlags holds the flags for the view command.
+type backlogViewFlags struct {
+	json        bool
+	projectRoot string // used for testing
+}
+
 // newBacklogViewCmd creates the backlog view command.
 func newBacklogViewCmd() *cobra.Command {
-	var jsonOutput bool
+	flags := &backlogViewFlags{}
 
 	cmd := &cobra.Command{
 		Use:   "view <id>",
@@ -55,22 +61,22 @@ Exit codes:
   1: Discovery not found or error`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runBacklogView(cmd.Context(), cmd, cmd.OutOrStdout(), args[0], jsonOutput)
+			return runBacklogView(cmd.Context(), cmd, cmd.OutOrStdout(), args[0], flags)
 		},
 	}
 
-	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Output as JSON")
+	cmd.Flags().BoolVar(&flags.json, "json", false, "Output as JSON")
 
 	return cmd
 }
 
 // runBacklogView executes the backlog view command.
-func runBacklogView(ctx context.Context, cmd *cobra.Command, w io.Writer, id string, jsonOutput bool) error {
-	outputFormat := getOutputFormat(cmd, jsonOutput)
+func runBacklogView(ctx context.Context, cmd *cobra.Command, w io.Writer, id string, flags *backlogViewFlags) error {
+	outputFormat := getOutputFormat(cmd, flags.json)
 	out := tui.NewOutput(w, outputFormat)
 
 	// Create manager
-	mgr, err := backlog.NewManager("")
+	mgr, err := backlog.NewManager(flags.projectRoot)
 	if err != nil {
 		return outputBacklogError(w, outputFormat, "view", err)
 	}

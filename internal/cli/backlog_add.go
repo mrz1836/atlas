@@ -29,6 +29,7 @@ type backlogAddFlags struct {
 	description string
 	tags        string
 	json        bool
+	projectRoot string // used for testing
 }
 
 // newBacklogAddCmd creates the backlog add command.
@@ -87,7 +88,7 @@ func runBacklogAdd(ctx context.Context, cmd *cobra.Command, w io.Writer, args []
 	out := tui.NewOutput(w, outputFormat)
 
 	// Create manager
-	mgr, err := backlog.NewManager("")
+	mgr, err := backlog.NewManager(flags.projectRoot)
 	if err != nil {
 		return outputBacklogError(w, outputFormat, "add", err)
 	}

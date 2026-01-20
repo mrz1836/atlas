@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
@@ -1642,6 +1643,10 @@ func TestGitExecutor_CleanupOnPause(t *testing.T) {
 		lockPath := filepath.Join(gitDir, "index.lock")
 		require.NoError(t, writeFile(lockPath, []byte("lock"), 0o600))
 
+		// Make the lock file stale (older than 60 seconds)
+		oldTime := time.Now().Add(-2 * time.Minute)
+		require.NoError(t, os.Chtimes(lockPath, oldTime, oldTime))
+
 		executor := NewGitExecutor(tmpDir)
 
 		err := executor.CleanupOnPause(context.Background(), tmpDir)
@@ -1671,6 +1676,10 @@ func TestGitExecutor_CleanupOnPause(t *testing.T) {
 		require.NoError(t, mkdir(gitDir, 0o750))
 		lockPath := filepath.Join(gitDir, "index.lock")
 		require.NoError(t, writeFile(lockPath, []byte("lock"), 0o600))
+
+		// Make the lock file stale (older than 60 seconds)
+		oldTime := time.Now().Add(-2 * time.Minute)
+		require.NoError(t, os.Chtimes(lockPath, oldTime, oldTime))
 
 		executor := NewGitExecutor(tmpDir)
 

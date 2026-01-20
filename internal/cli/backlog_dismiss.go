@@ -12,12 +12,16 @@ import (
 	"github.com/mrz1836/atlas/internal/tui"
 )
 
+// backlogDismissFlags holds the flags for the dismiss command.
+type backlogDismissFlags struct {
+	reason      string
+	json        bool
+	projectRoot string // used for testing
+}
+
 // newBacklogDismissCmd creates the backlog dismiss command.
 func newBacklogDismissCmd() *cobra.Command {
-	var (
-		reason     string
-		jsonOutput bool
-	)
+	flags := &backlogDismissFlags{}
 
 	cmd := &cobra.Command{
 		Use:   "dismiss <id>",
@@ -38,36 +42,36 @@ Exit codes:
   2: Invalid input (discovery not pending, missing reason)`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runBacklogDismiss(cmd.Context(), cmd, cmd.OutOrStdout(), args[0], reason, jsonOutput)
+			return runBacklogDismiss(cmd.Context(), cmd, cmd.OutOrStdout(), args[0], flags)
 		},
 	}
 
-	cmd.Flags().StringVar(&reason, "reason", "", "Reason for dismissal (required)")
-	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Output as JSON")
+	cmd.Flags().StringVar(&flags.reason, "reason", "", "Reason for dismissal (required)")
+	cmd.Flags().BoolVar(&flags.json, "json", false, "Output as JSON")
 	_ = cmd.MarkFlagRequired("reason")
 
 	return cmd
 }
 
 // runBacklogDismiss executes the backlog dismiss command.
-func runBacklogDismiss(ctx context.Context, cmd *cobra.Command, w io.Writer, id, reason string, jsonOutput bool) error {
-	outputFormat := getOutputFormat(cmd, jsonOutput)
+func runBacklogDismiss(ctx context.Context, cmd *cobra.Command, w io.Writer, id string, flags *backlogDismissFlags) error {
+	outputFormat := getOutputFormat(cmd, flags.json)
 	out := tui.NewOutput(w, outputFormat)
 
 	// Validate reason
-	if reason == "" {
+	if flags.reason == "" {
 		return atlaserrors.NewExitCode2Error(
 			fmt.Errorf("%w: --reason flag is required", atlaserrors.ErrUserInputRequired))
 	}
 
 	// Create manager
-	mgr, err := backlog.NewManager("")
+	mgr, err := backlog.NewManager(flags.projectRoot)
 	if err != nil {
 		return outputBacklogError(w, outputFormat, "dismiss", err)
 	}
 
 	// Dismiss the discovery
-	d, err := mgr.Dismiss(ctx, id, reason)
+	d, err := mgr.Dismiss(ctx, id, flags.reason)
 	if err != nil {
 		// Check if this is an invalid transition error
 		if atlaserrors.IsExitCode2Error(err) {

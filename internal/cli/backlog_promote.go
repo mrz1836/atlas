@@ -44,6 +44,9 @@ type promoteOptions struct {
 
 	// jsonOutput enables JSON output.
 	jsonOutput bool
+
+	// projectRoot overrides the project root (used for testing).
+	projectRoot string
 }
 
 // newBacklogPromoteCmd creates the backlog promote command.
@@ -150,7 +153,7 @@ func runBacklogPromote(ctx context.Context, cmd *cobra.Command, w io.Writer, id 
 	}
 
 	// Create manager
-	mgr, err := backlog.NewManager("")
+	mgr, err := backlog.NewManager(opts.projectRoot)
 	if err != nil {
 		return outputBacklogError(w, outputFormat, "promote", err)
 	}
@@ -417,7 +420,7 @@ func runBacklogPromoteInteractive(ctx context.Context, cmd *cobra.Command, w io.
 	out := tui.NewOutput(w, "")
 
 	// Create manager
-	mgr, err := backlog.NewManager("")
+	mgr, err := backlog.NewManager(opts.projectRoot)
 	if err != nil {
 		return fmt.Errorf("failed to create backlog manager: %w", err)
 	}
