@@ -1,7 +1,7 @@
 schema_version: "1.0"
 id: disc-6buh1f
 title: Add test coverage for the entire file the best you can.
-status: promoted
+status: completed
 content:
   description: Use the same testing patterns as other files.
   category: testing
@@ -16,3 +16,4 @@ context:
     commit: 3f736ce
 lifecycle:
   promoted_to_task: task-09503318-00de-46f4-9d3b-b21e396c7a0b
+  completed_at: 2026-01-20T00:18:53.202777Z

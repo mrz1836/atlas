@@ -1,0 +1,15 @@
+schema_version: "1.0"
+id: disc-fi0k5l
+title: Add test coverage to this file for all functions
+status: pending
+content:
+  category: testing
+  severity: low
+location:
+  file: internal/contracts/status.go
+context:
+  discovered_at: 2026-01-20T00:20:39.712464Z
+  discovered_by: human:mrz1836
+  git:
+    branch: master
+    commit: cd48425
