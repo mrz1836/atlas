@@ -133,11 +133,13 @@ func (s *TerminalSpinner) Stop() {
 
 	close(done)
 
-	// Unregister from the global spinner manager
-	spinnerManager.ClearActive()
-
-	// Clear the spinner line and move to next line for clean output
+	// Clear the spinner line BEFORE marking inactive
+	// This ensures any logs that come through after ClearActive()
+	// will write to an already-cleared line
 	_, _ = fmt.Fprint(s.w, "\r\033[K")
+
+	// Now safe to mark as inactive
+	spinnerManager.ClearActive()
 }
 
 // StopWithSuccess stops the spinner and displays a success message.
@@ -181,8 +183,9 @@ func (s *TerminalSpinner) animate(ctx context.Context, done <-chan struct{}) {
 			s.mu.Unlock()
 
 			if wasRunning {
-				spinnerManager.ClearActive()
+				// Clear line BEFORE marking inactive
 				_, _ = fmt.Fprint(s.w, "\r\033[K")
+				spinnerManager.ClearActive()
 			}
 			return
 		case <-ticker.C:

@@ -244,12 +244,21 @@ func newSpinnerAwareWriter(target io.Writer, manager interface {
 func (w *spinnerAwareWriter) Write(p []byte) (n int, err error) {
 	// Check if a spinner is currently active
 	if activeSpinner := w.manager.GetActive(); activeSpinner != nil {
-		// Clear the spinner line before writing the log
-		// \r moves cursor to start of line, \033[K clears from cursor to end of line
-		if _, err := w.target.Write([]byte("\r\033[K")); err != nil {
-			// If clearing fails, still try to write the log message
-			return w.target.Write(p)
+		// Combine clear sequence and log message into single write for atomicity
+		// This prevents the spinner from writing between clear and log
+		combined := make([]byte, 0, len("\r\033[K")+len(p))
+		combined = append(combined, "\r\033[K"...)
+		combined = append(combined, p...)
+		written, err := w.target.Write(combined)
+		// Return original length since caller expects len(p) on success
+		if err == nil {
+			return len(p), nil
 		}
+		// Adjust written count if partial write occurred
+		if written > len("\r\033[K") {
+			return written - len("\r\033[K"), err
+		}
+		return 0, err
 	}
 
 	// Write the actual log message

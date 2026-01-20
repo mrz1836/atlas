@@ -3,6 +3,8 @@ package validation
 import (
 	"fmt"
 	"strings"
+
+	"github.com/mrz1836/atlas/internal/prompts"
 )
 
 // RetryContext holds context for AI-assisted retry.
@@ -89,34 +91,15 @@ func BuildAIPrompt(ctx *RetryContext) string {
 		return "Please fix the validation errors."
 	}
 
-	var prompt strings.Builder
-
-	prompt.WriteString("Previous validation failed")
-	if ctx.FailedStep != "" {
-		prompt.WriteString(fmt.Sprintf(" at step: %s", ctx.FailedStep))
-	}
-	prompt.WriteString("\n\n")
-
-	if len(ctx.FailedCommands) > 0 {
-		prompt.WriteString(fmt.Sprintf("Failed commands: %s\n\n", strings.Join(ctx.FailedCommands, ", ")))
+	data := prompts.ValidationRetryData{
+		FailedStep:     ctx.FailedStep,
+		FailedCommands: ctx.FailedCommands,
+		ErrorOutput:    ctx.ErrorOutput,
+		AttemptNumber:  ctx.AttemptNumber,
+		MaxAttempts:    ctx.MaxAttempts,
 	}
 
-	if ctx.ErrorOutput != "" {
-		prompt.WriteString("Error output:\n")
-		prompt.WriteString(ctx.ErrorOutput)
-		prompt.WriteString("\n\n")
-	}
-
-	prompt.WriteString("Please analyze these errors and fix the issues in the code. Focus on:\n")
-	prompt.WriteString("1. Fixing the specific errors shown above\n")
-	prompt.WriteString("2. Not introducing new issues\n")
-	prompt.WriteString("3. Following project conventions\n")
-
-	if ctx.AttemptNumber > 0 && ctx.MaxAttempts > 0 {
-		prompt.WriteString(fmt.Sprintf("\nAttempt %d of %d.", ctx.AttemptNumber, ctx.MaxAttempts))
-	}
-
-	return prompt.String()
+	return prompts.MustRender(prompts.ValidationRetry, data)
 }
 
 // truncateOutput truncates a string to maxLen, adding an indicator if truncated.
