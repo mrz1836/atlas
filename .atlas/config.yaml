@@ -113,8 +113,10 @@ ci:
 
 validation:
   # Maximum duration for each validation command (e.g., "5m", "10m")
+  # Set to 30m to accommodate race detection tests (magex test:race) which take 25+ minutes
+  # This matches the timeout configured in .mage.yaml
   # Default: 5m
-  timeout: 10m
+  timeout: 30m
 
   # Run validation commands in parallel
   # Default: true
