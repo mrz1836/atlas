@@ -44,6 +44,12 @@ type AIAnalysis struct {
 
 	// Model is the recommended AI model for the task.
 	Model string `json:"model,omitempty"`
+
+	// File is the relevant file for this task (echoed from discovery or refined).
+	File string `json:"file,omitempty"`
+
+	// Line is the relevant line number (if applicable).
+	Line int `json:"line,omitempty"`
 }
 
 // AIPromoter provides AI-assisted analysis for discovery promotion.
@@ -347,7 +353,9 @@ func (p *AIPromoter) writeJSONTemplateWithAgents(sb *strings.Builder, availableA
   "base_branch": "optional: branch to base work from if not default",
   "use_verify": "optional: true for critical/security, false for simple changes, omit for default",
   "agent": "optional: recommended agent (%s), omit to use default",
-  "model": "optional: recommended model based on task complexity"
+  "model": "optional: recommended model based on task complexity",
+  "file": "optional: relevant file path from discovery location",
+  "line": "optional: relevant line number if applicable"
 }`, agentList)
 }
 
@@ -361,7 +369,9 @@ func (p *AIPromoter) writeJSONTemplateWithoutAgents(sb *strings.Builder) {
   "workspace_name": "suggested-workspace-name",
   "priority": 1-5 where 1 is highest,
   "base_branch": "optional: branch to base work from if not default",
-  "use_verify": "optional: true for critical/security, false for simple changes, omit for default"
+  "use_verify": "optional: true for critical/security, false for simple changes, omit for default",
+  "file": "optional: relevant file path from discovery location",
+  "line": "optional: relevant line number if applicable"
 }`)
 }
 

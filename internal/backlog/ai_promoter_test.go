@@ -890,6 +890,8 @@ func TestAIPromoter_buildAnalysisPrompt_AtlasStartFlags(t *testing.T) {
 	// Verify new fields in JSON schema
 	assert.Contains(t, prompt, "base_branch")
 	assert.Contains(t, prompt, "use_verify")
+	assert.Contains(t, prompt, `"file"`)
+	assert.Contains(t, prompt, `"line"`)
 }
 
 func TestAIPromoter_Analyze_NewFields(t *testing.T) {
@@ -988,6 +990,54 @@ func TestAIPromoter_Analyze_NewFields(t *testing.T) {
 		require.NoError(t, err)
 		assert.Empty(t, analysis.BaseBranch)
 		assert.Nil(t, analysis.UseVerify)
+	})
+
+	t.Run("parses file field", func(t *testing.T) {
+		t.Parallel()
+		runner := &mockAIRunner{
+			response: &domain.AIResult{
+				Success: true,
+				Output: `{
+					"template": "bugfix",
+					"description": "Fix issue",
+					"reasoning": "Test reasoning",
+					"file": "internal/api/handler.go"
+				}`,
+			},
+		}
+
+		promoter := NewAIPromoter(runner, nil)
+		d := validDiscoveryForAI()
+
+		analysis, err := promoter.Analyze(ctx, d, nil)
+
+		require.NoError(t, err)
+		assert.Equal(t, "internal/api/handler.go", analysis.File)
+	})
+
+	t.Run("parses file and line fields", func(t *testing.T) {
+		t.Parallel()
+		runner := &mockAIRunner{
+			response: &domain.AIResult{
+				Success: true,
+				Output: `{
+					"template": "bugfix",
+					"description": "Fix issue",
+					"reasoning": "Test reasoning",
+					"file": "internal/api/handler.go",
+					"line": 42
+				}`,
+			},
+		}
+
+		promoter := NewAIPromoter(runner, nil)
+		d := validDiscoveryForAI()
+
+		analysis, err := promoter.Analyze(ctx, d, nil)
+
+		require.NoError(t, err)
+		assert.Equal(t, "internal/api/handler.go", analysis.File)
+		assert.Equal(t, 42, analysis.Line)
 	})
 }
 
