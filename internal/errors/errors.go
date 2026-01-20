@@ -462,6 +462,9 @@ var (
 
 	// ErrInvalidStatusTransition indicates an invalid status transition was attempted.
 	ErrInvalidStatusTransition = errors.New("invalid status transition")
+
+	// ErrMigrationCollision indicates a collision occurred during discovery migration.
+	ErrMigrationCollision = errors.New("migration collision")
 )
 
 // LoopError provides detailed information about loop failures.
