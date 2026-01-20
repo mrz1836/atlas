@@ -181,6 +181,12 @@ func adaptWidth(maxWidth int) int {
 // It handles common setup (theme, width, accessibility) and error handling.
 // The errorContext parameter is used to wrap errors with descriptive context.
 func runFormWithConfig(field huh.Field, cfg *MenuConfig, errorContext string) error {
+	// Check if we're running in a terminal environment
+	// This prevents tests from hanging when TUI code is called without a terminal
+	if !term.IsTerminal(int(os.Stdin.Fd())) {
+		return ErrMenuCanceled
+	}
+
 	CheckNoColor()
 
 	width := adaptWidth(cfg.Width)
