@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -21,6 +22,40 @@ const (
 
 // ErrLockNotStale indicates a lock file is not old enough to be considered stale.
 var ErrLockNotStale = errors.New("lock file is not stale")
+
+// ErrInvalidGitdirFormat indicates a .git file has an invalid format.
+var ErrInvalidGitdirFormat = errors.New("invalid gitdir file format")
+
+// resolveGitDir resolves the actual git directory path.
+// In a normal repo, path points to a .git directory and is returned as-is.
+// In a worktree, path points to a .git file containing "gitdir: /path/to/actual/gitdir"
+// and this function returns the resolved path.
+func resolveGitDir(path string) (string, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", err
+	}
+
+	// If it's a directory, return as-is
+	if info.IsDir() {
+		return path, nil
+	}
+
+	// It's a file - read the gitdir reference (worktree case)
+	// #nosec G304 -- path is from .git directory which is trusted
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+
+	// Parse "gitdir: /path/to/.git/worktrees/name"
+	line := strings.TrimSpace(string(content))
+	if strings.HasPrefix(line, "gitdir: ") {
+		return strings.TrimPrefix(line, "gitdir: "), nil
+	}
+
+	return "", fmt.Errorf("%w: %s", ErrInvalidGitdirFormat, path)
+}
 
 // DetectStaleLockFile checks if a lock file is stale (safe to remove).
 // A lock file is considered stale if it exists and its modification time is
@@ -105,6 +140,18 @@ func CleanupStaleLockFiles(ctx context.Context, gitDir string, threshold time.Du
 		return ctx.Err()
 	default:
 	}
+
+	// Resolve the actual git directory (handles worktrees where .git is a file)
+	resolvedDir, err := resolveGitDir(gitDir)
+	if err != nil {
+		// If we can't resolve the git dir (e.g., doesn't exist), just return nil
+		// since there's nothing to clean up
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("failed to resolve git directory %s: %w", gitDir, err)
+	}
+	gitDir = resolvedDir
 
 	// List of lock file paths to check
 	lockPaths := []string{
