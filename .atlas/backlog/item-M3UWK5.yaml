@@ -4,13 +4,13 @@ guid: f0ce06df-74bd-4fe1-ab45-7080112126ba
 title: Add test coverage, refactor as needed, add mocking if needed. Raise the coverage of this file.
 status: pending
 content:
-    category: testing
-    severity: low
+  category: testing
+  severity: low
 location:
-    file: internal/cli/completion.go
+  file: internal/cli/completion.go
 context:
-    discovered_at: 2026-01-20T18:28:17.443347Z
-    discovered_by: human:mrz1836
-    git:
-        branch: master
-        commit: fbaa667
+  discovered_at: 2026-01-20T18:28:17.443347Z
+  discovered_by: human:mrz1836
+  git:
+    branch: master
+    commit: fbaa667
