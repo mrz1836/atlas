@@ -374,6 +374,7 @@ func createResumeEngine(ctx context.Context, ws *domain.Workspace, taskStore *ta
 	state := &progressState{}
 
 	// Create activity options for AI execution (uses shared state)
+	//nolint:contextcheck // git stats refresh uses background context intentionally
 	activityOpts := createActivityOptions(cfg, state, ws.Name, logger)
 
 	// Create AI runner with activity streaming
@@ -383,6 +384,9 @@ func createResumeEngine(ctx context.Context, ws *domain.Workspace, taskStore *ta
 	if err != nil {
 		return nil, fmt.Errorf("failed to create git runner: %w", err)
 	}
+
+	// Create git stats provider for live status display
+	state.gitStatsProvider = git.NewStatsProvider(ws.WorktreePath)
 
 	// Resolve git config settings with fallbacks
 	gitCfg := ResolveGitConfig(cfg)

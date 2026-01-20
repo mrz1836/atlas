@@ -672,3 +672,36 @@ func RenderHyperlink(text, url string) string {
 func RenderFileHyperlink(text, path string) string {
 	return RenderHyperlink(text, "file://"+path)
 }
+
+// FormatGitStats formats git statistics with colors for spinner display.
+// Returns format like "3M +120/-45" with green additions and red deletions.
+// Respects NO_COLOR environment variable.
+func FormatGitStats(newFiles, modifiedFiles, additions, deletions int) string {
+	var parts []string
+
+	// File counts
+	if newFiles > 0 && modifiedFiles > 0 {
+		parts = append(parts, fmt.Sprintf("%dN %dM", newFiles, modifiedFiles))
+	} else if newFiles > 0 {
+		parts = append(parts, fmt.Sprintf("%dN", newFiles))
+	} else if modifiedFiles > 0 {
+		parts = append(parts, fmt.Sprintf("%dM", modifiedFiles))
+	}
+
+	// Line counts with colors
+	if additions > 0 || deletions > 0 {
+		addStr := fmt.Sprintf("+%d", additions)
+		delStr := fmt.Sprintf("-%d", deletions)
+
+		if HasColorSupport() {
+			addStr = lipgloss.NewStyle().Foreground(ColorSuccess).Render(addStr)
+			delStr = lipgloss.NewStyle().Foreground(ColorError).Render(delStr)
+		}
+		parts = append(parts, addStr+"/"+delStr)
+	}
+
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.Join(parts, " ")
+}

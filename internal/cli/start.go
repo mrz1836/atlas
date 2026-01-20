@@ -19,6 +19,7 @@ import (
 	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/domain"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
+	"github.com/mrz1836/atlas/internal/git"
 	"github.com/mrz1836/atlas/internal/signal"
 	"github.com/mrz1836/atlas/internal/task"
 	"github.com/mrz1836/atlas/internal/template"
@@ -603,6 +604,7 @@ func startTaskExecution(ctx context.Context, ws *domain.Workspace, tmpl *domain.
 	state := &progressState{}
 
 	// Create activity options for AI execution (uses shared state)
+	//nolint:contextcheck // git stats refresh uses background context intentionally
 	activityOpts := createActivityOptions(cfg, state, ws.Name, logger)
 
 	// Create AI runner with activity streaming
@@ -624,6 +626,9 @@ func startTaskExecution(ctx context.Context, ws *domain.Workspace, tmpl *domain.
 	if err != nil {
 		return nil, nil, err
 	}
+
+	// Create git stats provider for live status display
+	state.gitStatsProvider = git.NewStatsProvider(ws.WorktreePath)
 
 	// Create progress callback for both engine and executors (uses shared state)
 	progressCallback := createProgressCallback(ctx, out, ws.Name, state)
@@ -696,8 +701,9 @@ func startTaskExecution(ctx context.Context, ws *domain.Workspace, tmpl *domain.
 // progressState holds shared state for progress and activity callbacks.
 // This enables activity events to update the spinner message inline.
 type progressState struct {
-	activeSpinner tui.Spinner
-	baseMessage   string // e.g., "Step 1/8: implement (claude/sonnet)"
+	activeSpinner    tui.Spinner
+	baseMessage      string             // e.g., "Step 1/8: implement (claude/sonnet)"
+	gitStatsProvider *git.StatsProvider // Provider for live git stats display
 }
 
 // createProgressCallback creates the progress callback for UI feedback.
@@ -1471,6 +1477,7 @@ func createActivityOptions(cfg *config.Config, state *progressState, workspaceNa
 
 // createActivityUICallback creates a callback that updates the spinner with activity events.
 // Instead of printing separate lines, activity events are integrated into the spinner message.
+// Git stats are included when available to show real-time file changes.
 func createActivityUICallback(state *progressState, verbosity ai.VerbosityLevel) ai.ActivityCallback {
 	return func(event ai.ActivityEvent) {
 		// Filter by verbosity
@@ -1478,13 +1485,41 @@ func createActivityUICallback(state *progressState, verbosity ai.VerbosityLevel)
 			return
 		}
 
-		// Update spinner with activity if we have an active spinner and base message
-		if state.activeSpinner != nil && state.baseMessage != "" {
-			icon := event.Type.Icon()
-			msg := event.FormatMessage()
-			// Integrate activity into spinner: "Step 1/8: implement (claude/sonnet) 🔍 Analyzing..."
+		// Skip if no active spinner or base message
+		if state.activeSpinner == nil || state.baseMessage == "" {
+			return
+		}
+
+		icon := event.Type.Icon()
+		msg := event.FormatMessage()
+		statsStr := getGitStatsString(state.gitStatsProvider)
+
+		// Integrate activity into spinner with optional stats
+		// Format: "Step 1/8: implement (claude/sonnet) 3M +120/-45 | 🔍 Analyzing..."
+		if statsStr != "" {
+			state.activeSpinner.Update(fmt.Sprintf("%s %s | %s %s", state.baseMessage, statsStr, icon, msg))
+		} else {
 			state.activeSpinner.Update(fmt.Sprintf("%s %s %s", state.baseMessage, icon, msg))
 		}
-		// If no active spinner, activity events are silently ignored (they go to activity log)
 	}
+}
+
+// getGitStatsString returns formatted git stats string, triggering async refresh.
+// Returns empty string if no stats available or provider is nil.
+func getGitStatsString(provider *git.StatsProvider) string {
+	if provider == nil {
+		return ""
+	}
+
+	// Trigger async refresh (debounced internally)
+	// Uses background context because the refresh runs in a goroutine and should
+	// not be tied to the caller's context lifecycle
+	provider.RefreshAsync(context.Background())
+
+	stats := provider.GetCachedStats()
+	if stats == nil || stats.IsEmpty() {
+		return ""
+	}
+
+	return tui.FormatGitStats(stats.NewFiles, stats.ModifiedFiles, stats.Additions, stats.Deletions)
 }

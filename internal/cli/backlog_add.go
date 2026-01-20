@@ -228,8 +228,8 @@ func runBacklogAddInteractive(ctx context.Context, mgr *backlog.Manager) (*backl
 	form := huh.NewForm(
 		huh.NewGroup(
 			huh.NewInput().
-				Title("What did you find?").
-				Description("Brief summary of the discovery (required)").
+				Title("Title").
+				Description("Brief title describing what you found (required)").
 				Value(&title).
 				Validate(func(s string) error {
 					if strings.TrimSpace(s) == "" {
@@ -243,8 +243,8 @@ func runBacklogAddInteractive(ctx context.Context, mgr *backlog.Manager) (*backl
 		),
 		huh.NewGroup(
 			huh.NewText().
-				Title("Details (optional)").
-				Description("Provide additional context about the discovery").
+				Title("Description (optional)").
+				Description("Provide additional details about the discovery").
 				Value(&description).
 				CharLimit(2000),
 		),
