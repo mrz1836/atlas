@@ -450,6 +450,11 @@ func (fs *FileStore) Exists(_ context.Context, taskID string) (bool, error) {
 func (fs *FileStore) ListStale(ctx context.Context, threshold time.Duration) ([]*domain.Hook, error) {
 	var staleHooks []*domain.Hook
 
+	// Check if basePath exists, return empty list if not
+	if _, err := os.Stat(fs.basePath); os.IsNotExist(err) {
+		return staleHooks, nil
+	}
+
 	// Walk through all hook files to discover taskIDs
 	err := filepath.WalkDir(fs.basePath, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
