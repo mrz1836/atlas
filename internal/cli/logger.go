@@ -291,12 +291,15 @@ func selectLevel(verbose, quiet bool) zerolog.Level {
 func selectOutput() io.Writer {
 	// Use console writer for TTY without NO_COLOR
 	if term.IsTerminal(int(os.Stderr.Fd())) && os.Getenv("NO_COLOR") == "" {
+		// ConsoleWriter parses JSON from zerolog and formats it for human reading.
+		// Its output goes to spinnerAwareWriter which clears the spinner line before
+		// writing, preventing log/spinner line collisions.
+		// Order matters: ConsoleWriter must receive raw JSON (not ANSI-prefixed data).
 		consoleWriter := zerolog.ConsoleWriter{
-			Out:        os.Stderr,
+			Out:        newSpinnerAwareWriter(os.Stderr, tui.GlobalSpinnerManager()),
 			TimeFormat: time.Kitchen,
 		}
-		// Wrap with spinner-aware writer to prevent log/spinner line collisions
-		return newSpinnerAwareWriter(consoleWriter, tui.GlobalSpinnerManager())
+		return consoleWriter
 	}
 
 	// Default to JSON output for non-TTY or when NO_COLOR is set
