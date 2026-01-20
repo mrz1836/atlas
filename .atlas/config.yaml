@@ -19,7 +19,7 @@ ai:
   # You can override the default env var for each provider
   # Defaults: claude=ANTHROPIC_API_KEY, gemini=GEMINI_API_KEY, codex=OPENAI_API_KEY
   api_key_env_vars:
-    claude: ANTHROPIC_API_KEY
+    claude: ANTHROPIC_API_KEY_MRZ
     gemini: GEMINI_API_KEY
     codex: OPENAI_API_KEY
 
