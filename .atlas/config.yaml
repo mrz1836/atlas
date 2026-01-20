@@ -35,6 +35,13 @@ ai:
   # Default: 0
   max_budget_usd: 0
 
+  # Activity feed verbosity level for AI operations
+  # "low" = Phase changes only (Analyzing → Planning → Implementing)
+  # "medium" = Phases + file operations + key decisions
+  # "high" = Everything including thinking indicators, all file reads
+  # Default: "medium"
+  activity_verbosity: medium
+
 git:
   # Default base branch for creating feature branches
   # Default: "main"

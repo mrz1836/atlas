@@ -84,6 +84,15 @@ type AIConfig struct {
 	// Set to 0 for no budget limit.
 	// Default: 0 (unlimited)
 	MaxBudgetUSD float64 `yaml:"max_budget_usd,omitempty" mapstructure:"max_budget_usd"`
+
+	// ActivityVerbosity controls the verbosity of the AI activity feed.
+	// Valid values: "low", "medium", "high"
+	// - low: Phase changes only (Analyzing → Planning → Implementing)
+	// - medium: Phases + file operations + key decisions
+	// - high: Everything including thinking indicators, all file reads
+	// Default: "medium"
+	// Can be overridden via ATLAS_AI_ACTIVITY_VERBOSITY environment variable.
+	ActivityVerbosity string `yaml:"activity_verbosity,omitempty" mapstructure:"activity_verbosity"`
 }
 
 // GetAPIKeyEnvVar returns the API key environment variable for the given agent.
@@ -126,6 +135,16 @@ type GitConfig struct {
 	// PR contains default settings for pull request operations.
 	// These defaults are used by git steps and can be overridden per-step in templates.
 	PR PRConfig `yaml:"pr,omitempty" mapstructure:"pr"`
+
+	// LockCleanupThreshold is the time after which a lock file is considered stale.
+	// Stale lock files are automatically removed to prevent errors from crashed processes.
+	// Default: 60 seconds
+	LockCleanupThreshold time.Duration `yaml:"lock_cleanup_threshold,omitempty" mapstructure:"lock_cleanup_threshold"`
+
+	// LockCleanupEnabled controls whether automatic lock file cleanup is enabled.
+	// When false, stale lock files are not automatically removed.
+	// Default: true
+	LockCleanupEnabled bool `yaml:"lock_cleanup_enabled,omitempty" mapstructure:"lock_cleanup_enabled"`
 }
 
 // PRConfig contains default settings for PR operations.
