@@ -69,7 +69,8 @@
    - [ATLAS Home Directory](#atlas-home-directory)
    - [Git Worktree Location](#git-worktree-location)
    - [Browsing Examples](#browsing-examples)
-11. [Troubleshooting](#troubleshooting)
+11. [AI Prompt Management](#ai-prompt-management)
+12. [Troubleshooting](#troubleshooting)
    - [Common Issues](#common-issues)
    - [Debugging](#debugging)
    - [Getting Help](#getting-help)
@@ -2296,6 +2297,88 @@ ls ~/.atlas/workspaces/auth/tasks/ | tail -1
 # Parse logs with jq
 cat ~/.atlas/workspaces/*/tasks/*/task.log | jq 'select(.event=="model_complete")'
 ```
+
+<br>
+
+## AI Prompt Management
+
+ATLAS centralizes all AI prompts in the `internal/prompts` package for easy editing and iteration.
+
+### Prompt Location
+
+All AI prompts are stored as text/template files:
+
+```
+internal/prompts/
+├── prompts.go           # Public API: Render(), MustRender()
+├── registry.go          # Template loading via go:embed
+├── types.go             # Typed data structures
+├── errors.go            # Package errors
+├── prompts_test.go      # Comprehensive tests
+└── templates/
+    ├── common/          # Shared fragments
+    │   ├── conventional_commits.tmpl
+    │   ├── json_format.tmpl
+    │   └── no_ai_attribution.tmpl
+    ├── git/
+    │   ├── commit_message.tmpl
+    │   └── pr_description.tmpl
+    ├── validation/
+    │   └── retry.tmpl
+    ├── backlog/
+    │   └── discovery_analysis.tmpl
+    └── verify/
+        ├── quick_check.tmpl
+        └── code_correctness.tmpl
+```
+
+### Editing Prompts
+
+To modify an AI prompt:
+
+1. Edit the `.tmpl` file directly (plain text, Go template syntax)
+2. Rebuild ATLAS: `go build ./...`
+3. Test: `go test ./internal/prompts/...`
+
+### Available Prompts
+
+| Prompt ID | Description | Used In |
+|-----------|-------------|---------|
+| `git/commit_message` | Generates conventional commit messages | Smart commit |
+| `git/pr_description` | Generates PR titles and bodies | PR creation |
+| `validation/retry` | Guides AI to fix validation errors | Validation retry |
+| `backlog/discovery_analysis` | Analyzes discoveries for task config | Backlog promote |
+| `verify/quick_check` | Quick verification of implementations | Verify step |
+| `verify/code_correctness` | Detailed code correctness check | Verify step |
+
+### API Usage
+
+```go
+import "github.com/mrz1836/atlas/internal/prompts"
+
+// Render a prompt with typed data
+data := prompts.CommitMessageData{
+    Package:     "internal/git",
+    Files:       files,
+    DiffSummary: diff,
+    Scope:       "git",
+}
+prompt, err := prompts.Render(prompts.CommitMessage, data)
+
+// Or use MustRender when failure is unexpected
+prompt := prompts.MustRender(prompts.CommitMessage, data)
+```
+
+### Template Syntax
+
+Templates use Go's `text/template` package with helper functions:
+
+- `{{.FieldName}}` - Access struct fields
+- `{{range .Items}}...{{end}}` - Iterate over slices
+- `{{if hasContent .Field}}...{{end}}` - Conditional content
+- `{{template "common/name" .}}` - Include shared fragments
+- `{{join .Tags ", "}}` - Join strings
+- `{{capitalizeFirst .Name}}` - Capitalize first letter
 
 <br>
 
