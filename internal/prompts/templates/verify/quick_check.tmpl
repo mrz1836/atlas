@@ -1,0 +1,12 @@
+Review if the implementation matches the task.
+
+## Task
+{{.TaskDescription}}
+
+## Instructions
+Quickly verify:
+{{range .Checks -}}
+{{.}}
+{{end}}
+Respond with JSON:
+{"passed": true/false, "issues": [{"severity": "error|warning", "category": "code_correctness", "file": "path", "line": 0, "message": "issue", "suggestion": "fix"}], "summary": "Brief assessment"}

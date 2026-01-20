@@ -1,0 +1,18 @@
+Previous validation failed{{if hasContent .FailedStep}} at step: {{.FailedStep}}{{end}}
+
+{{if .FailedCommands -}}
+Failed commands: {{join .FailedCommands ", "}}
+
+{{end -}}
+{{if hasContent .ErrorOutput -}}
+Error output:
+{{.ErrorOutput}}
+
+{{end -}}
+Please analyze these errors and fix the issues in the code. Focus on:
+1. Fixing the specific errors shown above
+2. Not introducing new issues
+3. Following project conventions
+{{if and (gt .AttemptNumber 0) (gt .MaxAttempts 0)}}
+Attempt {{.AttemptNumber}} of {{.MaxAttempts}}.
+{{- end}}

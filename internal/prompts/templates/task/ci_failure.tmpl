@@ -1,0 +1,23 @@
+## CI Failure Analysis
+
+The following CI checks have failed:
+
+{{- if .HasFailures}}
+{{range .FailedChecks}}
+### {{.Name}}
+- Status: {{.Status}}
+{{- if .Workflow}}
+- Workflow: {{.Workflow}}
+{{- end}}
+{{- if .URL}}
+- Logs: {{.URL}}
+{{- end}}
+
+{{end}}
+{{- else}}
+
+No specific failures identified, but overall CI status indicates failure.
+
+{{end}}
+
+Please analyze the failures and fix the issues in the code.
