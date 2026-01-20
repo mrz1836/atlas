@@ -12,6 +12,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
 
+	"github.com/mrz1836/atlas/internal/ai"
 	"github.com/mrz1836/atlas/internal/backlog"
 	"github.com/mrz1836/atlas/internal/cli/workflow"
 	"github.com/mrz1836/atlas/internal/config"
@@ -597,8 +598,11 @@ func startTaskExecution(ctx context.Context, ws *domain.Workspace, tmpl *domain.
 	// Create notifiers
 	notifier, stateNotifier := services.CreateNotifiers(cfg)
 
-	// Create AI runner
-	aiRunner := services.CreateAIRunner(cfg)
+	// Create activity options for AI execution
+	activityOpts := createActivityOptions(cfg, out, ws.Name, logger)
+
+	// Create AI runner with activity streaming
+	aiRunner := services.CreateAIRunnerWithActivity(cfg, activityOpts)
 
 	// Resolve git config settings with fallbacks
 	gitCfg := ResolveGitConfig(cfg)
@@ -1411,4 +1415,53 @@ func formatDuration(ms int64) string {
 		return fmt.Sprintf("%dm", minutes)
 	}
 	return fmt.Sprintf("%dm %ds", minutes, secs)
+}
+
+// createActivityOptions creates activity options for AI execution with streaming.
+// Returns nil if activity streaming should be disabled.
+func createActivityOptions(cfg *config.Config, out tui.Output, workspaceName string, logger zerolog.Logger) *ai.ActivityOptions {
+	// Parse verbosity from config
+	verbosity := ai.ParseVerbosity(cfg.AI.ActivityVerbosity)
+
+	// Create activity logger
+	activityLogger, err := ai.NewActivityLogger(ai.ActivityLoggerConfig{
+		TaskID:      "", // Will be set per-task
+		MaxLogFiles: 50,
+	})
+	if err != nil {
+		logger.Warn().Err(err).Msg("failed to create activity logger, activity logging disabled")
+		activityLogger = nil
+	}
+
+	// Create callback that sends events to both UI and logger
+	uiCallback := createActivityUICallback(out, verbosity)
+	var callback ai.ActivityCallback
+	if activityLogger != nil {
+		callback = ai.CombineCallbacks(uiCallback, activityLogger.CreateCallback())
+	} else {
+		callback = uiCallback
+	}
+
+	return &ai.ActivityOptions{
+		Callback:      callback,
+		Verbosity:     verbosity,
+		WorkspaceName: workspaceName,
+	}
+}
+
+// createActivityUICallback creates a callback that displays activity events in the UI.
+func createActivityUICallback(out tui.Output, verbosity ai.VerbosityLevel) ai.ActivityCallback {
+	return func(event ai.ActivityEvent) {
+		// Filter by verbosity
+		if !verbosity.ShouldShow(event.Type) {
+			return
+		}
+
+		// Format the message with icon
+		icon := event.Type.Icon()
+		msg := event.FormatMessage()
+
+		// Display using dim style to differentiate from main progress
+		out.Info(fmt.Sprintf("  %s %s", icon, msg))
+	}
 }
