@@ -1036,5 +1036,6 @@ func TestWatchModel_TableRendering(t *testing.T) {
 	assert.True(t, strings.Contains(view, "auth") && strings.Contains(view, "feat/auth"),
 		"view should contain workspace and branch")
 	assert.Contains(t, view, "running")
-	assert.Contains(t, view, "3/7")
+	// Progress is now displayed as a mini progress bar for running tasks
+	assert.Contains(t, view, "███") // Partial progress bar (3/7 = ~43%)
 }
