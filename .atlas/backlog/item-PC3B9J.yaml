@@ -1,0 +1,20 @@
+schema_version: "1.1"
+id: item-PC3B9J
+guid: 4cbf71c5-c539-476b-ade9-f7e0e30864c0
+title: Add more test coverage to this file, try and get >=80%
+status: completed
+content:
+  description: 'At the end, run: magex lint - fix all issues'
+  category: testing
+  severity: low
+location:
+  file: internal/cli/cleanup.go
+context:
+  discovered_at: 2026-01-20T21:54:51.144779Z
+  discovered_by: human:mrz1836
+  git:
+    branch: master
+    commit: 1b0ba19
+lifecycle:
+  promoted_to_task: task-83d09104-56ff-4c03-a0d8-80f857f54f3c
+  completed_at: 2026-01-20T22:24:21.002676Z
