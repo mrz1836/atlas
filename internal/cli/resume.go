@@ -849,29 +849,65 @@ func displayCIContext(out tui.Output, t *domain.Task) {
 
 // selectRecoveryAction selects the appropriate recovery menu based on task state.
 func selectRecoveryAction(t *domain.Task) (tui.RecoveryAction, error) {
-	// For GH failed state, check for specific push error type
-	if action, ok := tryGHFailedRecovery(t); ok {
-		return action, nil
+	// For GH failed state, use step-aware recovery
+	if t.Status == constants.TaskStatusGHFailed {
+		return selectGHFailedRecovery(t)
 	}
 
 	// Default: use standard recovery menu
 	return tui.SelectErrorRecovery(t.Status)
 }
 
-// tryGHFailedRecovery attempts to show GH-specific recovery options.
-func tryGHFailedRecovery(t *domain.Task) (tui.RecoveryAction, bool) {
-	if t.Status != constants.TaskStatusGHFailed || t.Metadata == nil {
-		return "", false
+// getTaskStepName returns the current step name from the task, or empty string if unavailable.
+func getTaskStepName(t *domain.Task) string {
+	if t.CurrentStep >= 0 && t.CurrentStep < len(t.Steps) {
+		return t.Steps[t.CurrentStep].Name
+	}
+	return ""
+}
+
+// selectGHFailedRecovery shows step-aware recovery options for gh_failed status.
+func selectGHFailedRecovery(t *domain.Task) (tui.RecoveryAction, error) {
+	// Get step name for context-aware options
+	stepName := getTaskStepName(t)
+
+	// Check for specific push error type (existing logic for rebase option)
+	action, handled, err := trySelectPushErrorRecovery(t, stepName)
+	if handled {
+		return action, err
+	}
+
+	// Use step-aware options and title
+	options := tui.OptionsForGHFailedStep(stepName)
+	baseOptions := make([]tui.Option, len(options))
+	for i, opt := range options {
+		baseOptions[i] = opt.Option
+	}
+
+	title := tui.MenuTitleForGHFailedStep(stepName)
+	selected, err := tui.Select(title, baseOptions)
+	if err != nil {
+		return "", err
+	}
+
+	return tui.RecoveryAction(selected), nil
+}
+
+// trySelectPushErrorRecovery attempts to handle push-specific error recovery.
+// Returns (action, handled, error) where handled indicates if push error was found.
+func trySelectPushErrorRecovery(t *domain.Task, stepName string) (tui.RecoveryAction, bool, error) {
+	if t.Metadata == nil {
+		return "", false, nil
 	}
 
 	pushErrorType, ok := t.Metadata["push_error_type"].(string)
 	if !ok || pushErrorType == "" {
-		return "", false
+		return "", false, nil
 	}
 
 	options := tui.GHFailedOptionsForPushError(pushErrorType)
 	if len(options) == 0 {
-		return "", false
+		return "", false, nil
 	}
 
 	baseOptions := make([]tui.Option, len(options))
@@ -879,13 +915,14 @@ func tryGHFailedRecovery(t *domain.Task) (tui.RecoveryAction, bool) {
 		baseOptions[i] = opt.Option
 	}
 
-	title := tui.MenuTitleForStatus(t.Status)
+	// Use step-aware title even for push error type
+	title := tui.MenuTitleForGHFailedStep(stepName)
 	selected, err := tui.Select(title, baseOptions)
 	if err != nil {
-		return "", false
+		return "", true, err
 	}
 
-	return tui.RecoveryAction(selected), true
+	return tui.RecoveryAction(selected), true, nil
 }
 
 // executeRecoveryActionWithResume executes the selected recovery action.
@@ -895,7 +932,7 @@ func tryGHFailedRecovery(t *domain.Task) (tui.RecoveryAction, bool) {
 //   - error: any error that occurred
 func executeRecoveryActionWithResume(ctx context.Context, out tui.Output, taskStore *task.FileStore, ws *domain.Workspace, t *domain.Task, notifier *tui.Notifier, action tui.RecoveryAction) (bool, bool, error) {
 	switch action {
-	case tui.RecoveryActionRetryAI, tui.RecoveryActionRetryGH:
+	case tui.RecoveryActionRetryAI, tui.RecoveryActionRetryGH, tui.RecoveryActionRetryCommit:
 		err := handleRetryAction(ctx, out, taskStore, t, notifier)
 		return true, err == nil, err
 
