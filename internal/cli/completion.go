@@ -252,21 +252,26 @@ func installZshCompletions(rootCmd *cobra.Command, _ bool) (string, bool, error)
 	if err != nil {
 		return "", false, fmt.Errorf("could not determine home directory: %w", err)
 	}
+	return installZshCompletionsToDir(rootCmd, home)
+}
 
+// installZshCompletionsToDir installs zsh completions to a specific home directory.
+// This function is extracted for testability.
+func installZshCompletionsToDir(rootCmd *cobra.Command, home string) (string, bool, error) {
 	// Create completions directory
 	completionsDir := filepath.Join(home, ".zsh", "completions")
-	if err = os.MkdirAll(completionsDir, 0o750); err != nil {
+	if err := os.MkdirAll(completionsDir, 0o750); err != nil {
 		return "", false, fmt.Errorf("could not create %s: %w", completionsDir, err)
 	}
 
 	// Generate and write completion script
 	completionPath := filepath.Join(completionsDir, "_atlas")
 	var buf bytes.Buffer
-	if err = rootCmd.GenZshCompletion(&buf); err != nil {
+	if err := rootCmd.GenZshCompletion(&buf); err != nil {
 		return "", false, fmt.Errorf("could not generate zsh completions: %w", err)
 	}
 
-	if err = os.WriteFile(completionPath, buf.Bytes(), 0o600); err != nil {
+	if err := os.WriteFile(completionPath, buf.Bytes(), 0o600); err != nil {
 		return "", false, fmt.Errorf("could not write %s: %w", completionPath, err)
 	}
 
@@ -329,21 +334,26 @@ func installBashCompletions(rootCmd *cobra.Command, _ bool) (string, bool, error
 	if err != nil {
 		return "", false, fmt.Errorf("could not determine home directory: %w", err)
 	}
+	return installBashCompletionsToDir(rootCmd, home)
+}
 
+// installBashCompletionsToDir installs bash completions to a specific home directory.
+// This function is extracted for testability.
+func installBashCompletionsToDir(rootCmd *cobra.Command, home string) (string, bool, error) {
 	// Create completions directory
 	completionsDir := filepath.Join(home, ".bash_completion.d")
-	if err = os.MkdirAll(completionsDir, 0o750); err != nil {
+	if err := os.MkdirAll(completionsDir, 0o750); err != nil {
 		return "", false, fmt.Errorf("could not create %s: %w", completionsDir, err)
 	}
 
 	// Generate and write completion script
 	completionPath := filepath.Join(completionsDir, "atlas")
 	var buf bytes.Buffer
-	if err = rootCmd.GenBashCompletion(&buf); err != nil {
+	if err := rootCmd.GenBashCompletion(&buf); err != nil {
 		return "", false, fmt.Errorf("could not generate bash completions: %w", err)
 	}
 
-	if err = os.WriteFile(completionPath, buf.Bytes(), 0o600); err != nil {
+	if err := os.WriteFile(completionPath, buf.Bytes(), 0o600); err != nil {
 		return "", false, fmt.Errorf("could not write %s: %w", completionPath, err)
 	}
 
@@ -400,21 +410,26 @@ func installFishCompletions(rootCmd *cobra.Command, _ bool) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("could not determine home directory: %w", err)
 	}
+	return installFishCompletionsToDir(rootCmd, home)
+}
 
+// installFishCompletionsToDir installs fish completions to a specific home directory.
+// This function is extracted for testability.
+func installFishCompletionsToDir(rootCmd *cobra.Command, home string) (string, error) {
 	// Create completions directory
 	completionsDir := filepath.Join(home, ".config", "fish", "completions")
-	if err = os.MkdirAll(completionsDir, 0o750); err != nil {
+	if err := os.MkdirAll(completionsDir, 0o750); err != nil {
 		return "", fmt.Errorf("could not create %s: %w", completionsDir, err)
 	}
 
 	// Generate and write completion script
 	completionPath := filepath.Join(completionsDir, "atlas.fish")
 	var buf bytes.Buffer
-	if err = rootCmd.GenFishCompletion(&buf, true); err != nil {
+	if err := rootCmd.GenFishCompletion(&buf, true); err != nil {
 		return "", fmt.Errorf("could not generate fish completions: %w", err)
 	}
 
-	if err = os.WriteFile(completionPath, buf.Bytes(), 0o600); err != nil {
+	if err := os.WriteFile(completionPath, buf.Bytes(), 0o600); err != nil {
 		return "", fmt.Errorf("could not write %s: %w", completionPath, err)
 	}
 
