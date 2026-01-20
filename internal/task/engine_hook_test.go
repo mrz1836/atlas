@@ -116,6 +116,12 @@ func (m *mockHookManager) getLastFailError() error {
 	return m.lastFailError
 }
 
+func (m *mockHookManager) getFailStepCalls() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.failStep
+}
+
 // TestFailHookTask_CallsHookManager tests that failHookTask calls the hook manager
 func TestFailHookTask_CallsHookManager(t *testing.T) {
 	t.Parallel()
@@ -168,8 +174,9 @@ func TestFailHookTask_LogsWarningOnError(t *testing.T) {
 	assert.Equal(t, 1, hookManager.getFailCalls())
 }
 
-// TestTransitionToErrorState_CallsFailHookTask tests that transitioning to error state calls failHookTask
-func TestTransitionToErrorState_CallsFailHookTask(t *testing.T) {
+// TestTransitionToErrorState_CallsFailHookStep tests that transitioning to error state calls failHookStep
+// (not failHookTask) because these error states are recoverable via resume
+func TestTransitionToErrorState_CallsFailHookStep(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -179,13 +186,19 @@ func TestTransitionToErrorState_CallsFailHookTask(t *testing.T) {
 	engine := NewEngine(store, nil, DefaultEngineConfig(), testLogger(), WithHookManager(hookManager))
 
 	task := newTestTask(constants.TaskStatusRunning)
+	// Add steps so we can get step name
+	task.Steps = []domain.Step{
+		{Name: "validate", Type: domain.StepTypeValidation, Status: constants.StepStatusRunning},
+	}
+	task.CurrentStep = 0
 
 	err := engine.transitionToErrorState(ctx, task, domain.StepTypeValidation, "validation failed")
 
 	require.NoError(t, err)
 	assert.Equal(t, constants.TaskStatusValidationFailed, task.Status)
-	assert.Equal(t, 1, hookManager.getFailCalls())
-	assert.Contains(t, hookManager.getLastFailError().Error(), "validation failed")
+	// Should call failHookStep, not failHookTask (for recoverable errors)
+	assert.Equal(t, 1, hookManager.getFailStepCalls(), "should call failHookStep for recoverable error")
+	assert.Equal(t, 0, hookManager.getFailCalls(), "should NOT call failHookTask for recoverable error")
 }
 
 // TestAbandon_CallsFailHookTask tests that Abandon calls failHookTask
@@ -213,8 +226,9 @@ func TestAbandon_CallsFailHookTask(t *testing.T) {
 	assert.Contains(t, hookManager.getLastFailError().Error(), "task abandoned")
 }
 
-// TestRunSteps_ContextCancellation_CallsFailHookTask tests that context cancellation calls failHookTask
-func TestRunSteps_ContextCancellation_CallsFailHookTask(t *testing.T) {
+// TestRunSteps_ContextCancellation_CallsFailHookStep tests that context cancellation calls failHookStep
+// (not failHookTask) because interruptions are recoverable via resume
+func TestRunSteps_ContextCancellation_CallsFailHookStep(t *testing.T) {
 	t.Parallel()
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -227,6 +241,9 @@ func TestRunSteps_ContextCancellation_CallsFailHookTask(t *testing.T) {
 
 	task := newTestTask(constants.TaskStatusRunning)
 	task.CurrentStep = 0 // Start from step 0
+	task.Steps = []domain.Step{
+		{Name: "step1", Type: domain.StepTypeAI, Status: constants.StepStatusPending},
+	}
 	template := &domain.Template{
 		Name: "test",
 		Steps: []domain.StepDefinition{
@@ -241,11 +258,14 @@ func TestRunSteps_ContextCancellation_CallsFailHookTask(t *testing.T) {
 
 	require.Error(t, err)
 	require.ErrorIs(t, err, context.Canceled)
-	assert.Equal(t, 1, hookManager.getFailCalls())
+	// Should call failHookStep, not failHookTask (for recoverable interruption)
+	assert.Equal(t, 1, hookManager.getFailStepCalls(), "should call failHookStep for context cancellation")
+	assert.Equal(t, 0, hookManager.getFailCalls(), "should NOT call failHookTask for context cancellation")
 }
 
-// TestHandleCIFailure_CallsFailHookTask tests that CI failure calls failHookTask
-func TestHandleCIFailure_CallsFailHookTask(t *testing.T) {
+// TestHandleCIFailure_CallsFailHookStep tests that CI failure calls failHookStep
+// (not failHookTask) because CI failures are recoverable via resume
+func TestHandleCIFailure_CallsFailHookStep(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -257,19 +277,22 @@ func TestHandleCIFailure_CallsFailHookTask(t *testing.T) {
 	task := newTestTask(constants.TaskStatusRunning)
 	ciResult := newTestCIResult(git.CIStatusFailure)
 	result := &domain.StepResult{
-		Error: "CI checks failed",
+		StepName: "ci_watch",
+		Error:    "CI checks failed",
 	}
 
 	err := engine.handleCIFailure(ctx, task, result, ciResult)
 
 	require.NoError(t, err)
 	assert.Equal(t, constants.TaskStatusCIFailed, task.Status)
-	assert.Equal(t, 1, hookManager.getFailCalls())
-	assert.Contains(t, hookManager.getLastFailError().Error(), "ci workflow failed")
+	// Should call failHookStep, not failHookTask (for recoverable CI failure)
+	assert.Equal(t, 1, hookManager.getFailStepCalls(), "should call failHookStep for CI failure")
+	assert.Equal(t, 0, hookManager.getFailCalls(), "should NOT call failHookTask for CI failure")
 }
 
-// TestHandleGHFailure_CallsFailHookTask tests that GitHub failure calls failHookTask
-func TestHandleGHFailure_CallsFailHookTask(t *testing.T) {
+// TestHandleGHFailure_CallsFailHookStep tests that GitHub failure calls failHookStep
+// (not failHookTask) because GH failures are recoverable via resume
+func TestHandleGHFailure_CallsFailHookStep(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -280,19 +303,22 @@ func TestHandleGHFailure_CallsFailHookTask(t *testing.T) {
 
 	task := newTestTask(constants.TaskStatusRunning)
 	result := &domain.StepResult{
-		Error: "gh_failed: non_fast_forward",
+		StepName: "git_push",
+		Error:    "gh_failed: non_fast_forward",
 	}
 
 	err := engine.handleGHFailure(ctx, task, result)
 
 	require.NoError(t, err)
 	assert.Equal(t, constants.TaskStatusGHFailed, task.Status)
-	assert.Equal(t, 1, hookManager.getFailCalls())
-	assert.Contains(t, hookManager.getLastFailError().Error(), "github operation failed")
+	// Should call failHookStep, not failHookTask (for recoverable GH failure)
+	assert.Equal(t, 1, hookManager.getFailStepCalls(), "should call failHookStep for GH failure")
+	assert.Equal(t, 0, hookManager.getFailCalls(), "should NOT call failHookTask for GH failure")
 }
 
-// TestHandleCITimeout_CallsFailHookTask tests that CI timeout calls failHookTask
-func TestHandleCITimeout_CallsFailHookTask(t *testing.T) {
+// TestHandleCITimeout_CallsFailHookStep tests that CI timeout calls failHookStep
+// (not failHookTask) because CI timeouts are recoverable via resume
+func TestHandleCITimeout_CallsFailHookStep(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -304,19 +330,21 @@ func TestHandleCITimeout_CallsFailHookTask(t *testing.T) {
 	task := newTestTask(constants.TaskStatusRunning)
 	ciResult := newTestCIResult(git.CIStatusTimeout)
 	result := &domain.StepResult{
-		Error: "CI monitoring timed out",
+		StepName: "ci_watch",
+		Error:    "CI monitoring timed out",
 	}
 
 	err := engine.handleCITimeout(ctx, task, result, ciResult)
 
 	require.NoError(t, err)
 	assert.Equal(t, constants.TaskStatusCITimeout, task.Status)
-	assert.Equal(t, 1, hookManager.getFailCalls())
-	assert.Contains(t, hookManager.getLastFailError().Error(), "ci polling timeout")
+	// Should call failHookStep, not failHookTask (for recoverable CI timeout)
+	assert.Equal(t, 1, hookManager.getFailStepCalls(), "should call failHookStep for CI timeout")
+	assert.Equal(t, 0, hookManager.getFailCalls(), "should NOT call failHookTask for CI timeout")
 }
 
-// TestNoFailHookTask_WhenNoHookManager tests that no panic occurs without hook manager
-func TestNoFailHookTask_WhenNoHookManager(t *testing.T) {
+// TestNoHookCalls_WhenNoHookManager tests that no panic occurs without hook manager
+func TestNoHookCalls_WhenNoHookManager(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -325,6 +353,10 @@ func TestNoFailHookTask_WhenNoHookManager(t *testing.T) {
 	engine := NewEngine(store, nil, DefaultEngineConfig(), testLogger()) // No hook manager
 
 	task := newTestTask(constants.TaskStatusRunning)
+	task.Steps = []domain.Step{
+		{Name: "validate", Type: domain.StepTypeValidation, Status: constants.StepStatusRunning},
+	}
+	task.CurrentStep = 0
 
 	// All of these should not panic without hook manager
 	err := engine.transitionToErrorState(ctx, task, domain.StepTypeValidation, "validation failed")
@@ -341,7 +373,159 @@ func TestNoFailHookTask_WhenNoHookManager(t *testing.T) {
 
 	task = newTestTask(constants.TaskStatusRunning)
 	ciResult := newTestCIResult(git.CIStatusFailure)
-	result := &domain.StepResult{Error: "CI failed"}
+	result := &domain.StepResult{StepName: "ci_watch", Error: "CI failed"}
 	err = engine.handleCIFailure(ctx, task, result, ciResult)
 	require.NoError(t, err)
+}
+
+// TestTransitionToErrorState_EmptyStepsArray tests that transitionToErrorState handles empty steps gracefully
+func TestTransitionToErrorState_EmptyStepsArray(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := newMockStore()
+	hookManager := newMockHookManager()
+
+	engine := NewEngine(store, nil, DefaultEngineConfig(), testLogger(), WithHookManager(hookManager))
+
+	task := newTestTask(constants.TaskStatusRunning)
+	// Task has no steps - edge case
+	task.Steps = nil
+	task.CurrentStep = 0
+
+	err := engine.transitionToErrorState(ctx, task, domain.StepTypeValidation, "validation failed")
+
+	require.NoError(t, err)
+	assert.Equal(t, constants.TaskStatusValidationFailed, task.Status)
+	// Should still call failHookStep with empty step name
+	assert.Equal(t, 1, hookManager.getFailStepCalls())
+}
+
+// TestTransitionToErrorState_InvalidCurrentStep tests that transitionToErrorState handles out-of-bounds step index
+func TestTransitionToErrorState_InvalidCurrentStep(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := newMockStore()
+	hookManager := newMockHookManager()
+
+	engine := NewEngine(store, nil, DefaultEngineConfig(), testLogger(), WithHookManager(hookManager))
+
+	task := newTestTask(constants.TaskStatusRunning)
+	task.Steps = []domain.Step{
+		{Name: "step1", Type: domain.StepTypeValidation},
+	}
+	task.CurrentStep = 10 // Out of bounds
+
+	err := engine.transitionToErrorState(ctx, task, domain.StepTypeValidation, "validation failed")
+
+	require.NoError(t, err)
+	assert.Equal(t, constants.TaskStatusValidationFailed, task.Status)
+	// Should still call failHookStep with empty step name (bounds check prevents panic)
+	assert.Equal(t, 1, hookManager.getFailStepCalls())
+}
+
+// TestTransitionToErrorState_NegativeCurrentStep tests that transitionToErrorState handles negative step index
+func TestTransitionToErrorState_NegativeCurrentStep(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := newMockStore()
+	hookManager := newMockHookManager()
+
+	engine := NewEngine(store, nil, DefaultEngineConfig(), testLogger(), WithHookManager(hookManager))
+
+	task := newTestTask(constants.TaskStatusRunning)
+	task.Steps = []domain.Step{
+		{Name: "step1", Type: domain.StepTypeValidation},
+	}
+	task.CurrentStep = -1 // Negative index
+
+	err := engine.transitionToErrorState(ctx, task, domain.StepTypeValidation, "validation failed")
+
+	require.NoError(t, err)
+	assert.Equal(t, constants.TaskStatusValidationFailed, task.Status)
+	// Should still call failHookStep with empty step name (bounds check prevents panic)
+	assert.Equal(t, 1, hookManager.getFailStepCalls())
+}
+
+// TestRecoverableErrorsUseFailHookStep verifies that all recoverable error states
+// use failHookStep (not failHookTask) to allow resume functionality
+func TestRecoverableErrorsUseFailHookStep(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name     string
+		setup    func(*Engine, *domain.Task) error
+		expected constants.TaskStatus
+	}{
+		{
+			name: "validation_failed",
+			setup: func(e *Engine, task *domain.Task) error {
+				return e.transitionToErrorState(context.Background(), task, domain.StepTypeValidation, "test error")
+			},
+			expected: constants.TaskStatusValidationFailed,
+		},
+		{
+			name: "gh_failed",
+			setup: func(e *Engine, task *domain.Task) error {
+				return e.transitionToErrorState(context.Background(), task, domain.StepTypeGit, "test error")
+			},
+			expected: constants.TaskStatusGHFailed,
+		},
+		{
+			name: "ci_failed",
+			setup: func(e *Engine, task *domain.Task) error {
+				return e.transitionToErrorState(context.Background(), task, domain.StepTypeCI, "test error")
+			},
+			expected: constants.TaskStatusCIFailed,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			store := newMockStore()
+			hookManager := newMockHookManager()
+			engine := NewEngine(store, nil, DefaultEngineConfig(), testLogger(), WithHookManager(hookManager))
+
+			task := newTestTask(constants.TaskStatusRunning)
+			task.Steps = []domain.Step{{Name: "test_step", Type: domain.StepTypeValidation}}
+			task.CurrentStep = 0
+
+			err := tc.setup(engine, task)
+
+			require.NoError(t, err)
+			assert.Equal(t, tc.expected, task.Status)
+			// Key assertion: recoverable errors use failHookStep, NOT failHookTask
+			assert.Equal(t, 1, hookManager.getFailStepCalls(), "recoverable error %s should call failHookStep", tc.name)
+			assert.Equal(t, 0, hookManager.getFailCalls(), "recoverable error %s should NOT call failHookTask", tc.name)
+		})
+	}
+}
+
+// TestAbandon_UsesFailHookTask verifies that Abandon (terminal state) still uses failHookTask
+func TestAbandon_UsesFailHookTask(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := newMockStore()
+	hookManager := newMockHookManager()
+
+	engine := NewEngine(store, nil, DefaultEngineConfig(), testLogger(), WithHookManager(hookManager))
+
+	task := newTestTask(constants.TaskStatusGHFailed) // Start from a recoverable error state
+	task.Transitions = []domain.Transition{
+		{ToStatus: constants.TaskStatusRunning},
+		{ToStatus: constants.TaskStatusGHFailed},
+	}
+
+	err := engine.Abandon(ctx, task, "user explicitly abandoned", false)
+
+	require.NoError(t, err)
+	assert.Equal(t, constants.TaskStatusAbandoned, task.Status)
+	// Key assertion: Abandon is terminal, so it should use failHookTask (not failHookStep)
+	assert.Equal(t, 1, hookManager.getFailCalls(), "Abandon should call failHookTask for terminal state")
+	assert.Equal(t, 0, hookManager.getFailStepCalls(), "Abandon should NOT call failHookStep")
 }

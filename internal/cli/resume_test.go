@@ -647,3 +647,333 @@ func TestCalculateWorktreePath(t *testing.T) {
 		})
 	}
 }
+
+func TestGetTaskStepName(t *testing.T) {
+	tests := []struct {
+		name         string
+		task         *domain.Task
+		expectedName string
+	}{
+		{
+			name: "returns step name for valid current step",
+			task: &domain.Task{
+				CurrentStep: 2,
+				Steps: []domain.Step{
+					{Name: "implement"},
+					{Name: "validate"},
+					{Name: "git_commit"},
+					{Name: "git_push"},
+				},
+			},
+			expectedName: "git_commit",
+		},
+		{
+			name: "returns first step name when current step is 0",
+			task: &domain.Task{
+				CurrentStep: 0,
+				Steps: []domain.Step{
+					{Name: "implement"},
+					{Name: "validate"},
+				},
+			},
+			expectedName: "implement",
+		},
+		{
+			name: "returns last step name for last step",
+			task: &domain.Task{
+				CurrentStep: 3,
+				Steps: []domain.Step{
+					{Name: "implement"},
+					{Name: "validate"},
+					{Name: "git_commit"},
+					{Name: "git_pr"},
+				},
+			},
+			expectedName: "git_pr",
+		},
+		{
+			name: "returns empty string when current step is out of bounds (too high)",
+			task: &domain.Task{
+				CurrentStep: 5,
+				Steps: []domain.Step{
+					{Name: "implement"},
+					{Name: "validate"},
+				},
+			},
+			expectedName: "",
+		},
+		{
+			name: "returns empty string when current step is negative",
+			task: &domain.Task{
+				CurrentStep: -1,
+				Steps: []domain.Step{
+					{Name: "implement"},
+				},
+			},
+			expectedName: "",
+		},
+		{
+			name: "returns empty string when steps is empty",
+			task: &domain.Task{
+				CurrentStep: 0,
+				Steps:       []domain.Step{},
+			},
+			expectedName: "",
+		},
+		{
+			name: "returns empty string when steps is nil",
+			task: &domain.Task{
+				CurrentStep: 0,
+				Steps:       nil,
+			},
+			expectedName: "",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := getTaskStepName(tc.task)
+			assert.Equal(t, tc.expectedName, result)
+		})
+	}
+}
+
+func TestSelectRecoveryAction_NonGHFailed(t *testing.T) {
+	// For non-gh_failed statuses, selectRecoveryAction should delegate to tui.SelectErrorRecovery
+	// which returns ErrMenuCanceled for non-error statuses
+	tests := []struct {
+		name   string
+		status constants.TaskStatus
+	}{
+		{"validation_failed", constants.TaskStatusValidationFailed},
+		{"ci_failed", constants.TaskStatusCIFailed},
+		{"ci_timeout", constants.TaskStatusCITimeout},
+		{"running (non-error)", constants.TaskStatusRunning},
+		{"pending (non-error)", constants.TaskStatusPending},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			task := &domain.Task{
+				Status:      tc.status,
+				CurrentStep: 0,
+				Steps: []domain.Step{
+					{Name: "validate"},
+				},
+			}
+
+			// Since we can't easily mock the tui.Select call, we verify the function
+			// returns an error (ErrMenuCanceled) when not in a terminal
+			action, err := selectRecoveryAction(task)
+
+			// Should return error since there's no terminal for huh forms
+			require.Error(t, err)
+			assert.Empty(t, action)
+		})
+	}
+}
+
+func TestExecuteRecoveryActionWithResume_RetryCommit(t *testing.T) {
+	// Test that RecoveryActionRetryCommit is handled the same as RetryGH and RetryAI
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+
+	ws := &domain.Workspace{
+		Name:         "test-ws",
+		WorktreePath: tmpDir,
+	}
+
+	testTask := &domain.Task{
+		ID:          "task-123",
+		WorkspaceID: "test-ws",
+		Status:      constants.TaskStatusGHFailed,
+		CurrentStep: 2,
+		Steps: []domain.Step{
+			{Name: "implement", Status: constants.StepStatusSuccess},
+			{Name: "validate", Status: constants.StepStatusSuccess},
+			{Name: "git_commit", Status: constants.StepStatusFailed},
+		},
+	}
+
+	// Create a task store
+	taskStore, err := task.NewFileStore(tmpDir)
+	require.NoError(t, err)
+
+	// Create and save the task first
+	require.NoError(t, taskStore.Create(ctx, testTask.WorkspaceID, testTask))
+
+	var buf bytes.Buffer
+	out := tui.NewOutput(&buf, "text")
+	notifier := tui.NewNotifier(false, true)
+
+	// Test RecoveryActionRetryCommit
+	done, autoResume, err := executeRecoveryActionWithResume(
+		ctx, out, taskStore, ws, testTask, notifier,
+		tui.RecoveryActionRetryCommit,
+	)
+
+	require.NoError(t, err)
+	assert.True(t, done, "retry commit should be a terminal action")
+	assert.True(t, autoResume, "retry commit should trigger auto-resume")
+	assert.Equal(t, constants.TaskStatusRunning, testTask.Status, "task should transition to running")
+}
+
+func TestStepAwareRecoveryMenuMapping(t *testing.T) {
+	// Test that the step name maps to the correct recovery options
+	// This tests the integration between step names and menu options
+
+	tests := []struct {
+		stepName      string
+		expectedTitle string
+		expectedFirst string
+	}{
+		{
+			stepName:      "git_commit",
+			expectedTitle: "Commit failed",
+			expectedFirst: "Retry commit",
+		},
+		{
+			stepName:      "git_push",
+			expectedTitle: "Push failed",
+			expectedFirst: "Retry push/PR",
+		},
+		{
+			stepName:      "git_pr",
+			expectedTitle: "PR creation failed",
+			expectedFirst: "Retry PR creation",
+		},
+		{
+			stepName:      "unknown_step",
+			expectedTitle: "GitHub operation failed",
+			expectedFirst: "Retry push/PR",
+		},
+		{
+			stepName:      "",
+			expectedTitle: "GitHub operation failed",
+			expectedFirst: "Retry push/PR",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.stepName+"_step", func(t *testing.T) {
+			title := tui.MenuTitleForGHFailedStep(tc.stepName)
+			options := tui.OptionsForGHFailedStep(tc.stepName)
+
+			assert.Contains(t, title, tc.expectedTitle,
+				"title should contain expected text for step %s", tc.stepName)
+			assert.Equal(t, tc.expectedFirst, options[0].Label,
+				"first option should be %s for step %s", tc.expectedFirst, tc.stepName)
+		})
+	}
+}
+
+func TestGHFailedRecoveryWithPushError(t *testing.T) {
+	// Test that push error type takes precedence and adds rebase option
+
+	testTask := &domain.Task{
+		Status:      constants.TaskStatusGHFailed,
+		CurrentStep: 2,
+		Steps: []domain.Step{
+			{Name: "implement"},
+			{Name: "validate"},
+			{Name: "git_push"},
+		},
+		Metadata: map[string]any{
+			"push_error_type": "non_fast_forward",
+		},
+	}
+
+	stepName := getTaskStepName(testTask)
+	assert.Equal(t, "git_push", stepName)
+
+	// When there's a push error type, GHFailedOptionsForPushError should be used
+	options := tui.GHFailedOptionsForPushError("non_fast_forward")
+	assert.GreaterOrEqual(t, len(options), 4, "should have rebase option")
+	assert.Equal(t, "Rebase and retry", options[0].Label)
+}
+
+func TestAllRecoveryActionsAreCovered(t *testing.T) {
+	// Verify that all recovery actions are handled in executeRecoveryActionWithResume
+	// by checking that each action type exists
+
+	allActions := []tui.RecoveryAction{
+		tui.RecoveryActionRetryAI,
+		tui.RecoveryActionRetryGH,
+		tui.RecoveryActionRetryCommit,
+		tui.RecoveryActionRebaseRetry,
+		tui.RecoveryActionFixManually,
+		tui.RecoveryActionViewErrors,
+		tui.RecoveryActionViewLogs,
+		tui.RecoveryActionContinueWaiting,
+		tui.RecoveryActionAbandon,
+	}
+
+	// This test just verifies the actions exist and have string representations
+	for _, action := range allActions {
+		t.Run(action.String(), func(t *testing.T) {
+			assert.NotEmpty(t, action.String(), "action should have string representation")
+		})
+	}
+}
+
+func TestTaskStepContextForErrorDisplay(t *testing.T) {
+	// Test that failed tasks have proper step context for error display
+
+	tests := []struct {
+		name         string
+		currentStep  int
+		steps        []domain.Step
+		expectedStep string
+	}{
+		{
+			name:        "commit step failed",
+			currentStep: 2,
+			steps: []domain.Step{
+				{Name: "implement"},
+				{Name: "validate"},
+				{Name: "git_commit", Error: "commit failed: no changes to commit"},
+			},
+			expectedStep: "git_commit",
+		},
+		{
+			name:        "push step failed",
+			currentStep: 3,
+			steps: []domain.Step{
+				{Name: "implement"},
+				{Name: "validate"},
+				{Name: "git_commit"},
+				{Name: "git_push", Error: "push rejected: non-fast-forward"},
+			},
+			expectedStep: "git_push",
+		},
+		{
+			name:        "pr step failed",
+			currentStep: 4,
+			steps: []domain.Step{
+				{Name: "implement"},
+				{Name: "validate"},
+				{Name: "git_commit"},
+				{Name: "git_push"},
+				{Name: "git_pr", Error: "PR creation failed: duplicate PR"},
+			},
+			expectedStep: "git_pr",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			task := &domain.Task{
+				Status:      constants.TaskStatusGHFailed,
+				CurrentStep: tc.currentStep,
+				Steps:       tc.steps,
+			}
+
+			stepName := getTaskStepName(task)
+			assert.Equal(t, tc.expectedStep, stepName)
+
+			// Verify that the step name maps to appropriate recovery options
+			options := tui.OptionsForGHFailedStep(stepName)
+			assert.NotEmpty(t, options, "should have recovery options for step %s", stepName)
+		})
+	}
+}
