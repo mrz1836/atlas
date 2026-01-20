@@ -13,6 +13,7 @@ import (
 )
 
 func TestNewTestCmd(t *testing.T) {
+	t.Parallel()
 	cmd := newTestCmd()
 
 	assert.Equal(t, "test", cmd.Use)
@@ -22,6 +23,7 @@ func TestNewTestCmd(t *testing.T) {
 }
 
 func TestAddTestCommand(t *testing.T) {
+	t.Parallel()
 	root := &cobra.Command{Use: "atlas"}
 	AddTestCommand(root)
 
@@ -33,6 +35,7 @@ func TestAddTestCommand(t *testing.T) {
 }
 
 func TestRunTest_ContextCancellation(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately
 
@@ -72,12 +75,14 @@ func TestRunTest_WithJSONOutput(t *testing.T) {
 }
 
 func TestTestCommand_HasNoArgs(t *testing.T) {
+	t.Parallel()
 	cmd := newTestCmd()
 	// Test command should accept no arguments
 	assert.Nil(t, cmd.Args)
 }
 
 func TestTestCommand_Examples(t *testing.T) {
+	t.Parallel()
 	cmd := newTestCmd()
 	// Verify examples are present
 	assert.Contains(t, cmd.Long, "atlas test")
@@ -121,11 +126,13 @@ func TestRunTest_VerboseMode(t *testing.T) {
 }
 
 func TestNewTestCmd_RunEFunctionExists(t *testing.T) {
+	t.Parallel()
 	cmd := newTestCmd()
 	assert.NotNil(t, cmd.RunE, "test command should have RunE function")
 }
 
 func TestAddTestCommand_AddsToRoot(t *testing.T) {
+	t.Parallel()
 	root := &cobra.Command{Use: "atlas"}
 	initialCmdCount := len(root.Commands())
 
@@ -163,6 +170,7 @@ func TestTestCommand_RunEExecution(t *testing.T) {
 }
 
 func TestTestCommand_GetWdError(t *testing.T) {
+	t.Parallel()
 	// Test error path when os.Getwd() fails
 	// This is difficult to test in isolation without mocking,
 	// but we can verify the error handling exists by reading the code

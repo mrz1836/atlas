@@ -13,6 +13,7 @@ import (
 )
 
 func TestNewLintCmd(t *testing.T) {
+	t.Parallel()
 	cmd := newLintCmd()
 
 	assert.Equal(t, "lint", cmd.Use)
@@ -22,6 +23,7 @@ func TestNewLintCmd(t *testing.T) {
 }
 
 func TestAddLintCommand(t *testing.T) {
+	t.Parallel()
 	root := &cobra.Command{Use: "atlas"}
 	AddLintCommand(root)
 
@@ -33,6 +35,7 @@ func TestAddLintCommand(t *testing.T) {
 }
 
 func TestRunLint_ContextCancellation(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately
 
@@ -72,12 +75,14 @@ func TestRunLint_WithJSONOutput(t *testing.T) {
 }
 
 func TestLintCommand_HasNoArgs(t *testing.T) {
+	t.Parallel()
 	cmd := newLintCmd()
 	// Lint command should accept no arguments
 	assert.Nil(t, cmd.Args)
 }
 
 func TestLintCommand_Examples(t *testing.T) {
+	t.Parallel()
 	cmd := newLintCmd()
 	// Verify examples are present
 	assert.Contains(t, cmd.Long, "atlas lint")
@@ -121,11 +126,13 @@ func TestRunLint_VerboseMode(t *testing.T) {
 }
 
 func TestNewLintCmd_RunEFunctionExists(t *testing.T) {
+	t.Parallel()
 	cmd := newLintCmd()
 	assert.NotNil(t, cmd.RunE, "lint command should have RunE function")
 }
 
 func TestAddLintCommand_AddsToRoot(t *testing.T) {
+	t.Parallel()
 	root := &cobra.Command{Use: "atlas"}
 	initialCmdCount := len(root.Commands())
 
@@ -163,6 +170,7 @@ func TestLintCommand_RunEExecution(t *testing.T) {
 }
 
 func TestLintCommand_GetWdError(t *testing.T) {
+	t.Parallel()
 	// Test error path when os.Getwd() fails
 	// This is difficult to test in isolation without mocking,
 	// but we can verify the error handling exists by reading the code
