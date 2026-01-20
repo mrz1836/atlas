@@ -31,6 +31,7 @@ type mockHookManager struct {
 	transitionStep int
 	completeStep   int
 	failStep       int
+	interruptStep  int
 
 	// Store last error passed to FailTask
 	lastFailError error
@@ -92,6 +93,13 @@ func (m *mockHookManager) FailStep(_ context.Context, _ *domain.Task, _ string, 
 	return nil
 }
 
+func (m *mockHookManager) InterruptStep(_ context.Context, _ *domain.Task, _ string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.interruptStep++
+	return nil
+}
+
 func (m *mockHookManager) StartIntervalCheckpointing(_ context.Context, _ *domain.Task) error {
 	return nil
 }
@@ -120,6 +128,12 @@ func (m *mockHookManager) getFailStepCalls() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.failStep
+}
+
+func (m *mockHookManager) getInterruptStepCalls() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.interruptStep
 }
 
 // TestFailHookTask_CallsHookManager tests that failHookTask calls the hook manager
@@ -226,9 +240,9 @@ func TestAbandon_CallsFailHookTask(t *testing.T) {
 	assert.Contains(t, hookManager.getLastFailError().Error(), "task abandoned")
 }
 
-// TestRunSteps_ContextCancellation_CallsFailHookStep tests that context cancellation calls failHookStep
-// (not failHookTask) because interruptions are recoverable via resume
-func TestRunSteps_ContextCancellation_CallsFailHookStep(t *testing.T) {
+// TestRunSteps_ContextCancellation_CallsInterruptHookStep tests that context cancellation calls interruptHookStep
+// (not failHookStep or failHookTask) because interruptions are recoverable via resume
+func TestRunSteps_ContextCancellation_CallsInterruptHookStep(t *testing.T) {
 	t.Parallel()
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -258,8 +272,9 @@ func TestRunSteps_ContextCancellation_CallsFailHookStep(t *testing.T) {
 
 	require.Error(t, err)
 	require.ErrorIs(t, err, context.Canceled)
-	// Should call failHookStep, not failHookTask (for recoverable interruption)
-	assert.Equal(t, 1, hookManager.getFailStepCalls(), "should call failHookStep for context cancellation")
+	// Should call interruptHookStep (not failHookStep or failHookTask) for user interruption
+	assert.Equal(t, 1, hookManager.getInterruptStepCalls(), "should call interruptHookStep for context cancellation")
+	assert.Equal(t, 0, hookManager.getFailStepCalls(), "should NOT call failHookStep for context cancellation")
 	assert.Equal(t, 0, hookManager.getFailCalls(), "should NOT call failHookTask for context cancellation")
 }
 

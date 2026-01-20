@@ -124,6 +124,10 @@ type HookStepManager interface {
 
 	// FailStep updates the hook when a step fails.
 	FailStep(ctx context.Context, task *domain.Task, stepName string, err error) error
+
+	// InterruptStep updates the hook when a step is interrupted by user (e.g., Ctrl+C).
+	// It transitions to awaiting_human state so resume can transition back to step_running.
+	InterruptStep(ctx context.Context, task *domain.Task, stepName string) error
 }
 
 // HookCheckpointManager handles checkpoint operations.
@@ -695,11 +699,12 @@ func (e *Engine) handleContextCancellation(ctx context.Context, task *domain.Tas
 	uncancelledCtx := context.WithoutCancel(ctx)
 
 	// Update hook state to reflect interruption (recoverable via resume)
+	// Use interruptHookStep instead of failHookStep since this is user interruption
 	stepName := ""
 	if task.CurrentStep >= 0 && task.CurrentStep < len(template.Steps) {
 		stepName = template.Steps[task.CurrentStep].Name
 	}
-	e.failHookStep(uncancelledCtx, task, stepName, err)
+	e.interruptHookStep(uncancelledCtx, task, stepName)
 
 	// Try to save current state as checkpoint
 	if saveErr := e.store.Update(uncancelledCtx, task.WorkspaceID, task); saveErr != nil {

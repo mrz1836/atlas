@@ -289,6 +289,44 @@ func (m *Manager) FailStep(ctx context.Context, task *domain.Task, stepName stri
 	})
 }
 
+// InterruptStep updates the hook when a step is interrupted by user (e.g., Ctrl+C).
+// It transitions to awaiting_human state so resume can transition back to step_running.
+func (m *Manager) InterruptStep(ctx context.Context, task *domain.Task, stepName string) error {
+	taskPath := resolveTaskPath(task.WorkspaceID, task.ID)
+	return m.store.Update(ctx, taskPath, func(h *domain.Hook) error {
+		// If already in awaiting_human or terminal state, no-op
+		if h.State == domain.HookStateAwaitingHuman || domain.IsTerminalState(h.State) {
+			return nil
+		}
+
+		// Validate transition before applying
+		if err := domain.ValidateTransition(h.State, domain.HookStateAwaitingHuman); err != nil {
+			return fmt.Errorf("transition to awaiting_human: %w", err)
+		}
+
+		now := time.Now().UTC()
+		oldState := h.State
+
+		// Update state to awaiting_human (waiting for user to resume)
+		h.State = domain.HookStateAwaitingHuman
+		h.UpdatedAt = now
+
+		// Record transition with interrupt details
+		h.History = append(h.History, domain.HookEvent{
+			Timestamp: now,
+			FromState: oldState,
+			ToState:   domain.HookStateAwaitingHuman,
+			Trigger:   "user_interrupted",
+			StepName:  stepName,
+			Details: map[string]any{
+				"reason": "user pressed Ctrl+C",
+			},
+		})
+		pruneHistory(h)
+		return nil
+	})
+}
+
 // CompleteTask finalizes the hook when the task completes.
 func (m *Manager) CompleteTask(ctx context.Context, task *domain.Task) error {
 	// Always stop the interval checkpointer when the task is done

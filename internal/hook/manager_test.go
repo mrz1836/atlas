@@ -905,6 +905,268 @@ func TestManager_FailStep(t *testing.T) {
 	})
 }
 
+func TestManager_InterruptStep(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("transitions hook from step_running to awaiting_human", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		store := NewFileStore(tmpDir)
+		cfg := &config.HookConfig{}
+		m := NewManager(store, cfg)
+
+		taskID := "test-interrupt"
+		workspaceID := testWorkspaceID
+		task := &domain.Task{ID: taskID, WorkspaceID: workspaceID}
+
+		taskPath := resolveTaskPath(workspaceID, taskID)
+		taskDir := filepath.Join(tmpDir, taskPath)
+		require.NoError(t, os.MkdirAll(taskDir, 0o750))
+
+		hook := &domain.Hook{
+			TaskID: taskPath,
+			State:  domain.HookStateStepRunning,
+			CurrentStep: &domain.StepContext{
+				StepName:  "ci_wait",
+				StepIndex: 3,
+			},
+		}
+		require.NoError(t, store.Save(ctx, hook))
+
+		err := m.InterruptStep(ctx, task, "ci_wait")
+		require.NoError(t, err)
+
+		updatedHook, err := store.Get(ctx, taskPath)
+		require.NoError(t, err)
+		assert.Equal(t, domain.HookStateAwaitingHuman, updatedHook.State)
+		require.Len(t, updatedHook.History, 1)
+		assert.Equal(t, domain.HookStateStepRunning, updatedHook.History[0].FromState)
+		assert.Equal(t, domain.HookStateAwaitingHuman, updatedHook.History[0].ToState)
+		assert.Equal(t, "user_interrupted", updatedHook.History[0].Trigger)
+		assert.Equal(t, "ci_wait", updatedHook.History[0].StepName)
+		assert.Equal(t, "user pressed Ctrl+C", updatedHook.History[0].Details["reason"])
+	})
+
+	t.Run("no-op when already in awaiting_human state", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		store := NewFileStore(tmpDir)
+		cfg := &config.HookConfig{}
+		m := NewManager(store, cfg)
+
+		taskID := "test-interrupt-noop-awaiting"
+		workspaceID := testWorkspaceID
+		task := &domain.Task{ID: taskID, WorkspaceID: workspaceID}
+
+		taskPath := resolveTaskPath(workspaceID, taskID)
+		taskDir := filepath.Join(tmpDir, taskPath)
+		require.NoError(t, os.MkdirAll(taskDir, 0o750))
+
+		// Already in awaiting_human state
+		hook := &domain.Hook{
+			TaskID: taskPath,
+			State:  domain.HookStateAwaitingHuman,
+		}
+		require.NoError(t, store.Save(ctx, hook))
+
+		err := m.InterruptStep(ctx, task, "ci_wait")
+		require.NoError(t, err)
+
+		// Should remain in awaiting_human with no new history
+		updatedHook, err := store.Get(ctx, taskPath)
+		require.NoError(t, err)
+		assert.Equal(t, domain.HookStateAwaitingHuman, updatedHook.State)
+		assert.Empty(t, updatedHook.History)
+	})
+
+	t.Run("no-op when in completed terminal state", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		store := NewFileStore(tmpDir)
+		cfg := &config.HookConfig{}
+		m := NewManager(store, cfg)
+
+		taskID := "test-interrupt-noop-completed"
+		workspaceID := testWorkspaceID
+		task := &domain.Task{ID: taskID, WorkspaceID: workspaceID}
+
+		taskPath := resolveTaskPath(workspaceID, taskID)
+		taskDir := filepath.Join(tmpDir, taskPath)
+		require.NoError(t, os.MkdirAll(taskDir, 0o750))
+
+		// Already in completed (terminal) state
+		hook := &domain.Hook{
+			TaskID: taskPath,
+			State:  domain.HookStateCompleted,
+		}
+		require.NoError(t, store.Save(ctx, hook))
+
+		err := m.InterruptStep(ctx, task, "ci_wait")
+		require.NoError(t, err)
+
+		// Should remain in completed with no new history
+		updatedHook, err := store.Get(ctx, taskPath)
+		require.NoError(t, err)
+		assert.Equal(t, domain.HookStateCompleted, updatedHook.State)
+		assert.Empty(t, updatedHook.History)
+	})
+
+	t.Run("no-op when in failed terminal state", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		store := NewFileStore(tmpDir)
+		cfg := &config.HookConfig{}
+		m := NewManager(store, cfg)
+
+		taskID := "test-interrupt-noop-failed"
+		workspaceID := testWorkspaceID
+		task := &domain.Task{ID: taskID, WorkspaceID: workspaceID}
+
+		taskPath := resolveTaskPath(workspaceID, taskID)
+		taskDir := filepath.Join(tmpDir, taskPath)
+		require.NoError(t, os.MkdirAll(taskDir, 0o750))
+
+		// Already in failed (terminal) state
+		hook := &domain.Hook{
+			TaskID: taskPath,
+			State:  domain.HookStateFailed,
+		}
+		require.NoError(t, store.Save(ctx, hook))
+
+		err := m.InterruptStep(ctx, task, "ci_wait")
+		require.NoError(t, err)
+
+		// Should remain in failed with no new history
+		updatedHook, err := store.Get(ctx, taskPath)
+		require.NoError(t, err)
+		assert.Equal(t, domain.HookStateFailed, updatedHook.State)
+		assert.Empty(t, updatedHook.History)
+	})
+
+	t.Run("rejects invalid transition from step_pending", func(t *testing.T) {
+		// step_pending can only transition to step_running, completed, or abandoned
+		// according to the state machine. Interrupt from step_pending should fail.
+		tmpDir := t.TempDir()
+		store := NewFileStore(tmpDir)
+		cfg := &config.HookConfig{}
+		m := NewManager(store, cfg)
+
+		taskID := "test-interrupt-from-pending"
+		workspaceID := testWorkspaceID
+		task := &domain.Task{ID: taskID, WorkspaceID: workspaceID}
+
+		taskPath := resolveTaskPath(workspaceID, taskID)
+		taskDir := filepath.Join(tmpDir, taskPath)
+		require.NoError(t, os.MkdirAll(taskDir, 0o750))
+
+		hook := &domain.Hook{
+			TaskID: taskPath,
+			State:  domain.HookStateStepPending,
+		}
+		require.NoError(t, store.Save(ctx, hook))
+
+		err := m.InterruptStep(ctx, task, "next_step")
+		require.Error(t, err, "step_pending cannot transition to awaiting_human")
+		assert.Contains(t, err.Error(), "invalid state transition")
+	})
+
+	t.Run("multiple interrupts are idempotent", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		store := NewFileStore(tmpDir)
+		cfg := &config.HookConfig{}
+		m := NewManager(store, cfg)
+
+		taskID := "test-interrupt-idempotent"
+		workspaceID := testWorkspaceID
+		task := &domain.Task{ID: taskID, WorkspaceID: workspaceID}
+
+		taskPath := resolveTaskPath(workspaceID, taskID)
+		taskDir := filepath.Join(tmpDir, taskPath)
+		require.NoError(t, os.MkdirAll(taskDir, 0o750))
+
+		hook := &domain.Hook{
+			TaskID: taskPath,
+			State:  domain.HookStateStepRunning,
+		}
+		require.NoError(t, store.Save(ctx, hook))
+
+		// First interrupt
+		err := m.InterruptStep(ctx, task, "step1")
+		require.NoError(t, err)
+
+		// Second interrupt - should be no-op
+		err = m.InterruptStep(ctx, task, "step1")
+		require.NoError(t, err)
+
+		// Third interrupt - should still be no-op
+		err = m.InterruptStep(ctx, task, "step1")
+		require.NoError(t, err)
+
+		// Should have only one history entry
+		updatedHook, err := store.Get(ctx, taskPath)
+		require.NoError(t, err)
+		assert.Equal(t, domain.HookStateAwaitingHuman, updatedHook.State)
+		assert.Len(t, updatedHook.History, 1)
+	})
+
+	t.Run("returns error if hook does not exist", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		store := NewFileStore(tmpDir)
+		cfg := &config.HookConfig{}
+		m := NewManager(store, cfg)
+
+		task := &domain.Task{ID: "non-existent", WorkspaceID: testWorkspaceID}
+
+		err := m.InterruptStep(ctx, task, "step")
+		require.Error(t, err)
+	})
+
+	t.Run("enables resume after interrupt", func(t *testing.T) {
+		// This test verifies the key fix: after InterruptStep, the hook can
+		// successfully transition back to step_running via TransitionStep
+		tmpDir := t.TempDir()
+		store := NewFileStore(tmpDir)
+		cfg := &config.HookConfig{}
+		m := NewManager(store, cfg)
+
+		taskID := "test-interrupt-resume"
+		workspaceID := testWorkspaceID
+		task := &domain.Task{ID: taskID, WorkspaceID: workspaceID}
+
+		taskPath := resolveTaskPath(workspaceID, taskID)
+		taskDir := filepath.Join(tmpDir, taskPath)
+		require.NoError(t, os.MkdirAll(taskDir, 0o750))
+
+		// Start with hook in step_running (simulating active task)
+		hook := &domain.Hook{
+			TaskID: taskPath,
+			State:  domain.HookStateStepRunning,
+			CurrentStep: &domain.StepContext{
+				StepName:  "ci_wait",
+				StepIndex: 3,
+			},
+		}
+		require.NoError(t, store.Save(ctx, hook))
+
+		// Simulate Ctrl+C interrupt
+		err := m.InterruptStep(ctx, task, "ci_wait")
+		require.NoError(t, err)
+
+		// Verify state is awaiting_human
+		interruptedHook, err := store.Get(ctx, taskPath)
+		require.NoError(t, err)
+		assert.Equal(t, domain.HookStateAwaitingHuman, interruptedHook.State)
+
+		// Simulate resume - transition back to step_running
+		// This is the key assertion: the transition should succeed
+		err = m.TransitionStep(ctx, task, "ci_wait", 3)
+		require.NoError(t, err, "TransitionStep should succeed after InterruptStep (awaiting_human -> step_running)")
+
+		// Verify state is back to step_running
+		resumedHook, err := store.Get(ctx, taskPath)
+		require.NoError(t, err)
+		assert.Equal(t, domain.HookStateStepRunning, resumedHook.State)
+		assert.Equal(t, "ci_wait", resumedHook.CurrentStep.StepName)
+		assert.Equal(t, 3, resumedHook.CurrentStep.StepIndex)
+	})
+}
+
 func TestManager_CompleteTask(t *testing.T) {
 	ctx := context.Background()
 

@@ -477,7 +477,45 @@ func handleInterruption(ctx context.Context, sc *startContext, ws *domain.Worksp
 }
 
 // saveInterruptedTaskState saves the task state when interrupted by Ctrl+C.
+func handleHookInterrupt(ctx context.Context, hookManager task.HookManager, t *domain.Task, logger zerolog.Logger) {
+	// Determine current step name
+	stepName := ""
+	if t.CurrentStep >= 0 && t.CurrentStep < len(t.Steps) {
+		stepName = t.Steps[t.CurrentStep].Name
+	}
+
+	// Stop interval checkpointing first
+	if err := hookManager.StopIntervalCheckpointing(ctx, t); err != nil {
+		logger.Warn().Err(err).Str("task_id", t.ID).Msg("failed to stop interval checkpointing")
+	}
+
+	// Transition hook to awaiting_human state
+	if err := hookManager.InterruptStep(ctx, t, stepName); err != nil {
+		logger.Warn().Err(err).
+			Str("task_id", t.ID).
+			Str("step_name", stepName).
+			Msg("failed to update hook state on interrupt")
+	} else {
+		logger.Debug().
+			Str("task_id", t.ID).
+			Str("step_name", stepName).
+			Msg("hook state updated to awaiting_human on interrupt")
+	}
+}
+
 func saveInterruptedTaskState(ctx context.Context, ws *domain.Workspace, t *domain.Task, logger zerolog.Logger) {
+	// Transition hook state to awaiting_human before task state transition.
+	// This ensures resume can properly transition hook from awaiting_human → step_running.
+	cfg, cfgErr := config.Load(ctx)
+	if cfgErr != nil {
+		cfg = config.DefaultConfig()
+	}
+	services := workflow.NewServiceFactory(logger)
+	hookManager := services.CreateHookManager(cfg, logger)
+	if hookManager != nil {
+		handleHookInterrupt(ctx, hookManager, t, logger)
+	}
+
 	// Transition task to interrupted status if it's running or validating
 	if t.Status == constants.TaskStatusRunning || t.Status == constants.TaskStatusValidating {
 		if err := task.Transition(ctx, t, constants.TaskStatusInterrupted, "user pressed Ctrl+C"); err != nil {

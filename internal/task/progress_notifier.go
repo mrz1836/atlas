@@ -159,6 +159,26 @@ func (e *Engine) failHookStep(ctx context.Context, task *domain.Task, stepName s
 	}
 }
 
+// interruptHookStep updates the hook when a step is interrupted by user (Ctrl+C).
+// This transitions the hook to awaiting_human state so resume can work properly.
+func (e *Engine) interruptHookStep(ctx context.Context, task *domain.Task, stepName string) {
+	if e.hookManager != nil {
+		// Stop interval checkpointing
+		if err := e.hookManager.StopIntervalCheckpointing(ctx, task); err != nil {
+			e.logger.Warn().Err(err).
+				Str("task_id", task.ID).
+				Msg("failed to stop interval checkpointing")
+		}
+
+		if err := e.hookManager.InterruptStep(ctx, task, stepName); err != nil {
+			e.logger.Warn().Err(err).
+				Str("task_id", task.ID).
+				Str("step_name", stepName).
+				Msg("failed to update hook interrupt state")
+		}
+	}
+}
+
 // completeHookTask finalizes the hook when the task completes.
 func (e *Engine) completeHookTask(ctx context.Context, task *domain.Task) {
 	if e.hookManager != nil {
