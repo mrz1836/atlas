@@ -32,6 +32,10 @@ const (
 	dirPerm = 0o755
 	// maxDiscoveryFileSize is the maximum allowed size for a discovery file (1MB).
 	maxDiscoveryFileSize = 1024 * 1024
+	// newFilePrefix is the prefix for new discovery files.
+	newFilePrefix = "item-"
+	// legacyFilePrefix is the prefix for legacy discovery files.
+	legacyFilePrefix = "disc-"
 )
 
 // Manager handles discovery storage operations.
@@ -95,20 +99,28 @@ func (m *Manager) EnsureDir() error {
 }
 
 // Add creates a new discovery and returns it.
-// It generates a unique ID, captures git context, and writes the discovery to disk.
+// It generates a unique ID and GUID, captures git context, and writes the discovery to disk.
 func (m *Manager) Add(ctx context.Context, d *Discovery) error {
 	// Ensure directory exists
 	if err := m.EnsureDir(); err != nil {
 		return err
 	}
 
-	// Generate ID if not set
+	// Generate ID and GUID if not set
 	if d.ID == "" {
-		id, err := GenerateID()
+		guid, shortID, err := GenerateID()
 		if err != nil {
 			return fmt.Errorf("failed to generate ID: %w", err)
 		}
-		d.ID = id
+		d.GUID = guid
+		d.ID = shortID
+	} else if d.GUID == "" && !IsLegacyID(d.ID) {
+		// If ID is provided but no GUID, generate one for new format IDs
+		guid, err := GenerateGUID()
+		if err != nil {
+			return fmt.Errorf("failed to generate GUID: %w", err)
+		}
+		d.GUID = guid
 	}
 
 	// Set defaults
@@ -181,11 +193,11 @@ func (m *Manager) List(ctx context.Context, filter Filter) ([]*Discovery, []stri
 		return nil, nil, fmt.Errorf("failed to list backlog directory: %w", err)
 	}
 
-	// Filter for discovery files matching disc-*.yaml pattern
+	// Filter for discovery files matching item-*.yaml or disc-*.yaml pattern
 	var files []string
 	for _, entry := range entries {
 		name := entry.Name()
-		if !entry.IsDir() && strings.HasPrefix(name, "disc-") && strings.HasSuffix(name, fileExtension) {
+		if !entry.IsDir() && (strings.HasPrefix(name, newFilePrefix) || strings.HasPrefix(name, legacyFilePrefix)) && strings.HasSuffix(name, fileExtension) {
 			files = append(files, filepath.Join(m.dir, name))
 		}
 	}
@@ -568,6 +580,7 @@ func getBranchPrefixForTemplate(templateName string) string {
 }
 
 // loadFile reads and parses a single discovery YAML file.
+// It auto-migrates legacy disc-* files to the new item-* format.
 func (m *Manager) loadFile(path string) (*Discovery, error) {
 	// Check file size before reading to prevent memory exhaustion
 	info, err := os.Stat(path)
@@ -589,7 +602,65 @@ func (m *Manager) loadFile(path string) (*Discovery, error) {
 		return nil, fmt.Errorf("%w: %w", atlaserrors.ErrMalformedDiscovery, err)
 	}
 
+	// Auto-migrate legacy disc-* files
+	if d.IsLegacy() && d.GUID == "" {
+		if err := m.migrateDiscovery(&d, path); err != nil {
+			// Log warning but continue with unmigrated discovery
+			// Migration failure shouldn't prevent reading
+			return &d, nil //nolint:nilerr // intentional: continue with unmigrated discovery on migration failure
+		}
+	}
+
 	return &d, nil
+}
+
+// migrateDiscovery upgrades a legacy discovery to the new format.
+// It generates a GUID, derives a new short ID, and updates the file in place.
+func (m *Manager) migrateDiscovery(d *Discovery, oldPath string) error {
+	// Generate GUID
+	guid, err := GenerateGUID()
+	if err != nil {
+		return fmt.Errorf("failed to generate GUID: %w", err)
+	}
+
+	// Derive new short ID from GUID
+	newID, err := DeriveShortID(guid)
+	if err != nil {
+		return fmt.Errorf("failed to derive short ID: %w", err)
+	}
+
+	// Update discovery
+	oldID := d.ID
+	d.GUID = guid
+	d.ID = newID
+	d.SchemaVersion = SchemaVersion
+
+	// Marshal to YAML
+	data, err := yaml.Marshal(d)
+	if err != nil {
+		return fmt.Errorf("failed to marshal migrated discovery: %w", err)
+	}
+
+	// Write to new file path
+	newPath := filepath.Join(m.dir, newID+fileExtension)
+	if err := createSafe(newPath, data); err != nil {
+		// If file already exists, this is a collision - revert and return original
+		if os.IsExist(err) {
+			d.ID = oldID
+			d.GUID = ""
+			return fmt.Errorf("%w: new ID %s already exists", atlaserrors.ErrMigrationCollision, newID)
+		}
+		return fmt.Errorf("failed to write migrated discovery: %w", err)
+	}
+
+	// Remove old file only after successful write
+	if err := os.Remove(oldPath); err != nil {
+		// If we can't remove old file, at least log it but keep the new file
+		// This is better than failing the migration entirely
+		return nil //nolint:nilerr // intentional: succeed migration even if old file removal fails
+	}
+
+	return nil
 }
 
 // captureGitContext attempts to capture the current git branch and commit.
