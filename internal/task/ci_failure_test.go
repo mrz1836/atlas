@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
@@ -727,16 +728,25 @@ func TestCIFailureHandler_buildCIResultArtifact(t *testing.T) {
 	})
 }
 
-func TestOpenInBrowser_ValidOS(_ *testing.T) {
-	// Test that openInBrowser doesn't panic on current OS
-	// We can't actually verify the browser opens, but we can verify
-	// the function executes without error for supported OSes
+func TestOpenInBrowser_ValidOS(t *testing.T) {
+	// Not parallel because it modifies global execCommandContextFunc
+
+	// Mock execCommandContextFunc to avoid opening a real browser
+	oldExecFunc := execCommandContextFunc
+	defer func() { execCommandContextFunc = oldExecFunc }()
+
+	var cmdName string
+	var cmdArgs []string
+	execCommandContextFunc = func(ctx context.Context, name string, args ...string) *exec.Cmd {
+		cmdName = name
+		cmdArgs = args
+		return exec.CommandContext(ctx, "true") // Always succeed without side effects
+	}
 
 	err := openInBrowser("https://example.com")
 
-	// The error might occur if the browser command doesn't exist,
-	// but the function itself should work correctly for the OS check
-	// On CI systems, the browser command might not exist, so we just
-	// verify no panic occurs
-	_ = err
+	require.NoError(t, err)
+	// On macOS, should use "open"
+	assert.Equal(t, "open", cmdName)
+	assert.Equal(t, []string{"https://example.com"}, cmdArgs)
 }

@@ -27,6 +27,11 @@ import (
 	"github.com/mrz1836/atlas/internal/git"
 )
 
+// execCommandContextFunc allows injecting exec.CommandContext for testing.
+//
+//nolint:gochecknoglobals // Intentional: allows dependency injection for testing
+var execCommandContextFunc = exec.CommandContext
+
 // CIFailureAction represents user's choice for handling CI failure.
 type CIFailureAction int
 
@@ -532,5 +537,5 @@ func openInBrowser(url string) error {
 	// Use background context with short timeout for browser open
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	return exec.CommandContext(ctx, cmd, args...).Start() //#nosec G204 -- URL is user-provided, browser handles validation
+	return execCommandContextFunc(ctx, cmd, args...).Start() //#nosec G204 -- URL is user-provided, browser handles validation
 }
