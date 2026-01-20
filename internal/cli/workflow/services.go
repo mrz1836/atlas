@@ -146,6 +146,7 @@ func (f *ServiceFactory) CreateGitServices(ctx context.Context, worktreePath str
 		git.WithAIDescAgent(gitCfg.PRDescAgent),
 		git.WithAIDescModel(gitCfg.PRDescModel),
 		git.WithAIDescLogger(f.logger),
+		git.WithAIDescWorkDir(worktreePath),
 	)
 	ciFailureHandler := task.NewCIFailureHandler(hubRunner)
 
