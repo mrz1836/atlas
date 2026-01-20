@@ -578,15 +578,41 @@ func startTaskExecution(ctx context.Context, ws *domain.Workspace, tmpl *domain.
 		return nil, nil, err
 	}
 
+	// Create progress callback for both engine and executors
+	progressCallback := createProgressCallback(ctx, out, ws.Name)
+
+	// Create executor progress callback wrapper that handles both task.StepProgressEvent
+	// and steps.AutoFixProgressEvent
+	executorProgressCallback := func(event interface{}) {
+		switch e := event.(type) {
+		case task.StepProgressEvent:
+			progressCallback(e)
+		case steps.AutoFixProgressEvent:
+			// Convert AutoFixProgressEvent to task.StepProgressEvent
+			progressCallback(task.StepProgressEvent{
+				Type:              e.Type,
+				TaskID:            e.TaskID,
+				WorkspaceName:     e.WorkspaceName,
+				Agent:             e.Agent,
+				Model:             e.Model,
+				Status:            e.Status,
+				DurationMs:        e.DurationMs,
+				NumTurns:          e.NumTurns,
+				FilesChangedCount: e.FilesChangedCount,
+			})
+		}
+	}
+
 	// Create executor registry
 	execRegistry := services.CreateExecutorRegistry(workflow.RegistryDeps{
-		WorkDir:     ws.WorktreePath,
-		TaskStore:   taskStore,
-		Notifier:    notifier,
-		AIRunner:    aiRunner,
-		Logger:      logger,
-		GitServices: gitServices,
-		Config:      cfg,
+		WorkDir:          ws.WorktreePath,
+		TaskStore:        taskStore,
+		Notifier:         notifier,
+		AIRunner:         aiRunner,
+		Logger:           logger,
+		GitServices:      gitServices,
+		Config:           cfg,
+		ProgressCallback: executorProgressCallback,
 	})
 
 	// Create validation retry handler for automatic AI-assisted fixes
@@ -603,7 +629,7 @@ func startTaskExecution(ctx context.Context, ws *domain.Workspace, tmpl *domain.
 		ExecRegistry:           execRegistry,
 		Logger:                 LoggerWithTaskStore(taskStore),
 		StateNotifier:          stateNotifier,
-		ProgressCallback:       createProgressCallback(ctx, out, ws.Name),
+		ProgressCallback:       progressCallback,
 		ValidationRetryHandler: validationRetryHandler,
 		HookManager:            hookManager,
 	}, cfg)
@@ -627,6 +653,14 @@ func createProgressCallback(ctx context.Context, out tui.Output, _ string) func(
 			handleProgressStart(ctx, out, event, &logPathShown, &activeSpinner)
 		case "complete":
 			handleProgressComplete(out, event, &activeSpinner)
+		case "retry_ai_start":
+			handleRetryAIStart(ctx, out, event, &activeSpinner)
+		case "retry_ai_complete":
+			handleRetryAIComplete(out, event, &activeSpinner)
+		case "auto_fix_start":
+			handleAutoFixStart(ctx, out, event, &activeSpinner)
+		case "auto_fix_complete":
+			handleAutoFixComplete(out, event, &activeSpinner)
 		}
 	}
 }
@@ -694,6 +728,77 @@ func displayPRURL(out tui.Output, output string) {
 			}
 		}
 	}
+}
+
+// handleRetryAIStart handles the retry_ai_start event of a validation retry.
+func handleRetryAIStart(ctx context.Context, out tui.Output, event task.StepProgressEvent, activeSpinner *tui.Spinner) {
+	msg := buildRetryAIStartMessage(event)
+	*activeSpinner = out.Spinner(ctx, msg)
+}
+
+// handleRetryAIComplete handles the retry_ai_complete event of a validation retry.
+func handleRetryAIComplete(out tui.Output, event task.StepProgressEvent, activeSpinner *tui.Spinner) {
+	// Stop the spinner if one was running
+	if *activeSpinner != nil {
+		(*activeSpinner).Stop()
+		*activeSpinner = nil
+	}
+
+	// Display completion message
+	out.Success("Retry AI fix completed")
+
+	// Display metrics if available
+	if event.DurationMs > 0 || event.NumTurns > 0 || event.FilesChangedCount > 0 {
+		metrics := buildStepMetrics(event.DurationMs, event.NumTurns, event.FilesChangedCount)
+		if metrics != "" {
+			out.Info(fmt.Sprintf("  %s", metrics))
+		}
+	}
+}
+
+// buildRetryAIStartMessage builds the retry AI start message based on the event.
+func buildRetryAIStartMessage(event task.StepProgressEvent) string {
+	if event.Status != "" {
+		return fmt.Sprintf("%s (%s/%s)...", event.Status, event.Agent, event.Model)
+	}
+	return fmt.Sprintf("Retry AI fix (%s/%s)...", event.Agent, event.Model)
+}
+
+// handleAutoFixStart handles the auto_fix_start event of a verification auto-fix.
+func handleAutoFixStart(ctx context.Context, out tui.Output, event task.StepProgressEvent, activeSpinner *tui.Spinner) {
+	msg := buildAutoFixStartMessage(event)
+	*activeSpinner = out.Spinner(ctx, msg)
+}
+
+// handleAutoFixComplete handles the auto_fix_complete event of a verification auto-fix.
+func handleAutoFixComplete(out tui.Output, event task.StepProgressEvent, activeSpinner *tui.Spinner) {
+	// Stop the spinner if one was running
+	if *activeSpinner != nil {
+		(*activeSpinner).Stop()
+		*activeSpinner = nil
+	}
+
+	// Display completion message
+	out.Success("Auto-fix completed")
+
+	// Display metrics if available
+	if event.DurationMs > 0 || event.NumTurns > 0 || event.FilesChangedCount > 0 {
+		metrics := buildStepMetrics(event.DurationMs, event.NumTurns, event.FilesChangedCount)
+		if metrics != "" {
+			out.Info(fmt.Sprintf("  %s", metrics))
+		}
+	}
+}
+
+// buildAutoFixStartMessage builds the auto-fix start message based on the event.
+func buildAutoFixStartMessage(event task.StepProgressEvent) string {
+	if event.Status != "" && event.Agent != "" && event.Model != "" {
+		return fmt.Sprintf("%s (%s/%s)...", event.Status, event.Agent, event.Model)
+	}
+	if event.Agent != "" && event.Model != "" {
+		return fmt.Sprintf("Auto-fixing verification issues (%s/%s)...", event.Agent, event.Model)
+	}
+	return "Auto-fixing verification issues..."
 }
 
 // startTask starts the task execution and handles errors.

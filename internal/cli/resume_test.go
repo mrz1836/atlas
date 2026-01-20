@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -2298,6 +2299,14 @@ func TestHandleViewErrors_WithArtifact(t *testing.T) {
 }
 
 func TestHandleViewLogs_WithURL(t *testing.T) {
+	// Not parallel because it modifies global execCommandContextFunc
+	oldExecFunc := execCommandContextFunc
+	defer func() { execCommandContextFunc = oldExecFunc }()
+
+	execCommandContextFunc = func(ctx context.Context, _ string, _ ...string) *exec.Cmd {
+		return exec.CommandContext(ctx, "true") // no-op command
+	}
+
 	ctx := context.Background()
 
 	ws := &domain.Workspace{
@@ -2314,13 +2323,11 @@ func TestHandleViewLogs_WithURL(t *testing.T) {
 	var buf bytes.Buffer
 	out := tui.NewOutput(&buf, "text")
 
-	// This will try to open browser, which will likely fail in test, but that's OK
 	err := handleViewLogs(ctx, out, ws, testTask)
 	require.NoError(t, err)
 
 	output := buf.String()
-	// Should either show the URL or indicate it couldn't open browser
-	assert.True(t, strings.Contains(output, "12345") || strings.Contains(output, "Could not"))
+	assert.Contains(t, output, "12345")
 }
 
 func TestHandleViewLogs_WithPRURL(t *testing.T) {

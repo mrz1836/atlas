@@ -396,6 +396,31 @@ func createResumeEngine(ctx context.Context, ws *domain.Workspace, taskStore *ta
 	)
 	ciFailureHandler := task.NewCIFailureHandler(hubRunner)
 
+	// Create progress callback for both engine and executors
+	progressCallback := createProgressCallback(ctx, out, ws.Name)
+
+	// Create executor progress callback wrapper that handles both task.StepProgressEvent
+	// and steps.AutoFixProgressEvent
+	executorProgressCallback := func(event interface{}) {
+		switch e := event.(type) {
+		case task.StepProgressEvent:
+			progressCallback(e)
+		case steps.AutoFixProgressEvent:
+			// Convert AutoFixProgressEvent to task.StepProgressEvent
+			progressCallback(task.StepProgressEvent{
+				Type:              e.Type,
+				TaskID:            e.TaskID,
+				WorkspaceName:     e.WorkspaceName,
+				Agent:             e.Agent,
+				Model:             e.Model,
+				Status:            e.Status,
+				DurationMs:        e.DurationMs,
+				NumTurns:          e.NumTurns,
+				FilesChangedCount: e.FilesChangedCount,
+			})
+		}
+	}
+
 	execRegistry := steps.NewDefaultRegistry(steps.ExecutorDeps{
 		WorkDir:                ws.WorktreePath,
 		ArtifactSaver:          taskStore,
@@ -414,12 +439,13 @@ func createResumeEngine(ctx context.Context, ws *domain.Workspace, taskStore *ta
 		LintCommands:           cfg.Validation.Commands.Lint,
 		TestCommands:           cfg.Validation.Commands.Test,
 		PreCommitCommands:      cfg.Validation.Commands.PreCommit,
+		ProgressCallback:       executorProgressCallback,
 	})
 
 	validationRetryHandler := createResumeValidationRetryHandler(aiRunner, cfg, logger)
 
 	engineCfg := task.DefaultEngineConfig()
-	engineCfg.ProgressCallback = createProgressCallback(ctx, out, ws.Name)
+	engineCfg.ProgressCallback = progressCallback
 	engineOpts := []task.EngineOption{task.WithNotifier(stateNotifier)}
 	if validationRetryHandler != nil {
 		engineOpts = append(engineOpts, task.WithValidationRetryHandler(validationRetryHandler))

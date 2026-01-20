@@ -36,13 +36,14 @@ type GitServices struct {
 // RegistryDeps holds all dependencies needed to create an ExecutorRegistry.
 // This struct reduces the number of parameters to CreateExecutorRegistry.
 type RegistryDeps struct {
-	WorkDir     string
-	TaskStore   *task.FileStore
-	Notifier    *tui.Notifier
-	AIRunner    ai.Runner
-	Logger      zerolog.Logger
-	GitServices *GitServices
-	Config      *config.Config
+	WorkDir          string
+	TaskStore        *task.FileStore
+	Notifier         *tui.Notifier
+	AIRunner         ai.Runner
+	Logger           zerolog.Logger
+	GitServices      *GitServices
+	Config           *config.Config
+	ProgressCallback func(event interface{})
 }
 
 // ServiceFactory creates all services needed for task execution.
@@ -174,6 +175,7 @@ func (f *ServiceFactory) CreateExecutorRegistry(deps RegistryDeps) *steps.Execut
 		LintCommands:           deps.Config.Validation.Commands.Lint,
 		TestCommands:           deps.Config.Validation.Commands.Test,
 		PreCommitCommands:      deps.Config.Validation.Commands.PreCommit,
+		ProgressCallback:       deps.ProgressCallback,
 	})
 }
 
