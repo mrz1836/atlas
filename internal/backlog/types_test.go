@@ -115,15 +115,32 @@ func TestDiscovery_ValidateID(t *testing.T) {
 		id      string
 		wantErr bool
 	}{
-		{"valid id", "disc-abc123", false},
-		{"valid id with numbers", "disc-1a2b3c", false},
+		// New format tests
+		{"valid new format", "item-ABC234", false},
+		{"valid new format all chars", "item-HJKMNP", false},
+		{"valid new format with numbers", "item-23456X", false},
+		// Legacy format tests (backward compatibility)
+		{"valid legacy id", "disc-abc123", false},
+		{"valid legacy id with numbers", "disc-1a2b3c", false},
+		// Invalid tests
 		{"empty id", "", true},
 		{"missing prefix", "abc123", true},
-		{"wrong prefix", "disc_abc123", true},
-		{"too short", "disc-abc", true},
-		{"too long", "disc-abc1234", true},
-		{"uppercase letters", "disc-ABC123", true},
-		{"special characters", "disc-abc!23", true},
+		{"wrong prefix underscore", "disc_abc123", true},
+		{"wrong prefix item underscore", "item_ABC234", true},
+		{"new format too short", "item-ABC", true},
+		{"new format too long", "item-ABC2345", true},
+		{"legacy too short", "disc-abc", true},
+		{"legacy too long", "disc-abc1234", true},
+		{"new format lowercase", "item-abc234", true},
+		{"legacy uppercase", "disc-ABC123", true},
+		{"special characters new", "item-ABC!23", true},
+		{"special characters legacy", "disc-abc!23", true},
+		// Ambiguous character rejection tests (new format)
+		{"ambiguous char 0 in new", "item-ABC0DE", true},
+		{"ambiguous char O in new", "item-ABCODE", true},
+		{"ambiguous char 1 in new", "item-ABC1DE", true},
+		{"ambiguous char I in new", "item-ABCIDE", true},
+		{"ambiguous char L in new", "item-ABCLDE", true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -135,6 +152,58 @@ func TestDiscovery_ValidateID(t *testing.T) {
 			} else {
 				assert.NoError(t, err)
 			}
+		})
+	}
+}
+
+func TestDiscovery_ValidateGUID(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		guid    string
+		wantErr bool
+	}{
+		{"empty guid is valid (optional)", "", false},
+		{"valid uuid v4", "550e8400-e29b-41d4-a716-446655440000", false},
+		{"valid uuid v4 lowercase", "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11", false},
+		{"invalid format missing hyphens", "550e8400e29b41d4a716446655440000", true},
+		{"invalid version not 4", "550e8400-e29b-31d4-a716-446655440000", true},
+		{"invalid variant", "550e8400-e29b-41d4-2716-446655440000", true},
+		{"too short", "550e8400-e29b-41d4-a716", true},
+		{"too long", "550e8400-e29b-41d4-a716-4466554400001", true},
+		{"uppercase is invalid", "550E8400-E29B-41D4-A716-446655440000", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			d := &Discovery{GUID: tt.guid}
+			err := d.ValidateGUID()
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestDiscovery_IsLegacy(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		id       string
+		isLegacy bool
+	}{
+		{"legacy format", "disc-abc123", true},
+		{"new format", "item-ABC234", false},
+		{"empty", "", false},
+		{"invalid", "unknown-123", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			d := &Discovery{ID: tt.id}
+			assert.Equal(t, tt.isLegacy, d.IsLegacy())
 		})
 	}
 }
@@ -322,7 +391,8 @@ func TestDiscovery_Validate(t *testing.T) {
 	validDiscovery := func() *Discovery {
 		return &Discovery{
 			SchemaVersion: SchemaVersion,
-			ID:            "disc-abc123",
+			ID:            "item-ABC234",
+			GUID:          "550e8400-e29b-41d4-a716-446655440000",
 			Title:         "Test discovery",
 			Status:        StatusPending,
 			Content: Content{
@@ -495,38 +565,102 @@ func TestFilter_Match_CompletedDiscovery(t *testing.T) {
 
 func TestGenerateID(t *testing.T) {
 	t.Parallel()
-	t.Run("generates valid ID", func(t *testing.T) {
+	t.Run("generates valid GUID and ID", func(t *testing.T) {
 		t.Parallel()
-		id, err := GenerateID()
+		guid, id, err := GenerateID()
 		require.NoError(t, err)
-		assert.Regexp(t, `^disc-[a-z0-9]{6}$`, id)
+		assert.Regexp(t, `^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`, guid)
+		assert.Regexp(t, `^item-[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{6}$`, id)
 	})
 
 	t.Run("generates unique IDs", func(t *testing.T) {
 		t.Parallel()
 		ids := make(map[string]bool)
+		guids := make(map[string]bool)
 		for i := 0; i < 100; i++ {
-			id, err := GenerateID()
+			guid, id, err := GenerateID()
 			require.NoError(t, err)
 			assert.False(t, ids[id], "duplicate ID: %s", id)
+			assert.False(t, guids[guid], "duplicate GUID: %s", guid)
 			ids[id] = true
+			guids[guid] = true
 		}
+	})
+
+	t.Run("DeriveShortID is deterministic", func(t *testing.T) {
+		t.Parallel()
+		guid := "550e8400-e29b-41d4-a716-446655440000"
+		id1, err := DeriveShortID(guid)
+		require.NoError(t, err)
+		id2, err := DeriveShortID(guid)
+		require.NoError(t, err)
+		assert.Equal(t, id1, id2)
+		assert.Regexp(t, `^item-[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{6}$`, id1)
+	})
+
+	t.Run("DeriveShortID fails on invalid GUID", func(t *testing.T) {
+		t.Parallel()
+		_, err := DeriveShortID("not-a-guid")
+		assert.Error(t, err)
+	})
+
+	t.Run("GenerateGUID creates valid UUID v4", func(t *testing.T) {
+		t.Parallel()
+		guid, err := GenerateGUID()
+		require.NoError(t, err)
+		assert.Regexp(t, `^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`, guid)
+	})
+
+	t.Run("new ID excludes ambiguous characters", func(t *testing.T) {
+		t.Parallel()
+		ambiguous := "01OIL"
+		for i := 0; i < 100; i++ {
+			_, id, err := GenerateID()
+			require.NoError(t, err)
+			suffix := id[5:] // Skip "item-" prefix
+			for _, c := range ambiguous {
+				assert.NotContains(t, suffix, string(c), "ID contains ambiguous character: %s", id)
+			}
+		}
+	})
+
+	t.Run("ID uses uppercase unambiguous charset", func(t *testing.T) {
+		t.Parallel()
+		const idChars = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+		for i := 0; i < 100; i++ {
+			_, id, err := GenerateID()
+			require.NoError(t, err)
+			suffix := id[5:] // Skip "item-" prefix
+			for _, c := range suffix {
+				assert.Contains(t, idChars, string(c), "ID contains invalid character: %c in %s", c, id)
+			}
+		}
+	})
+}
+
+func TestGenerateLegacyID(t *testing.T) {
+	t.Parallel()
+	t.Run("generates valid legacy ID", func(t *testing.T) {
+		t.Parallel()
+		id, err := GenerateLegacyID()
+		require.NoError(t, err)
+		assert.Regexp(t, `^disc-[a-z0-9]{6}$`, id)
 	})
 
 	t.Run("uniform character distribution", func(t *testing.T) {
 		t.Parallel()
 		// Generate many IDs and count character frequency
-		const idChars = "abcdefghijklmnopqrstuvwxyz0123456789"
+		const legacyChars = "abcdefghijklmnopqrstuvwxyz0123456789"
 		const numIDs = 10000
 		const charsPerID = 6
 
 		charCounts := make(map[byte]int)
-		for _, c := range []byte(idChars) {
+		for _, c := range []byte(legacyChars) {
 			charCounts[c] = 0
 		}
 
 		for i := 0; i < numIDs; i++ {
-			id, err := GenerateID()
+			id, err := GenerateLegacyID()
 			require.NoError(t, err)
 			// Count characters in suffix (skip "disc-" prefix)
 			suffix := id[5:]
@@ -539,7 +673,7 @@ func TestGenerateID(t *testing.T) {
 		// Expected: (numIDs * charsPerID) / 36 = 1666.67
 		// Allow 20% deviation for statistical variance
 		totalChars := numIDs * charsPerID
-		expectedPerChar := float64(totalChars) / float64(len(idChars))
+		expectedPerChar := float64(totalChars) / float64(len(legacyChars))
 		tolerance := expectedPerChar * 0.20
 
 		for c, count := range charCounts {
@@ -552,4 +686,44 @@ func TestGenerateID(t *testing.T) {
 				c, count, expectedPerChar, deviation, tolerance)
 		}
 	})
+}
+
+func TestIsLegacyID(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		id       string
+		isLegacy bool
+	}{
+		{"legacy format", "disc-abc123", true},
+		{"new format", "item-ABC234", false},
+		{"empty", "", false},
+		{"invalid", "unknown-123", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.isLegacy, IsLegacyID(tt.id))
+		})
+	}
+}
+
+func TestIsNewID(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name  string
+		id    string
+		isNew bool
+	}{
+		{"new format", "item-ABC234", true},
+		{"legacy format", "disc-abc123", false},
+		{"empty", "", false},
+		{"invalid", "unknown-123", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.isNew, IsNewID(tt.id))
+		})
+	}
 }

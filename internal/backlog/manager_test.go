@@ -67,7 +67,7 @@ func TestManager_Add(t *testing.T) {
 	mgr, err := NewManager(tmpDir)
 	require.NoError(t, err)
 
-	t.Run("creates discovery file", func(t *testing.T) {
+	t.Run("creates discovery file with new format", func(t *testing.T) {
 		d := &Discovery{
 			Title:  "Test discovery",
 			Status: StatusPending,
@@ -84,8 +84,11 @@ func TestManager_Add(t *testing.T) {
 		err := mgr.Add(ctx, d)
 		require.NoError(t, err)
 
-		// Check ID was generated
-		assert.Regexp(t, `^disc-[a-z0-9]{6}$`, d.ID)
+		// Check ID was generated in new format
+		assert.Regexp(t, `^item-[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{6}$`, d.ID)
+
+		// Check GUID was generated
+		assert.Regexp(t, `^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`, d.GUID)
 
 		// Check schema version was set
 		assert.Equal(t, SchemaVersion, d.SchemaVersion)
@@ -96,7 +99,7 @@ func TestManager_Add(t *testing.T) {
 		assert.NoError(t, err)
 	})
 
-	t.Run("respects provided ID", func(t *testing.T) {
+	t.Run("respects provided legacy ID without GUID", func(t *testing.T) {
 		d := &Discovery{
 			ID:     "disc-custom",
 			Title:  "Custom ID test",
@@ -114,6 +117,31 @@ func TestManager_Add(t *testing.T) {
 		err := mgr.Add(ctx, d)
 		require.NoError(t, err)
 		assert.Equal(t, "disc-custom", d.ID)
+		// Legacy ID doesn't get a GUID automatically
+		assert.Empty(t, d.GUID)
+	})
+
+	t.Run("respects provided new format ID and generates GUID", func(t *testing.T) {
+		d := &Discovery{
+			ID:     "item-ABC234",
+			Title:  "Custom new format ID test",
+			Status: StatusPending,
+			Content: Content{
+				Category: CategoryBug,
+				Severity: SeverityLow,
+			},
+			Context: Context{
+				DiscoveredAt: time.Now().UTC(),
+				DiscoveredBy: "human:tester",
+			},
+		}
+
+		err := mgr.Add(ctx, d)
+		require.NoError(t, err)
+		assert.Equal(t, "item-ABC234", d.ID)
+		// New format ID gets a GUID generated
+		assert.NotEmpty(t, d.GUID)
+		assert.Regexp(t, `^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`, d.GUID)
 	})
 
 	t.Run("fails on duplicate ID", func(t *testing.T) {
@@ -1103,4 +1131,319 @@ func TestGetBranchPrefixForTemplate(t *testing.T) {
 			assert.Equal(t, tc.expected, result)
 		})
 	}
+}
+
+func TestManager_MigrateLegacyDiscoveries(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	t.Run("migrates legacy disc-* file on List", func(t *testing.T) {
+		t.Parallel()
+		tmpDir := t.TempDir()
+		mgr, err := NewManager(tmpDir)
+		require.NoError(t, err)
+
+		// Ensure dir exists
+		err = mgr.EnsureDir()
+		require.NoError(t, err)
+
+		// Create a legacy file manually
+		legacyContent := `schema_version: "1.0"
+id: disc-abc123
+title: Legacy Discovery
+status: pending
+content:
+  category: bug
+  severity: high
+context:
+  discovered_at: 2024-01-15T10:00:00Z
+  discovered_by: human:tester
+`
+		legacyPath := filepath.Join(mgr.Dir(), "disc-abc123.yaml")
+		err = os.WriteFile(legacyPath, []byte(legacyContent), 0o600)
+		require.NoError(t, err)
+
+		// List should trigger migration
+		list, warnings, err := mgr.List(ctx, Filter{})
+		require.NoError(t, err)
+		assert.Empty(t, warnings)
+		require.Len(t, list, 1)
+
+		// Discovery should have new format ID
+		d := list[0]
+		assert.Regexp(t, `^item-[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{6}$`, d.ID)
+		assert.NotEmpty(t, d.GUID)
+		assert.Regexp(t, `^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`, d.GUID)
+		assert.Equal(t, SchemaVersion, d.SchemaVersion)
+
+		// Old file should be gone
+		_, err = os.Stat(legacyPath)
+		assert.True(t, os.IsNotExist(err), "legacy file should be deleted")
+
+		// New file should exist
+		newPath := filepath.Join(mgr.Dir(), d.ID+".yaml")
+		_, err = os.Stat(newPath)
+		assert.NoError(t, err, "new file should exist")
+	})
+
+	t.Run("migrates legacy disc-* file on Get", func(t *testing.T) {
+		t.Parallel()
+		tmpDir := t.TempDir()
+		mgr, err := NewManager(tmpDir)
+		require.NoError(t, err)
+
+		// Ensure dir exists
+		err = mgr.EnsureDir()
+		require.NoError(t, err)
+
+		// Create a legacy file manually
+		legacyContent := `schema_version: "1.0"
+id: disc-xyz789
+title: Legacy Discovery for Get
+status: pending
+content:
+  category: security
+  severity: critical
+context:
+  discovered_at: 2024-01-15T10:00:00Z
+  discovered_by: human:tester
+`
+		legacyPath := filepath.Join(mgr.Dir(), "disc-xyz789.yaml")
+		err = os.WriteFile(legacyPath, []byte(legacyContent), 0o600)
+		require.NoError(t, err)
+
+		// Get should trigger migration
+		d, err := mgr.Get(ctx, "disc-xyz789")
+		require.NoError(t, err)
+
+		// Discovery should have new format ID
+		assert.Regexp(t, `^item-[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{6}$`, d.ID)
+		assert.NotEmpty(t, d.GUID)
+		assert.Equal(t, "Legacy Discovery for Get", d.Title)
+
+		// Old file should be gone
+		_, err = os.Stat(legacyPath)
+		assert.True(t, os.IsNotExist(err), "legacy file should be deleted")
+
+		// New file should exist and be retrievable with new ID
+		d2, err := mgr.Get(ctx, d.ID)
+		require.NoError(t, err)
+		assert.Equal(t, d.ID, d2.ID)
+		assert.Equal(t, d.GUID, d2.GUID)
+	})
+
+	t.Run("List handles both new and legacy files", func(t *testing.T) {
+		t.Parallel()
+		tmpDir := t.TempDir()
+		mgr, err := NewManager(tmpDir)
+		require.NoError(t, err)
+
+		// Create a new format discovery
+		newDiscovery := &Discovery{
+			Title:  "New Format Discovery",
+			Status: StatusPending,
+			Content: Content{
+				Category: CategoryBug,
+				Severity: SeverityLow,
+			},
+			Context: Context{
+				DiscoveredAt: time.Now().UTC(),
+				DiscoveredBy: "human:tester",
+			},
+		}
+		err = mgr.Add(ctx, newDiscovery)
+		require.NoError(t, err)
+
+		// Create a legacy file manually
+		legacyContent := `schema_version: "1.0"
+id: disc-legacy
+title: Legacy Format Discovery
+status: pending
+content:
+  category: testing
+  severity: medium
+context:
+  discovered_at: 2024-01-15T10:00:00Z
+  discovered_by: human:tester
+`
+		legacyPath := filepath.Join(mgr.Dir(), "disc-legacy.yaml")
+		err = os.WriteFile(legacyPath, []byte(legacyContent), 0o600)
+		require.NoError(t, err)
+
+		// List should find both
+		list, warnings, err := mgr.List(ctx, Filter{})
+		require.NoError(t, err)
+		assert.Empty(t, warnings)
+		assert.Len(t, list, 2)
+
+		// Both should have new format IDs (legacy was migrated)
+		for _, d := range list {
+			assert.Regexp(t, `^item-[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{6}$`, d.ID)
+		}
+	})
+
+	t.Run("does not re-migrate already migrated files", func(t *testing.T) {
+		t.Parallel()
+		tmpDir := t.TempDir()
+		mgr, err := NewManager(tmpDir)
+		require.NoError(t, err)
+
+		// Create a discovery with new format (already has GUID)
+		d := &Discovery{
+			Title:  "Already Migrated",
+			Status: StatusPending,
+			Content: Content{
+				Category: CategoryBug,
+				Severity: SeverityLow,
+			},
+			Context: Context{
+				DiscoveredAt: time.Now().UTC(),
+				DiscoveredBy: "human:tester",
+			},
+		}
+		err = mgr.Add(ctx, d)
+		require.NoError(t, err)
+
+		originalID := d.ID
+		originalGUID := d.GUID
+
+		// Get should return same IDs (no re-migration)
+		d2, err := mgr.Get(ctx, originalID)
+		require.NoError(t, err)
+		assert.Equal(t, originalID, d2.ID)
+		assert.Equal(t, originalGUID, d2.GUID)
+	})
+
+	t.Run("preserves discovery content during migration", func(t *testing.T) {
+		t.Parallel()
+		tmpDir := t.TempDir()
+		mgr, err := NewManager(tmpDir)
+		require.NoError(t, err)
+
+		err = mgr.EnsureDir()
+		require.NoError(t, err)
+
+		// Create a legacy file with all fields populated
+		legacyContent := `schema_version: "1.0"
+id: disc-full01
+title: Full Legacy Discovery
+status: promoted
+content:
+  description: This is a detailed description
+  category: performance
+  severity: high
+  tags:
+    - perf
+    - database
+location:
+  file: main.go
+  line: 42
+context:
+  discovered_at: 2024-01-15T10:30:00Z
+  discovered_by: ai:claude
+  discovered_during_task: task-001
+  git:
+    branch: feature/test
+    commit: abc1234
+lifecycle:
+  promoted_to_task: task-002
+`
+		legacyPath := filepath.Join(mgr.Dir(), "disc-full01.yaml")
+		err = os.WriteFile(legacyPath, []byte(legacyContent), 0o600)
+		require.NoError(t, err)
+
+		// Get should trigger migration
+		d, err := mgr.Get(ctx, "disc-full01")
+		require.NoError(t, err)
+
+		// Verify all content was preserved
+		assert.Equal(t, "Full Legacy Discovery", d.Title)
+		assert.Equal(t, StatusPromoted, d.Status)
+		assert.Equal(t, "This is a detailed description", d.Content.Description)
+		assert.Equal(t, CategoryPerformance, d.Content.Category)
+		assert.Equal(t, SeverityHigh, d.Content.Severity)
+		assert.Equal(t, []string{"perf", "database"}, d.Content.Tags)
+		assert.NotNil(t, d.Location)
+		assert.Equal(t, "main.go", d.Location.File)
+		assert.Equal(t, 42, d.Location.Line)
+		assert.Equal(t, "ai:claude", d.Context.DiscoveredBy)
+		assert.Equal(t, "task-001", d.Context.DuringTask)
+		assert.NotNil(t, d.Context.Git)
+		assert.Equal(t, "feature/test", d.Context.Git.Branch)
+		assert.Equal(t, "abc1234", d.Context.Git.Commit)
+		assert.Equal(t, "task-002", d.Lifecycle.PromotedToTask)
+
+		// Schema version should be updated
+		assert.Equal(t, SchemaVersion, d.SchemaVersion)
+	})
+}
+
+func TestManager_GUIDLookup(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	t.Run("GUID is stored in file", func(t *testing.T) {
+		t.Parallel()
+		tmpDir := t.TempDir()
+		mgr, err := NewManager(tmpDir)
+		require.NoError(t, err)
+
+		// Create a discovery
+		d := &Discovery{
+			Title:  "GUID Test",
+			Status: StatusPending,
+			Content: Content{
+				Category: CategoryBug,
+				Severity: SeverityLow,
+			},
+			Context: Context{
+				DiscoveredAt: time.Now().UTC(),
+				DiscoveredBy: "human:tester",
+			},
+		}
+		err = mgr.Add(ctx, d)
+		require.NoError(t, err)
+
+		// Read file directly to verify GUID is stored
+		filePath := filepath.Join(mgr.Dir(), d.ID+".yaml")
+		content, err := os.ReadFile(filePath) //nolint:gosec // test code with trusted path
+		require.NoError(t, err)
+
+		assert.Contains(t, string(content), "guid:")
+		assert.Contains(t, string(content), d.GUID)
+	})
+
+	t.Run("GUID is consistent on reload", func(t *testing.T) {
+		t.Parallel()
+		tmpDir := t.TempDir()
+		mgr, err := NewManager(tmpDir)
+		require.NoError(t, err)
+
+		// Create a discovery
+		d := &Discovery{
+			Title:  "GUID Reload Test",
+			Status: StatusPending,
+			Content: Content{
+				Category: CategoryBug,
+				Severity: SeverityLow,
+			},
+			Context: Context{
+				DiscoveredAt: time.Now().UTC(),
+				DiscoveredBy: "human:tester",
+			},
+		}
+		err = mgr.Add(ctx, d)
+		require.NoError(t, err)
+
+		originalGUID := d.GUID
+
+		// Create new manager and load
+		mgr2, err := NewManager(tmpDir)
+		require.NoError(t, err)
+
+		d2, err := mgr2.Get(ctx, d.ID)
+		require.NoError(t, err)
+
+		assert.Equal(t, originalGUID, d2.GUID)
+	})
 }
