@@ -617,21 +617,22 @@ func startTaskExecution(ctx context.Context, ws *domain.Workspace, tmpl *domain.
 }
 
 // createProgressCallback creates the progress callback for UI feedback.
-func createProgressCallback(_ context.Context, out tui.Output, _ string) func(task.StepProgressEvent) {
+func createProgressCallback(ctx context.Context, out tui.Output, _ string) func(task.StepProgressEvent) {
 	logPathShown := false
+	var activeSpinner tui.Spinner
 
 	return func(event task.StepProgressEvent) {
 		switch event.Type {
 		case "start":
-			handleProgressStart(out, event, &logPathShown)
+			handleProgressStart(ctx, out, event, &logPathShown, &activeSpinner)
 		case "complete":
-			handleProgressComplete(out, event)
+			handleProgressComplete(out, event, &activeSpinner)
 		}
 	}
 }
 
 // handleProgressStart handles the start event of a step progress.
-func handleProgressStart(out tui.Output, event task.StepProgressEvent, logPathShown *bool) {
+func handleProgressStart(ctx context.Context, out tui.Output, event task.StepProgressEvent, logPathShown *bool, activeSpinner *tui.Spinner) {
 	// Show log path on first step start
 	if !*logPathShown && event.TaskID != "" {
 		logPath := fmt.Sprintf("~/.atlas/workspaces/%s/tasks/%s/task.log", event.WorkspaceName, event.TaskID)
@@ -639,8 +640,15 @@ func handleProgressStart(out tui.Output, event task.StepProgressEvent, logPathSh
 		*logPathShown = true
 	}
 
-	// Print step start message (static, not animated spinner, to avoid conflicts with log output)
 	msg := buildStepStartMessage(event)
+
+	// For AI-based steps (ai, verify, sdd), use animated spinner with elapsed time
+	if event.StepType == domain.StepTypeAI || event.StepType == domain.StepTypeVerify || event.StepType == domain.StepTypeSDD {
+		*activeSpinner = out.Spinner(ctx, msg)
+		return
+	}
+
+	// For other steps, use static message
 	out.Info(msg)
 }
 
@@ -653,7 +661,13 @@ func buildStepStartMessage(event task.StepProgressEvent) string {
 }
 
 // handleProgressComplete handles the complete event of a step progress.
-func handleProgressComplete(out tui.Output, event task.StepProgressEvent) {
+func handleProgressComplete(out tui.Output, event task.StepProgressEvent, activeSpinner *tui.Spinner) {
+	// Stop the spinner if one was running
+	if *activeSpinner != nil {
+		(*activeSpinner).Stop()
+		*activeSpinner = nil
+	}
+
 	// Display completion message
 	statusMsg := fmt.Sprintf("Step %d/%d: %s completed", event.StepIndex+1, event.TotalSteps, event.StepName)
 	out.Success(statusMsg)
