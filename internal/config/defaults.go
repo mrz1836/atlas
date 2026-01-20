@@ -51,6 +51,31 @@ func DefaultConfig() *Config {
 			// Shows phases + file operations + key decisions.
 			// Users can set "low" for minimal output or "high" for verbose output.
 			ActivityVerbosity: "medium",
+
+			// FallbackEnabled: true enables automatic model fallback.
+			// When AI generation fails with format/content errors, the system
+			// automatically tries the next model in the fallback chain.
+			FallbackEnabled: true,
+
+			// FallbackModels: default model chains per agent.
+			// Models are tried in order from fastest/cheapest to most capable.
+			// For smart commit (which uses haiku by default), this enables
+			// automatic escalation: haiku → sonnet → opus on format errors.
+			FallbackModels: map[string][]string{
+				"claude": {"haiku", "sonnet", "opus"},
+				"gemini": {"flash", "pro"},
+				"codex":  {"mini", "codex", "max"},
+			},
+
+			// FallbackAgents: empty by default (no cross-agent fallback).
+			// Users can enable cross-agent fallback if they have multiple
+			// AI providers configured: e.g., ["claude", "gemini"]
+			FallbackAgents: nil,
+
+			// FallbackMaxRetriesPerModel: 1 try per model before moving to next.
+			// This is intentionally low since format errors typically don't
+			// resolve by retrying the same model.
+			FallbackMaxRetriesPerModel: 1,
 		},
 		Git: GitConfig{
 			// BaseBranch: "main" is the modern Git default.

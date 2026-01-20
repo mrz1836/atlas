@@ -93,6 +93,28 @@ type AIConfig struct {
 	// Default: "medium"
 	// Can be overridden via ATLAS_AI_ACTIVITY_VERBOSITY environment variable.
 	ActivityVerbosity string `yaml:"activity_verbosity,omitempty" mapstructure:"activity_verbosity"`
+
+	// FallbackEnabled enables automatic model fallback when AI generation fails.
+	// When true, if a model fails with format/content errors, the system tries
+	// the next model in the fallback chain.
+	// Default: true
+	FallbackEnabled bool `yaml:"fallback_enabled" mapstructure:"fallback_enabled"`
+
+	// FallbackModels defines model fallback chains per agent.
+	// When a model fails, the system tries the next model in the chain.
+	// Example: {"claude": ["haiku", "sonnet", "opus"]}
+	// If not configured, defaults are used based on the agent type.
+	FallbackModels map[string][]string `yaml:"fallback_models,omitempty" mapstructure:"fallback_models"`
+
+	// FallbackAgents defines the agent fallback order.
+	// When all models for an agent fail, the system can try a different agent.
+	// Example: ["claude", "gemini", "codex"]
+	// Default: [] (no agent fallback)
+	FallbackAgents []string `yaml:"fallback_agents,omitempty" mapstructure:"fallback_agents"`
+
+	// FallbackMaxRetriesPerModel is the maximum retry attempts per model before fallback.
+	// Default: 1 (try each model once before moving to next)
+	FallbackMaxRetriesPerModel int `yaml:"fallback_max_retries_per_model,omitempty" mapstructure:"fallback_max_retries_per_model"`
 }
 
 // GetAPIKeyEnvVar returns the API key environment variable for the given agent.

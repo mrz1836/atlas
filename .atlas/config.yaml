@@ -42,6 +42,39 @@ ai:
   # Default: "medium"
   activity_verbosity: medium
 
+  # Enable automatic model fallback when AI generation fails with format errors.
+  # When true, if a model fails (e.g., haiku produces invalid format), the system
+  # automatically tries the next model in the fallback chain (e.g., haiku → sonnet → opus).
+  # Default: true
+  fallback_enabled: true
+
+  # Model fallback chains per agent.
+  # When a model fails with format errors, the system tries the next model in the chain.
+  # Models are ordered from fastest/cheapest to most capable.
+  # Default: claude=[haiku, sonnet, opus], gemini=[flash, pro], codex=[mini, codex, max]
+  fallback_models:
+    claude:
+      - haiku
+      - sonnet
+      - opus
+    gemini:
+      - flash
+      - pro
+    codex:
+      - mini
+      - codex
+      - max
+
+  # Agent fallback order (optional).
+  # When all models for an agent fail, the system can try a different agent.
+  # Empty by default (no cross-agent fallback).
+  # Example: ["claude", "gemini"] would try Claude first, then Gemini if Claude fails.
+  # fallback_agents: []
+
+  # Maximum retry attempts per model before moving to the next model.
+  # Default: 1 (try each model once before fallback)
+  fallback_max_retries_per_model: 1
+
 git:
   # Default base branch for creating feature branches
   # Default: "main"

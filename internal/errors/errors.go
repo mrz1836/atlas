@@ -51,6 +51,12 @@ var (
 	// ErrRetryDisabled indicates that AI retry is disabled in configuration.
 	ErrRetryDisabled = errors.New("AI retry is disabled")
 
+	// ErrAllFallbacksExhausted indicates all AI fallback options have been tried and failed.
+	ErrAllFallbacksExhausted = errors.New("all AI fallback options exhausted")
+
+	// ErrNoFallbackModels indicates no fallback models are configured for the agent.
+	ErrNoFallbackModels = errors.New("no fallback models configured")
+
 	// ========== Validation & CI Errors ==========
 
 	// ErrValidationFailed indicates that one or more validation commands
