@@ -136,7 +136,7 @@ func (s *TerminalSpinner) Stop() {
 	// Unregister from the global spinner manager
 	spinnerManager.ClearActive()
 
-	// Clear the spinner line
+	// Clear the spinner line and move to next line for clean output
 	_, _ = fmt.Fprint(s.w, "\r\033[K")
 }
 

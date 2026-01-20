@@ -39,7 +39,8 @@ import (
 // StepProgressEvent contains information about step execution progress.
 // Used by StepProgressCallback to provide UI feedback during task execution.
 type StepProgressEvent struct {
-	// Type is "start" when step begins, "complete" when step finishes.
+	// Type is "start" when step begins, "complete" when step finishes,
+	// "progress" for sub-step updates during multi-phase operations.
 	Type string
 
 	// Task information
@@ -55,6 +56,11 @@ type StepProgressEvent struct {
 	// Agent and model for AI/verify steps (empty for other step types).
 	Agent string
 	Model string
+
+	// Sub-step progress (for multi-phase operations like validation).
+	SubStep      string // Current sub-step name (e.g., "format", "lint", "test")
+	SubStepIndex int    // 0-indexed sub-step position
+	SubStepTotal int    // Total sub-steps in this step
 
 	// Completion metrics (only populated for "complete" events).
 	DurationMs        int64

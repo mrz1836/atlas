@@ -44,6 +44,10 @@ type RegistryDeps struct {
 	GitServices      *GitServices
 	Config           *config.Config
 	ProgressCallback func(event interface{})
+
+	// ValidationProgressCallback is used for validation sub-step progress.
+	// If nil, validation sub-step progress is not reported.
+	ValidationProgressCallback func(step, status string, info *validation.ProgressInfo)
 }
 
 // ServiceFactory creates all services needed for task execution.
@@ -158,24 +162,25 @@ func (f *ServiceFactory) CreateGitServices(ctx context.Context, worktreePath str
 // CreateExecutorRegistry creates the step executor registry with all dependencies.
 func (f *ServiceFactory) CreateExecutorRegistry(deps RegistryDeps) *steps.ExecutorRegistry {
 	return steps.NewDefaultRegistry(steps.ExecutorDeps{
-		WorkDir:                deps.WorkDir,
-		ArtifactSaver:          deps.TaskStore,
-		Notifier:               deps.Notifier,
-		AIRunner:               deps.AIRunner,
-		Logger:                 deps.Logger,
-		SmartCommitter:         deps.GitServices.SmartCommitter,
-		Pusher:                 deps.GitServices.Pusher,
-		HubRunner:              deps.GitServices.HubRunner,
-		PRDescriptionGenerator: deps.GitServices.PRDescGen,
-		GitRunner:              deps.GitServices.Runner,
-		CIFailureHandler:       deps.GitServices.CIFailureHandler,
-		BaseBranch:             deps.Config.Git.BaseBranch,
-		CIConfig:               &deps.Config.CI,
-		FormatCommands:         deps.Config.Validation.Commands.Format,
-		LintCommands:           deps.Config.Validation.Commands.Lint,
-		TestCommands:           deps.Config.Validation.Commands.Test,
-		PreCommitCommands:      deps.Config.Validation.Commands.PreCommit,
-		ProgressCallback:       deps.ProgressCallback,
+		WorkDir:                    deps.WorkDir,
+		ArtifactSaver:              deps.TaskStore,
+		Notifier:                   deps.Notifier,
+		AIRunner:                   deps.AIRunner,
+		Logger:                     deps.Logger,
+		SmartCommitter:             deps.GitServices.SmartCommitter,
+		Pusher:                     deps.GitServices.Pusher,
+		HubRunner:                  deps.GitServices.HubRunner,
+		PRDescriptionGenerator:     deps.GitServices.PRDescGen,
+		GitRunner:                  deps.GitServices.Runner,
+		CIFailureHandler:           deps.GitServices.CIFailureHandler,
+		BaseBranch:                 deps.Config.Git.BaseBranch,
+		CIConfig:                   &deps.Config.CI,
+		FormatCommands:             deps.Config.Validation.Commands.Format,
+		LintCommands:               deps.Config.Validation.Commands.Lint,
+		TestCommands:               deps.Config.Validation.Commands.Test,
+		PreCommitCommands:          deps.Config.Validation.Commands.PreCommit,
+		ProgressCallback:           deps.ProgressCallback,
+		ValidationProgressCallback: deps.ValidationProgressCallback,
 	})
 }
 

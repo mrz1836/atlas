@@ -23,6 +23,7 @@ import (
 	"github.com/mrz1836/atlas/internal/template"
 	"github.com/mrz1836/atlas/internal/template/steps"
 	"github.com/mrz1836/atlas/internal/tui"
+	"github.com/mrz1836/atlas/internal/validation"
 	"github.com/mrz1836/atlas/internal/workspace"
 )
 
@@ -603,16 +604,20 @@ func startTaskExecution(ctx context.Context, ws *domain.Workspace, tmpl *domain.
 		}
 	}
 
+	// Create validation progress callback that converts validation progress to task events
+	validationProgressCallback := createValidationProgressAdapter(progressCallback, ws.Name, len(tmpl.Steps))
+
 	// Create executor registry
 	execRegistry := services.CreateExecutorRegistry(workflow.RegistryDeps{
-		WorkDir:          ws.WorktreePath,
-		TaskStore:        taskStore,
-		Notifier:         notifier,
-		AIRunner:         aiRunner,
-		Logger:           logger,
-		GitServices:      gitServices,
-		Config:           cfg,
-		ProgressCallback: executorProgressCallback,
+		WorkDir:                    ws.WorktreePath,
+		TaskStore:                  taskStore,
+		Notifier:                   notifier,
+		AIRunner:                   aiRunner,
+		Logger:                     logger,
+		GitServices:                gitServices,
+		Config:                     cfg,
+		ProgressCallback:           executorProgressCallback,
+		ValidationProgressCallback: validationProgressCallback,
 	})
 
 	// Create validation retry handler for automatic AI-assisted fixes
@@ -653,6 +658,8 @@ func createProgressCallback(ctx context.Context, out tui.Output, _ string) func(
 			handleProgressStart(ctx, out, event, &logPathShown, &activeSpinner)
 		case "complete":
 			handleProgressComplete(out, event, &activeSpinner)
+		case "progress":
+			handleProgressUpdate(out, event, &activeSpinner)
 		case "retry_ai_start":
 			handleRetryAIStart(ctx, out, event, &activeSpinner)
 		case "retry_ai_complete":
@@ -676,14 +683,8 @@ func handleProgressStart(ctx context.Context, out tui.Output, event task.StepPro
 
 	msg := buildStepStartMessage(event)
 
-	// For AI-based steps (ai, verify, sdd), use animated spinner with elapsed time
-	if event.StepType == domain.StepTypeAI || event.StepType == domain.StepTypeVerify || event.StepType == domain.StepTypeSDD {
-		*activeSpinner = out.Spinner(ctx, msg)
-		return
-	}
-
-	// For other steps, use static message
-	out.Info(msg)
+	// Show spinner for ALL step types during execution
+	*activeSpinner = out.Spinner(ctx, msg)
 }
 
 // buildStepStartMessage builds the step start message based on the event.
@@ -727,6 +728,65 @@ func displayPRURL(out tui.Output, output string) {
 				out.URL(line, line)
 			}
 		}
+	}
+}
+
+// handleProgressUpdate handles sub-step progress updates during multi-phase operations.
+func handleProgressUpdate(_ tui.Output, event task.StepProgressEvent, activeSpinner *tui.Spinner) {
+	if *activeSpinner == nil {
+		return
+	}
+
+	// Build message with sub-step progress
+	var msg string
+	if event.TotalSteps > 0 {
+		// Full step context available
+		msg = fmt.Sprintf("Step %d/%d: %s", event.StepIndex+1, event.TotalSteps, event.StepName)
+	} else {
+		// No step context, just show step name
+		msg = event.StepName
+	}
+
+	if event.SubStep != "" {
+		msg = fmt.Sprintf("%s - %s (%d/%d)", msg, event.SubStep, event.SubStepIndex+1, event.SubStepTotal)
+	}
+
+	(*activeSpinner).Update(msg)
+}
+
+// createValidationProgressAdapter creates a validation progress callback that converts
+// validation sub-step progress to task.StepProgressEvent format for UI display.
+func createValidationProgressAdapter(progressCallback func(task.StepProgressEvent), workspaceName string, _ int) func(step, status string, info *validation.ProgressInfo) {
+	// Map validation phase names to 0-indexed positions
+	phaseIndex := map[string]int{
+		"pre-commit": 0,
+		"format":     1,
+		"lint":       2,
+		"test":       3,
+	}
+
+	return func(step, status string, info *validation.ProgressInfo) {
+		// Only report on starting status (to update spinner message)
+		if status != "starting" {
+			return
+		}
+
+		subStepTotal := 4
+		if info != nil && info.TotalSteps > 0 {
+			subStepTotal = info.TotalSteps
+		}
+
+		progressCallback(task.StepProgressEvent{
+			Type:          "progress",
+			WorkspaceName: workspaceName,
+			// StepIndex and TotalSteps are 0 here since we don't have task context.
+			// The validation step will update its own position when it starts.
+			StepName:     "validation",
+			StepType:     domain.StepTypeValidation,
+			SubStep:      step,
+			SubStepIndex: phaseIndex[step],
+			SubStepTotal: subStepTotal,
+		})
 	}
 }
 

@@ -10,6 +10,7 @@ import (
 	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/contracts"
 	"github.com/mrz1836/atlas/internal/git"
+	"github.com/mrz1836/atlas/internal/validation"
 )
 
 // ArtifactSaver abstracts artifact persistence for step executors.
@@ -109,6 +110,10 @@ type ExecutorDeps struct {
 	// ProgressCallback is used for progress notifications (e.g., spinners, status updates).
 	// If nil, progress notifications are not sent.
 	ProgressCallback func(event interface{})
+
+	// ValidationProgressCallback is used for validation sub-step progress reporting.
+	// If nil, validation sub-step progress is not reported.
+	ValidationProgressCallback func(step, status string, info *validation.ProgressInfo)
 }
 
 // NewDefaultRegistry creates a registry with all built-in executors.
@@ -122,7 +127,7 @@ func NewDefaultRegistry(deps ExecutorDeps) *ExecutorRegistry {
 	}
 
 	// Register validation executor with optional artifact saving, notifications, retry, and commands
-	r.Register(NewValidationExecutorWithOptions(deps.WorkDir,
+	validationOpts := []ValidationExecutorOption{
 		WithValidationArtifactSaver(deps.ArtifactSaver),
 		WithValidationNotifier(deps.Notifier),
 		WithValidationRetryHandler(deps.RetryHandler),
@@ -132,7 +137,11 @@ func NewDefaultRegistry(deps ExecutorDeps) *ExecutorRegistry {
 			Test:      deps.TestCommands,
 			PreCommit: deps.PreCommitCommands,
 		}),
-	))
+	}
+	if deps.ValidationProgressCallback != nil {
+		validationOpts = append(validationOpts, WithValidationProgressCallback(deps.ValidationProgressCallback))
+	}
+	r.Register(NewValidationExecutorWithOptions(deps.WorkDir, validationOpts...))
 
 	// Register git executor with dependencies for commit, push, and PR creation
 	gitExecutorOpts := []GitExecutorOption{

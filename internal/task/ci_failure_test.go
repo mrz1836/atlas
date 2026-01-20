@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -746,7 +747,22 @@ func TestOpenInBrowser_ValidOS(t *testing.T) {
 	err := openInBrowser("https://example.com")
 
 	require.NoError(t, err)
-	// On macOS, should use "open"
-	assert.Equal(t, "open", cmdName)
-	assert.Equal(t, []string{"https://example.com"}, cmdArgs)
+
+	// Expected command varies by OS
+	var expectedCmd string
+	var expectedArgs []string
+	switch runtime.GOOS {
+	case "darwin":
+		expectedCmd = "open"
+		expectedArgs = []string{"https://example.com"}
+	case "linux":
+		expectedCmd = "xdg-open"
+		expectedArgs = []string{"https://example.com"}
+	case "windows":
+		expectedCmd = "cmd"
+		expectedArgs = []string{"/c", "start", "https://example.com"}
+	}
+
+	assert.Equal(t, expectedCmd, cmdName)
+	assert.Equal(t, expectedArgs, cmdArgs)
 }

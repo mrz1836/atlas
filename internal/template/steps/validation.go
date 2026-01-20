@@ -26,6 +26,9 @@ type ValidationExecutor struct {
 	notifier      Notifier
 	retryHandler  RetryHandler
 
+	// Progress callback for sub-step progress reporting (e.g., format, lint, test)
+	progressCallback func(step, status string, info *validation.ProgressInfo)
+
 	// Validation commands from project config (ordered by execution)
 	preCommitCommands []string
 	formatCommands    []string
@@ -105,6 +108,13 @@ func WithValidationCommands(cmds ValidationCommands) ValidationExecutorOption {
 		e.lintCommands = cmds.Lint
 		e.testCommands = cmds.Test
 		e.preCommitCommands = cmds.PreCommit
+	}
+}
+
+// WithValidationProgressCallback sets the progress callback for sub-step reporting.
+func WithValidationProgressCallback(cb func(step, status string, info *validation.ProgressInfo)) ValidationExecutorOption {
+	return func(e *ValidationExecutor) {
+		e.progressCallback = cb
 	}
 }
 
@@ -324,6 +334,7 @@ func (e *ValidationExecutor) buildRunnerConfig(_ *domain.Task) *validation.Runne
 		LintCommands:      e.lintCommands,
 		TestCommands:      e.testCommands,
 		PreCommitCommands: e.preCommitCommands,
+		ProgressCallback:  e.progressCallback,
 	}
 }
 
