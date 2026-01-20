@@ -240,7 +240,7 @@ atlas start "simple edit" -t task --verify
 atlas start "simple edit" -t task --no-verify
 
 # Start from a backlog discovery (auto-promotes when task starts)
-atlas start "fix null pointer" -t bugfix -w fix-null-pointer --from-backlog disc-a1b2c3
+atlas start "fix null pointer" -t bugfix -w fix-null-pointer --from-backlog item-A1B2C3
 
 # Non-interactive mode (requires --template)
 atlas start "fix bug" -t bugfix --no-interactive
@@ -751,7 +751,7 @@ atlas backlog add "Issue title" --category bug --severity low --json
 
 **Output:**
 ```
-Created discovery: disc-a1b2c3
+Created discovery: item-A1B2C3
   Title: Missing error handling
   Category: bug | Severity: high
   Location: main.go:47
@@ -798,9 +798,9 @@ atlas backlog list --json
 **Output:**
 ```
 ID           TITLE                           CATEGORY  SEVERITY  AGE
-disc-a1b2c3  Missing error handling          bug       high      2h
-disc-x9y8z7  Potential race condition        bug       critical  1d
-disc-p4q5r6  Add test for edge case          testing   medium    3d
+item-A1B2C3  Missing error handling          bug       high      2h
+item-X9Y8Z7  Potential race condition        bug       critical  1d
+item-P4Q5R6  Add test for edge case          testing   medium    3d
 ```
 
 #### atlas backlog view
@@ -808,15 +808,15 @@ disc-p4q5r6  Add test for edge case          testing   medium    3d
 View full details of a discovery.
 
 ```bash
-atlas backlog view disc-a1b2c3
+atlas backlog view item-A1B2C3
 
 # JSON output
-atlas backlog view disc-a1b2c3 --json
+atlas backlog view item-A1B2C3 --json
 ```
 
 **Output:**
 ```
-Discovery: disc-a1b2c3
+Discovery: item-A1B2C3
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 Title:      Missing error handling
@@ -841,27 +841,29 @@ Git:        feat/auth-refactor @ 7b3f1a2
 
 Generate task configuration for a backlog discovery. Automatically determines the best template, workspace name, and branch based on the discovery's category, severity, and content. The discovery status remains `pending` until you create the task with `atlas start --from-backlog`.
 
+When called without arguments in a terminal, launches an interactive menu to select a discovery and configure promotion options.
+
 ```bash
-# Auto-generate task configuration from discovery (deterministic mapping)
-atlas backlog promote disc-a1b2c3
+# Interactive mode (select discovery from menu)
+atlas backlog promote
+
+# Direct mode with discovery ID
+atlas backlog promote item-ABC123
 
 # Dry-run: preview what would happen without executing
-atlas backlog promote disc-a1b2c3 --dry-run
+atlas backlog promote item-ABC123 --dry-run
 
 # With AI-assisted analysis for optimal task configuration
-atlas backlog promote disc-a1b2c3 --ai
+atlas backlog promote item-ABC123 --ai
 
 # Override template selection (bugfix, feature, task, hotfix)
-atlas backlog promote disc-a1b2c3 --template feature
+atlas backlog promote item-ABC123 --template feature
 
 # Override AI agent and model
-atlas backlog promote disc-a1b2c3 --ai --agent claude --model opus
+atlas backlog promote item-ABC123 --ai --agent claude --model opus
 
-# Link to existing task ID
-atlas backlog promote disc-a1b2c3 --task-id task-20260118-150000
-
-# JSON output for scripting
-atlas backlog promote disc-a1b2c3 --dry-run --json
+# JSON output for scripting (requires ID)
+atlas backlog promote item-ABC123 --dry-run --json
 ```
 
 **Flags:**
@@ -873,8 +875,17 @@ atlas backlog promote disc-a1b2c3 --dry-run --json
 | `--agent` | | AI agent override (claude, gemini, codex) | From config |
 | `--model` | | AI model override | From config |
 | `--dry-run` | | Preview without executing | `false` |
-| `--task-id` | | Link to existing task ID | - |
-| `--json` | | Output as JSON | `false` |
+| `--json` | | Output as JSON (requires ID) | `false` |
+
+**Interactive Mode:**
+
+When run without an ID in a terminal, presents an interactive TUI:
+
+1. **Select a discovery** - Choose from pending discoveries with category/severity info
+2. **AI configuration** - Optionally enable AI-assisted analysis
+3. **Template selection** - If not using AI, optionally override the template
+
+Press `q` or `Esc` at any prompt to cancel.
 
 **Category → Template Mapping:**
 
@@ -890,7 +901,7 @@ atlas backlog promote disc-a1b2c3 --dry-run --json
 
 **Output (Dry-Run):**
 ```
-Dry-run: Promote discovery disc-a1b2c3
+Dry-run: Promote discovery item-A1B2C3
   Title:     Missing error handling in payment processor
   Category:  bug
   Severity:  high
@@ -907,13 +918,13 @@ Would create task with:
 
 **Output (Execute):**
 ```
-Promoted discovery disc-a1b2c3
+Promoted discovery item-A1B2C3
   Template:   bugfix
   Workspace:  missing-error-handling-payment
   Branch:     fix/missing-error-handling-payment
 
 To create and start the task, run:
-  atlas start -t bugfix -w missing-error-handling-payment --from-backlog disc-a1b2c3 \
+  atlas start -t bugfix -w missing-error-handling-payment --from-backlog item-A1B2C3 \
     "Missing error handling in payment processor"
 
 Note: Discovery status will change to 'promoted' when you run the start command.
@@ -927,10 +938,10 @@ Dismiss a discovery with a reason.
 
 ```bash
 # Dismiss with reason
-atlas backlog dismiss disc-a1b2c3 --reason "Duplicate of disc-x9y8z7"
+atlas backlog dismiss item-A1B2C3 --reason "Duplicate of item-X9Y8Z7"
 
 # JSON output
-atlas backlog dismiss disc-a1b2c3 --reason "Won't fix" --json
+atlas backlog dismiss item-A1B2C3 --reason "Won't fix" --json
 ```
 
 **Flags:**
@@ -941,8 +952,8 @@ atlas backlog dismiss disc-a1b2c3 --reason "Won't fix" --json
 
 **Output:**
 ```
-Dismissed discovery disc-a1b2c3
-  Reason: Duplicate of disc-x9y8z7
+Dismissed discovery item-A1B2C3
+  Reason: Duplicate of item-X9Y8Z7
 ```
 
 #### AI Agent Discovery Protocol
@@ -975,7 +986,7 @@ pending → promoted → completed   (task approved)
 
 **Automatic Lifecycle Management:**
 
-1. **On Task Start**: When you run `atlas start --from-backlog disc-xxx`, the discovery is automatically promoted (status changes to `promoted`) and linked to the new task when the task begins execution.
+1. **On Task Start**: When you run `atlas start --from-backlog item-XXX`, the discovery is automatically promoted (status changes to `promoted`) and linked to the new task when the task begins execution.
 
 2. **On Task Approval**: When you run `atlas approve`, any discovery linked to that task is automatically marked as `completed` with a timestamp.
 
@@ -2364,5 +2375,5 @@ atlas config --help
 
 ---
 
-**Version:** 1.2.6
-**Last Updated:** 2026-01-19
+**Version:** 1.2.7
+**Last Updated:** 2026-01-20
