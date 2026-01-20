@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/mrz1836/atlas/internal/ai"
+	"github.com/mrz1836/atlas/internal/backlog"
 	"github.com/mrz1836/atlas/internal/cli/workflow"
 	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/constants"
@@ -1900,4 +1901,235 @@ func TestStartOptions_FromBacklogID(t *testing.T) {
 
 	assert.Equal(t, "disc-abc123", opts.fromBacklogID)
 	assert.Equal(t, "bugfix", opts.templateName)
+}
+
+// TestBuildEnrichedDescription tests the buildEnrichedDescription function
+func TestBuildEnrichedDescription(t *testing.T) {
+	tests := []struct {
+		name         string
+		description  string
+		discovery    *backlog.Discovery
+		wantContains []string
+	}{
+		{
+			name:        "includes file location with line",
+			description: "Fix the bug",
+			discovery: &backlog.Discovery{
+				Location: &backlog.Location{File: "internal/api/handler.go", Line: 42},
+				Content:  backlog.Content{Category: backlog.CategoryBug, Severity: backlog.SeverityHigh},
+			},
+			wantContains: []string{
+				"Fix the bug",
+				"Context from backlog discovery:",
+				"File: internal/api/handler.go:42",
+				"Category: bug",
+				"Severity: high",
+			},
+		},
+		{
+			name:        "includes file location without line",
+			description: "Add tests",
+			discovery: &backlog.Discovery{
+				Location: &backlog.Location{File: "internal/service/user.go"},
+				Content:  backlog.Content{Category: backlog.CategoryTesting, Severity: backlog.SeverityLow},
+			},
+			wantContains: []string{
+				"Add tests",
+				"File: internal/service/user.go",
+				"Category: testing",
+				"Severity: low",
+			},
+		},
+		{
+			name:        "includes tags",
+			description: "Add tests",
+			discovery: &backlog.Discovery{
+				Content: backlog.Content{
+					Category: backlog.CategoryTesting,
+					Severity: backlog.SeverityLow,
+					Tags:     []string{"coverage", "unit"},
+				},
+			},
+			wantContains: []string{
+				"Tags: coverage, unit",
+			},
+		},
+		{
+			name:        "includes different description as details",
+			description: "Fix it",
+			discovery: &backlog.Discovery{
+				Content: backlog.Content{
+					Category:    backlog.CategoryBug,
+					Severity:    backlog.SeverityMedium,
+					Description: "Full description of the issue found during code review",
+				},
+			},
+			wantContains: []string{
+				"Fix it",
+				"Details: Full description of the issue found during code review",
+			},
+		},
+		{
+			name:        "skips details if same as task description",
+			description: "Add test coverage",
+			discovery: &backlog.Discovery{
+				Content: backlog.Content{
+					Category:    backlog.CategoryTesting,
+					Severity:    backlog.SeverityLow,
+					Description: "Add test coverage", // Same as description
+				},
+			},
+			wantContains: []string{
+				"Category: testing",
+				"Severity: low",
+			},
+		},
+		{
+			name:        "no location",
+			description: "General task",
+			discovery: &backlog.Discovery{
+				Location: nil,
+				Content:  backlog.Content{Category: backlog.CategoryMaintainability, Severity: backlog.SeverityMedium},
+			},
+			wantContains: []string{
+				"General task",
+				"Category: maintainability",
+				"Severity: medium",
+			},
+		},
+		{
+			name:        "all metadata present",
+			description: "Fix security issue",
+			discovery: &backlog.Discovery{
+				Location: &backlog.Location{File: "internal/auth/jwt.go", Line: 156},
+				Content: backlog.Content{
+					Category:    backlog.CategorySecurity,
+					Severity:    backlog.SeverityCritical,
+					Tags:        []string{"authentication", "jwt", "urgent"},
+					Description: "JWT token validation can be bypassed with malformed tokens",
+				},
+			},
+			wantContains: []string{
+				"Fix security issue",
+				"Context from backlog discovery:",
+				"File: internal/auth/jwt.go:156",
+				"Category: security",
+				"Severity: critical",
+				"Tags: authentication, jwt, urgent",
+				"Details: JWT token validation can be bypassed",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := buildEnrichedDescription(tt.description, tt.discovery)
+
+			for _, want := range tt.wantContains {
+				assert.Contains(t, result, want)
+			}
+		})
+	}
+}
+
+// TestBuildEnrichedDescription_NotContains tests that buildEnrichedDescription
+// does NOT include certain fields when they should be omitted
+func TestBuildEnrichedDescription_NotContains(t *testing.T) {
+	tests := []struct {
+		name            string
+		description     string
+		discovery       *backlog.Discovery
+		wantNotContains []string
+	}{
+		{
+			name:        "no tags field when empty",
+			description: "Test task",
+			discovery: &backlog.Discovery{
+				Content: backlog.Content{
+					Category: backlog.CategoryBug,
+					Severity: backlog.SeverityLow,
+					Tags:     []string{}, // Empty tags
+				},
+			},
+			wantNotContains: []string{
+				"Tags:",
+			},
+		},
+		{
+			name:        "no details when description matches",
+			description: "Same description",
+			discovery: &backlog.Discovery{
+				Content: backlog.Content{
+					Category:    backlog.CategoryBug,
+					Severity:    backlog.SeverityLow,
+					Description: "Same description", // Same as task description
+				},
+			},
+			wantNotContains: []string{
+				"Details:",
+			},
+		},
+		{
+			name:        "no file when location is nil",
+			description: "No location task",
+			discovery: &backlog.Discovery{
+				Location: nil, // No location
+				Content: backlog.Content{
+					Category: backlog.CategoryBug,
+					Severity: backlog.SeverityLow,
+				},
+			},
+			wantNotContains: []string{
+				"File:",
+			},
+		},
+		{
+			name:        "no file when file is empty",
+			description: "Empty file task",
+			discovery: &backlog.Discovery{
+				Location: &backlog.Location{File: ""}, // Empty file
+				Content: backlog.Content{
+					Category: backlog.CategoryBug,
+					Severity: backlog.SeverityLow,
+				},
+			},
+			wantNotContains: []string{
+				"File:",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := buildEnrichedDescription(tt.description, tt.discovery)
+
+			for _, notWant := range tt.wantNotContains {
+				assert.NotContains(t, result, notWant)
+			}
+		})
+	}
+}
+
+// TestEnrichDescriptionFromBacklog_EmptyBacklogID tests that empty backlog ID returns original description
+func TestEnrichDescriptionFromBacklog_EmptyBacklogID(t *testing.T) {
+	ctx := context.Background()
+	logger := zerolog.Nop()
+	description := "Original description"
+
+	result := enrichDescriptionFromBacklog(ctx, description, "", logger)
+
+	assert.Equal(t, description, result)
+}
+
+// TestEnrichDescriptionFromBacklog_NonExistentBacklog tests fallback when backlog doesn't exist
+func TestEnrichDescriptionFromBacklog_NonExistentBacklog(t *testing.T) {
+	ctx := context.Background()
+	logger := zerolog.Nop()
+	description := "Original description"
+
+	// Use a non-existent backlog ID - should fall back to original
+	result := enrichDescriptionFromBacklog(ctx, description, "disc-nonexistent", logger)
+
+	// Should return original description when backlog not found
+	assert.Equal(t, description, result)
 }

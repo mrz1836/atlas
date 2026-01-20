@@ -12,6 +12,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
 
+	"github.com/mrz1836/atlas/internal/backlog"
 	"github.com/mrz1836/atlas/internal/cli/workflow"
 	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/constants"
@@ -683,7 +684,10 @@ func displayPRURL(out tui.Output, output string) {
 
 // startTask starts the task execution and handles errors.
 func startTask(ctx context.Context, engine *task.Engine, ws *domain.Workspace, tmpl *domain.Template, description, fromBacklogID string, logger zerolog.Logger) (*domain.Task, error) {
-	t, err := engine.Start(ctx, ws.Name, ws.Branch, ws.WorktreePath, tmpl, description, fromBacklogID)
+	// Enrich description with backlog discovery metadata
+	enrichedDescription := enrichDescriptionFromBacklog(ctx, description, fromBacklogID, logger)
+
+	t, err := engine.Start(ctx, ws.Name, ws.Branch, ws.WorktreePath, tmpl, enrichedDescription, fromBacklogID)
 	if err != nil {
 		logger.Error().Err(err).
 			Str("workspace_name", ws.Name).
@@ -691,6 +695,66 @@ func startTask(ctx context.Context, engine *task.Engine, ws *domain.Workspace, t
 		return t, err
 	}
 	return t, nil
+}
+
+// enrichDescriptionFromBacklog fetches the discovery and enriches the description
+// with its metadata (file, line, category, severity, tags).
+func enrichDescriptionFromBacklog(ctx context.Context, description, backlogID string, logger zerolog.Logger) string {
+	if backlogID == "" {
+		return description
+	}
+
+	mgr, err := backlog.NewManager("")
+	if err != nil {
+		logger.Debug().Err(err).Msg("failed to create backlog manager for enrichment")
+		return description // Fall back to original on error
+	}
+
+	discovery, err := mgr.Get(ctx, backlogID)
+	if err != nil {
+		logger.Debug().Err(err).Str("backlog_id", backlogID).Msg("failed to get discovery for enrichment")
+		return description // Fall back to original on error
+	}
+
+	logger.Debug().
+		Str("backlog_id", backlogID).
+		Str("category", string(discovery.Content.Category)).
+		Str("severity", string(discovery.Content.Severity)).
+		Msg("enriching description with discovery metadata")
+
+	return buildEnrichedDescription(description, discovery)
+}
+
+// buildEnrichedDescription constructs an enriched description from discovery metadata.
+func buildEnrichedDescription(description string, d *backlog.Discovery) string {
+	var sb strings.Builder
+	sb.WriteString(description)
+	sb.WriteString("\n\nContext from backlog discovery:")
+
+	// Add file location
+	if d.Location != nil && d.Location.File != "" {
+		if d.Location.Line > 0 {
+			fmt.Fprintf(&sb, "\n- File: %s:%d", d.Location.File, d.Location.Line)
+		} else {
+			fmt.Fprintf(&sb, "\n- File: %s", d.Location.File)
+		}
+	}
+
+	// Add category and severity
+	fmt.Fprintf(&sb, "\n- Category: %s", d.Content.Category)
+	fmt.Fprintf(&sb, "\n- Severity: %s", d.Content.Severity)
+
+	// Add tags if present
+	if len(d.Content.Tags) > 0 {
+		fmt.Fprintf(&sb, "\n- Tags: %s", strings.Join(d.Content.Tags, ", "))
+	}
+
+	// Add discovery description if different from task description
+	if d.Content.Description != "" && d.Content.Description != description {
+		fmt.Fprintf(&sb, "\n- Details: %s", d.Content.Description)
+	}
+
+	return sb.String()
 }
 
 // startResponse represents the JSON output for start operations.
