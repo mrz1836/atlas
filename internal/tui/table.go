@@ -908,8 +908,8 @@ func (t *HierarchicalStatusTable) constrainWidths(widths HierarchicalColumnWidth
 
 // renderWorkspaceGroup renders a workspace and its nested tasks.
 func (t *HierarchicalStatusTable) renderWorkspaceGroup(w io.Writer, group WorkspaceGroup, widths HierarchicalColumnWidths) error {
-	// Workspace row
-	statusCell := t.renderStatusCell(group.Status, widths.Status)
+	// Workspace row: STATUS column shows em-dash (status is shown per-task only)
+	statusCell := padRight("—", widths.Status)
 
 	// Build workspace name with subtle task count suffix
 	dimStyle := lipgloss.NewStyle().Foreground(ColorMuted)
@@ -993,6 +993,20 @@ func renderMiniProgressBar(current, total int) string {
 	return "[" + strings.Repeat("#", filled) + strings.Repeat("-", empty) + "]"
 }
 
+// abbreviateTaskID shortens a task ID for display while preserving uniqueness.
+// Example: "task-e8a698b0-247b-4344-b8dd-905fc1f0c095" -> "task-e8a6...c095"
+func abbreviateTaskID(id string) string {
+	const prefix = "task-"
+	if !strings.HasPrefix(id, prefix) || len(id) < len(prefix)+8 {
+		return id // Return as-is if not a standard task ID
+	}
+	uuid := id[len(prefix):]
+	if len(uuid) < 8 {
+		return id
+	}
+	return prefix + uuid[:4] + "..." + uuid[len(uuid)-4:]
+}
+
 // renderTaskRow renders a single task row with tree prefix.
 func (t *HierarchicalStatusTable) renderTaskRow(w io.Writer, task TaskInfo, isLast bool, widths HierarchicalColumnWidths) error {
 	// Tree prefix
@@ -1002,15 +1016,16 @@ func (t *HierarchicalStatusTable) renderTaskRow(w io.Writer, task TaskInfo, isLa
 	}
 
 	// Task ID (dimmed, with hyperlink if path available)
-	taskID := task.ID
+	displayID := abbreviateTaskID(task.ID)
+	taskID := displayID
 	if task.Path != "" {
-		taskID = RenderFileHyperlink(taskID, task.Path)
+		taskID = RenderFileHyperlink(displayID, task.Path)
 	}
 	dimStyle := lipgloss.NewStyle().Foreground(ColorMuted)
 	taskIDStyled := dimStyle.Render(taskID)
 
 	// Calculate visible width (prefix + task ID text only, no escape sequences)
-	visibleFirstCol := prefix + task.ID
+	visibleFirstCol := prefix + displayID
 	visibleWidth := utf8.RuneCountInString(visibleFirstCol)
 
 	// Pad to fill WORKSPACE + separator + BRANCH columns so status aligns correctly
@@ -1036,8 +1051,8 @@ func (t *HierarchicalStatusTable) renderTaskRow(w io.Writer, task TaskInfo, isLa
 		// Clean text for completed - no visual noise
 		stepInfo = "100%"
 	case constants.TaskStatusRunning, constants.TaskStatusValidating:
-		// Progress bar for active tasks
-		stepInfo = renderMiniProgressBar(task.CurrentStep, task.TotalSteps)
+		// Progress bar with percentage for active tasks
+		stepInfo = fmt.Sprintf("%s %d%%", renderMiniProgressBar(task.CurrentStep, task.TotalSteps), percent)
 	default:
 		// Percentage for pending/failed/terminal states
 		stepInfo = fmt.Sprintf("%d%%", percent)

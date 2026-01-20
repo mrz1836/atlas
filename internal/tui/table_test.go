@@ -1103,3 +1103,57 @@ func TestRenderFileHyperlink(t *testing.T) {
 		assert.Contains(t, result, "open folder")
 	})
 }
+
+func TestAbbreviateTaskID(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "standard task ID",
+			input:    "task-e8a698b0-247b-4344-b8dd-905fc1f0c095",
+			expected: "task-e8a6...c095",
+		},
+		{
+			name:     "another UUID",
+			input:    "task-12345678-abcd-efgh-ijkl-mnopqrstuvwx",
+			expected: "task-1234...uvwx",
+		},
+		{
+			name:     "non-task prefix",
+			input:    "other-e8a698b0-247b-4344-b8dd-905fc1f0c095",
+			expected: "other-e8a698b0-247b-4344-b8dd-905fc1f0c095",
+		},
+		{
+			name:     "too short UUID",
+			input:    "task-abc",
+			expected: "task-abc",
+		},
+		{
+			name:     "exactly minimum length",
+			input:    "task-12345678",
+			expected: "task-1234...5678",
+		},
+		{
+			name:     "empty string",
+			input:    "",
+			expected: "",
+		},
+		{
+			name:     "just task prefix",
+			input:    "task-",
+			expected: "task-",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			result := abbreviateTaskID(tc.input)
+			assert.Equal(t, tc.expected, result)
+		})
+	}
+}
