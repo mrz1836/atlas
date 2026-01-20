@@ -311,7 +311,7 @@ func (e *Engine) Start(ctx context.Context, workspaceName, branch, worktreePath 
 		task.Metadata["from_backlog_id"] = fromBacklogID
 	}
 
-	e.logger.Info().
+	e.logger.Debug().
 		Str("task_id", taskID).
 		Str("workspace_name", workspaceName).
 		Str("template_name", template.Name).
@@ -360,7 +360,7 @@ func (e *Engine) Resume(ctx context.Context, task *domain.Task, template *domain
 		return err
 	}
 
-	e.logger.Info().
+	e.logger.Debug().
 		Str("task_id", task.ID).
 		Str("status", string(task.Status)).
 		Int("current_step", task.CurrentStep).
@@ -374,7 +374,7 @@ func (e *Engine) Resume(ctx context.Context, task *domain.Task, template *domain
 
 	// Check if resuming from step-level approval with a user choice
 	if choice, ok := task.Metadata["step_approval_choice"].(string); ok && choice != "" {
-		e.logger.Info().
+		e.logger.Debug().
 			Str("task_id", task.ID).
 			Str("choice", choice).
 			Msg("applying step approval choice")
@@ -629,7 +629,7 @@ func (e *Engine) handleNoChangesResult(task *domain.Task, step *domain.StepDefin
 	// No changes were made (e.g., AI decided no modifications needed)
 	// Set metadata flag to skip remaining git steps (push, PR)
 	e.setMetadata(task, "skip_git_steps", true)
-	e.logger.Info().
+	e.logger.Debug().
 		Str("task_id", task.ID).
 		Str("step_name", step.Name).
 		Msg("no changes to commit, will skip remaining git steps")
@@ -690,7 +690,7 @@ func (e *Engine) processStepResult(ctx context.Context, task *domain.Task, resul
 // handleContextCancellation handles context cancellation during step execution.
 // It saves the current state and updates hook state before returning the error.
 func (e *Engine) handleContextCancellation(ctx context.Context, task *domain.Task, template *domain.Template, err error) error {
-	e.logger.Info().
+	e.logger.Debug().
 		Str("task_id", task.ID).
 		Int("current_step", task.CurrentStep).
 		Msg("context canceled, saving state before exit")
@@ -934,7 +934,7 @@ func (e *Engine) updateBacklogStatus(ctx context.Context, task *domain.Task) {
 		return
 	}
 
-	e.logger.Info().
+	e.logger.Debug().
 		Str("discovery_id", backlogID).
 		Str("task_id", task.ID).
 		Msg("backlog discovery status updated to promoted")

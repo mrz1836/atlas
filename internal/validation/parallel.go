@@ -109,7 +109,7 @@ func (r *Runner) Run(ctx context.Context, workDir string) (*PipelineResult, erro
 	// Calculate total steps (pre-commit=1, format=1, lint=1, test=1)
 	r.totalSteps = 4
 
-	log.Info().Str("work_dir", workDir).Msg("starting validation pipeline")
+	log.Debug().Str("work_dir", workDir).Msg("starting validation pipeline")
 
 	// Check context cancellation before starting
 	if err := ctxutil.Canceled(ctx); err != nil {
@@ -124,7 +124,7 @@ func (r *Runner) Run(ctx context.Context, workDir string) (*PipelineResult, erro
 	}
 
 	if preCommitInstalled {
-		log.Info().Str("version", preCommitVersion).Msg("go-pre-commit detected")
+		log.Debug().Str("version", preCommitVersion).Msg("go-pre-commit detected")
 		r.reportProgress("pre-commit", "starting")
 		preCommitResults, err := r.runSequentialWithPhase(ctx, r.getPreCommitCommands(), workDir, "pre-commit")
 		result.PreCommitResults = preCommitResults
@@ -190,7 +190,7 @@ func (r *Runner) Run(ctx context.Context, workDir string) (*PipelineResult, erro
 	}
 
 	result.Success = true
-	log.Info().Dur("duration_ms", time.Since(startTime)).Msg("validation pipeline completed successfully")
+	log.Debug().Dur("duration_ms", time.Since(startTime)).Msg("validation pipeline completed successfully")
 	return r.finalize(result, startTime), nil
 }
 

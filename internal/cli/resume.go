@@ -369,7 +369,15 @@ func createResumeEngine(ctx context.Context, ws *domain.Workspace, taskStore *ta
 		Events:      cfg.Notifications.Events,
 	})
 
-	aiRunner := ai.NewClaudeCodeRunner(&cfg.AI, nil)
+	// Create shared progress state for activity and progress callbacks
+	// This enables activity events to update the spinner inline
+	state := &progressState{}
+
+	// Create activity options for AI execution (uses shared state)
+	activityOpts := createActivityOptions(cfg, state, ws.Name, logger)
+
+	// Create AI runner with activity streaming
+	aiRunner := services.CreateAIRunnerWithActivity(cfg, activityOpts)
 
 	gitRunner, err := git.NewRunner(ctx, ws.WorktreePath)
 	if err != nil {
@@ -396,8 +404,8 @@ func createResumeEngine(ctx context.Context, ws *domain.Workspace, taskStore *ta
 	)
 	ciFailureHandler := task.NewCIFailureHandler(hubRunner)
 
-	// Create progress callback for both engine and executors
-	progressCallback := createProgressCallback(ctx, out, ws.Name)
+	// Create progress callback for both engine and executors (uses shared state)
+	progressCallback := createProgressCallback(ctx, out, ws.Name, state)
 
 	// Create executor progress callback wrapper that handles both task.StepProgressEvent
 	// and steps.AutoFixProgressEvent

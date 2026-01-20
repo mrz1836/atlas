@@ -598,8 +598,12 @@ func startTaskExecution(ctx context.Context, ws *domain.Workspace, tmpl *domain.
 	// Create notifiers
 	notifier, stateNotifier := services.CreateNotifiers(cfg)
 
-	// Create activity options for AI execution
-	activityOpts := createActivityOptions(cfg, out, ws.Name, logger)
+	// Create shared progress state for activity and progress callbacks
+	// This enables activity events to update the spinner inline
+	state := &progressState{}
+
+	// Create activity options for AI execution (uses shared state)
+	activityOpts := createActivityOptions(cfg, state, ws.Name, logger)
 
 	// Create AI runner with activity streaming
 	aiRunner := services.CreateAIRunnerWithActivity(cfg, activityOpts)
@@ -621,8 +625,8 @@ func startTaskExecution(ctx context.Context, ws *domain.Workspace, tmpl *domain.
 		return nil, nil, err
 	}
 
-	// Create progress callback for both engine and executors
-	progressCallback := createProgressCallback(ctx, out, ws.Name)
+	// Create progress callback for both engine and executors (uses shared state)
+	progressCallback := createProgressCallback(ctx, out, ws.Name, state)
 
 	// Create executor progress callback wrapper that handles both task.StepProgressEvent
 	// and steps.AutoFixProgressEvent
@@ -689,33 +693,39 @@ func startTaskExecution(ctx context.Context, ws *domain.Workspace, tmpl *domain.
 	return t, taskStore, err
 }
 
+// progressState holds shared state for progress and activity callbacks.
+// This enables activity events to update the spinner message inline.
+type progressState struct {
+	activeSpinner tui.Spinner
+	baseMessage   string // e.g., "Step 1/8: implement (claude/sonnet)"
+}
+
 // createProgressCallback creates the progress callback for UI feedback.
-func createProgressCallback(ctx context.Context, out tui.Output, _ string) func(task.StepProgressEvent) {
+func createProgressCallback(ctx context.Context, out tui.Output, _ string, state *progressState) func(task.StepProgressEvent) {
 	logPathShown := false
-	var activeSpinner tui.Spinner
 
 	return func(event task.StepProgressEvent) {
 		switch event.Type {
 		case "start":
-			handleProgressStart(ctx, out, event, &logPathShown, &activeSpinner)
+			handleProgressStart(ctx, out, event, &logPathShown, state)
 		case "complete":
-			handleProgressComplete(out, event, &activeSpinner)
+			handleProgressComplete(out, event, state)
 		case "progress":
-			handleProgressUpdate(out, event, &activeSpinner)
+			handleProgressUpdate(out, event, state)
 		case "retry_ai_start":
-			handleRetryAIStart(ctx, out, event, &activeSpinner)
+			handleRetryAIStart(ctx, out, event, state)
 		case "retry_ai_complete":
-			handleRetryAIComplete(out, event, &activeSpinner)
+			handleRetryAIComplete(out, event, state)
 		case "auto_fix_start":
-			handleAutoFixStart(ctx, out, event, &activeSpinner)
+			handleAutoFixStart(ctx, out, event, state)
 		case "auto_fix_complete":
-			handleAutoFixComplete(out, event, &activeSpinner)
+			handleAutoFixComplete(out, event, state)
 		}
 	}
 }
 
 // handleProgressStart handles the start event of a step progress.
-func handleProgressStart(ctx context.Context, out tui.Output, event task.StepProgressEvent, logPathShown *bool, activeSpinner *tui.Spinner) {
+func handleProgressStart(ctx context.Context, out tui.Output, event task.StepProgressEvent, logPathShown *bool, state *progressState) {
 	// Show log path on first step start
 	if !*logPathShown && event.TaskID != "" {
 		logPath := fmt.Sprintf("~/.atlas/workspaces/%s/tasks/%s/task.log", event.WorkspaceName, event.TaskID)
@@ -725,8 +735,11 @@ func handleProgressStart(ctx context.Context, out tui.Output, event task.StepPro
 
 	msg := buildStepStartMessage(event)
 
+	// Store base message for activity updates
+	state.baseMessage = msg
+
 	// Show spinner for ALL step types during execution
-	*activeSpinner = out.Spinner(ctx, msg)
+	state.activeSpinner = out.Spinner(ctx, msg)
 }
 
 // buildStepStartMessage builds the step start message based on the event.
@@ -738,12 +751,13 @@ func buildStepStartMessage(event task.StepProgressEvent) string {
 }
 
 // handleProgressComplete handles the complete event of a step progress.
-func handleProgressComplete(out tui.Output, event task.StepProgressEvent, activeSpinner *tui.Spinner) {
+func handleProgressComplete(out tui.Output, event task.StepProgressEvent, state *progressState) {
 	// Stop the spinner if one was running
-	if *activeSpinner != nil {
-		(*activeSpinner).Stop()
-		*activeSpinner = nil
+	if state.activeSpinner != nil {
+		state.activeSpinner.Stop()
+		state.activeSpinner = nil
 	}
+	state.baseMessage = ""
 
 	// Display completion message
 	statusMsg := fmt.Sprintf("Step %d/%d: %s completed", event.StepIndex+1, event.TotalSteps, event.StepName)
@@ -774,8 +788,8 @@ func displayPRURL(out tui.Output, output string) {
 }
 
 // handleProgressUpdate handles sub-step progress updates during multi-phase operations.
-func handleProgressUpdate(_ tui.Output, event task.StepProgressEvent, activeSpinner *tui.Spinner) {
-	if *activeSpinner == nil {
+func handleProgressUpdate(_ tui.Output, event task.StepProgressEvent, state *progressState) {
+	if state.activeSpinner == nil {
 		return
 	}
 
@@ -793,7 +807,7 @@ func handleProgressUpdate(_ tui.Output, event task.StepProgressEvent, activeSpin
 		msg = fmt.Sprintf("%s - %s (%d/%d)", msg, event.SubStep, event.SubStepIndex+1, event.SubStepTotal)
 	}
 
-	(*activeSpinner).Update(msg)
+	state.activeSpinner.Update(msg)
 }
 
 // createValidationProgressAdapter creates a validation progress callback that converts
@@ -833,18 +847,21 @@ func createValidationProgressAdapter(progressCallback func(task.StepProgressEven
 }
 
 // handleRetryAIStart handles the retry_ai_start event of a validation retry.
-func handleRetryAIStart(ctx context.Context, out tui.Output, event task.StepProgressEvent, activeSpinner *tui.Spinner) {
+func handleRetryAIStart(ctx context.Context, out tui.Output, event task.StepProgressEvent, state *progressState) {
 	msg := buildRetryAIStartMessage(event)
-	*activeSpinner = out.Spinner(ctx, msg)
+	// Store base message for activity updates
+	state.baseMessage = msg
+	state.activeSpinner = out.Spinner(ctx, msg)
 }
 
 // handleRetryAIComplete handles the retry_ai_complete event of a validation retry.
-func handleRetryAIComplete(out tui.Output, event task.StepProgressEvent, activeSpinner *tui.Spinner) {
+func handleRetryAIComplete(out tui.Output, event task.StepProgressEvent, state *progressState) {
 	// Stop the spinner if one was running
-	if *activeSpinner != nil {
-		(*activeSpinner).Stop()
-		*activeSpinner = nil
+	if state.activeSpinner != nil {
+		state.activeSpinner.Stop()
+		state.activeSpinner = nil
 	}
+	state.baseMessage = ""
 
 	// Display completion message
 	out.Success("Retry AI fix completed")
@@ -867,18 +884,21 @@ func buildRetryAIStartMessage(event task.StepProgressEvent) string {
 }
 
 // handleAutoFixStart handles the auto_fix_start event of a verification auto-fix.
-func handleAutoFixStart(ctx context.Context, out tui.Output, event task.StepProgressEvent, activeSpinner *tui.Spinner) {
+func handleAutoFixStart(ctx context.Context, out tui.Output, event task.StepProgressEvent, state *progressState) {
 	msg := buildAutoFixStartMessage(event)
-	*activeSpinner = out.Spinner(ctx, msg)
+	// Store base message for activity updates
+	state.baseMessage = msg
+	state.activeSpinner = out.Spinner(ctx, msg)
 }
 
 // handleAutoFixComplete handles the auto_fix_complete event of a verification auto-fix.
-func handleAutoFixComplete(out tui.Output, event task.StepProgressEvent, activeSpinner *tui.Spinner) {
+func handleAutoFixComplete(out tui.Output, event task.StepProgressEvent, state *progressState) {
 	// Stop the spinner if one was running
-	if *activeSpinner != nil {
-		(*activeSpinner).Stop()
-		*activeSpinner = nil
+	if state.activeSpinner != nil {
+		state.activeSpinner.Stop()
+		state.activeSpinner = nil
 	}
+	state.baseMessage = ""
 
 	// Display completion message
 	out.Success("Auto-fix completed")
@@ -1419,7 +1439,7 @@ func formatDuration(ms int64) string {
 
 // createActivityOptions creates activity options for AI execution with streaming.
 // Returns nil if activity streaming should be disabled.
-func createActivityOptions(cfg *config.Config, out tui.Output, workspaceName string, logger zerolog.Logger) *ai.ActivityOptions {
+func createActivityOptions(cfg *config.Config, state *progressState, workspaceName string, logger zerolog.Logger) *ai.ActivityOptions {
 	// Parse verbosity from config
 	verbosity := ai.ParseVerbosity(cfg.AI.ActivityVerbosity)
 
@@ -1434,7 +1454,7 @@ func createActivityOptions(cfg *config.Config, out tui.Output, workspaceName str
 	}
 
 	// Create callback that sends events to both UI and logger
-	uiCallback := createActivityUICallback(out, verbosity)
+	uiCallback := createActivityUICallback(state, verbosity)
 	var callback ai.ActivityCallback
 	if activityLogger != nil {
 		callback = ai.CombineCallbacks(uiCallback, activityLogger.CreateCallback())
@@ -1449,19 +1469,22 @@ func createActivityOptions(cfg *config.Config, out tui.Output, workspaceName str
 	}
 }
 
-// createActivityUICallback creates a callback that displays activity events in the UI.
-func createActivityUICallback(out tui.Output, verbosity ai.VerbosityLevel) ai.ActivityCallback {
+// createActivityUICallback creates a callback that updates the spinner with activity events.
+// Instead of printing separate lines, activity events are integrated into the spinner message.
+func createActivityUICallback(state *progressState, verbosity ai.VerbosityLevel) ai.ActivityCallback {
 	return func(event ai.ActivityEvent) {
 		// Filter by verbosity
 		if !verbosity.ShouldShow(event.Type) {
 			return
 		}
 
-		// Format the message with icon
-		icon := event.Type.Icon()
-		msg := event.FormatMessage()
-
-		// Display using dim style to differentiate from main progress
-		out.Info(fmt.Sprintf("  %s %s", icon, msg))
+		// Update spinner with activity if we have an active spinner and base message
+		if state.activeSpinner != nil && state.baseMessage != "" {
+			icon := event.Type.Icon()
+			msg := event.FormatMessage()
+			// Integrate activity into spinner: "Step 1/8: implement (claude/sonnet) 🔍 Analyzing..."
+			state.activeSpinner.Update(fmt.Sprintf("%s %s %s", state.baseMessage, icon, msg))
+		}
+		// If no active spinner, activity events are silently ignored (they go to activity log)
 	}
 }
