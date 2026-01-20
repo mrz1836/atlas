@@ -16,6 +16,7 @@ import (
 	"github.com/mrz1836/atlas/internal/ctxutil"
 	"github.com/mrz1836/atlas/internal/domain"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
+	"github.com/mrz1836/atlas/internal/prompts"
 )
 
 // Compile-time interface check.
@@ -665,45 +666,23 @@ func writeDiffStats(summary *strings.Builder, file string, additions, deletions 
 
 // buildAIPromptWithDiff creates the prompt for AI commit message generation with diff context.
 func (r *SmartCommitRunner) buildAIPromptWithDiff(group FileGroup, diffSummary string) string {
-	var fileList strings.Builder
-	for _, f := range group.Files {
-		fileList.WriteString(fmt.Sprintf("- %s (%s)\n", f.Path, f.Status))
+	// Convert FileChange to prompts.FileChange
+	files := make([]prompts.FileChange, len(group.Files))
+	for i, f := range group.Files {
+		files[i] = prompts.FileChange{
+			Path:   f.Path,
+			Status: string(f.Status),
+		}
 	}
 
-	scope := GetScopeFromPackage(group.Package)
-
-	diffSection := ""
-	if diffSummary != "" {
-		diffSection = fmt.Sprintf("\nChange summary:\n%s", diffSummary)
+	data := prompts.CommitMessageData{
+		Package:     group.Package,
+		Files:       files,
+		DiffSummary: diffSummary,
+		Scope:       GetScopeFromPackage(group.Package),
 	}
 
-	return fmt.Sprintf(`Generate a conventional commit message for these changes:
-
-Package: %s
-Files changed:
-%s%s
-
-Requirements:
-1. Use conventional commits format: <type>(<scope>): <description>
-2. Type must be one of: feat, fix, docs, style, refactor, test, chore, build, ci
-3. Scope should be: %s
-4. Description should be lowercase, no period at end
-5. Keep subject line under 72 characters
-6. Include a blank line followed by a 1-2 sentence synopsis (under 150 chars)
-7. Synopsis should explain WHAT changed and WHY
-8. Do NOT include any AI attribution or mention of Claude/Anthropic
-9. Base your message on the actual diff content shown above, not assumptions from filenames
-10. Be accurate and specific about what actually changed
-
-Return format (no extra formatting or explanations):
-<type>(<scope>): <description>
-
-<synopsis>`,
-		group.Package,
-		fileList.String(),
-		diffSection,
-		scope,
-	)
+	return prompts.MustRender(prompts.CommitMessage, data)
 }
 
 // addGarbageToGroups adds garbage files back to the analysis groups.

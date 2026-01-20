@@ -25,6 +25,7 @@ import (
 	"github.com/mrz1836/atlas/internal/domain"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 	"github.com/mrz1836/atlas/internal/git"
+	"github.com/mrz1836/atlas/internal/prompts"
 )
 
 // execCommandContextFunc allows injecting exec.CommandContext for testing.
@@ -444,33 +445,32 @@ func ExtractCIErrorContext(result *git.CIWatchResult) string {
 		return "CI checks failed but no details available."
 	}
 
-	var sb strings.Builder
-	sb.WriteString("## CI Failure Context\n\n")
-	sb.WriteString("The following CI checks failed:\n\n")
-
-	hasFailures := false
+	// Build list of failed checks
+	var failedChecks []prompts.CICheckInfo
 	for _, check := range result.CheckResults {
 		bucket := strings.ToLower(check.Bucket)
 		if bucket == "fail" || bucket == "cancel" {
-			hasFailures = true
-			sb.WriteString(fmt.Sprintf("### %s\n", check.Name))
-			sb.WriteString(fmt.Sprintf("- Status: %s\n", check.Bucket))
-			if check.Workflow != "" {
-				sb.WriteString(fmt.Sprintf("- Workflow: %s\n", check.Workflow))
-			}
-			if check.URL != "" {
-				sb.WriteString(fmt.Sprintf("- Logs: %s\n", check.URL))
-			}
-			sb.WriteString("\n")
+			failedChecks = append(failedChecks, prompts.CICheckInfo{
+				Name:     check.Name,
+				Status:   check.Bucket,
+				Workflow: check.Workflow,
+				URL:      check.URL,
+			})
 		}
 	}
 
-	if !hasFailures {
-		sb.WriteString("No specific failures identified, but overall CI status indicates failure.\n\n")
+	data := prompts.CIFailureData{
+		HasFailures:  len(failedChecks) > 0,
+		FailedChecks: failedChecks,
 	}
 
-	sb.WriteString("Please analyze the failures and fix the issues in the code.\n")
-	return sb.String()
+	rendered, err := prompts.Render(prompts.CIFailure, data)
+	if err != nil {
+		// Fall back to basic message if template fails
+		return "CI checks failed. Please analyze the failures and fix the issues in the code."
+	}
+
+	return rendered
 }
 
 // FormatManualFixInstructions generates user-facing instructions for manual fixing.

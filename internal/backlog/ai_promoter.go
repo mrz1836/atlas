@@ -11,6 +11,7 @@ import (
 	"github.com/mrz1836/atlas/internal/contracts"
 	"github.com/mrz1836/atlas/internal/domain"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
+	"github.com/mrz1836/atlas/internal/prompts"
 )
 
 // defaultAnalysisBudgetUSD is the default maximum cost for AI analysis.
@@ -213,193 +214,42 @@ func applyConfigOverrides(cfg *AIPromoterConfig, agent *domain.Agent, model *str
 
 // buildAnalysisPrompt creates the prompt for AI analysis.
 func (p *AIPromoter) buildAnalysisPrompt(d *Discovery, cfg *AIPromoterConfig) string {
-	var sb strings.Builder
-
-	p.writeDiscoveryInfo(&sb, d)
-	p.writeCommandOptions(&sb)
-
-	availableAgents := p.getAvailableAgentsForPrompt(cfg)
-	p.writeAgentGuidance(&sb, availableAgents)
-
-	return sb.String()
-}
-
-// writeDiscoveryInfo writes discovery information to the string builder.
-func (p *AIPromoter) writeDiscoveryInfo(sb *strings.Builder, d *Discovery) {
-	sb.WriteString("Analyze this discovery and determine the best ATLAS task configuration:\n\n")
-	fmt.Fprintf(sb, "Title: %s\n", d.Title)
-	fmt.Fprintf(sb, "Category: %s\n", d.Content.Category)
-	fmt.Fprintf(sb, "Severity: %s\n", d.Content.Severity)
-
-	if d.Content.Description != "" {
-		fmt.Fprintf(sb, "Description: %s\n", d.Content.Description)
+	// Extract git context
+	var gitBranch, gitCommit string
+	if d.Context.Git != nil {
+		gitBranch = d.Context.Git.Branch
+		gitCommit = d.Context.Git.Commit
 	}
 
-	if d.Location != nil && d.Location.File != "" {
-		fmt.Fprintf(sb, "Location: %s", d.Location.File)
-		if d.Location.Line > 0 {
-			fmt.Fprintf(sb, ":%d", d.Location.Line)
-		}
-		sb.WriteString("\n")
+	// Extract location info
+	var file string
+	var line int
+	if d.Location != nil {
+		file = d.Location.File
+		line = d.Location.Line
 	}
 
-	if len(d.Content.Tags) > 0 {
-		fmt.Fprintf(sb, "Tags: %s\n", strings.Join(d.Content.Tags, ", "))
-	}
-
-	p.writeGitContext(sb, d)
-	sb.WriteString("\nAvailable templates: bugfix, feature, task, fix, hotfix, commit\n")
-}
-
-// writeGitContext writes git context information to the string builder.
-func (p *AIPromoter) writeGitContext(sb *strings.Builder, d *Discovery) {
-	if d.Context.Git == nil {
-		return
-	}
-
-	sb.WriteString("\nDiscovery git context:\n")
-	if d.Context.Git.Branch != "" {
-		fmt.Fprintf(sb, "  Found on branch: %s\n", d.Context.Git.Branch)
-	}
-	if d.Context.Git.Commit != "" {
-		fmt.Fprintf(sb, "  Commit: %s\n", d.Context.Git.Commit)
-	}
-}
-
-// writeCommandOptions writes available command options to the string builder.
-func (p *AIPromoter) writeCommandOptions(sb *strings.Builder) {
-	sb.WriteString("\nAvailable 'atlas start' command options:\n")
-	sb.WriteString("  --template/-t    Template to use (bugfix, feature, commit, hotfix, task, fix)\n")
-	sb.WriteString("  --workspace/-w   Custom workspace name\n")
-	sb.WriteString("  --branch/-b      Base branch to create workspace from (fetches from remote)\n")
-	sb.WriteString("  --target         Existing branch to checkout (mutually exclusive with --branch)\n")
-	sb.WriteString("  --use-local      Prefer local branch over remote when both exist\n")
-	sb.WriteString("  --verify         Enable AI verification step (for critical changes)\n")
-	sb.WriteString("  --no-verify      Disable AI verification step (for simple changes)\n")
-	sb.WriteString("  --agent/-a       AI agent to use (claude, gemini, codex)\n")
-	sb.WriteString("  --model/-m       AI model to use\n")
-	sb.WriteString("  --from-backlog   Link to backlog discovery (auto-set)\n")
-}
-
-// writeAgentGuidance writes agent and model guidance to the string builder.
-func (p *AIPromoter) writeAgentGuidance(sb *strings.Builder, availableAgents []string) {
-	if len(availableAgents) == 0 {
-		p.writeJSONTemplateWithoutAgents(sb)
-		return
-	}
-
-	p.writeAvailableAgentsAndModels(sb, availableAgents)
-	p.writeModelSelectionGuidance(sb, availableAgents)
-	p.writeJSONTemplateWithAgents(sb, availableAgents)
-}
-
-// writeAvailableAgentsAndModels writes available agents and their models.
-func (p *AIPromoter) writeAvailableAgentsAndModels(sb *strings.Builder, availableAgents []string) {
-	sb.WriteString("\nAvailable agents and models:\n")
-	for _, agent := range availableAgents {
-		a := domain.Agent(agent)
-		aliases := a.ModelAliases()
-		defaultModel := a.DefaultModel()
-		if len(aliases) > 0 {
-			var models []string
-			for _, alias := range aliases {
-				if alias == defaultModel {
-					models = append(models, fmt.Sprintf("%s (default)", alias))
-				} else {
-					models = append(models, alias)
-				}
-			}
-			fmt.Fprintf(sb, "  %s: %s\n", capitalizeFirst(agent), strings.Join(models, ", "))
-		}
-	}
-}
-
-// writeModelSelectionGuidance writes model selection guidance for available agents.
-func (p *AIPromoter) writeModelSelectionGuidance(sb *strings.Builder, availableAgents []string) {
-	sb.WriteString("\nModel selection guidance:\n")
-
-	if containsAgent(availableAgents, "claude") {
-		sb.WriteString("  Complex architecture, critical decisions → opus (deep reasoning for advanced tasks)\n")
-		sb.WriteString("  Standard development, most tasks → sonnet (best balance of capability and cost)\n")
-		sb.WriteString("  Simple changes, typos, minor fixes → haiku (fast and cost-effective)\n")
-	}
-
-	if containsAgent(availableAgents, "gemini") {
-		if containsAgent(availableAgents, "claude") {
-			sb.WriteString("  Commit messages, routine tasks → haiku or flash (speed over depth)\n")
-		} else {
-			sb.WriteString("  Standard development → pro (capable)\n")
-			sb.WriteString("  Simple changes, routine tasks → flash (fast and efficient)\n")
-		}
-	}
-
-	if containsAgent(availableAgents, "codex") && !containsAgent(availableAgents, "claude") && !containsAgent(availableAgents, "gemini") {
-		sb.WriteString("  Complex tasks → max (most capable)\n")
-		sb.WriteString("  Standard development → codex (balanced)\n")
-		sb.WriteString("  Simple changes → mini (fast)\n")
-	}
-}
-
-// writeJSONTemplateWithAgents writes the JSON response template including agent fields.
-func (p *AIPromoter) writeJSONTemplateWithAgents(sb *strings.Builder, availableAgents []string) {
-	agentList := strings.Join(availableAgents, ", ")
-	sb.WriteString("\nReturn JSON only, no markdown:\n")
-	fmt.Fprintf(sb, `{
-  "template": "best template name",
-  "description": "optimized task description",
-  "reasoning": "brief explanation of your choices",
-  "workspace_name": "suggested-workspace-name",
-  "priority": 1-5 where 1 is highest,
-  "base_branch": "optional: branch to base work from if not default",
-  "use_verify": "optional: true for critical/security, false for simple changes, omit for default",
-  "agent": "optional: recommended agent (%s), omit to use default",
-  "model": "optional: recommended model based on task complexity",
-  "file": "optional: relevant file path from discovery location",
-  "line": "optional: relevant line number if applicable"
-}`, agentList)
-}
-
-// writeJSONTemplateWithoutAgents writes the JSON response template without agent fields.
-func (p *AIPromoter) writeJSONTemplateWithoutAgents(sb *strings.Builder) {
-	sb.WriteString("\nReturn JSON only, no markdown:\n")
-	sb.WriteString(`{
-  "template": "best template name",
-  "description": "optimized task description",
-  "reasoning": "brief explanation of your choices",
-  "workspace_name": "suggested-workspace-name",
-  "priority": 1-5 where 1 is highest,
-  "base_branch": "optional: branch to base work from if not default",
-  "use_verify": "optional: true for critical/security, false for simple changes, omit for default",
-  "file": "optional: relevant file path from discovery location",
-  "line": "optional: relevant line number if applicable"
-}`)
-}
-
-// getAvailableAgentsForPrompt returns the list of agents to show in the prompt.
-// If AvailableAgents is set in config, uses that. Otherwise returns empty (no agents shown).
-func (p *AIPromoter) getAvailableAgentsForPrompt(cfg *AIPromoterConfig) []string {
+	// Get available agents from config
+	var availableAgents []string
 	if cfg != nil && len(cfg.AvailableAgents) > 0 {
-		return cfg.AvailableAgents
+		availableAgents = cfg.AvailableAgents
 	}
-	return nil
-}
 
-// containsAgent checks if an agent is in the list.
-func containsAgent(agents []string, agent string) bool {
-	for _, a := range agents {
-		if a == agent {
-			return true
-		}
+	data := prompts.DiscoveryAnalysisData{
+		Title:              d.Title,
+		Category:           string(d.Content.Category),
+		Severity:           string(d.Content.Severity),
+		Description:        d.Content.Description,
+		File:               file,
+		Line:               line,
+		Tags:               d.Content.Tags,
+		GitBranch:          gitBranch,
+		GitCommit:          gitCommit,
+		AvailableAgents:    availableAgents,
+		AvailableTemplates: []string{"bugfix", "feature", "task", "fix", "hotfix", "commit"},
 	}
-	return false
-}
 
-// capitalizeFirst capitalizes the first letter of a string.
-func capitalizeFirst(s string) string {
-	if s == "" {
-		return s
-	}
-	return strings.ToUpper(s[:1]) + s[1:]
+	return prompts.MustRender(prompts.DiscoveryAnalysis, data)
 }
 
 // parseAnalysisResponse parses the AI's JSON response into an AIAnalysis struct.

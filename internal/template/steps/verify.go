@@ -15,14 +15,13 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
-	"golang.org/x/text/cases"
-	"golang.org/x/text/language"
 
 	"github.com/mrz1836/atlas/internal/ai"
 	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/domain"
 	"github.com/mrz1836/atlas/internal/errors"
 	"github.com/mrz1836/atlas/internal/git"
+	"github.com/mrz1836/atlas/internal/prompts"
 )
 
 // AutoFixProgressEvent represents a progress event for auto-fix operations.
@@ -345,22 +344,14 @@ func (e *VerifyExecutor) buildRequest(task *domain.Task, step *domain.StepDefini
 // The prompt is kept concise to minimize AI processing time.
 func (e *VerifyExecutor) buildVerificationPrompt(task *domain.Task, step *domain.StepDefinition) string {
 	checks := e.getChecksFromConfig(step.Config)
+	formattedChecks := e.formatChecksForPrompt(checks)
 
-	// Build a concise prompt - the simpler the prompt, the faster the response
-	prompt := fmt.Sprintf(`Review if the implementation matches the task.
+	data := prompts.QuickVerifyData{
+		TaskDescription: task.Description,
+		Checks:          formattedChecks,
+	}
 
-## Task
-%s
-
-## Instructions
-Quickly verify:
-%s
-
-Respond with JSON:
-{"passed": true/false, "issues": [{"severity": "error|warning", "category": "code_correctness", "file": "path", "line": 0, "message": "issue", "suggestion": "fix"}], "summary": "Brief assessment"}
-`, task.Description, e.formatChecksCompact(checks))
-
-	return prompt
+	return prompts.MustRender(prompts.QuickVerify, data)
 }
 
 // getChecksFromConfig extracts the checks list from step config.
@@ -389,8 +380,8 @@ func (e *VerifyExecutor) getChecksFromConfig(config map[string]any) []string {
 	return DefaultVerifyConfig().Checks
 }
 
-// formatChecksCompact formats the checks list for the prompt (compact version for speed).
-func (e *VerifyExecutor) formatChecksCompact(checks []string) string {
+// formatChecksForPrompt formats the checks list for the prompt template.
+func (e *VerifyExecutor) formatChecksForPrompt(checks []string) []string {
 	checkDescriptions := map[string]string{
 		"code_correctness": "1. Does the code address the task? Any obvious bugs?",
 		"test_coverage":    "2. Are there tests for the changes?",
@@ -398,10 +389,10 @@ func (e *VerifyExecutor) formatChecksCompact(checks []string) string {
 		"security":         "4. Any hardcoded secrets or vulnerabilities?",
 	}
 
-	result := ""
+	result := make([]string, 0, len(checks))
 	for _, check := range checks {
 		if desc, ok := checkDescriptions[check]; ok {
-			result += desc + "\n"
+			result = append(result, desc)
 		}
 	}
 	return result
@@ -446,26 +437,22 @@ func (e *VerifyExecutor) CheckCodeCorrectness(ctx context.Context, taskDescripti
 		return nil, nil
 	}
 
-	prompt := fmt.Sprintf(`Review the following code changes for correctness against the task description.
+	// Convert to prompts.ChangedFileInfo
+	files := make([]prompts.ChangedFileInfo, len(changedFiles))
+	for i, f := range changedFiles {
+		files[i] = prompts.ChangedFileInfo{
+			Path:     f.Path,
+			Language: f.Language,
+			Content:  f.Content,
+		}
+	}
 
-## Task Description
-%s
+	data := prompts.CodeCorrectnessData{
+		TaskDescription: taskDescription,
+		ChangedFiles:    files,
+	}
 
-## Changed Files
-%s
-
-## Instructions
-Check if the implementation:
-1. Correctly addresses the task description
-2. Has any obvious bugs or logic errors
-3. Follows Go best practices (if Go code)
-4. Has proper error handling
-
-Respond with JSON array of issues found:
-[{"severity": "error|warning|info", "file": "path", "line": 0, "message": "description", "suggestion": "how to fix"}]
-
-If no issues, respond with: []
-`, taskDescription, e.formatChangedFiles(changedFiles))
+	prompt := prompts.MustRender(prompts.CodeCorrectness, data)
 
 	req := &domain.AIRequest{
 		Prompt:     prompt,
@@ -683,20 +670,6 @@ func toTestFileName(path string) string {
 		return strings.TrimSuffix(path, ".go") + "_test.go"
 	}
 	return path + "_test"
-}
-
-// formatChangedFiles formats changed files for the AI prompt.
-func (e *VerifyExecutor) formatChangedFiles(files []ChangedFile) string {
-	var sb strings.Builder
-	for _, f := range files {
-		sb.WriteString(fmt.Sprintf("### %s\n", f.Path))
-		if f.Language != "" {
-			sb.WriteString(fmt.Sprintf("```%s\n%s\n```\n\n", f.Language, f.Content))
-		} else {
-			sb.WriteString(fmt.Sprintf("```\n%s\n```\n\n", f.Content))
-		}
-	}
-	return sb.String()
 }
 
 // parseIssuesResponse parses a JSON array of issues from AI output.
@@ -1017,37 +990,36 @@ func (e *VerifyExecutor) handleAutoFix(ctx context.Context, report *Verification
 
 // buildAutoFixPrompt creates the prompt for AI auto-fix.
 func (e *VerifyExecutor) buildAutoFixPrompt(report *VerificationReport) string {
-	var sb strings.Builder
-
-	sb.WriteString("Please fix the following verification issues found in the code:\n\n")
-	sb.WriteString(fmt.Sprintf("## Task: %s\n", report.TaskDesc))
-	sb.WriteString(fmt.Sprintf("## Issues Found: %d\n\n", report.TotalIssues))
-
-	// Group by severity
-	titleCaser := cases.Title(language.English)
-	for _, severity := range []string{"error", "warning", "info"} {
-		issues := filterIssuesBySeverity(report.Issues, severity)
-		if len(issues) == 0 {
-			continue
-		}
-
-		sb.WriteString(fmt.Sprintf("### %s Issues (%d)\n", titleCaser.String(severity), len(issues)))
-		for _, issue := range issues {
-			sb.WriteString(fmt.Sprintf("- **%s** (line %d): %s\n", issue.File, issue.Line, issue.Message))
-			if issue.Suggestion != "" {
-				sb.WriteString(fmt.Sprintf("  Suggestion: %s\n", issue.Suggestion))
+	// Convert issues to prompts.AutoFixIssue
+	convertIssues := func(issues []VerificationIssue) []prompts.AutoFixIssue {
+		result := make([]prompts.AutoFixIssue, len(issues))
+		for i, issue := range issues {
+			result[i] = prompts.AutoFixIssue{
+				File:       issue.File,
+				Line:       issue.Line,
+				Message:    issue.Message,
+				Suggestion: issue.Suggestion,
 			}
 		}
-		sb.WriteString("\n")
+		return result
 	}
 
-	sb.WriteString("\n## Instructions\n")
-	sb.WriteString("1. Fix each issue listed above\n")
-	sb.WriteString("2. Make minimal changes necessary\n")
-	sb.WriteString("3. Ensure all tests still pass after changes\n")
-	sb.WriteString("4. Do not introduce new issues\n")
+	data := prompts.AutoFixData{
+		TaskDesc:      report.TaskDesc,
+		TotalIssues:   report.TotalIssues,
+		ErrorIssues:   convertIssues(filterIssuesBySeverity(report.Issues, "error")),
+		WarningIssues: convertIssues(filterIssuesBySeverity(report.Issues, "warning")),
+		InfoIssues:    convertIssues(filterIssuesBySeverity(report.Issues, "info")),
+	}
 
-	return sb.String()
+	rendered, err := prompts.Render(prompts.AutoFix, data)
+	if err != nil {
+		// Fall back to basic message if template fails
+		return fmt.Sprintf("Please fix %d verification issues found in the code for task: %s",
+			report.TotalIssues, report.TaskDesc)
+	}
+
+	return rendered
 }
 
 // handleManualFix returns instructions for manual fix.
