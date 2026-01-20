@@ -793,20 +793,18 @@ func TestHierarchicalStatusTable_Render(t *testing.T) {
 		require.NoError(t, err)
 
 		output := buf.String()
-		// Workspace row
+		// Workspace row with count suffix
 		assert.Contains(t, output, "auth")
+		assert.Contains(t, output, "(2)") // Task count in workspace name
 		assert.Contains(t, output, "feat/auth")
 		assert.Contains(t, output, "running")
-		assert.Contains(t, output, "2 tasks")
 		// Task rows with tree characters
 		assert.Contains(t, output, "├─")
 		assert.Contains(t, output, "└─")
 		assert.Contains(t, output, "task-1")
 		assert.Contains(t, output, "task-2")
-		assert.Contains(t, output, "3/7")
-		assert.Contains(t, output, "7/7")
-		assert.Contains(t, output, "feature")
-		assert.Contains(t, output, "bugfix")
+		// Progress display: running task shows progress bar, completed shows 100%
+		assert.Contains(t, output, "100%") // Completed task
 	})
 
 	t.Run("truncates tasks when more than max", func(t *testing.T) {
@@ -988,6 +986,70 @@ func TestTreeChars(t *testing.T) {
 	assert.Equal(t, "├─ ", TreeChars.Branch)
 	assert.Equal(t, "└─ ", TreeChars.LastBranch)
 	assert.Equal(t, "   ", TreeChars.Indent)
+}
+
+// TestRenderMiniProgressBar tests the mini progress bar rendering.
+// We don't use t.Parallel() here because subtests modify environment variables.
+func TestRenderMiniProgressBar(t *testing.T) {
+	t.Run("renders full bar when complete", func(t *testing.T) {
+		original := os.Getenv("NO_COLOR")
+		_ = os.Unsetenv("NO_COLOR")
+		defer func() {
+			if original != "" {
+				_ = os.Setenv("NO_COLOR", original)
+			}
+		}()
+
+		result := renderMiniProgressBar(8, 8)
+		assert.Equal(t, "████████", result)
+	})
+
+	t.Run("renders partial bar", func(t *testing.T) {
+		original := os.Getenv("NO_COLOR")
+		_ = os.Unsetenv("NO_COLOR")
+		defer func() {
+			if original != "" {
+				_ = os.Setenv("NO_COLOR", original)
+			}
+		}()
+
+		result := renderMiniProgressBar(4, 8)
+		assert.Equal(t, "████░░░░", result)
+	})
+
+	t.Run("renders empty bar when zero progress", func(t *testing.T) {
+		original := os.Getenv("NO_COLOR")
+		_ = os.Unsetenv("NO_COLOR")
+		defer func() {
+			if original != "" {
+				_ = os.Setenv("NO_COLOR", original)
+			}
+		}()
+
+		result := renderMiniProgressBar(0, 8)
+		assert.Equal(t, "░░░░░░░░", result)
+	})
+
+	t.Run("renders ASCII fallback in NO_COLOR mode", func(t *testing.T) {
+		_ = os.Setenv("NO_COLOR", "1")
+		defer func() { _ = os.Unsetenv("NO_COLOR") }()
+
+		result := renderMiniProgressBar(4, 8)
+		assert.Equal(t, "[####----]", result)
+	})
+
+	t.Run("handles zero total", func(t *testing.T) {
+		original := os.Getenv("NO_COLOR")
+		_ = os.Unsetenv("NO_COLOR")
+		defer func() {
+			if original != "" {
+				_ = os.Setenv("NO_COLOR", original)
+			}
+		}()
+
+		result := renderMiniProgressBar(0, 0)
+		assert.Equal(t, "████████", result)
+	})
 }
 
 // TestRenderHyperlink tests OSC 8 hyperlink rendering.

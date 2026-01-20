@@ -849,8 +849,12 @@ func (t *HierarchicalStatusTable) calculateColumnWidths() HierarchicalColumnWidt
 	}
 
 	for _, group := range t.groups {
-		// Workspace name
-		if w := utf8.RuneCountInString(group.Name); w > widths.Workspace {
+		// Workspace name with count suffix (e.g., "workspace-name (2)")
+		countSuffix := ""
+		if group.TotalTasks > 0 {
+			countSuffix = fmt.Sprintf(" (%d)", group.TotalTasks)
+		}
+		if w := utf8.RuneCountInString(group.Name + countSuffix); w > widths.Workspace {
 			widths.Workspace = w
 		}
 		// Branch
@@ -862,20 +866,11 @@ func (t *HierarchicalStatusTable) calculateColumnWidths() HierarchicalColumnWidt
 		if w := utf8.RuneCountInString(statusText); w > widths.Status {
 			widths.Status = w
 		}
-		// Tasks column for workspace row
-		tasksText := fmt.Sprintf("%d tasks", group.TotalTasks)
-		if group.TotalTasks == 1 {
-			tasksText = "1 task"
-		}
-		if w := utf8.RuneCountInString(tasksText); w > widths.Tasks {
-			widths.Tasks = w
-		}
-		// Task rows content width
-		for _, task := range group.Tasks {
-			taskContent := fmt.Sprintf("%d/%d  %s", task.CurrentStep, task.TotalSteps, task.Template)
-			if w := utf8.RuneCountInString(taskContent); w > widths.Tasks {
-				widths.Tasks = w
-			}
+		// Tasks column: progress bar (8 chars) or percentage (4 chars "100%")
+		// Use 8 as the standard width for progress bar display
+		const progressBarWidth = 8
+		if progressBarWidth > widths.Tasks {
+			widths.Tasks = progressBarWidth
 		}
 	}
 
@@ -915,19 +910,35 @@ func (t *HierarchicalStatusTable) constrainWidths(widths HierarchicalColumnWidth
 func (t *HierarchicalStatusTable) renderWorkspaceGroup(w io.Writer, group WorkspaceGroup, widths HierarchicalColumnWidths) error {
 	// Workspace row
 	statusCell := t.renderStatusCell(group.Status, widths.Status)
-	tasksText := fmt.Sprintf("%d tasks", group.TotalTasks)
-	switch group.TotalTasks {
-	case 1:
-		tasksText = "1 task"
-	case 0:
-		tasksText = "—"
+
+	// Build workspace name with subtle task count suffix
+	dimStyle := lipgloss.NewStyle().Foreground(ColorMuted)
+	countSuffix := ""
+	countSuffixLen := 0
+	if group.TotalTasks > 0 {
+		countSuffix = fmt.Sprintf(" (%d)", group.TotalTasks)
+		countSuffixLen = len(countSuffix)
+	}
+
+	// Truncate workspace name to leave room for count suffix
+	maxNameLen := widths.Workspace - countSuffixLen
+	if maxNameLen < 4 {
+		maxNameLen = 4 // Minimum readable name
+	}
+	truncatedName := truncateString(group.Name, maxNameLen)
+
+	// Build the full workspace cell with styled suffix
+	workspaceCell := truncatedName + dimStyle.Render(countSuffix)
+	visibleLen := utf8.RuneCountInString(truncatedName + countSuffix)
+	if visibleLen < widths.Workspace {
+		workspaceCell += strings.Repeat(" ", widths.Workspace-visibleLen)
 	}
 
 	row := []string{
-		padRight(truncateString(group.Name, widths.Workspace), widths.Workspace),
+		workspaceCell,
 		padRight(truncateString(group.Branch, widths.Branch), widths.Branch),
 		statusCell,
-		padRight(tasksText, widths.Tasks),
+		padRight("—", widths.Tasks), // TASKS column empty for workspace rows
 	}
 	if _, err := fmt.Fprintln(w, strings.Join(row, "  ")); err != nil {
 		return err
@@ -955,6 +966,31 @@ func (t *HierarchicalStatusTable) renderWorkspaceGroup(w io.Writer, group Worksp
 	}
 
 	return nil
+}
+
+// renderMiniProgressBar renders an 8-character wide progress bar.
+// Uses block characters for styled mode, ASCII for NO_COLOR mode.
+func renderMiniProgressBar(current, total int) string {
+	const barWidth = 8
+
+	if total == 0 {
+		if HasColorSupport() {
+			return strings.Repeat("█", barWidth)
+		}
+		return "[" + strings.Repeat("=", barWidth-2) + "]"
+	}
+
+	filled := (current * barWidth) / total
+	if filled > barWidth {
+		filled = barWidth
+	}
+	empty := barWidth - filled
+
+	if HasColorSupport() {
+		return strings.Repeat("█", filled) + strings.Repeat("░", empty)
+	}
+	// NO_COLOR mode: ASCII fallback
+	return "[" + strings.Repeat("#", filled) + strings.Repeat("-", empty) + "]"
 }
 
 // renderTaskRow renders a single task row with tree prefix.
@@ -987,8 +1023,25 @@ func (t *HierarchicalStatusTable) renderTaskRow(w io.Writer, task TaskInfo, isLa
 	// Status cell
 	statusCell := t.renderStatusCell(task.Status, widths.Status)
 
-	// Step progress + template
-	stepInfo := fmt.Sprintf("%d/%d  %s", task.CurrentStep, task.TotalSteps, task.Template)
+	// Step progress: progress bar for active, percentage for completed/failed
+	var stepInfo string
+	percent := 0
+	if task.TotalSteps > 0 {
+		percent = (task.CurrentStep * 100) / task.TotalSteps
+	}
+
+	//exhaustive:ignore // All non-active/non-completed states show percentage
+	switch task.Status {
+	case constants.TaskStatusCompleted:
+		// Clean text for completed - no visual noise
+		stepInfo = "100%"
+	case constants.TaskStatusRunning, constants.TaskStatusValidating:
+		// Progress bar for active tasks
+		stepInfo = renderMiniProgressBar(task.CurrentStep, task.TotalSteps)
+	default:
+		// Percentage for pending/failed/terminal states
+		stepInfo = fmt.Sprintf("%d%%", percent)
+	}
 
 	// Build row manually: prefix + taskID + padding + separator + status + separator + tasks
 	// This ensures proper alignment despite invisible escape sequences in taskIDStyled
