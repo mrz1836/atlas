@@ -1011,7 +1011,7 @@ func TestVerifyExecutor_HandleVerificationIssues(t *testing.T) {
 			}, nil
 		}
 
-		result, err := executor.HandleVerificationIssues(ctx, report, VerifyActionAutoFix)
+		result, err := executor.HandleVerificationIssues(ctx, report, VerifyActionAutoFix, "test-workspace", domain.AgentClaude, "test-model")
 
 		require.NoError(t, err)
 		assert.True(t, result.ShouldContinue)
@@ -1025,7 +1025,7 @@ func TestVerifyExecutor_HandleVerificationIssues(t *testing.T) {
 			return nil, errors.ErrAIError
 		}
 
-		result, err := executor.HandleVerificationIssues(ctx, report, VerifyActionAutoFix)
+		result, err := executor.HandleVerificationIssues(ctx, report, VerifyActionAutoFix, "test-workspace", domain.AgentClaude, "test-model")
 
 		require.NoError(t, err)
 		assert.False(t, result.ShouldContinue)
@@ -1035,7 +1035,7 @@ func TestVerifyExecutor_HandleVerificationIssues(t *testing.T) {
 	})
 
 	t.Run("manual fix", func(t *testing.T) {
-		result, err := executor.HandleVerificationIssues(ctx, report, VerifyActionManualFix)
+		result, err := executor.HandleVerificationIssues(ctx, report, VerifyActionManualFix, "test-workspace", domain.AgentClaude, "test-model")
 
 		require.NoError(t, err)
 		assert.False(t, result.ShouldContinue)
@@ -1044,7 +1044,7 @@ func TestVerifyExecutor_HandleVerificationIssues(t *testing.T) {
 	})
 
 	t.Run("ignore and continue", func(t *testing.T) {
-		result, err := executor.HandleVerificationIssues(ctx, report, VerifyActionIgnoreContinue)
+		result, err := executor.HandleVerificationIssues(ctx, report, VerifyActionIgnoreContinue, "test-workspace", domain.AgentClaude, "test-model")
 
 		require.NoError(t, err)
 		assert.True(t, result.ShouldContinue)
@@ -1053,7 +1053,7 @@ func TestVerifyExecutor_HandleVerificationIssues(t *testing.T) {
 	})
 
 	t.Run("view report", func(t *testing.T) {
-		result, err := executor.HandleVerificationIssues(ctx, report, VerifyActionViewReport)
+		result, err := executor.HandleVerificationIssues(ctx, report, VerifyActionViewReport, "test-workspace", domain.AgentClaude, "test-model")
 
 		require.NoError(t, err)
 		assert.False(t, result.ShouldContinue)
@@ -1061,7 +1061,7 @@ func TestVerifyExecutor_HandleVerificationIssues(t *testing.T) {
 	})
 
 	t.Run("unknown action", func(t *testing.T) {
-		_, err := executor.HandleVerificationIssues(ctx, report, VerificationAction(99))
+		_, err := executor.HandleVerificationIssues(ctx, report, VerificationAction(99), "test-workspace", domain.AgentClaude, "test-model")
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "invalid verification action")

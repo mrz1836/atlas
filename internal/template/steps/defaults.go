@@ -105,6 +105,10 @@ type ExecutorDeps struct {
 	LintCommands      []string
 	TestCommands      []string
 	PreCommitCommands []string
+
+	// ProgressCallback is used for progress notifications (e.g., spinners, status updates).
+	// If nil, progress notifications are not sent.
+	ProgressCallback func(event interface{})
 }
 
 // NewDefaultRegistry creates a registry with all built-in executors.
@@ -186,7 +190,11 @@ func NewDefaultRegistry(deps ExecutorDeps) *ExecutorRegistry {
 	// Register verify executor (requires AIRunner for AI verification)
 	if deps.AIRunner != nil {
 		garbageDetector := git.NewGarbageDetector(nil)
-		r.Register(NewVerifyExecutor(deps.AIRunner, garbageDetector, deps.ArtifactSaver, deps.Logger, WithVerifyWorkingDir(deps.WorkDir)))
+		verifyOpts := []VerifyExecutorOption{WithVerifyWorkingDir(deps.WorkDir)}
+		if deps.ProgressCallback != nil {
+			verifyOpts = append(verifyOpts, WithVerifyProgressCallback(deps.ProgressCallback))
+		}
+		r.Register(NewVerifyExecutor(deps.AIRunner, garbageDetector, deps.ArtifactSaver, deps.Logger, verifyOpts...))
 	}
 
 	return r

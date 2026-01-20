@@ -25,6 +25,20 @@ import (
 	"github.com/mrz1836/atlas/internal/git"
 )
 
+// AutoFixProgressEvent represents a progress event for auto-fix operations.
+// This struct mirrors the fields from task.StepProgressEvent but avoids import cycles.
+type AutoFixProgressEvent struct {
+	Type              string
+	TaskID            string
+	WorkspaceName     string
+	Agent             string
+	Model             string
+	Status            string
+	DurationMs        int64
+	NumTurns          int
+	FilesChangedCount int
+}
+
 // Verification step configuration constants.
 const (
 	// DefaultVerifyMaxTurns is the maximum number of AI conversation turns for verification.
@@ -46,11 +60,12 @@ var (
 // VerifyExecutor handles AI verification steps.
 // It uses a secondary AI model to review implementation changes and detect potential issues.
 type VerifyExecutor struct {
-	runner          ai.Runner
-	garbageDetector GarbageChecker
-	logger          zerolog.Logger
-	workingDir      string
-	artifactHelper  *ArtifactHelper
+	runner           ai.Runner
+	garbageDetector  GarbageChecker
+	logger           zerolog.Logger
+	workingDir       string
+	artifactHelper   *ArtifactHelper
+	progressCallback func(event interface{})
 }
 
 // GarbageChecker defines the interface for garbage file detection.
@@ -75,6 +90,13 @@ func WithVerifyWorkingDir(dir string) VerifyExecutorOption {
 func WithGarbageChecker(checker GarbageChecker) VerifyExecutorOption {
 	return func(e *VerifyExecutor) {
 		e.garbageDetector = checker
+	}
+}
+
+// WithVerifyProgressCallback sets the progress callback for auto-fix notifications.
+func WithVerifyProgressCallback(callback func(event interface{})) VerifyExecutorOption {
+	return func(e *VerifyExecutor) {
+		e.progressCallback = callback
 	}
 }
 
@@ -929,10 +951,10 @@ type VerificationHandleResult struct {
 }
 
 // HandleVerificationIssues handles verification issues based on the chosen action.
-func (e *VerifyExecutor) HandleVerificationIssues(ctx context.Context, report *VerificationReport, action VerificationAction) (*VerificationHandleResult, error) {
+func (e *VerifyExecutor) HandleVerificationIssues(ctx context.Context, report *VerificationReport, action VerificationAction, workspaceName string, agent domain.Agent, model string) (*VerificationHandleResult, error) {
 	switch action {
 	case VerifyActionAutoFix:
-		return e.handleAutoFix(ctx, report)
+		return e.handleAutoFix(ctx, report, workspaceName, agent, model)
 	case VerifyActionManualFix:
 		return e.handleManualFix(report)
 	case VerifyActionIgnoreContinue:
@@ -945,11 +967,14 @@ func (e *VerifyExecutor) HandleVerificationIssues(ctx context.Context, report *V
 }
 
 // handleAutoFix attempts to fix issues using AI.
-func (e *VerifyExecutor) handleAutoFix(ctx context.Context, report *VerificationReport) (*VerificationHandleResult, error) {
+func (e *VerifyExecutor) handleAutoFix(ctx context.Context, report *VerificationReport, workspaceName string, agent domain.Agent, model string) (*VerificationHandleResult, error) {
 	e.logger.Info().
 		Str("task_id", report.TaskID).
 		Int("issue_count", report.TotalIssues).
 		Msg("attempting auto-fix for verification issues")
+
+	// Notify that auto-fix is starting
+	e.notifyAutoFixStart(report.TaskID, workspaceName, agent, model)
 
 	// Build prompt with issue context
 	prompt := e.buildAutoFixPrompt(report)
@@ -962,6 +987,9 @@ func (e *VerifyExecutor) handleAutoFix(ctx context.Context, report *Verification
 	}
 
 	result, err := e.runner.Run(ctx, req)
+
+	// Notify that auto-fix has completed (regardless of success/failure)
+	e.notifyAutoFixComplete(report.TaskID, workspaceName, result)
 	if err != nil {
 		e.logger.Error().Err(err).Msg("auto-fix attempt failed")
 		return &VerificationHandleResult{
@@ -1106,4 +1134,44 @@ func (e *VerifyExecutor) saveVerificationArtifact(ctx context.Context, task *dom
 			Str("artifact_path", path).
 			Msg("saved verification interaction artifact")
 	}
+}
+
+// notifyAutoFixStart sends a progress notification when auto-fix begins.
+func (e *VerifyExecutor) notifyAutoFixStart(taskID, workspaceName string, agent domain.Agent, model string) {
+	if e.progressCallback == nil {
+		return
+	}
+
+	event := AutoFixProgressEvent{
+		Type:          "auto_fix_start",
+		TaskID:        taskID,
+		WorkspaceName: workspaceName,
+		Agent:         string(agent),
+		Model:         model,
+		Status:        "Auto-fixing verification issues",
+	}
+
+	e.progressCallback(event)
+}
+
+// notifyAutoFixComplete sends a progress notification when auto-fix completes.
+func (e *VerifyExecutor) notifyAutoFixComplete(taskID, workspaceName string, result *domain.AIResult) {
+	if e.progressCallback == nil {
+		return
+	}
+
+	event := AutoFixProgressEvent{
+		Type:          "auto_fix_complete",
+		TaskID:        taskID,
+		WorkspaceName: workspaceName,
+		Status:        "success",
+	}
+
+	if result != nil {
+		event.DurationMs = int64(result.DurationMs)
+		event.NumTurns = result.NumTurns
+		event.FilesChangedCount = len(result.FilesChanged)
+	}
+
+	e.progressCallback(event)
 }
