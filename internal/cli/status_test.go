@@ -598,9 +598,10 @@ func TestStatusCommand_WorkspacesWithNoTasks(t *testing.T) {
 
 	output := buf.String()
 
-	// Should show workspace with pending status
+	// Should show workspace - hierarchical table shows "—" for workspace rows
+	// (status is shown per-task only, not at workspace level)
 	assert.Contains(t, output, "empty-ws")
-	assert.Contains(t, output, "pending")
+	assert.Contains(t, output, "—")
 }
 
 // TestStatusCommand_EmptyTaskRefsWithTasksInStore tests the fix for the bug where
@@ -646,7 +647,8 @@ func TestStatusCommand_EmptyTaskRefsWithTasksInStore(t *testing.T) {
 	// Should show correct status from store, NOT "pending"
 	assert.Contains(t, output, "awaiting_approval", "should show actual status from task store")
 	assert.NotContains(t, output, "0/0", "should NOT show 0/0 step count")
-	assert.Contains(t, output, "8/8", "should show correct step count (8/8)")
+	// Hierarchical table shows percentage (100%) instead of step count (8/8) for terminal states
+	assert.Contains(t, output, "100%", "should show 100% progress for completed task")
 }
 
 // TestStatusCommand_EmptyTaskRefsWithTasksInStore_JSON tests JSON output for the same bug scenario.
