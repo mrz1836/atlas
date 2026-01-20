@@ -25,7 +25,7 @@ func TestNewBacklogPromoteCmd(t *testing.T) {
 
 	t.Run("has correct use and short", func(t *testing.T) {
 		t.Parallel()
-		assert.Equal(t, "promote <id>", cmd.Use)
+		assert.Equal(t, "promote [id]", cmd.Use)
 		assert.NotEmpty(t, cmd.Short)
 		assert.NotEmpty(t, cmd.Long)
 	})
@@ -1336,4 +1336,138 @@ func TestRunBacklogPromote_CriticalSecurity_IncludesVerify(t *testing.T) {
 	// Verify the start command includes --verify
 	cmd := buildStartCommand(result)
 	assert.Contains(t, cmd, "--verify")
+}
+
+func TestIsPromoteInteractiveMode(t *testing.T) {
+	t.Parallel()
+
+	t.Run("returns false when ID provided", func(t *testing.T) {
+		t.Parallel()
+		opts := promoteOptions{}
+		result := isPromoteInteractiveMode("item-ABC123", opts)
+		assert.False(t, result, "should not be interactive when ID is provided")
+	})
+
+	t.Run("returns false when JSON output requested", func(t *testing.T) {
+		t.Parallel()
+		opts := promoteOptions{jsonOutput: true}
+		result := isPromoteInteractiveMode("", opts)
+		assert.False(t, result, "should not be interactive with JSON output")
+	})
+
+	t.Run("returns false when both ID and JSON provided", func(t *testing.T) {
+		t.Parallel()
+		opts := promoteOptions{jsonOutput: true}
+		result := isPromoteInteractiveMode("item-ABC123", opts)
+		assert.False(t, result, "should not be interactive when ID is provided")
+	})
+}
+
+func TestBuildDiscoveryOptions(t *testing.T) {
+	t.Parallel()
+
+	t.Run("builds options from discoveries", func(t *testing.T) {
+		t.Parallel()
+
+		discoveries := []*backlog.Discovery{
+			{
+				ID:     "item-ABC123",
+				Title:  "First discovery",
+				Status: backlog.StatusPending,
+				Content: backlog.Content{
+					Category: backlog.CategoryBug,
+					Severity: backlog.SeverityHigh,
+				},
+				Context: backlog.Context{
+					DiscoveredAt: time.Now().UTC(),
+					DiscoveredBy: "human:tester",
+				},
+			},
+			{
+				ID:     "item-DEF456",
+				Title:  "Second discovery",
+				Status: backlog.StatusPending,
+				Content: backlog.Content{
+					Category: backlog.CategorySecurity,
+					Severity: backlog.SeverityCritical,
+				},
+				Context: backlog.Context{
+					DiscoveredAt: time.Now().UTC(),
+					DiscoveredBy: "human:tester",
+				},
+			},
+		}
+
+		options := buildDiscoveryOptions(discoveries)
+
+		require.Len(t, options, 2)
+
+		// First option
+		assert.Contains(t, options[0].Label, "[item-ABC123]")
+		assert.Contains(t, options[0].Label, "First discovery")
+		assert.Contains(t, options[0].Description, "bug/high")
+		assert.Equal(t, "item-ABC123", options[0].Value)
+
+		// Second option
+		assert.Contains(t, options[1].Label, "[item-DEF456]")
+		assert.Contains(t, options[1].Label, "Second discovery")
+		assert.Contains(t, options[1].Description, "security/critical")
+		assert.Equal(t, "item-DEF456", options[1].Value)
+	})
+
+	t.Run("truncates long titles", func(t *testing.T) {
+		t.Parallel()
+
+		longTitle := "This is a very long title that exceeds fifty characters and should be truncated"
+		discoveries := []*backlog.Discovery{
+			{
+				ID:     "item-ABC123",
+				Title:  longTitle,
+				Status: backlog.StatusPending,
+				Content: backlog.Content{
+					Category: backlog.CategoryBug,
+					Severity: backlog.SeverityMedium,
+				},
+				Context: backlog.Context{
+					DiscoveredAt: time.Now().UTC(),
+					DiscoveredBy: "human:tester",
+				},
+			},
+		}
+
+		options := buildDiscoveryOptions(discoveries)
+
+		require.Len(t, options, 1)
+		// Label should contain truncated title with "..."
+		assert.Contains(t, options[0].Label, "...")
+		assert.Less(t, len(options[0].Label), len("[item-ABC123] ")+len(longTitle))
+	})
+
+	t.Run("handles empty list", func(t *testing.T) {
+		t.Parallel()
+
+		discoveries := []*backlog.Discovery{}
+		options := buildDiscoveryOptions(discoveries)
+
+		assert.Empty(t, options)
+	})
+}
+
+func TestRunBacklogPromote_NoIDWithJSON(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	cmd := newBacklogPromoteCmd()
+
+	var buf bytes.Buffer
+
+	opts := promoteOptions{
+		jsonOutput: true,
+	}
+
+	// Call with empty ID and JSON flag should error
+	err := runBacklogPromote(ctx, cmd, &buf, "", opts)
+	require.Error(t, err)
+	assert.True(t, atlaserrors.IsExitCode2Error(err))
+	assert.Contains(t, err.Error(), "ID required")
 }

@@ -2,11 +2,14 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 
 	"github.com/mrz1836/atlas/internal/backlog"
 	"github.com/mrz1836/atlas/internal/cli/workflow"
@@ -42,9 +45,14 @@ func newBacklogPromoteCmd() *cobra.Command {
 	var opts promoteOptions
 
 	cmd := &cobra.Command{
-		Use:   "promote <id>",
+		Use:   "promote [id]",
 		Short: "Promote a discovery to a task",
 		Long: `Promote a discovery to a task, creating the task configuration automatically.
+
+When called without arguments in a terminal, launches an interactive menu to
+select a discovery and configure promotion options.
+
+When called with an ID argument, promotes the discovery directly.
 
 Generates task configuration from the discovery based on category and severity.
 Critical security issues use the hotfix template; bugs use bugfix; other
@@ -56,25 +64,32 @@ configuration (template, description, workspace name).
 The --dry-run flag shows what would happen without making any changes.
 
 Examples:
-  # Auto-create task from discovery (deterministic mapping)
-  atlas backlog promote disc-abc123
+  # Interactive mode (select discovery from menu)
+  atlas backlog promote
+
+  # Direct mode with discovery ID
+  atlas backlog promote item-ABC123
 
   # Preview what would happen
-  atlas backlog promote disc-abc123 --dry-run
+  atlas backlog promote item-ABC123 --dry-run
 
   # Use AI to determine optimal task configuration
-  atlas backlog promote disc-abc123 --ai
+  atlas backlog promote item-ABC123 --ai
 
   # Override template selection
-  atlas backlog promote disc-abc123 --template feature
+  atlas backlog promote item-ABC123 --template feature
 
 Exit codes:
   0: Success
   1: Discovery not found or error
-  2: Invalid input (discovery not pending, conflicting flags)`,
-		Args: cobra.ExactArgs(1),
+  2: Invalid input (discovery not pending, conflicting flags, ID required)`,
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runBacklogPromote(cmd.Context(), cmd, cmd.OutOrStdout(), args[0], opts)
+			id := ""
+			if len(args) > 0 {
+				id = args[0]
+			}
+			return runBacklogPromote(cmd.Context(), cmd, cmd.OutOrStdout(), id, opts)
 		},
 	}
 
@@ -89,10 +104,37 @@ Exit codes:
 	return cmd
 }
 
+// isPromoteInteractiveMode determines if the promote command should run in interactive mode.
+// Interactive mode is used when: no ID provided, not JSON output, and running in a terminal.
+func isPromoteInteractiveMode(id string, opts promoteOptions) bool {
+	if id != "" {
+		return false // ID provided = direct mode
+	}
+	if opts.jsonOutput {
+		return false // JSON = non-interactive
+	}
+	return term.IsTerminal(int(os.Stdin.Fd()))
+}
+
 // runBacklogPromote executes the backlog promote command.
 func runBacklogPromote(ctx context.Context, cmd *cobra.Command, w io.Writer, id string, opts promoteOptions) error {
 	outputFormat := getOutputFormat(cmd, opts.jsonOutput)
 	out := tui.NewOutput(w, outputFormat)
+
+	// Check for interactive mode
+	if isPromoteInteractiveMode(id, opts) {
+		return runBacklogPromoteInteractive(ctx, cmd, w, opts)
+	}
+
+	// Require ID in non-interactive mode
+	if id == "" {
+		if opts.jsonOutput {
+			return atlaserrors.NewExitCode2Error(
+				fmt.Errorf("%w: ID required with --json flag", atlaserrors.ErrUserInputRequired))
+		}
+		return atlaserrors.NewExitCode2Error(
+			fmt.Errorf("%w: ID required in non-interactive mode (not a terminal)", atlaserrors.ErrUserInputRequired))
+	}
 
 	// Validate flags
 	if opts.template != "" && !backlog.IsValidTemplateName(opts.template) {
@@ -342,4 +384,142 @@ func detectAvailableAgents(ctx context.Context) []string {
 	}
 
 	return agents
+}
+
+// runBacklogPromoteInteractive runs the interactive mode for promoting a discovery.
+func runBacklogPromoteInteractive(ctx context.Context, cmd *cobra.Command, w io.Writer, opts promoteOptions) error {
+	out := tui.NewOutput(w, "")
+
+	// Create manager
+	mgr, err := backlog.NewManager("")
+	if err != nil {
+		return fmt.Errorf("failed to create backlog manager: %w", err)
+	}
+
+	// List pending discoveries
+	pendingStatus := backlog.StatusPending
+	discoveries, _, err := mgr.List(ctx, backlog.Filter{Status: &pendingStatus})
+	if err != nil {
+		return fmt.Errorf("failed to list discoveries: %w", err)
+	}
+
+	// Check if there are any pending discoveries
+	if len(discoveries) == 0 {
+		out.Info("No pending discoveries to promote.")
+		return nil
+	}
+
+	// Build options from discoveries
+	options := buildDiscoveryOptions(discoveries)
+
+	// Select a discovery
+	selectedID, err := tui.Select("Select a discovery to promote:", options)
+	if err != nil {
+		if errors.Is(err, tui.ErrMenuCanceled) {
+			out.Info("Promotion canceled.")
+			return nil
+		}
+		return fmt.Errorf("selection failed: %w", err)
+	}
+
+	// Ask about AI mode (unless already specified via flag)
+	useAI := opts.ai
+	if !opts.ai {
+		useAI, err = tui.Confirm("Use AI to determine optimal task configuration?", false)
+		if err != nil {
+			if errors.Is(err, tui.ErrMenuCanceled) {
+				out.Info("Promotion canceled.")
+				return nil
+			}
+			return fmt.Errorf("confirmation failed: %w", err)
+		}
+	}
+
+	// If not using AI, optionally select template override
+	templateOverride := opts.template
+	if !useAI && templateOverride == "" {
+		templateOverride, err = selectTemplateOverride()
+		if err != nil {
+			if errors.Is(err, tui.ErrMenuCanceled) {
+				out.Info("Promotion canceled.")
+				return nil
+			}
+			return fmt.Errorf("template selection failed: %w", err)
+		}
+	}
+
+	// Build options for promotion
+	promoteOpts := opts
+	promoteOpts.ai = useAI
+	if templateOverride != "" {
+		promoteOpts.template = templateOverride
+	}
+
+	// Execute promotion with selected ID
+	return runBacklogPromote(ctx, cmd, w, selectedID, promoteOpts)
+}
+
+// buildDiscoveryOptions builds TUI options from discoveries.
+// Format: "[item-ABC123] Title truncated to 50 chars"
+// Description: "bug/high | 2h ago"
+func buildDiscoveryOptions(discoveries []*backlog.Discovery) []tui.Option {
+	const maxTitleLen = 50
+	options := make([]tui.Option, len(discoveries))
+
+	for i, d := range discoveries {
+		// Truncate title for display
+		title := d.Title
+		if len(title) > maxTitleLen {
+			title = title[:maxTitleLen-3] + "..."
+		}
+
+		// Build label with ID and title
+		label := fmt.Sprintf("[%s] %s", d.ID, title)
+
+		// Build description with category/severity and relative time
+		relTime := tui.RelativeTime(d.Context.DiscoveredAt)
+		desc := fmt.Sprintf("%s/%s | %s", d.Content.Category, d.Content.Severity, relTime)
+
+		options[i] = tui.Option{
+			Label:       label,
+			Description: desc,
+			Value:       d.ID,
+		}
+	}
+
+	return options
+}
+
+// selectTemplateOverride presents a menu to optionally select a template override.
+// Returns empty string for auto-detect, or the selected template name.
+func selectTemplateOverride() (string, error) {
+	options := []tui.Option{
+		{
+			Label:       "Auto-detect",
+			Description: "Based on category/severity",
+			Value:       "",
+		},
+		{
+			Label:       "bugfix",
+			Description: "Fix bugs and regressions",
+			Value:       "bugfix",
+		},
+		{
+			Label:       "feature",
+			Description: "New feature development",
+			Value:       "feature",
+		},
+		{
+			Label:       "hotfix",
+			Description: "Critical production fixes",
+			Value:       "hotfix",
+		},
+		{
+			Label:       "task",
+			Description: "General development tasks",
+			Value:       "task",
+		},
+	}
+
+	return tui.Select("Select task template:", options)
 }
