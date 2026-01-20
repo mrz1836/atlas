@@ -156,8 +156,14 @@ func (e *Engine) transitionToErrorState(ctx context.Context, task *domain.Task, 
 	// Notify on transition to attention/error state
 	e.notifyStateChange(oldStatus, targetStatus)
 
-	// Update hook state to reflect task failure
-	e.failHookTask(ctx, task, fmt.Errorf("%w: %s", atlaserrors.ErrTaskFailed, reason))
+	// Update hook state to reflect step failure (awaiting_human, recoverable)
+	// We use failHookStep instead of failHookTask because these error states
+	// (gh_failed, ci_failed, validation_failed) are recoverable via resume
+	stepName := ""
+	if task.CurrentStep >= 0 && task.CurrentStep < len(task.Steps) {
+		stepName = task.Steps[task.CurrentStep].Name
+	}
+	e.failHookStep(ctx, task, stepName, fmt.Errorf("%w: %s", atlaserrors.ErrTaskFailed, reason))
 
 	return nil
 }

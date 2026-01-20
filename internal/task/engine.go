@@ -677,6 +677,31 @@ func (e *Engine) processStepResult(ctx context.Context, task *domain.Task, resul
 }
 
 // runSteps executes template steps in order, saving state after each.
+// handleContextCancellation handles context cancellation during step execution.
+// It saves the current state and updates hook state before returning the error.
+func (e *Engine) handleContextCancellation(ctx context.Context, task *domain.Task, template *domain.Template, err error) error {
+	e.logger.Info().
+		Str("task_id", task.ID).
+		Int("current_step", task.CurrentStep).
+		Msg("context canceled, saving state before exit")
+
+	// Use context without cancellation since original is canceled
+	uncancelledCtx := context.WithoutCancel(ctx)
+
+	// Update hook state to reflect interruption (recoverable via resume)
+	stepName := ""
+	if task.CurrentStep >= 0 && task.CurrentStep < len(template.Steps) {
+		stepName = template.Steps[task.CurrentStep].Name
+	}
+	e.failHookStep(uncancelledCtx, task, stepName, err)
+
+	// Try to save current state as checkpoint
+	if saveErr := e.store.Update(uncancelledCtx, task.WorkspaceID, task); saveErr != nil {
+		e.logger.Error().Err(saveErr).Msg("failed to save state on cancellation")
+	}
+	return err
+}
+
 // It checks for context cancellation between steps and pauses on
 // awaiting approval or error states.
 //
@@ -690,23 +715,7 @@ func (e *Engine) runSteps(ctx context.Context, task *domain.Task, template *doma
 
 	for task.CurrentStep < totalSteps {
 		if err := ctx.Err(); err != nil {
-			// Context canceled (likely Ctrl+C) - save state before returning
-			e.logger.Info().
-				Str("task_id", task.ID).
-				Int("current_step", task.CurrentStep).
-				Msg("context canceled, saving state before exit")
-
-			// Use context without cancellation since original is canceled
-			uncancelledCtx := context.WithoutCancel(ctx)
-
-			// Update hook state to reflect interruption
-			e.failHookTask(uncancelledCtx, task, err)
-
-			// Try to save current state as checkpoint
-			if saveErr := e.store.Update(uncancelledCtx, task.WorkspaceID, task); saveErr != nil {
-				e.logger.Error().Err(saveErr).Msg("failed to save state on cancellation")
-			}
-			return err
+			return e.handleContextCancellation(ctx, task, template, err)
 		}
 
 		step := &template.Steps[task.CurrentStep]

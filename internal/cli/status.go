@@ -408,27 +408,7 @@ func outputHierarchicalTable(w io.Writer, groups []tui.WorkspaceGroup, quiet, sh
 		_, _ = fmt.Fprintln(w, buildHierarchicalFooter(groups))
 	}
 
-	// Action indicators footer - shows copy-paste commands
-	rows := groupsToStatusRows(groups)
-	footer := tui.NewStatusFooter(rows)
-	if footer.HasItems() {
-		_ = footer.Render(w)
-	}
-
 	return nil
-}
-
-// groupsToStatusRows converts workspace groups to status rows for footer compatibility.
-func groupsToStatusRows(groups []tui.WorkspaceGroup) []tui.StatusRow {
-	rows := make([]tui.StatusRow, 0, len(groups))
-	for _, group := range groups {
-		rows = append(rows, tui.StatusRow{
-			Workspace: group.Name,
-			Branch:    group.Branch,
-			Status:    group.Status,
-		})
-	}
-	return rows
 }
 
 // buildProgressRowsFromGroups converts workspace groups to progress rows.
