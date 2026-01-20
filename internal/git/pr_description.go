@@ -138,6 +138,7 @@ type AIDescriptionGenerator struct {
 	timeout  time.Duration
 	agent    string // AI agent for PR description generation
 	model    string // AI model for PR description generation
+	workDir  string // Working directory for AI operations
 }
 
 // AIDescGenOption configures an AIDescriptionGenerator.
@@ -186,6 +187,14 @@ func WithAIDescAgent(agent string) AIDescGenOption {
 	}
 }
 
+// WithAIDescWorkDir sets the working directory for AI operations.
+// This ensures Claude Code runs in the worktree and sees the correct git history.
+func WithAIDescWorkDir(dir string) AIDescGenOption {
+	return func(g *AIDescriptionGenerator) {
+		g.workDir = dir
+	}
+}
+
 // Generate creates a PR description using AI.
 func (g *AIDescriptionGenerator) Generate(ctx context.Context, opts PRDescOptions) (*PRDescription, error) {
 	// Check for cancellation at entry
@@ -221,6 +230,7 @@ func (g *AIDescriptionGenerator) Generate(ctx context.Context, opts PRDescOption
 		PermissionMode: "plan",  // Read-only for description generation
 		MaxTurns:       1,
 		Timeout:        g.timeout,
+		WorkingDir:     g.workDir, // Ensure AI runs in correct directory
 	}
 
 	// Call AI

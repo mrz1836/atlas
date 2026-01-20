@@ -763,17 +763,60 @@ func TestNewAIDescriptionGenerator_Options(t *testing.T) {
 	mockRunner := &prMockAIRunner{}
 	logger := zerolog.Nop()
 	timeout := 5 * time.Minute
+	workDir := "/path/to/worktree"
 
 	gen := NewAIDescriptionGenerator(mockRunner,
 		WithAIDescLogger(logger),
 		WithAIDescTimeout(timeout),
 		WithAIDescAgent("gemini"),
 		WithAIDescModel("flash"),
+		WithAIDescWorkDir(workDir),
 	)
 
 	assert.Equal(t, timeout, gen.timeout)
 	assert.Equal(t, "gemini", gen.agent)
 	assert.Equal(t, "flash", gen.model)
+	assert.Equal(t, workDir, gen.workDir)
+}
+
+func TestAIDescriptionGenerator_PassesWorkingDirInRequest(t *testing.T) {
+	expectedWorkDir := "/path/to/worktree"
+	var capturedWorkDir string
+
+	mockRunner := &prMockAIRunner{
+		runFunc: func(_ context.Context, req *domain.AIRequest) (*domain.AIResult, error) {
+			// Capture the WorkingDir from the request
+			capturedWorkDir = req.WorkingDir
+			return &domain.AIResult{
+				Success: true,
+				Output: `TITLE: fix(config): handle nil options
+BODY:
+## Summary
+
+Fixed issue.
+
+## Changes
+
+- config.go
+
+## Test Plan
+
+- Tests pass`,
+			}, nil
+		},
+	}
+
+	gen := NewAIDescriptionGenerator(mockRunner,
+		WithAIDescWorkDir(expectedWorkDir),
+	)
+
+	_, err := gen.Generate(context.Background(), PRDescOptions{
+		TaskDescription: "Fix null pointer",
+		TemplateName:    "bugfix",
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, expectedWorkDir, capturedWorkDir, "WorkingDir should be passed in AI request")
 }
 
 func TestNewTemplateDescriptionGenerator_Options(t *testing.T) {
