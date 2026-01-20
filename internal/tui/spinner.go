@@ -23,6 +23,44 @@ const SpinnerInterval = 100 * time.Millisecond
 // ElapsedTimeThreshold is the duration after which elapsed time is shown in spinner.
 const ElapsedTimeThreshold = 30 * time.Second
 
+// spinnerManager is the singleton instance for tracking active spinners.
+var spinnerManager = &SpinnerManager{} //nolint:gochecknoglobals // Singleton for global spinner tracking
+
+// SpinnerManager tracks the currently active spinner to allow coordinated
+// line clearing before log writes. This prevents log messages from appearing
+// on the same line as the spinner animation.
+type SpinnerManager struct {
+	mu     sync.Mutex
+	active *TerminalSpinner
+}
+
+// SetActive registers the given spinner as the currently active spinner.
+func (m *SpinnerManager) SetActive(s *TerminalSpinner) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.active = s
+}
+
+// ClearActive removes the currently active spinner.
+func (m *SpinnerManager) ClearActive() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.active = nil
+}
+
+// GetActive returns the currently active spinner, or nil if no spinner is active.
+func (m *SpinnerManager) GetActive() *TerminalSpinner {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.active
+}
+
+// GlobalSpinnerManager returns the global spinner manager instance.
+// This allows coordination between log writers and spinner animations.
+func GlobalSpinnerManager() *SpinnerManager {
+	return spinnerManager
+}
+
 // TerminalSpinner provides animated progress indication for terminal output.
 // This is the concrete implementation of spinner functionality.
 type TerminalSpinner struct {
@@ -62,6 +100,9 @@ func (s *TerminalSpinner) Start(ctx context.Context, message string) {
 	s.stopped = false // Reset stopped flag for this new Start() cycle
 	s.done = make(chan struct{})
 
+	// Register with the global spinner manager for log coordination
+	spinnerManager.SetActive(s)
+
 	// Capture the done channel before starting the goroutine
 	// to avoid race with potential Stop() calls
 	done := s.done
@@ -91,6 +132,9 @@ func (s *TerminalSpinner) Stop() {
 	s.mu.Unlock()
 
 	close(done)
+
+	// Unregister from the global spinner manager
+	spinnerManager.ClearActive()
 
 	// Clear the spinner line
 	_, _ = fmt.Fprint(s.w, "\r\033[K")
@@ -137,6 +181,7 @@ func (s *TerminalSpinner) animate(ctx context.Context, done <-chan struct{}) {
 			s.mu.Unlock()
 
 			if wasRunning {
+				spinnerManager.ClearActive()
 				_, _ = fmt.Fprint(s.w, "\r\033[K")
 			}
 			return
