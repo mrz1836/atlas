@@ -689,3 +689,386 @@ func TestTemplateVariable_OmitemptyFields(t *testing.T) {
 	// required is not omitempty, so it should be present
 	assert.Contains(t, jsonStr, `"required"`)
 }
+
+// TestTemplate_Clone verifies Template.Clone() creates a deep copy.
+func TestTemplate_Clone(t *testing.T) {
+	original := &Template{
+		Name:         "feature",
+		Description:  "Add new feature",
+		BranchPrefix: "feat/",
+		DefaultAgent: AgentClaude,
+		DefaultModel: "claude-sonnet-4-20250514",
+		Steps: []StepDefinition{
+			{
+				Name:        "implement",
+				Type:        StepTypeAI,
+				Description: "Implement feature",
+				Required:    true,
+				Timeout:     15 * time.Minute,
+				RetryCount:  3,
+				Config: map[string]any{
+					"key1": "value1",
+					"key2": 42,
+				},
+			},
+			{
+				Name:     "validate",
+				Type:     StepTypeValidation,
+				Required: true,
+			},
+		},
+		ValidationCommands: []string{"go test", "go lint"},
+		Variables: map[string]TemplateVariable{
+			"feature_name": {
+				Description: "Name of the feature",
+				Default:     "new-feature",
+				Required:    true,
+			},
+		},
+		Verify:      true,
+		VerifyModel: "claude-opus-4-5-20251101",
+	}
+
+	// Clone the template
+	cloned := original.Clone()
+
+	// Verify all fields are copied correctly
+	assert.Equal(t, original.Name, cloned.Name)
+	assert.Equal(t, original.Description, cloned.Description)
+	assert.Equal(t, original.BranchPrefix, cloned.BranchPrefix)
+	assert.Equal(t, original.DefaultAgent, cloned.DefaultAgent)
+	assert.Equal(t, original.DefaultModel, cloned.DefaultModel)
+	assert.Equal(t, original.Verify, cloned.Verify)
+	assert.Equal(t, original.VerifyModel, cloned.VerifyModel)
+
+	// Verify deep copy of ValidationCommands
+	require.Len(t, cloned.ValidationCommands, 2)
+	assert.Equal(t, original.ValidationCommands[0], cloned.ValidationCommands[0])
+	assert.Equal(t, original.ValidationCommands[1], cloned.ValidationCommands[1])
+
+	// Modify original slice - cloned should not be affected
+	original.ValidationCommands[0] = "modified"
+	assert.Equal(t, "go test", cloned.ValidationCommands[0])
+
+	// Verify deep copy of Steps
+	require.Len(t, cloned.Steps, 2)
+	assert.Equal(t, original.Steps[0].Name, cloned.Steps[0].Name)
+	assert.Equal(t, original.Steps[0].Type, cloned.Steps[0].Type)
+
+	// Modify original step config - cloned should not be affected
+	original.Steps[0].Config["key1"] = "modified"
+	assert.Equal(t, "value1", cloned.Steps[0].Config["key1"])
+
+	// Verify deep copy of Variables
+	require.Len(t, cloned.Variables, 1)
+	assert.Equal(t, original.Variables["feature_name"].Description, cloned.Variables["feature_name"].Description)
+
+	// Modify original variables - cloned should not be affected
+	original.Variables["feature_name"] = TemplateVariable{Description: "modified"}
+	assert.Equal(t, "Name of the feature", cloned.Variables["feature_name"].Description)
+}
+
+// TestTemplate_Clone_NilSlices verifies Clone handles nil slices correctly.
+func TestTemplate_Clone_NilSlices(t *testing.T) {
+	original := &Template{
+		Name:         "minimal",
+		Description:  "Minimal template",
+		BranchPrefix: "min/",
+		// All slices and maps are nil
+	}
+
+	cloned := original.Clone()
+
+	assert.Equal(t, original.Name, cloned.Name)
+	assert.Nil(t, cloned.ValidationCommands)
+	assert.Nil(t, cloned.Steps)
+	assert.Nil(t, cloned.Variables)
+}
+
+// TestTemplate_Clone_EmptySlices verifies Clone handles empty slices correctly.
+func TestTemplate_Clone_EmptySlices(t *testing.T) {
+	original := &Template{
+		Name:               "empty",
+		Description:        "Empty template",
+		BranchPrefix:       "empty/",
+		ValidationCommands: []string{},
+		Steps:              []StepDefinition{},
+		Variables:          map[string]TemplateVariable{},
+	}
+
+	cloned := original.Clone()
+
+	assert.Equal(t, original.Name, cloned.Name)
+	assert.NotNil(t, cloned.ValidationCommands)
+	assert.Empty(t, cloned.ValidationCommands)
+	assert.NotNil(t, cloned.Steps)
+	assert.Empty(t, cloned.Steps)
+	assert.NotNil(t, cloned.Variables)
+	assert.Empty(t, cloned.Variables)
+}
+
+// TestStepDefinition_Clone verifies StepDefinition.Clone() creates a deep copy.
+func TestStepDefinition_Clone(t *testing.T) {
+	original := StepDefinition{
+		Name:        "test-step",
+		Type:        StepTypeAI,
+		Description: "Test step description",
+		Required:    true,
+		Timeout:     10 * time.Minute,
+		RetryCount:  2,
+		Config: map[string]any{
+			"option1": "value1",
+			"option2": 123,
+			"option3": true,
+		},
+	}
+
+	cloned := original.Clone()
+
+	// Verify all fields are copied
+	assert.Equal(t, original.Name, cloned.Name)
+	assert.Equal(t, original.Type, cloned.Type)
+	assert.Equal(t, original.Description, cloned.Description)
+	assert.Equal(t, original.Required, cloned.Required)
+	assert.Equal(t, original.Timeout, cloned.Timeout)
+	assert.Equal(t, original.RetryCount, cloned.RetryCount)
+
+	// Verify deep copy of Config
+	require.NotNil(t, cloned.Config)
+	assert.Equal(t, "value1", cloned.Config["option1"])
+	assert.Equal(t, 123, cloned.Config["option2"])
+	assert.Equal(t, true, cloned.Config["option3"])
+
+	// Modify original config - cloned should not be affected
+	original.Config["option1"] = "modified"
+	assert.Equal(t, "value1", cloned.Config["option1"])
+}
+
+// TestStepDefinition_Clone_NilConfig verifies Clone handles nil Config correctly.
+func TestStepDefinition_Clone_NilConfig(t *testing.T) {
+	original := StepDefinition{
+		Name:     "minimal",
+		Type:     StepTypeValidation,
+		Required: true,
+		// Config is nil
+	}
+
+	cloned := original.Clone()
+
+	assert.Equal(t, original.Name, cloned.Name)
+	assert.Equal(t, original.Type, cloned.Type)
+	assert.Nil(t, cloned.Config)
+}
+
+// TestStepDefinition_Clone_EmptyConfig verifies Clone handles empty Config correctly.
+func TestStepDefinition_Clone_EmptyConfig(t *testing.T) {
+	original := StepDefinition{
+		Name:     "empty-config",
+		Type:     StepTypeGit,
+		Required: false,
+		Config:   map[string]any{},
+	}
+
+	cloned := original.Clone()
+
+	assert.Equal(t, original.Name, cloned.Name)
+	assert.NotNil(t, cloned.Config)
+	assert.Empty(t, cloned.Config)
+}
+
+// TestStepType_AllConstants verifies all StepType constants have String() method.
+func TestStepType_AllConstants(t *testing.T) {
+	tests := []struct {
+		stepType StepType
+		want     string
+	}{
+		{StepTypeAI, "ai"},
+		{StepTypeValidation, "validation"},
+		{StepTypeGit, "git"},
+		{StepTypeHuman, "human"},
+		{StepTypeSDD, "sdd"},
+		{StepTypeCI, "ci"},
+		{StepTypeVerify, "verify"},
+		{StepTypeLoop, "loop"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.want, func(t *testing.T) {
+			assert.Equal(t, tt.want, tt.stepType.String())
+		})
+	}
+}
+
+// TestTemplate_AllFields verifies Template with all optional fields populated.
+func TestTemplate_AllFields(t *testing.T) {
+	tmpl := Template{
+		Name:         "comprehensive",
+		Description:  "Template with all fields",
+		BranchPrefix: "comp/",
+		DefaultAgent: AgentGemini,
+		DefaultModel: "gemini-2.5-flash",
+		Steps: []StepDefinition{
+			{
+				Name:        "step1",
+				Type:        StepTypeLoop,
+				Description: "Loop step",
+				Required:    true,
+				Timeout:     20 * time.Minute,
+				RetryCount:  5,
+				Config: map[string]any{
+					"max_iterations": 10,
+				},
+			},
+		},
+		ValidationCommands: []string{"make test"},
+		Variables: map[string]TemplateVariable{
+			"var1": {
+				Description: "Variable 1",
+				Default:     "default1",
+				Required:    false,
+			},
+		},
+		Verify:      true,
+		VerifyModel: "claude-opus-4-5-20251101",
+	}
+
+	data, err := json.Marshal(tmpl)
+	require.NoError(t, err)
+
+	jsonStr := string(data)
+
+	// Verify all fields are present
+	assert.Contains(t, jsonStr, `"name"`)
+	assert.Contains(t, jsonStr, `"description"`)
+	assert.Contains(t, jsonStr, `"branch_prefix"`)
+	assert.Contains(t, jsonStr, `"default_agent"`)
+	assert.Contains(t, jsonStr, `"default_model"`)
+	assert.Contains(t, jsonStr, `"steps"`)
+	assert.Contains(t, jsonStr, `"validation_commands"`)
+	assert.Contains(t, jsonStr, `"variables"`)
+	assert.Contains(t, jsonStr, `"verify"`)
+	assert.Contains(t, jsonStr, `"verify_model"`)
+
+	// Round-trip test
+	var decoded Template
+	err = json.Unmarshal(data, &decoded)
+	require.NoError(t, err)
+
+	assert.Equal(t, tmpl.Name, decoded.Name)
+	assert.Equal(t, tmpl.DefaultAgent, decoded.DefaultAgent)
+	assert.Equal(t, tmpl.Verify, decoded.Verify)
+	assert.Equal(t, tmpl.VerifyModel, decoded.VerifyModel)
+}
+
+// TestLoopConfig_JSONSerialization verifies LoopConfig marshals to JSON correctly.
+func TestLoopConfig_JSONSerialization(t *testing.T) {
+	cfg := LoopConfig{
+		MaxIterations: 10,
+		Until:         "all_tests_pass",
+		UntilSignal:   true,
+		ExitConditions: []string{
+			"no_errors",
+			"coverage_met",
+		},
+		CircuitBreaker: CircuitBreakerConfig{
+			StagnationIterations: 3,
+			ConsecutiveErrors:    5,
+		},
+		FreshContext:   true,
+		ScratchpadFile: "loop_state.json",
+		Steps: []StepDefinition{
+			{
+				Name:     "fix",
+				Type:     StepTypeAI,
+				Required: true,
+			},
+		},
+	}
+
+	data, err := json.Marshal(cfg)
+	require.NoError(t, err)
+
+	jsonStr := string(data)
+
+	// Verify snake_case keys
+	assert.Contains(t, jsonStr, `"max_iterations"`)
+	assert.Contains(t, jsonStr, `"until_signal"`)
+	assert.Contains(t, jsonStr, `"exit_conditions"`)
+	assert.Contains(t, jsonStr, `"circuit_breaker"`)
+	assert.Contains(t, jsonStr, `"fresh_context"`)
+	assert.Contains(t, jsonStr, `"scratchpad_file"`)
+	assert.Contains(t, jsonStr, `"stagnation_iterations"`)
+	assert.Contains(t, jsonStr, `"consecutive_errors"`)
+
+	// Round-trip test
+	var decoded LoopConfig
+	err = json.Unmarshal(data, &decoded)
+	require.NoError(t, err)
+
+	assert.Equal(t, cfg.MaxIterations, decoded.MaxIterations)
+	assert.Equal(t, cfg.Until, decoded.Until)
+	assert.Equal(t, cfg.UntilSignal, decoded.UntilSignal)
+	assert.Equal(t, cfg.FreshContext, decoded.FreshContext)
+	assert.Equal(t, cfg.ScratchpadFile, decoded.ScratchpadFile)
+	require.Len(t, decoded.ExitConditions, 2)
+	assert.Equal(t, cfg.CircuitBreaker.StagnationIterations, decoded.CircuitBreaker.StagnationIterations)
+	assert.Equal(t, cfg.CircuitBreaker.ConsecutiveErrors, decoded.CircuitBreaker.ConsecutiveErrors)
+}
+
+// TestCircuitBreakerConfig_JSONSerialization verifies CircuitBreakerConfig marshals to JSON correctly.
+func TestCircuitBreakerConfig_JSONSerialization(t *testing.T) {
+	cfg := CircuitBreakerConfig{
+		StagnationIterations: 5,
+		ConsecutiveErrors:    3,
+	}
+
+	data, err := json.Marshal(cfg)
+	require.NoError(t, err)
+
+	jsonStr := string(data)
+
+	assert.Contains(t, jsonStr, `"stagnation_iterations"`)
+	assert.Contains(t, jsonStr, `"consecutive_errors"`)
+
+	// Round-trip test
+	var decoded CircuitBreakerConfig
+	err = json.Unmarshal(data, &decoded)
+	require.NoError(t, err)
+
+	assert.Equal(t, cfg.StagnationIterations, decoded.StagnationIterations)
+	assert.Equal(t, cfg.ConsecutiveErrors, decoded.ConsecutiveErrors)
+}
+
+// TestStepDefinition_AllTypes verifies JSON serialization for all StepType values.
+func TestStepDefinition_AllTypes(t *testing.T) {
+	types := []StepType{
+		StepTypeAI,
+		StepTypeValidation,
+		StepTypeGit,
+		StepTypeHuman,
+		StepTypeSDD,
+		StepTypeCI,
+		StepTypeVerify,
+		StepTypeLoop,
+	}
+
+	for _, stepType := range types {
+		t.Run(stepType.String(), func(t *testing.T) {
+			step := StepDefinition{
+				Name:     "test-" + stepType.String(),
+				Type:     stepType,
+				Required: true,
+			}
+
+			data, err := json.Marshal(step)
+			require.NoError(t, err)
+
+			var decoded StepDefinition
+			err = json.Unmarshal(data, &decoded)
+			require.NoError(t, err)
+
+			assert.Equal(t, step.Type, decoded.Type)
+			assert.Equal(t, stepType, decoded.Type)
+		})
+	}
+}
