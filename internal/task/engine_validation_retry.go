@@ -137,6 +137,9 @@ func (e *Engine) attemptValidationRetry(
 		// Notify progress callback about retry
 		e.notifyRetryAttempt(task, attempt, maxAttempts)
 
+		// Notify that AI fix is starting
+		e.notifyRetryAIStart(task, attempt, maxAttempts)
+
 		lastResult, lastErr = e.validationRetryHandler.RetryWithAI(
 			ctx,
 			pipelineResult,
@@ -146,6 +149,11 @@ func (e *Engine) attemptValidationRetry(
 			task.Config.Agent,
 			task.Config.Model,
 		)
+
+		// Notify that AI fix has completed (if we have a result)
+		if lastResult != nil {
+			e.notifyRetryAIComplete(task, attempt, lastResult)
+		}
 
 		if lastErr == nil && lastResult != nil && lastResult.Success {
 			e.logger.Info().
@@ -268,4 +276,48 @@ func (e *Engine) notifyRetryAttempt(task *domain.Task, attempt, maxAttempts int)
 			Status:        fmt.Sprintf("Retry attempt %d/%d", attempt, maxAttempts),
 		})
 	}
+}
+
+// notifyRetryAIStart sends a progress notification when retry AI begins.
+func (e *Engine) notifyRetryAIStart(task *domain.Task, attempt, maxAttempts int) {
+	if e.config.ProgressCallback == nil {
+		return
+	}
+
+	event := StepProgressEvent{
+		Type:          "retry_ai_start",
+		TaskID:        task.ID,
+		WorkspaceName: task.WorkspaceID,
+		StepIndex:     task.CurrentStep,
+		Agent:         string(task.Config.Agent),
+		Model:         task.Config.Model,
+		Status:        fmt.Sprintf("Retry %d/%d: AI fix", attempt, maxAttempts),
+	}
+
+	e.config.ProgressCallback(event)
+}
+
+// notifyRetryAIComplete sends a progress notification when retry AI completes.
+func (e *Engine) notifyRetryAIComplete(task *domain.Task, _ int, result *validation.RetryResult) {
+	if e.config.ProgressCallback == nil {
+		return
+	}
+
+	event := StepProgressEvent{
+		Type:          "retry_ai_complete",
+		TaskID:        task.ID,
+		WorkspaceName: task.WorkspaceID,
+		StepIndex:     task.CurrentStep,
+		Agent:         string(task.Config.Agent),
+		Model:         task.Config.Model,
+		Status:        "success",
+	}
+
+	if result != nil && result.AIResult != nil {
+		event.DurationMs = int64(result.AIResult.DurationMs)
+		event.NumTurns = result.AIResult.NumTurns
+		event.FilesChangedCount = len(result.AIResult.FilesChanged)
+	}
+
+	e.config.ProgressCallback(event)
 }
