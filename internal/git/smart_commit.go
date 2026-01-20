@@ -37,6 +37,10 @@ type SmartCommitRunner struct {
 	timeout            time.Duration    // Timeout for AI commit message generation
 	maxRetries         int              // Maximum number of retry attempts
 	retryBackoffFactor float64          // Exponential backoff factor for retries
+
+	// Fallback configuration
+	fallbackEnabled bool     // Enable model fallback on format errors
+	fallbackModels  []string // Model chain for fallback (e.g., ["haiku", "sonnet", "opus"])
 }
 
 // SmartCommitRunnerOption configures a SmartCommitRunner.
@@ -110,6 +114,26 @@ func WithRetryBackoffFactor(factor float64) SmartCommitRunnerOption {
 	}
 }
 
+// WithFallbackEnabled enables/disables model fallback on format errors.
+// When enabled and a format error occurs, the runner will try the next model
+// in the fallback chain before falling back to simple message generation.
+// Default: true
+func WithFallbackEnabled(enabled bool) SmartCommitRunnerOption {
+	return func(r *SmartCommitRunner) {
+		r.fallbackEnabled = enabled
+	}
+}
+
+// WithFallbackModels sets the model chain for fallback.
+// Models are tried in order when format errors occur.
+// Example: ["haiku", "sonnet", "opus"]
+// If not set, defaults are used based on the agent.
+func WithFallbackModels(models []string) SmartCommitRunnerOption {
+	return func(r *SmartCommitRunner) {
+		r.fallbackModels = models
+	}
+}
+
 // WithLogger sets the logger for the runner.
 func WithLogger(logger zerolog.Logger) SmartCommitRunnerOption {
 	return func(r *SmartCommitRunner) {
@@ -129,13 +153,33 @@ func NewSmartCommitRunner(gitRunner Runner, workDir string, aiRunner ai.Runner, 
 		timeout:            30 * time.Second, // Default timeout
 		maxRetries:         2,                // Default max retries
 		retryBackoffFactor: 1.5,              // Default backoff factor
+		fallbackEnabled:    true,             // Fallback enabled by default
 	}
 
 	for _, opt := range opts {
 		opt(runner)
 	}
 
+	// Set default fallback models if not provided and fallback is enabled
+	if runner.fallbackEnabled && len(runner.fallbackModels) == 0 {
+		runner.fallbackModels = getDefaultFallbackModels(runner.agent)
+	}
+
 	return runner
+}
+
+// getDefaultFallbackModels returns the default model chain for an agent.
+func getDefaultFallbackModels(agent string) []string {
+	switch agent {
+	case "claude", "":
+		return []string{"haiku", "sonnet", "opus"}
+	case "gemini":
+		return []string{"flash", "pro"}
+	case "codex":
+		return []string{"mini", "codex", "max"}
+	default:
+		return nil
+	}
 }
 
 // Analyze inspects the current worktree and returns a commit analysis.
@@ -404,89 +448,181 @@ func (r *SmartCommitRunner) generateCommitMessage(ctx context.Context, group Fil
 	return r.generateSimpleMessage(group)
 }
 
-// generateAIMessageWithRetry attempts AI message generation with exponential backoff retry logic.
+// generateAIMessageWithRetry attempts AI message generation with fallback and retry logic.
+// On format errors, it tries the next model in the fallback chain.
+// On transient errors, it retries with exponential backoff on the same model.
+//
+//nolint:gocognit // Complexity is inherent to the retry/fallback logic with nested loops
 func (r *SmartCommitRunner) generateAIMessageWithRetry(ctx context.Context, group FileGroup) (string, error) {
-	var lastErr error
-	currentTimeout := r.timeout
-
 	// Calculate diff size for logging
 	diffSummary := r.getDiffSummary(ctx, group)
 	diffLines := len(strings.Split(diffSummary, "\n"))
 
-	// Try initial attempt + retries
-	for attempt := 0; attempt <= r.maxRetries; attempt++ {
-		// Log attempt details
-		if attempt == 0 {
-			r.logger.Info().
-				Str("agent", r.agent).
-				Str("model", r.model).
-				Str("package", group.Package).
-				Int("files", len(group.Files)).
-				Int("diff_lines", diffLines).
-				Dur("timeout", currentTimeout).
-				Msg("generating commit message with AI")
-		} else {
-			r.logger.Info().
-				Str("agent", r.agent).
-				Str("model", r.model).
-				Int("attempt", attempt+1).
-				Int("max_attempts", r.maxRetries+1).
-				Dur("timeout", currentTimeout).
-				Msg("retrying AI commit message generation")
-		}
+	// Build model chain: start from current model, then fallback models
+	modelChain := r.buildModelChain()
+	if len(modelChain) == 0 {
+		modelChain = []string{r.model}
+	}
 
-		// Track start time for latency measurement
-		startTime := time.Now()
+	var lastErr error
 
-		// Attempt generation
-		message, err := r.generateAIMessage(ctx, group, currentTimeout, diffSummary)
+	// Try each model in the chain
+	for modelIdx, currentModel := range modelChain {
+		currentTimeout := r.timeout
 
-		// Calculate latency
-		latency := time.Since(startTime)
+		// Try this model with retries
+		for attempt := 0; attempt <= r.maxRetries; attempt++ {
+			// Log attempt details
+			if modelIdx == 0 && attempt == 0 {
+				r.logger.Info().
+					Str("agent", r.agent).
+					Str("model", currentModel).
+					Str("package", group.Package).
+					Int("files", len(group.Files)).
+					Int("diff_lines", diffLines).
+					Dur("timeout", currentTimeout).
+					Bool("fallback_enabled", r.fallbackEnabled).
+					Int("fallback_models", len(modelChain)).
+					Msg("generating commit message with AI")
+			} else if attempt > 0 {
+				r.logger.Info().
+					Str("agent", r.agent).
+					Str("model", currentModel).
+					Int("retry", attempt).
+					Int("max_retries", r.maxRetries).
+					Dur("timeout", currentTimeout).
+					Msg("retrying AI commit message generation")
+			}
 
-		if err == nil {
-			// Success! Log and return
-			r.logger.Info().
+			// Track start time for latency measurement
+			startTime := time.Now()
+
+			// Attempt generation with current model
+			message, err := r.generateAIMessageWithModel(ctx, group, currentModel, currentTimeout, diffSummary)
+
+			// Calculate latency
+			latency := time.Since(startTime)
+
+			if err == nil {
+				// Success! Log and return
+				if modelIdx > 0 {
+					r.logger.Info().
+						Dur("latency", latency).
+						Str("model", currentModel).
+						Int("fallback_index", modelIdx).
+						Msg("AI commit message generated after fallback")
+				} else {
+					r.logger.Info().
+						Dur("latency", latency).
+						Str("model", currentModel).
+						Int("attempt", attempt+1).
+						Msg("AI commit message generated successfully")
+				}
+				return message, nil
+			}
+
+			lastErr = err
+
+			// Check if this is a format error that should trigger fallback
+			if r.isFormatError(err) && r.fallbackEnabled && modelIdx < len(modelChain)-1 {
+				r.logger.Info().
+					Err(err).
+					Dur("latency", latency).
+					Str("model", currentModel).
+					Str("next_model", modelChain[modelIdx+1]).
+					Msg("format error, falling back to next model")
+				break // Exit retry loop, try next model
+			}
+
+			// Check if this is a non-recoverable error
+			if r.isNonRecoverableError(err) {
+				r.logger.Warn().
+					Err(err).
+					Dur("latency", latency).
+					Str("model", currentModel).
+					Msg("non-recoverable error, stopping all attempts")
+				return "", fmt.Errorf("AI generation failed: %w", err)
+			}
+
+			// Log failure with latency
+			r.logger.Warn().
+				Err(err).
 				Dur("latency", latency).
+				Dur("timeout", currentTimeout).
+				Str("model", currentModel).
 				Int("attempt", attempt+1).
-				Msg("AI commit message generated successfully")
-			return message, nil
-		}
+				Msg("AI generation attempt failed")
 
-		// Log failure with latency
-		r.logger.Warn().
-			Err(err).
-			Dur("latency", latency).
-			Dur("timeout", currentTimeout).
-			Int("attempt", attempt+1).
-			Msg("AI generation attempt failed")
-
-		lastErr = err
-
-		// If this was the last attempt, don't increase timeout
-		if attempt < r.maxRetries {
-			// Apply exponential backoff for next attempt
-			currentTimeout = time.Duration(float64(currentTimeout) * r.retryBackoffFactor)
+			// Apply exponential backoff for next retry
+			if attempt < r.maxRetries {
+				currentTimeout = time.Duration(float64(currentTimeout) * r.retryBackoffFactor)
+			}
 		}
 	}
 
-	// All attempts failed
-	return "", fmt.Errorf("AI generation failed after %d attempts: %w", r.maxRetries+1, lastErr)
+	// All models and retries exhausted
+	return "", fmt.Errorf("AI generation failed after trying all fallback models: %w", lastErr)
 }
 
-// generateAIMessage uses the AI runner to generate a commit message with subject and synopsis body.
-// This is the core generation logic called by generateAIMessageWithRetry.
-func (r *SmartCommitRunner) generateAIMessage(ctx context.Context, group FileGroup, timeout time.Duration, diffSummary string) (string, error) {
+// buildModelChain builds the model chain starting from the current model.
+func (r *SmartCommitRunner) buildModelChain() []string {
+	if !r.fallbackEnabled || len(r.fallbackModels) == 0 {
+		return []string{r.model}
+	}
+
+	// Find the starting position in the fallback chain
+	startIdx := 0
+	for i, m := range r.fallbackModels {
+		if m == r.model {
+			startIdx = i
+			break
+		}
+	}
+
+	// Return models from start position onward
+	return r.fallbackModels[startIdx:]
+}
+
+// isFormatError checks if an error is a format/content error that should trigger fallback.
+func (r *SmartCommitRunner) isFormatError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	// Check for known format error types
+	if ai.IsFallbackTrigger(err) {
+		return true
+	}
+
+	return false
+}
+
+// isNonRecoverableError checks if an error should stop all attempts.
+func (r *SmartCommitRunner) isNonRecoverableError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	// Check for known non-recoverable error types
+	if ai.IsNonRecoverable(err) {
+		return true
+	}
+
+	return false
+}
+
+// generateAIMessageWithModel uses the AI runner to generate a commit message with a specific model.
+func (r *SmartCommitRunner) generateAIMessageWithModel(ctx context.Context, group FileGroup, model string, timeout time.Duration, diffSummary string) (string, error) {
 	// Build the prompt with diff context
 	prompt := r.buildAIPromptWithDiff(group, diffSummary)
 
-	// Create AI request with optional agent/model override
+	// Create AI request with the specified model
 	req := &domain.AIRequest{
-		Agent:      domain.Agent(r.agent), // Use configured agent (empty uses AIRunner's default)
+		Agent:      domain.Agent(r.agent),
 		Prompt:     prompt,
-		Model:      r.model, // Use configured model (empty string uses AIRunner's default)
+		Model:      model,
 		MaxTurns:   1,
-		Timeout:    timeout, // Use provided timeout
+		Timeout:    timeout,
 		WorkingDir: r.workDir,
 	}
 
@@ -517,6 +653,14 @@ func (r *SmartCommitRunner) generateAIMessage(ctx context.Context, group FileGro
 
 	// Return full message including body (subject + synopsis)
 	return message, nil
+}
+
+// generateAIMessage uses the AI runner to generate a commit message with subject and synopsis body.
+// This function uses the runner's configured model. For custom model selection, use generateAIMessageWithModel.
+//
+//nolint:unparam // timeout is configurable but tests use fixed values
+func (r *SmartCommitRunner) generateAIMessage(ctx context.Context, group FileGroup, timeout time.Duration, diffSummary string) (string, error) {
+	return r.generateAIMessageWithModel(ctx, group, r.model, timeout, diffSummary)
 }
 
 // getDiffSummary retrieves a summary of changes for the given file group.

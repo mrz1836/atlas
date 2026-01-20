@@ -183,6 +183,7 @@ func TestSmartCommitRunner_GenerateAIMessageWithRetry_AllAttemptsFail(t *testing
 		WithTimeout(10*time.Second),
 		WithMaxRetries(2),
 		WithRetryBackoffFactor(1.5),
+		WithFallbackEnabled(false), // Disable fallback to test retry behavior only
 	)
 
 	group := FileGroup{
@@ -195,7 +196,7 @@ func TestSmartCommitRunner_GenerateAIMessageWithRetry_AllAttemptsFail(t *testing
 
 	_, err = runner.generateAIMessageWithRetry(context.Background(), group)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "AI generation failed after 3 attempts")
+	assert.Contains(t, err.Error(), "AI generation failed after trying all fallback models")
 	assert.Equal(t, 3, mockAI.attempts, "should try all 3 attempts (initial + 2 retries)")
 	assert.Len(t, mockAI.recordedCalls, 3, "should make three calls")
 
@@ -221,6 +222,7 @@ func TestSmartCommitRunner_GenerateAIMessageWithRetry_ZeroRetries(t *testing.T) 
 		WithTimeout(30*time.Second),
 		WithMaxRetries(0), // No retries
 		WithRetryBackoffFactor(1.5),
+		WithFallbackEnabled(false), // Disable fallback to test retry behavior only
 	)
 
 	group := FileGroup{
@@ -233,7 +235,7 @@ func TestSmartCommitRunner_GenerateAIMessageWithRetry_ZeroRetries(t *testing.T) 
 
 	_, err = runner.generateAIMessageWithRetry(context.Background(), group)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "AI generation failed after 1 attempts")
+	assert.Contains(t, err.Error(), "AI generation failed after trying all fallback models")
 	assert.Equal(t, 1, mockAI.attempts, "should only try once with maxRetries=0")
 	assert.Len(t, mockAI.recordedCalls, 1, "should only make one call")
 }
@@ -383,6 +385,7 @@ func TestSmartCommitRunner_GenerateAIMessageWithRetry_AIErrorTypes(t *testing.T)
 			runner := NewSmartCommitRunner(gitRunner, tmpDir, mockAI,
 				WithTimeout(10*time.Second),
 				WithMaxRetries(1),
+				WithFallbackEnabled(false), // Disable fallback to test retry behavior only
 			)
 
 			group := FileGroup{
@@ -392,7 +395,7 @@ func TestSmartCommitRunner_GenerateAIMessageWithRetry_AIErrorTypes(t *testing.T)
 
 			_, err = runner.generateAIMessageWithRetry(context.Background(), group)
 			require.Error(t, err)
-			assert.Contains(t, err.Error(), "AI generation failed after 2 attempts")
+			assert.Contains(t, err.Error(), "AI generation failed after trying all fallback models")
 			assert.Equal(t, 2, mockAI.attempts)
 		})
 	}
@@ -414,6 +417,7 @@ func TestSmartCommitRunner_GenerateCommitMessage_FallbackLogsMessage(t *testing.
 	runner := NewSmartCommitRunner(gitRunner, tmpDir, mockAI,
 		WithTimeout(10*time.Second),
 		WithMaxRetries(1),
+		WithFallbackEnabled(false), // Disable fallback to test retry behavior only
 	)
 
 	group := FileGroup{
