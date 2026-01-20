@@ -16,7 +16,7 @@ import (
 )
 
 // SchemaVersion is the current schema version for discovery files.
-const SchemaVersion = "1.0"
+const SchemaVersion = "1.1"
 
 // Status represents the lifecycle state of a discovery.
 type Status string
@@ -113,6 +113,7 @@ func (s Severity) IsValid() bool {
 type Discovery struct {
 	SchemaVersion string    `yaml:"schema_version"`
 	ID            string    `yaml:"id"`
+	GUID          string    `yaml:"guid,omitempty"`
 	Title         string    `yaml:"title"`
 	Status        Status    `yaml:"status"`
 	Content       Content   `yaml:"content"`
@@ -161,25 +162,46 @@ const (
 	MaxTitleLength = 200
 	MaxTagLength   = 50
 	MaxTags        = 10
-	MinIDLength    = 10 // "disc-" + 6 alphanumeric
+	MinIDLength    = 11 // "item-" (5 chars) + 6 alphanumeric
 )
 
 var (
-	// idPattern matches the discovery ID format: disc-<6 alphanumeric chars>
-	idPattern = regexp.MustCompile(`^disc-[a-z0-9]{6}$`)
+	// idPattern matches the new discovery ID format: item-<6 uppercase unambiguous chars>
+	idPattern = regexp.MustCompile(`^item-[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{6}$`)
+	// legacyIDPattern matches the legacy discovery ID format: disc-<6 lowercase alphanumeric chars>
+	legacyIDPattern = regexp.MustCompile(`^disc-[a-z0-9]{6}$`)
+	// guidPattern matches UUID v4 format
+	guidPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
 	// tagPattern matches valid tag format: starts with alphanumeric, contains only alphanumeric, hyphens, underscores
 	tagPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
 )
 
 // ValidateID checks if the discovery ID is valid.
+// Accepts both new (item-*) and legacy (disc-*) formats for backward compatibility.
 func (d *Discovery) ValidateID() error {
 	if d.ID == "" {
 		return fmt.Errorf("%w: id is required", atlaserrors.ErrInvalidDiscoveryID)
 	}
-	if !idPattern.MatchString(d.ID) {
-		return fmt.Errorf("%w: must match pattern disc-[a-z0-9]{6}, got %q", atlaserrors.ErrInvalidDiscoveryID, d.ID)
+	if !idPattern.MatchString(d.ID) && !legacyIDPattern.MatchString(d.ID) {
+		return fmt.Errorf("%w: must match pattern item-[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{6} or disc-[a-z0-9]{6}, got %q", atlaserrors.ErrInvalidDiscoveryID, d.ID)
 	}
 	return nil
+}
+
+// ValidateGUID checks if the GUID is valid (if present).
+func (d *Discovery) ValidateGUID() error {
+	if d.GUID == "" {
+		return nil // GUID is optional for legacy discoveries
+	}
+	if !guidPattern.MatchString(d.GUID) {
+		return fmt.Errorf("%w: GUID must be a valid UUID v4, got %q", atlaserrors.ErrInvalidDiscoveryID, d.GUID)
+	}
+	return nil
+}
+
+// IsLegacy returns true if this discovery uses the legacy ID format.
+func (d *Discovery) IsLegacy() bool {
+	return legacyIDPattern.MatchString(d.ID)
 }
 
 // ValidateTitle checks if the discovery title is valid.
@@ -256,6 +278,9 @@ func (d *Discovery) ValidateStatus() error {
 // Validate performs full validation of the discovery.
 func (d *Discovery) Validate() error {
 	if err := d.ValidateID(); err != nil {
+		return err
+	}
+	if err := d.ValidateGUID(); err != nil {
 		return err
 	}
 	if err := d.ValidateTitle(); err != nil {
