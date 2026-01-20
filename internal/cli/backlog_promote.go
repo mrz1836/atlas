@@ -192,20 +192,7 @@ func outputPromoteResultJSON(out tui.Output, result *backlog.PromoteResult) erro
 	}
 
 	if result.AIAnalysis != nil {
-		aiMap := map[string]any{
-			"template":       result.AIAnalysis.Template,
-			"description":    result.AIAnalysis.Description,
-			"reasoning":      result.AIAnalysis.Reasoning,
-			"workspace_name": result.AIAnalysis.WorkspaceName,
-			"priority":       result.AIAnalysis.Priority,
-		}
-		if result.AIAnalysis.BaseBranch != "" {
-			aiMap["base_branch"] = result.AIAnalysis.BaseBranch
-		}
-		if result.AIAnalysis.UseVerify != nil {
-			aiMap["use_verify"] = *result.AIAnalysis.UseVerify
-		}
-		response["ai_analysis"] = aiMap
+		response["ai_analysis"] = buildAIAnalysisMap(result.AIAnalysis)
 	}
 
 	response["discovery"] = result.Discovery
@@ -231,11 +218,7 @@ func displayPromoteResult(out tui.Output, result *backlog.PromoteResult) {
 	out.Info(fmt.Sprintf("  Branch:    %s", result.BranchName))
 
 	if result.AIAnalysis != nil {
-		out.Info("\nAI Analysis:")
-		out.Info(fmt.Sprintf("  Reasoning: %s", result.AIAnalysis.Reasoning))
-		if result.AIAnalysis.Priority > 0 {
-			out.Info(fmt.Sprintf("  Priority:  %d/5", result.AIAnalysis.Priority))
-		}
+		displayAIAnalysis(out, result.AIAnalysis)
 	}
 
 	// Build the suggested command with all flags
@@ -283,6 +266,46 @@ func buildStartCommand(result *backlog.PromoteResult) string {
 	cmd += fmt.Sprintf(" --from-backlog %s", result.Discovery.ID)
 
 	return cmd
+}
+
+// buildAIAnalysisMap creates a map representation of AI analysis for JSON output.
+func buildAIAnalysisMap(ai *backlog.AIAnalysis) map[string]any {
+	aiMap := map[string]any{
+		"template":       ai.Template,
+		"description":    ai.Description,
+		"reasoning":      ai.Reasoning,
+		"workspace_name": ai.WorkspaceName,
+		"priority":       ai.Priority,
+	}
+	if ai.BaseBranch != "" {
+		aiMap["base_branch"] = ai.BaseBranch
+	}
+	if ai.UseVerify != nil {
+		aiMap["use_verify"] = *ai.UseVerify
+	}
+	if ai.File != "" {
+		aiMap["file"] = ai.File
+	}
+	if ai.Line > 0 {
+		aiMap["line"] = ai.Line
+	}
+	return aiMap
+}
+
+// displayAIAnalysis displays AI analysis information in text format.
+func displayAIAnalysis(out tui.Output, ai *backlog.AIAnalysis) {
+	out.Info("\nAI Analysis:")
+	out.Info(fmt.Sprintf("  Reasoning: %s", ai.Reasoning))
+	if ai.File != "" {
+		if ai.Line > 0 {
+			out.Info(fmt.Sprintf("  Location:  %s:%d", ai.File, ai.Line))
+		} else {
+			out.Info(fmt.Sprintf("  Location:  %s", ai.File))
+		}
+	}
+	if ai.Priority > 0 {
+		out.Info(fmt.Sprintf("  Priority:  %d/5", ai.Priority))
+	}
 }
 
 // truncateDescription truncates a description to a maximum length.
