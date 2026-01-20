@@ -18,6 +18,7 @@ import (
 
 	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/logging"
+	"github.com/mrz1836/atlas/internal/tui"
 )
 
 // LogFileWriter holds the log file writer for cleanup purposes.
@@ -217,6 +218,44 @@ func (w *taskLogWriter) persistToTaskLog(p []byte) {
 	_ = w.store.AppendLog(ctx, fields.WorkspaceName, fields.TaskID, p)
 }
 
+// spinnerAwareWriter wraps an io.Writer and clears the spinner line before writing.
+// This prevents log messages from appearing on the same line as the spinner animation.
+type spinnerAwareWriter struct {
+	target  io.Writer
+	manager interface {
+		GetActive() *tui.TerminalSpinner
+	}
+}
+
+// newSpinnerAwareWriter creates a spinner-aware writer that clears the active
+// spinner line before writing log messages.
+func newSpinnerAwareWriter(target io.Writer, manager interface {
+	GetActive() *tui.TerminalSpinner
+},
+) *spinnerAwareWriter {
+	return &spinnerAwareWriter{
+		target:  target,
+		manager: manager,
+	}
+}
+
+// Write implements io.Writer. If a spinner is active, it clears the spinner line
+// before writing the log message.
+func (w *spinnerAwareWriter) Write(p []byte) (n int, err error) {
+	// Check if a spinner is currently active
+	if activeSpinner := w.manager.GetActive(); activeSpinner != nil {
+		// Clear the spinner line before writing the log
+		// \r moves cursor to start of line, \033[K clears from cursor to end of line
+		if _, err := w.target.Write([]byte("\r\033[K")); err != nil {
+			// If clearing fails, still try to write the log message
+			return w.target.Write(p)
+		}
+	}
+
+	// Write the actual log message
+	return w.target.Write(p)
+}
+
 // CloseLogFile closes the global log file writer if it was opened.
 // This should be called during application shutdown for clean cleanup.
 func CloseLogFile() {
@@ -243,10 +282,12 @@ func selectLevel(verbose, quiet bool) zerolog.Level {
 func selectOutput() io.Writer {
 	// Use console writer for TTY without NO_COLOR
 	if term.IsTerminal(int(os.Stderr.Fd())) && os.Getenv("NO_COLOR") == "" {
-		return zerolog.ConsoleWriter{
+		consoleWriter := zerolog.ConsoleWriter{
 			Out:        os.Stderr,
 			TimeFormat: time.Kitchen,
 		}
+		// Wrap with spinner-aware writer to prevent log/spinner line collisions
+		return newSpinnerAwareWriter(consoleWriter, tui.GlobalSpinnerManager())
 	}
 
 	// Default to JSON output for non-TTY or when NO_COLOR is set
