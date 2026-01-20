@@ -2327,9 +2327,12 @@ internal/prompts/
     │   └── retry.tmpl
     ├── backlog/
     │   └── discovery_analysis.tmpl
+    ├── task/
+    │   └── ci_failure.tmpl
     └── verify/
         ├── quick_check.tmpl
-        └── code_correctness.tmpl
+        ├── code_correctness.tmpl
+        └── auto_fix.tmpl
 ```
 
 ### Editing Prompts
@@ -2350,6 +2353,8 @@ To modify an AI prompt:
 | `backlog/discovery_analysis` | Analyzes discoveries for task config | Backlog promote |
 | `verify/quick_check` | Quick verification of implementations | Verify step |
 | `verify/code_correctness` | Detailed code correctness check | Verify step |
+| `verify/auto_fix` | Auto-fix verification issues | Verify step |
+| `task/ci_failure` | Analyzes CI failures for retry | CI failure retry |
 
 ### API Usage
 
