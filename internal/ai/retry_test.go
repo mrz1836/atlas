@@ -26,6 +26,18 @@ var (
 	errConnectionTimeout = errors.New("connection timeout")
 	errNoSuchFile        = errors.New("chdir /path/to/worktree: no such file or directory")
 	errChdirFailed       = errors.New("chdir to working directory failed")
+
+	// Test error types for isFallbackTrigger and isNonRecoverableError testing.
+	errInvalidFormatMissingPrefix = errors.New("invalid format: missing type prefix")
+	errUnexpectedFormat           = errors.New("unexpected format from AI")
+	errParseExpectedConventional  = errors.New("parse error: expected conventional commit")
+	errMalformedResponse          = errors.New("malformed response from model")
+	errNotInExpectedFormat        = errors.New("AI response not in expected format")
+	errAuthFailedForAPI           = errors.New("authentication failed for API")
+	errInvalidAPIKeyProvided      = errors.New("invalid api key provided")
+	errUnauthorized               = errors.New("request unauthorized")
+	errForbidden                  = errors.New("access forbidden")
+	errInvalidCreds               = errors.New("invalid credentials")
 )
 
 func TestContainsAny(t *testing.T) {
@@ -184,6 +196,188 @@ func TestIsRetryable(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := isRetryable(tt.err)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestIsFallbackTrigger(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		expected bool
+	}{
+		{
+			name:     "nil error is not fallback trigger",
+			err:      nil,
+			expected: false,
+		},
+		{
+			name:     "ErrAIInvalidFormat is fallback trigger",
+			err:      atlaserrors.ErrAIInvalidFormat,
+			expected: true,
+		},
+		{
+			name:     "ErrAIEmptyResponse is fallback trigger",
+			err:      atlaserrors.ErrAIEmptyResponse,
+			expected: true,
+		},
+		{
+			name:     "wrapped ErrAIInvalidFormat is fallback trigger",
+			err:      fmt.Errorf("generation failed: %w", atlaserrors.ErrAIInvalidFormat),
+			expected: true,
+		},
+		{
+			name:     "wrapped ErrAIEmptyResponse is fallback trigger",
+			err:      fmt.Errorf("no response: %w", atlaserrors.ErrAIEmptyResponse),
+			expected: true,
+		},
+		{
+			name:     "invalid format in message is fallback trigger",
+			err:      errInvalidFormatMissingPrefix,
+			expected: true,
+		},
+		{
+			name:     "unexpected format in message is fallback trigger",
+			err:      errUnexpectedFormat,
+			expected: true,
+		},
+		{
+			name:     "parse error in message is fallback trigger",
+			err:      errParseExpectedConventional,
+			expected: true,
+		},
+		{
+			name:     "malformed response in message is fallback trigger",
+			err:      errMalformedResponse,
+			expected: true,
+		},
+		{
+			name:     "not in expected format in message is fallback trigger",
+			err:      errNotInExpectedFormat,
+			expected: true,
+		},
+		{
+			name:     "network error is not fallback trigger",
+			err:      errNetworkReset,
+			expected: false,
+		},
+		{
+			name:     "rate limit error is not fallback trigger",
+			err:      errRateLimit,
+			expected: false,
+		},
+		{
+			name:     "context canceled is not fallback trigger",
+			err:      context.Canceled,
+			expected: false,
+		},
+		{
+			name:     "context deadline exceeded is not fallback trigger",
+			err:      context.DeadlineExceeded,
+			expected: false,
+		},
+		{
+			name:     "generic error is not fallback trigger",
+			err:      errGeneric,
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := isFallbackTrigger(tt.err)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestIsNonRecoverableError(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		expected bool
+	}{
+		{
+			name:     "nil error is not non-recoverable",
+			err:      nil,
+			expected: false,
+		},
+		{
+			name:     "context canceled is non-recoverable",
+			err:      context.Canceled,
+			expected: true,
+		},
+		{
+			name:     "wrapped context canceled is non-recoverable",
+			err:      fmt.Errorf("operation stopped: %w", context.Canceled),
+			expected: true,
+		},
+		{
+			name:     "ErrWorktreeNotFound is non-recoverable",
+			err:      atlaserrors.ErrWorktreeNotFound,
+			expected: true,
+		},
+		{
+			name:     "wrapped ErrWorktreeNotFound is non-recoverable",
+			err:      fmt.Errorf("worktree missing: %w", atlaserrors.ErrWorktreeNotFound),
+			expected: true,
+		},
+		{
+			name:     "authentication in message is non-recoverable",
+			err:      errAuthFailedForAPI,
+			expected: true,
+		},
+		{
+			name:     "api key in message is non-recoverable",
+			err:      errInvalidAPIKeyProvided,
+			expected: true,
+		},
+		{
+			name:     "unauthorized in message is non-recoverable",
+			err:      errUnauthorized,
+			expected: true,
+		},
+		{
+			name:     "forbidden in message is non-recoverable",
+			err:      errForbidden,
+			expected: true,
+		},
+		{
+			name:     "invalid credentials in message is non-recoverable",
+			err:      errInvalidCreds,
+			expected: true,
+		},
+		{
+			name:     "context deadline exceeded is not non-recoverable",
+			err:      context.DeadlineExceeded,
+			expected: false,
+		},
+		{
+			name:     "network error is not non-recoverable",
+			err:      errNetworkReset,
+			expected: false,
+		},
+		{
+			name:     "rate limit error is not non-recoverable",
+			err:      errRateLimit,
+			expected: false,
+		},
+		{
+			name:     "ErrAIInvalidFormat is not non-recoverable",
+			err:      atlaserrors.ErrAIInvalidFormat,
+			expected: false,
+		},
+		{
+			name:     "generic error is not non-recoverable",
+			err:      errGeneric,
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := isNonRecoverableError(tt.err)
 			assert.Equal(t, tt.expected, result)
 		})
 	}
