@@ -2,17 +2,18 @@ schema_version: "1.1"
 id: item-M3UWK5
 guid: f0ce06df-74bd-4fe1-ab45-7080112126ba
 title: Add test coverage, refactor as needed, add mocking if needed. Raise the coverage of this file.
-status: promoted
+status: completed
 content:
-  category: testing
-  severity: low
+    category: testing
+    severity: low
 location:
-  file: internal/cli/completion.go
+    file: internal/cli/completion.go
 context:
-  discovered_at: 2026-01-20T18:28:17.443347Z
-  discovered_by: human:mrz1836
-  git:
-    branch: master
-    commit: fbaa667
+    discovered_at: 2026-01-20T18:28:17.443347Z
+    discovered_by: human:mrz1836
+    git:
+        branch: master
+        commit: fbaa667
 lifecycle:
-  promoted_to_task: task-26a61270-41d4-4423-ac1b-e60685d5669d
+    promoted_to_task: task-26a61270-41d4-4423-ac1b-e60685d5669d
+    completed_at: 2026-01-20T20:51:23.591754Z
