@@ -49,6 +49,9 @@ const (
 
 	// RecoveryActionRebaseRetry rebases local commits onto remote and retries push.
 	RecoveryActionRebaseRetry RecoveryAction = "rebase_retry"
+
+	// RecoveryActionRetryCommit retries the failed commit operation.
+	RecoveryActionRetryCommit RecoveryAction = "retry_commit"
 )
 
 // String returns the string representation of the RecoveryAction.
@@ -127,6 +130,66 @@ func GHFailedOptionsForPushError(pushErrorType string) []ErrorRecoveryOption {
 	// Add standard options
 	options = append(options, GHFailedOptions()...)
 	return options
+}
+
+// CommitFailedOptions returns the menu options when git commit operation failed.
+// From UX spec:
+//
+//	? Commit failed. What would you like to do?
+//	  ❯ Retry commit — Retry the failed commit operation
+//	    Fix manually — Check and fix issues, then resume
+//	    Abandon task — End task, keep branch for later
+func CommitFailedOptions() []ErrorRecoveryOption {
+	return []ErrorRecoveryOption{
+		newRecoveryOption(RecoveryActionRetryCommit, "Retry commit", "Retry the failed commit operation"),
+		newRecoveryOption(RecoveryActionFixManually, "Fix manually", "Check and fix issues, then resume"),
+		newRecoveryOption(RecoveryActionAbandon, "Abandon task", "End task, keep branch for later"),
+	}
+}
+
+// PRFailedOptions returns the menu options when PR creation failed.
+// From UX spec:
+//
+//	? PR creation failed. What would you like to do?
+//	  ❯ Retry PR creation — Retry creating the pull request
+//	    Fix manually — Check and fix issues, then resume
+//	    Abandon task — End task, keep branch for later
+func PRFailedOptions() []ErrorRecoveryOption {
+	return []ErrorRecoveryOption{
+		newRecoveryOption(RecoveryActionRetryGH, "Retry PR creation", "Retry creating the pull request"),
+		newRecoveryOption(RecoveryActionFixManually, "Fix manually", "Check and fix issues, then resume"),
+		newRecoveryOption(RecoveryActionAbandon, "Abandon task", "End task, keep branch for later"),
+	}
+}
+
+// MenuTitleForGHFailedStep returns the appropriate menu title for a gh_failed state
+// based on the specific step that failed.
+func MenuTitleForGHFailedStep(stepName string) string {
+	switch stepName {
+	case "git_commit":
+		return "Commit failed. What would you like to do?"
+	case "git_push":
+		return "Push failed. What would you like to do?"
+	case "git_pr":
+		return "PR creation failed. What would you like to do?"
+	default:
+		return "GitHub operation failed. What would you like to do?"
+	}
+}
+
+// OptionsForGHFailedStep returns the appropriate recovery options for a gh_failed state
+// based on the specific step that failed.
+func OptionsForGHFailedStep(stepName string) []ErrorRecoveryOption {
+	switch stepName {
+	case "git_commit":
+		return CommitFailedOptions()
+	case "git_push":
+		return GHFailedOptions() // existing, already says "Retry push/PR"
+	case "git_pr":
+		return PRFailedOptions()
+	default:
+		return GHFailedOptions()
+	}
 }
 
 // CIFailedOptions returns the menu options for ci_failed state.
