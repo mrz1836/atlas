@@ -35,9 +35,6 @@ changelog:
   filters:
     exclude:
       - "^test:"
-      - "^chore"
-      - "^ci:"
-      - "^.vscode:"
       - "^Merge pull request"
       - "^Merge branch"
 
