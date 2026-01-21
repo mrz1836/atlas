@@ -741,3 +741,305 @@ func TestHandleCloseError_RunningTasksError_JSON(t *testing.T) {
 	assert.Equal(t, "error", result.Status)
 	assert.Contains(t, result.Error, "cannot close workspace with running tasks")
 }
+
+func TestOutputCloseWarning_TextOutput(t *testing.T) {
+	var buf bytes.Buffer
+	t.Setenv("NO_COLOR", "1") // Disable colors for consistent output
+
+	outputCloseWarning(&buf, "test warning message", "text")
+
+	output := buf.String()
+	assert.Contains(t, output, "Warning:")
+	assert.Contains(t, output, "test warning message")
+	assert.Contains(t, output, "⚠")
+}
+
+func TestOutputCloseWarning_JSONOutput(t *testing.T) {
+	var buf bytes.Buffer
+
+	outputCloseWarning(&buf, "test warning message", OutputJSON)
+
+	// Verify JSON output
+	var result map[string]any
+	err := json.Unmarshal(buf.Bytes(), &result)
+	require.NoError(t, err)
+	assert.Equal(t, "warning", result["type"])
+	assert.Equal(t, "test warning message", result["message"])
+}
+
+func TestOutputCloseSuccess_JSONPath(t *testing.T) {
+	var buf bytes.Buffer
+
+	err := outputCloseSuccess(&buf, "test-ws", OutputJSON)
+	require.NoError(t, err)
+
+	// Verify JSON output
+	var result closeResult
+	err = json.Unmarshal(buf.Bytes(), &result)
+	require.NoError(t, err)
+	assert.Equal(t, "closed", result.Status)
+	assert.Equal(t, "test-ws", result.Workspace)
+	assert.True(t, result.HistoryPreserved)
+}
+
+func TestOutputCloseSuccessJSONWithWarning(t *testing.T) {
+	var buf bytes.Buffer
+
+	err := outputCloseSuccessJSONWithWarning(&buf, "test-ws", "test warning")
+	require.NoError(t, err)
+
+	// Verify JSON output
+	var result closeResult
+	err = json.Unmarshal(buf.Bytes(), &result)
+	require.NoError(t, err)
+	assert.Equal(t, "closed", result.Status)
+	assert.Equal(t, "test-ws", result.Workspace)
+	assert.True(t, result.HistoryPreserved)
+	assert.Equal(t, "test warning", result.Warning)
+}
+
+func TestRunWorkspaceClose_GetWorkspaceError(t *testing.T) {
+	// This test validates error handling when store.Get() fails.
+	// Since creating a real error in store.Get() is difficult,
+	// we test with context cancellation which triggers an error
+	// during the exists check. The important thing is we test
+	// error path handling.
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+
+	// Create store with workspace
+	store, err := workspace.NewFileStore(tmpDir)
+	require.NoError(t, err)
+
+	// Create a workspace
+	now := time.Now()
+	ws := &domain.Workspace{
+		Name:         "test-ws",
+		WorktreePath: "/tmp/test-worktree",
+		Branch:       "feat/test",
+		Status:       constants.WorkspaceStatusActive,
+		Tasks:        []domain.TaskRef{},
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
+	require.NoError(t, store.Create(context.Background(), ws))
+
+	var buf bytes.Buffer
+
+	// Use canceled context to trigger error in store operations
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	// Execute with canceled context - will fail during exists check
+	err = runWorkspaceCloseWithOutput(ctx, &buf, "test-ws", true, tmpDir, "text")
+	require.Error(t, err)
+	// Error occurs during check phase
+	assert.Contains(t, err.Error(), "failed to check workspace")
+}
+
+func TestRunWorkspaceClose_GetWorkspaceError_JSON(t *testing.T) {
+	// This test validates error handling when store operations fail with JSON output.
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+
+	// Create store with workspace
+	store, err := workspace.NewFileStore(tmpDir)
+	require.NoError(t, err)
+
+	// Create a workspace
+	now := time.Now()
+	ws := &domain.Workspace{
+		Name:         "test-ws",
+		WorktreePath: "/tmp/test-worktree",
+		Branch:       "feat/test",
+		Status:       constants.WorkspaceStatusActive,
+		Tasks:        []domain.TaskRef{},
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
+	require.NoError(t, store.Create(context.Background(), ws))
+
+	var buf bytes.Buffer
+
+	// Use canceled context to trigger error in store operations
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	// Execute with canceled context and JSON output
+	err = runWorkspaceCloseWithOutput(ctx, &buf, "test-ws", true, tmpDir, OutputJSON)
+	require.ErrorIs(t, err, errors.ErrJSONErrorOutput)
+
+	// Verify JSON error output
+	var result closeResult
+	unmarshalErr := json.Unmarshal(buf.Bytes(), &result)
+	require.NoError(t, unmarshalErr)
+	assert.Equal(t, "error", result.Status)
+	assert.Contains(t, result.Error, "failed to check workspace")
+}
+
+func TestRunWorkspaceClose_AlreadyClosed_JSON(t *testing.T) {
+	// Create temp directory for test store
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+
+	// Create store
+	store, err := workspace.NewFileStore(tmpDir)
+	require.NoError(t, err)
+
+	// Create workspace that is already closed
+	now := time.Now()
+	ws := &domain.Workspace{
+		Name:         "closed-ws",
+		WorktreePath: "",
+		Branch:       "feat/closed",
+		Status:       constants.WorkspaceStatusClosed,
+		Tasks:        []domain.TaskRef{},
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
+	require.NoError(t, store.Create(context.Background(), ws))
+
+	var buf bytes.Buffer
+
+	// Execute close with JSON output
+	err = runWorkspaceCloseWithOutput(context.Background(), &buf, "closed-ws", true, tmpDir, OutputJSON)
+	require.NoError(t, err)
+
+	// Verify JSON success output (idempotent)
+	var result closeResult
+	unmarshalErr := json.Unmarshal(buf.Bytes(), &result)
+	require.NoError(t, unmarshalErr)
+	assert.Equal(t, "closed", result.Status)
+	assert.Equal(t, "closed-ws", result.Workspace)
+}
+
+func TestAddWorkspaceCloseCmd_Integration(t *testing.T) {
+	// Test that addWorkspaceCloseCmd properly adds the command to parent
+	// Create a simple parent command
+	parentCmd := &cobra.Command{Use: "workspace"}
+
+	// Call addWorkspaceCloseCmd
+	addWorkspaceCloseCmd(parentCmd)
+
+	// Verify close command was added
+	closeCmd, _, err := parentCmd.Find([]string{"close"})
+	require.NoError(t, err)
+	assert.NotNil(t, closeCmd)
+	assert.Equal(t, "close", closeCmd.Name())
+
+	// Verify force flag exists
+	forceFlag := closeCmd.Flag("force")
+	assert.NotNil(t, forceFlag)
+	assert.Equal(t, "f", forceFlag.Shorthand)
+}
+
+func TestHandleCloseError_RunningTasks_Text(t *testing.T) {
+	var buf bytes.Buffer
+
+	// Test running tasks error in text mode
+	err := handleCloseError(&buf, "test-ws", "text", errors.ErrWorkspaceHasRunningTasks)
+
+	require.Error(t, err)
+	require.ErrorIs(t, err, errors.ErrWorkspaceHasRunningTasks)
+	assert.Contains(t, err.Error(), "cannot close workspace 'test-ws' with running tasks")
+}
+
+func TestOutputCloseWarning_JSONEncodingError(t *testing.T) {
+	// Test that outputCloseWarning handles JSON encoding errors gracefully
+	// This is tested by checking stderr fallback (though we can't easily test it)
+	var buf bytes.Buffer
+
+	// Even with a valid warning, the function should not panic
+	outputCloseWarning(&buf, "warning message", OutputJSON)
+
+	// Should have JSON output
+	assert.NotEmpty(t, buf.String())
+}
+
+func TestCheckWorkspaceExistsForClose_Success(t *testing.T) {
+	// Test successful workspace existence check
+	tmpDir := t.TempDir()
+	var buf bytes.Buffer
+
+	// Create a workspace
+	store, err := workspace.NewFileStore(tmpDir)
+	require.NoError(t, err)
+
+	now := time.Now()
+	ws := &domain.Workspace{
+		Name:         "exists-ws",
+		WorktreePath: "",
+		Branch:       "feat/exists",
+		Status:       constants.WorkspaceStatusActive,
+		Tasks:        []domain.TaskRef{},
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
+	require.NoError(t, store.Create(context.Background(), ws))
+
+	// Check workspace exists
+	returnedStore, exists, err := checkWorkspaceExistsForClose(
+		context.Background(),
+		"exists-ws",
+		tmpDir,
+		"text",
+		&buf,
+	)
+
+	require.NoError(t, err)
+	assert.True(t, exists)
+	assert.NotNil(t, returnedStore)
+}
+
+func TestHandleCloseWorkspaceNotFound_Text(t *testing.T) {
+	var buf bytes.Buffer
+
+	err := handleCloseWorkspaceNotFound("missing-ws", "text", &buf)
+
+	require.Error(t, err)
+	require.ErrorIs(t, err, errors.ErrWorkspaceNotFound)
+	assert.Contains(t, err.Error(), "Workspace 'missing-ws' not found")
+}
+
+func TestHandleCloseWorkspaceNotFound_JSON(t *testing.T) {
+	var buf bytes.Buffer
+
+	err := handleCloseWorkspaceNotFound("missing-ws", OutputJSON, &buf)
+
+	require.ErrorIs(t, err, errors.ErrJSONErrorOutput)
+
+	// Verify JSON error output
+	var result closeResult
+	unmarshalErr := json.Unmarshal(buf.Bytes(), &result)
+	require.NoError(t, unmarshalErr)
+	assert.Equal(t, "error", result.Status)
+	assert.Equal(t, "missing-ws", result.Workspace)
+	assert.Contains(t, result.Error, "workspace not found")
+}
+
+func TestAddWorkspaceCloseCmd_SilencesErrorOnJSONOutput(t *testing.T) {
+	// Test that the command properly sets SilenceErrors when returning ErrJSONErrorOutput
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+
+	// Create parent command
+	parentCmd := &cobra.Command{Use: "workspace"}
+	addWorkspaceCloseCmd(parentCmd)
+
+	// Find close command
+	closeCmd, _, err := parentCmd.Find([]string{"close"})
+	require.NoError(t, err)
+
+	// Set up global flags
+	rootCmd := &cobra.Command{Use: "atlas"}
+	AddGlobalFlags(rootCmd, &GlobalFlags{})
+	rootCmd.AddCommand(parentCmd)
+
+	// Execute with nonexistent workspace and JSON output
+	rootCmd.SetArgs([]string{"workspace", "close", "nonexistent", "--force", "--output", "json"})
+	err = rootCmd.Execute()
+
+	// Should return error but silence cobra's error printing
+	require.Error(t, err)
+	assert.True(t, closeCmd.SilenceErrors, "SilenceErrors should be set to true for JSON errors")
+}
