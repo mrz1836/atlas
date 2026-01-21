@@ -2,7 +2,7 @@ schema_version: "1.1"
 id: item-Y7ZG77
 guid: 9951a2c0-0b88-4878-a3c0-aa1efa1a399d
 title: Add test coverage for logger.go
-status: promoted
+status: completed
 content:
     description: 'Current coverage is 75.74%. Target is >=80%. After adding tests, run: (magex format:fix && magex lint) and fix all issues.'
     category: testing
@@ -21,3 +21,4 @@ context:
         commit: 712f7cd
 lifecycle:
     promoted_to_task: task-0a253c10-5691-4bec-96da-1496e74c3802
+    completed_at: 2026-01-21T20:51:21.828479Z
