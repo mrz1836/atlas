@@ -1,0 +1,23 @@
+schema_version: "1.1"
+id: item-JYNHDX
+guid: 2cd44d9e-b0cf-41b6-8916-3aacab04c11c
+title: Add test coverage for utility.go
+status: promoted
+content:
+    description: 'Current coverage is 78.08%. Target is >=80%. After adding tests, run: (magex format:fix && magex lint) and fix all issues.'
+    category: testing
+    severity: low
+    tags:
+        - testing
+        - cli
+        - coverage
+location:
+    file: cmd/utility.go
+context:
+    discovered_at: 2026-01-21T20:32:34.598808Z
+    discovered_by: human:mrz1836
+    git:
+        branch: master
+        commit: 712f7cd
+lifecycle:
+    promoted_to_task: task-a563bfb5-efc3-4c46-859f-e0ee4e6c36a1

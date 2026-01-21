@@ -1,0 +1,21 @@
+schema_version: "1.1"
+id: item-MPFWDJ
+guid: b41f6412-6a4e-4478-a06f-d36c863c5adf
+title: Add test coverage for workspace_close.go
+status: pending
+content:
+    description: 'Current coverage is 63.98%. Target is >=80%. After adding tests, run: (magex format:fix && magex lint) and fix all issues.'
+    category: testing
+    severity: medium
+    tags:
+        - testing
+        - cli
+        - coverage
+location:
+    file: cmd/workspace_close.go
+context:
+    discovered_at: 2026-01-21T20:32:28.211081Z
+    discovered_by: human:mrz1836
+    git:
+        branch: master
+        commit: 712f7cd
