@@ -767,6 +767,20 @@ func handleProgressComplete(out tui.Output, event task.StepProgressEvent, state 
 	}
 	state.baseMessage = ""
 
+	// Check if step is awaiting approval vs completed
+	if event.Status == constants.StepStatusAwaitingApproval {
+		statusMsg := fmt.Sprintf("Step %d/%d: %s requires approval",
+			event.StepIndex+1, event.TotalSteps, event.StepName)
+		out.Warning(statusMsg)
+
+		// Show the reason if available
+		if event.Output != "" {
+			out.Info(fmt.Sprintf("  Reason: %s", event.Output))
+		}
+		out.Info("  Run 'atlas approve' to continue")
+		return
+	}
+
 	// Display completion message
 	statusMsg := fmt.Sprintf("Step %d/%d: %s completed", event.StepIndex+1, event.TotalSteps, event.StepName)
 	out.Success(statusMsg)

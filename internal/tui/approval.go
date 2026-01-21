@@ -83,6 +83,15 @@ type ApprovalSummary struct {
 
 	// WasPaused indicates if the task was paused at any point during execution.
 	WasPaused bool
+
+	// ApprovalReason explains why approval is needed (from StepResult.Output).
+	ApprovalReason string
+
+	// ApprovalStepName is the name of the step that requires approval.
+	ApprovalStepName string
+
+	// ApprovalStepType is the type of step requiring approval (e.g., "human", "verify").
+	ApprovalStepType string
 }
 
 // FileChange represents a single file modification (AC: #3).
@@ -171,6 +180,9 @@ func NewApprovalSummary(task *domain.Task, workspace *domain.Workspace) *Approva
 	summary.InterruptionCount = countInterruptions(task.Transitions)
 	summary.WasPaused = summary.InterruptionCount > 0
 
+	// Extract approval context from current step result
+	summary.extractApprovalContext(task)
+
 	return summary
 }
 
@@ -197,6 +209,34 @@ func (s *ApprovalSummary) SetFileStats(stats map[string]FileChange) {
 			s.TotalInsertions += stat.Insertions
 			s.TotalDeletions += stat.Deletions
 		}
+	}
+}
+
+// extractApprovalContext extracts approval reason, step name, and step type from the task.
+// This provides context for why the task is awaiting approval.
+func (s *ApprovalSummary) extractApprovalContext(task *domain.Task) {
+	// Find the step result for the current step that requires approval
+	// The current step index matches the step that triggered the approval state
+	currentStepIndex := task.CurrentStep
+
+	// Look for the step result with matching index and awaiting_approval status
+	for i := len(task.StepResults) - 1; i >= 0; i-- {
+		result := task.StepResults[i]
+		if result.StepIndex == currentStepIndex && result.Status == constants.StepStatusAwaitingApproval {
+			s.ApprovalReason = result.Output
+			s.ApprovalStepName = result.StepName
+			break
+		}
+	}
+
+	// If no matching result found, fallback to step name from Steps array
+	if s.ApprovalStepName == "" && currentStepIndex >= 0 && currentStepIndex < len(task.Steps) {
+		s.ApprovalStepName = task.Steps[currentStepIndex].Name
+	}
+
+	// Extract step type from Steps array
+	if currentStepIndex >= 0 && currentStepIndex < len(task.Steps) {
+		s.ApprovalStepType = string(task.Steps[currentStepIndex].Type)
 	}
 }
 
@@ -545,6 +585,11 @@ func RenderApprovalSummaryWithWidth(summary *ApprovalSummary, width int, verbose
 	// Add empty line for padding
 	content.WriteString("\n")
 
+	// Show approval reason prominently if available (before other info)
+	if summary.ApprovalReason != "" || summary.ApprovalStepName != "" {
+		content.WriteString(renderApprovalReasonSection(summary, width, mode))
+	}
+
 	// Task info section (AC: #1)
 	content.WriteString(renderInfoLineWithMode("Workspace", summary.WorkspaceName, width, mode))
 	content.WriteString(renderInfoLineWithMode("Branch", summary.BranchName, width, mode))
@@ -601,6 +646,40 @@ func determineApprovalDisplayMode(width int, verbose bool) (int, displayMode, di
 	}
 
 	return width, mode, effectiveMode
+}
+
+// renderApprovalReasonSection renders the approval reason section with step context.
+// This section is shown prominently at the top of the approval summary to explain
+// why approval is needed.
+func renderApprovalReasonSection(summary *ApprovalSummary, width int, mode displayMode) string {
+	var sb strings.Builder
+
+	// Build header with step context
+	header := "Awaiting Approval"
+	if summary.ApprovalStepName != "" {
+		header = "Step '" + summary.ApprovalStepName + "' requires approval"
+	}
+
+	// Render section header with appropriate styling
+	if HasColorSupport() {
+		headerStyle := lipgloss.NewStyle().Bold(true).Foreground(ColorWarning)
+		sb.WriteString("  " + headerStyle.Render(header) + "\n")
+	} else {
+		sb.WriteString("  " + header + "\n")
+	}
+
+	// Show the reason text if available
+	if summary.ApprovalReason != "" {
+		reasonText := summary.ApprovalReason
+		// Truncate in compact mode
+		if mode == displayModeCompact {
+			reasonText = truncateString(reasonText, width-TruncateMargin)
+		}
+		sb.WriteString("  " + reasonText + "\n")
+	}
+
+	sb.WriteString("\n")
+	return sb.String()
 }
 
 // renderInfoLineWithMode renders a labeled info line based on display mode.

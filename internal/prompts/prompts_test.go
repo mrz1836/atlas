@@ -337,7 +337,7 @@ func TestRenderQuickVerify(t *testing.T) {
 				"Add user validation",
 				"1. Does the code address the task?",
 				"2. Any obvious bugs?",
-				"Respond with JSON",
+				"Respond with ONLY this JSON structure",
 			},
 		},
 	}

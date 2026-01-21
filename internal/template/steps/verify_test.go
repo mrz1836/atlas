@@ -45,7 +45,7 @@ func TestVerifyExecutor_Execute_Success(t *testing.T) {
 	runner := &mockVerifyRunner{
 		runFunc: func(_ context.Context, req *domain.AIRequest) (*domain.AIResult, error) {
 			// Verify the prompt contains verification instructions
-			assert.Contains(t, req.Prompt, "Review if the implementation matches the task")
+			assert.Contains(t, req.Prompt, "You are a code reviewer")
 			return &domain.AIResult{
 				Output:    `{"passed": true, "issues": [], "summary": "All checks passed"}`,
 				SessionID: "verify-session",
@@ -901,7 +901,7 @@ func TestVerifyExecutor_CompleteWorkflow(t *testing.T) {
 	assert.Contains(t, result.Output, "issue")
 
 	// Verify prompt was built correctly
-	assert.Contains(t, capturedPrompt, "Review if the implementation matches the task")
+	assert.Contains(t, capturedPrompt, "You are a code reviewer")
 	assert.Contains(t, capturedPrompt, "Implement user login feature")
 }
 

@@ -45,7 +45,8 @@ const (
 	DefaultVerifyMaxTurns = 3
 
 	// DefaultVerifyTimeout is the timeout for verification AI requests.
-	DefaultVerifyTimeout = 3 * time.Minute
+	// Verification should be quick read-only analysis, not implementation work.
+	DefaultVerifyTimeout = 90 * time.Second
 )
 
 // Verification step errors.
@@ -55,6 +56,12 @@ var (
 
 	// ErrNoJSONArrayFound is returned when JSON parsing fails to find a valid JSON array.
 	ErrNoJSONArrayFound = stderrors.New("no valid JSON array found")
+
+	// ErrVerificationEmptyOutput is returned when verification produces no output.
+	ErrVerificationEmptyOutput = stderrors.New("verification produced no output")
+
+	// ErrVerificationParseFailed is returned when verification output cannot be parsed.
+	ErrVerificationParseFailed = stderrors.New("verification output could not be parsed")
 )
 
 // VerifyExecutor handles AI verification steps.
@@ -254,24 +261,75 @@ func (e *VerifyExecutor) Execute(ctx context.Context, task *domain.Task, step *d
 		}, err
 	}
 
+	// Log diagnostic info about the raw output
+	trimmedOutput := strings.TrimSpace(result.Output)
+	e.logger.Debug().
+		Str("task_id", task.ID).
+		Int("output_length", len(result.Output)).
+		Int("trimmed_length", len(trimmedOutput)).
+		Bool("has_output", len(trimmedOutput) > 0).
+		Str("session_id", result.SessionID).
+		Int("num_turns", result.NumTurns).
+		Msg("verify step raw result details")
+
+	// Fail fast: empty output means verification produced nothing usable
+	if len(trimmedOutput) == 0 {
+		e.logger.Error().
+			Str("task_id", task.ID).
+			Str("step_name", step.Name).
+			Int("num_turns", result.NumTurns).
+			Dur("duration", elapsed).
+			Msg("verification produced no output - step failed")
+
+		return &domain.StepResult{
+			StepIndex:   task.CurrentStep,
+			StepName:    step.Name,
+			Status:      constants.StepStatusFailed,
+			StartedAt:   startTime,
+			CompletedAt: time.Now(),
+			DurationMs:  elapsed.Milliseconds(),
+			Error:       ErrVerificationEmptyOutput.Error(),
+			SessionID:   result.SessionID,
+			NumTurns:    result.NumTurns,
+		}, ErrVerificationEmptyOutput
+	}
+
 	// Parse verification result
 	verifyResult, parseErr := e.parseVerificationResult(result.Output)
 	if parseErr != nil {
-		e.logger.Warn().
+		// Log the parse failure with output preview for debugging
+		outputPreview := trimmedOutput
+		if len(outputPreview) > 200 {
+			outputPreview = outputPreview[:200] + "..."
+		}
+		e.logger.Error().
 			Err(parseErr).
 			Str("task_id", task.ID).
-			Str("output", result.Output).
-			Msg("failed to parse verification result, using raw output")
+			Str("step_name", step.Name).
+			Int("output_length", len(trimmedOutput)).
+			Str("output_preview", outputPreview).
+			Msg("verification output could not be parsed - step failed")
+
+		return &domain.StepResult{
+			StepIndex:   task.CurrentStep,
+			StepName:    step.Name,
+			Status:      constants.StepStatusFailed,
+			StartedAt:   startTime,
+			CompletedAt: time.Now(),
+			DurationMs:  elapsed.Milliseconds(),
+			Output:      result.Output,
+			Error:       fmt.Sprintf("%s: %v", ErrVerificationParseFailed.Error(), parseErr),
+			SessionID:   result.SessionID,
+			NumTurns:    result.NumTurns,
+		}, fmt.Errorf("%w: %w", ErrVerificationParseFailed, parseErr)
 	}
 
 	// Determine output and metadata
 	output := result.Output
 	metadata := make(map[string]any)
-	if verifyResult != nil {
-		metadata["passed"] = verifyResult.Passed
-		metadata["issue_count"] = len(verifyResult.Issues)
-		metadata["summary"] = verifyResult.Summary
-	}
+	metadata["passed"] = verifyResult.Passed
+	metadata["issue_count"] = len(verifyResult.Issues)
+	metadata["summary"] = verifyResult.Summary
 
 	e.logger.Info().
 		Str("task_id", task.ID).
@@ -280,9 +338,11 @@ func (e *VerifyExecutor) Execute(ctx context.Context, task *domain.Task, step *d
 		Str("model", req.Model).
 		Str("session_id", result.SessionID).
 		Int("num_turns", result.NumTurns).
-		Dur("duration_ms", elapsed).
-		Interface("metadata", metadata).
-		Msg("verify step completed")
+		Dur("duration", elapsed).
+		Bool("passed", verifyResult.Passed).
+		Int("issue_count", len(verifyResult.Issues)).
+		Str("summary", verifyResult.Summary).
+		Msg("verify step completed successfully")
 
 	return &domain.StepResult{
 		StepIndex:   task.CurrentStep,
@@ -309,8 +369,8 @@ func (e *VerifyExecutor) buildRequest(task *domain.Task, step *domain.StepDefini
 		Agent:          task.Config.Agent, // Default to task agent
 		Prompt:         e.buildVerificationPrompt(task, step),
 		Model:          task.Config.Model,
-		MaxTurns:       5, // Verification should be quick
-		Timeout:        5 * time.Minute,
+		MaxTurns:       3, // Verification is read-only analysis, not iterative work
+		Timeout:        DefaultVerifyTimeout,
 		WorkingDir:     e.workingDir,
 		PermissionMode: "plan", // Default to read-only for verification (safety)
 	}

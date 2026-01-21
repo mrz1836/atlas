@@ -2468,3 +2468,270 @@ func TestExtractValidationStatus_MultipleResults(t *testing.T) {
 		assert.Nil(t, summary.Validation, "should have nil validation when no results")
 	})
 }
+
+// TestExtractApprovalContext tests the extractApprovalContext method.
+func TestExtractApprovalContext(t *testing.T) {
+	t.Run("extracts approval reason from step result", func(t *testing.T) {
+		task := &domain.Task{
+			ID:          "task-approval-ctx",
+			WorkspaceID: "ws-test",
+			Status:      constants.TaskStatusAwaitingApproval,
+			CurrentStep: 2,
+			Steps: []domain.Step{
+				{Name: "implement", Type: domain.StepTypeAI, Status: "completed"},
+				{Name: "validate", Type: domain.StepTypeValidation, Status: "completed"},
+				{Name: "review", Type: domain.StepTypeHuman, Status: "awaiting_approval"},
+			},
+			StepResults: []domain.StepResult{
+				{StepIndex: 0, StepName: "implement", Status: "success"},
+				{StepIndex: 1, StepName: "validate", Status: "success"},
+				{
+					StepIndex: 2,
+					StepName:  "review",
+					Status:    constants.StepStatusAwaitingApproval,
+					Output:    "Please review the changes before merging",
+				},
+			},
+		}
+
+		workspace := &domain.Workspace{Name: "test", Branch: "feat/x"}
+		summary := NewApprovalSummary(task, workspace)
+
+		assert.Equal(t, "review", summary.ApprovalStepName)
+		assert.Equal(t, "Please review the changes before merging", summary.ApprovalReason)
+		assert.Equal(t, "human", summary.ApprovalStepType)
+	})
+
+	t.Run("extracts approval context from verify step", func(t *testing.T) {
+		task := &domain.Task{
+			ID:          "task-verify-ctx",
+			WorkspaceID: "ws-test",
+			Status:      constants.TaskStatusAwaitingApproval,
+			CurrentStep: 1,
+			Steps: []domain.Step{
+				{Name: "implement", Type: domain.StepTypeAI, Status: "completed"},
+				{Name: "verify", Type: domain.StepTypeVerify, Status: "awaiting_approval"},
+			},
+			StepResults: []domain.StepResult{
+				{StepIndex: 0, StepName: "implement", Status: "success"},
+				{
+					StepIndex: 1,
+					StepName:  "verify",
+					Status:    constants.StepStatusAwaitingApproval,
+					Output:    "Garbage file detected: build/temp.tmp - requires approval to continue",
+				},
+			},
+		}
+
+		workspace := &domain.Workspace{Name: "test", Branch: "feat/x"}
+		summary := NewApprovalSummary(task, workspace)
+
+		assert.Equal(t, "verify", summary.ApprovalStepName)
+		assert.Contains(t, summary.ApprovalReason, "Garbage file detected")
+		assert.Equal(t, "verify", summary.ApprovalStepType)
+	})
+
+	t.Run("falls back to step name when no matching result", func(t *testing.T) {
+		task := &domain.Task{
+			ID:          "task-fallback",
+			WorkspaceID: "ws-test",
+			Status:      constants.TaskStatusAwaitingApproval,
+			CurrentStep: 1,
+			Steps: []domain.Step{
+				{Name: "implement", Type: domain.StepTypeAI, Status: "completed"},
+				{Name: "human_review", Type: domain.StepTypeHuman, Status: "pending"},
+			},
+			StepResults: []domain.StepResult{
+				{StepIndex: 0, StepName: "implement", Status: "success"},
+				// No result for human_review step yet
+			},
+		}
+
+		workspace := &domain.Workspace{Name: "test", Branch: "feat/x"}
+		summary := NewApprovalSummary(task, workspace)
+
+		// Should fall back to step name from Steps array
+		assert.Equal(t, "human_review", summary.ApprovalStepName)
+		assert.Empty(t, summary.ApprovalReason) // No reason available
+		assert.Equal(t, "human", summary.ApprovalStepType)
+	})
+
+	t.Run("handles empty steps and results", func(t *testing.T) {
+		task := &domain.Task{
+			ID:          "task-empty",
+			WorkspaceID: "ws-test",
+			Status:      constants.TaskStatusAwaitingApproval,
+			CurrentStep: 0,
+			Steps:       []domain.Step{},
+			StepResults: []domain.StepResult{},
+		}
+
+		workspace := &domain.Workspace{Name: "test", Branch: "feat/x"}
+		summary := NewApprovalSummary(task, workspace)
+
+		assert.Empty(t, summary.ApprovalStepName)
+		assert.Empty(t, summary.ApprovalReason)
+		assert.Empty(t, summary.ApprovalStepType)
+	})
+
+	t.Run("handles negative current step index", func(t *testing.T) {
+		task := &domain.Task{
+			ID:          "task-negative",
+			WorkspaceID: "ws-test",
+			Status:      constants.TaskStatusAwaitingApproval,
+			CurrentStep: -1,
+			Steps: []domain.Step{
+				{Name: "step1", Type: domain.StepTypeAI, Status: "pending"},
+			},
+			StepResults: []domain.StepResult{},
+		}
+
+		workspace := &domain.Workspace{Name: "test", Branch: "feat/x"}
+		summary := NewApprovalSummary(task, workspace)
+
+		// Should not crash with negative index
+		assert.Empty(t, summary.ApprovalStepName)
+		assert.Empty(t, summary.ApprovalStepType)
+	})
+}
+
+// TestRenderApprovalReasonSection tests the renderApprovalReasonSection function.
+func TestRenderApprovalReasonSection(t *testing.T) {
+	t.Run("renders section with step name and reason", func(t *testing.T) {
+		summary := &ApprovalSummary{
+			ApprovalStepName: "review",
+			ApprovalReason:   "Please verify the changes are correct",
+		}
+
+		result := renderApprovalReasonSection(summary, 80, displayModeStandard)
+
+		assert.Contains(t, result, "review")
+		assert.Contains(t, result, "requires approval")
+		assert.Contains(t, result, "Please verify the changes are correct")
+	})
+
+	t.Run("renders section with step name only when no reason", func(t *testing.T) {
+		summary := &ApprovalSummary{
+			ApprovalStepName: "human_review",
+			ApprovalReason:   "",
+		}
+
+		result := renderApprovalReasonSection(summary, 80, displayModeStandard)
+
+		assert.Contains(t, result, "human_review")
+		assert.Contains(t, result, "requires approval")
+	})
+
+	t.Run("renders generic header when no step name", func(t *testing.T) {
+		summary := &ApprovalSummary{
+			ApprovalStepName: "",
+			ApprovalReason:   "Some reason",
+		}
+
+		result := renderApprovalReasonSection(summary, 80, displayModeStandard)
+
+		assert.Contains(t, result, "Awaiting Approval")
+		assert.Contains(t, result, "Some reason")
+	})
+
+	t.Run("truncates reason in compact mode", func(t *testing.T) {
+		longReason := "This is a very long approval reason that should be truncated when displayed in compact mode because the terminal width is limited"
+		summary := &ApprovalSummary{
+			ApprovalStepName: "review",
+			ApprovalReason:   longReason,
+		}
+
+		result := renderApprovalReasonSection(summary, 40, displayModeCompact)
+
+		// Should be truncated with ellipsis
+		assert.Contains(t, result, "...")
+	})
+
+	t.Run("does not truncate reason in expanded mode", func(t *testing.T) {
+		longReason := "This is a very long approval reason that should not be truncated in expanded mode"
+		summary := &ApprovalSummary{
+			ApprovalStepName: "review",
+			ApprovalReason:   longReason,
+		}
+
+		result := renderApprovalReasonSection(summary, 120, displayModeExpanded)
+
+		// Should not be truncated
+		assert.NotContains(t, result, "...")
+		assert.Contains(t, result, longReason)
+	})
+}
+
+// TestRenderApprovalSummary_WithApprovalContext tests rendering with approval context.
+func TestRenderApprovalSummary_WithApprovalContext(t *testing.T) {
+	t.Run("renders approval reason section when present", func(t *testing.T) {
+		summary := &ApprovalSummary{
+			TaskID:           "task-123",
+			WorkspaceName:    "test-ws",
+			BranchName:       "feat/test",
+			Status:           constants.TaskStatusAwaitingApproval,
+			CurrentStep:      3,
+			TotalSteps:       5,
+			ApprovalStepName: "verify",
+			ApprovalReason:   "Detected potential garbage file: .tmp",
+		}
+
+		result := RenderApprovalSummaryWithWidth(summary, 80, false)
+
+		// Should contain approval context
+		assert.Contains(t, result, "verify")
+		assert.Contains(t, result, "requires approval")
+		assert.Contains(t, result, "Detected potential garbage file")
+	})
+
+	t.Run("renders without approval section when no context", func(t *testing.T) {
+		summary := &ApprovalSummary{
+			TaskID:           "task-123",
+			WorkspaceName:    "test-ws",
+			BranchName:       "feat/test",
+			Status:           constants.TaskStatusAwaitingApproval,
+			CurrentStep:      3,
+			TotalSteps:       5,
+			ApprovalStepName: "", // No approval step name
+			ApprovalReason:   "", // No approval reason
+		}
+
+		result := RenderApprovalSummaryWithWidth(summary, 80, false)
+
+		// Should not contain "requires approval" since no context
+		assert.NotContains(t, result, "requires approval")
+		// Should still show basic workspace info
+		assert.Contains(t, result, "test-ws")
+	})
+
+	t.Run("renders human step approval context", func(t *testing.T) {
+		task := &domain.Task{
+			ID:          "task-human",
+			WorkspaceID: "ws-human",
+			Status:      constants.TaskStatusAwaitingApproval,
+			CurrentStep: 2,
+			Steps: []domain.Step{
+				{Name: "implement", Type: domain.StepTypeAI, Status: "completed"},
+				{Name: "validate", Type: domain.StepTypeValidation, Status: "completed"},
+				{Name: "manual_check", Type: domain.StepTypeHuman, Status: "awaiting_approval"},
+			},
+			StepResults: []domain.StepResult{
+				{StepIndex: 0, StepName: "implement", Status: "success"},
+				{StepIndex: 1, StepName: "validate", Status: "success"},
+				{
+					StepIndex: 2,
+					StepName:  "manual_check",
+					Status:    constants.StepStatusAwaitingApproval,
+					Output:    "Review the security implications before proceeding",
+				},
+			},
+		}
+		workspace := &domain.Workspace{Name: "human-ws", Branch: "feat/human"}
+
+		summary := NewApprovalSummary(task, workspace)
+		result := RenderApprovalSummaryWithWidth(summary, 80, false)
+
+		assert.Contains(t, result, "manual_check")
+		assert.Contains(t, result, "Review the security implications")
+	})
+}

@@ -477,7 +477,7 @@ func (e *Engine) HandleStepResult(ctx context.Context, task *domain.Task, result
 	case constants.StepStatusNoChanges:
 		return e.handleNoChangesResult(task, step)
 	case constants.StepStatusAwaitingApproval:
-		return e.handleAwaitingApprovalResult(ctx, task)
+		return e.handleAwaitingApprovalResult(ctx, task, result)
 	case constants.StepStatusFailed:
 		return e.handleFailedResult(ctx, task, step, result)
 	case constants.StepStatusSkipped:
@@ -637,7 +637,21 @@ func (e *Engine) handleNoChangesResult(task *domain.Task, step *domain.StepDefin
 }
 
 // handleAwaitingApprovalResult processes an awaiting-approval step result.
-func (e *Engine) handleAwaitingApprovalResult(ctx context.Context, task *domain.Task) error {
+func (e *Engine) handleAwaitingApprovalResult(ctx context.Context, task *domain.Task, stepResult *domain.StepResult) error {
+	// Build descriptive reason from step context
+	reason := "awaiting user approval"
+	if stepResult != nil && stepResult.StepName != "" {
+		reason = fmt.Sprintf("step '%s' requires approval", stepResult.StepName)
+		if stepResult.Output != "" {
+			// Truncate long output for transition reason
+			output := stepResult.Output
+			if len(output) > 100 {
+				output = output[:97] + "..."
+			}
+			reason = reason + ": " + output
+		}
+	}
+
 	// For human steps, need to transition through Validating first
 	// (Running -> Validating -> AwaitingApproval)
 	oldStatus := task.Status
@@ -646,7 +660,7 @@ func (e *Engine) handleAwaitingApprovalResult(ctx context.Context, task *domain.
 			return err
 		}
 	}
-	if err := Transition(ctx, task, constants.TaskStatusAwaitingApproval, "awaiting user approval"); err != nil {
+	if err := Transition(ctx, task, constants.TaskStatusAwaitingApproval, reason); err != nil {
 		return err
 	}
 	// Notify on transition to attention state
