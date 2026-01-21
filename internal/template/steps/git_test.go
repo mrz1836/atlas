@@ -350,7 +350,9 @@ func TestGitExecutor_ExecuteCommit_WithGarbageAction_Remove(t *testing.T) {
 		},
 		commitFunc: func(_ context.Context, opts git.CommitOptions) (*git.CommitResult, error) {
 			commitCalled = true
-			// When removing garbage, IncludeGarbage should be false
+			// When removing garbage, SkipGarbageCheck should be true to prevent re-analysis failure
+			assert.True(t, opts.SkipGarbageCheck, "SkipGarbageCheck should be true when removing")
+			// IncludeGarbage should be false when removing
 			assert.False(t, opts.IncludeGarbage, "IncludeGarbage should be false when removing")
 			return &git.CommitResult{
 				Commits:    []git.CommitInfo{{Hash: "abc123", Message: "test commit"}},
@@ -407,7 +409,9 @@ func TestGitExecutor_ExecuteCommit_WithGarbageAction_Include(t *testing.T) {
 		},
 		commitFunc: func(_ context.Context, opts git.CommitOptions) (*git.CommitResult, error) {
 			commitCalled = true
-			// When including garbage, IncludeGarbage should be true
+			// When including garbage, SkipGarbageCheck should be false (check should run)
+			assert.False(t, opts.SkipGarbageCheck, "SkipGarbageCheck should be false when including")
+			// IncludeGarbage should be true when including
 			assert.True(t, opts.IncludeGarbage, "IncludeGarbage should be true when including")
 			return &git.CommitResult{
 				Commits:    []git.CommitInfo{{Hash: "abc123", Message: "test commit"}},
@@ -439,6 +443,97 @@ func TestGitExecutor_ExecuteCommit_WithGarbageAction_Include(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, commitCalled, "commit should have been called")
 	assert.Equal(t, constants.StepStatusSuccess, result.Status)
+}
+
+// TestGitExecutor_ExecuteCommit_GarbageActionOptions verifies that SkipGarbageCheck and
+// IncludeGarbage options are set correctly based on the garbage_action metadata.
+// This is critical for the fix where "remove" action would fail because garbage
+// files still exist on disk after unstaging, causing re-analysis to detect them.
+func TestGitExecutor_ExecuteCommit_GarbageActionOptions(t *testing.T) {
+	tests := []struct {
+		name                   string
+		garbageAction          string
+		expectedSkipGarbageChk bool
+		expectedIncludeGarbage bool
+	}{
+		{
+			name:                   "remove action sets SkipGarbageCheck true",
+			garbageAction:          "remove",
+			expectedSkipGarbageChk: true,
+			expectedIncludeGarbage: false,
+		},
+		{
+			name:                   "include action sets IncludeGarbage true",
+			garbageAction:          "include",
+			expectedSkipGarbageChk: false,
+			expectedIncludeGarbage: true,
+		},
+		{
+			name:                   "empty action leaves both false",
+			garbageAction:          "",
+			expectedSkipGarbageChk: false,
+			expectedIncludeGarbage: false,
+		},
+		{
+			name:                   "unknown action leaves both false",
+			garbageAction:          "unknown",
+			expectedSkipGarbageChk: false,
+			expectedIncludeGarbage: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			var capturedOpts git.CommitOptions
+			committer := &mockSmartCommitter{
+				analyzeFunc: func(_ context.Context) (*git.CommitAnalysis, error) {
+					return &git.CommitAnalysis{
+						FileGroups: []git.FileGroup{
+							{Package: "internal/git", Files: []git.FileChange{{Path: "file.go"}}},
+						},
+						TotalChanges: 1,
+						HasGarbage:   false, // No garbage to trigger approval
+					}, nil
+				},
+				commitFunc: func(_ context.Context, opts git.CommitOptions) (*git.CommitResult, error) {
+					capturedOpts = opts
+					return &git.CommitResult{
+						Commits:    []git.CommitInfo{{Hash: "abc123", Message: "test commit"}},
+						TotalFiles: 1,
+					}, nil
+				},
+			}
+
+			executor := NewGitExecutor("/tmp/work", WithSmartCommitter(committer))
+
+			metadata := map[string]any{}
+			if tt.garbageAction != "" {
+				metadata["garbage_action"] = tt.garbageAction
+			}
+
+			task := &domain.Task{
+				ID:          "task-123",
+				CurrentStep: 0,
+				Metadata:    metadata,
+			}
+			step := &domain.StepDefinition{
+				Name: "git",
+				Type: domain.StepTypeGit,
+				Config: map[string]any{
+					"operation": "commit",
+				},
+			}
+
+			_, err := executor.Execute(ctx, task, step)
+			require.NoError(t, err)
+
+			assert.Equal(t, tt.expectedSkipGarbageChk, capturedOpts.SkipGarbageCheck,
+				"SkipGarbageCheck mismatch for action %q", tt.garbageAction)
+			assert.Equal(t, tt.expectedIncludeGarbage, capturedOpts.IncludeGarbage,
+				"IncludeGarbage mismatch for action %q", tt.garbageAction)
+		})
+	}
 }
 
 func TestGitExecutor_ExecuteCommit_Success(t *testing.T) {

@@ -303,7 +303,8 @@ func (e *GitExecutor) executeCommit(ctx context.Context, step *domain.StepDefini
 
 	// Step 2: Execute smart commit with file grouping
 	commitOpts := git.CommitOptions{
-		IncludeGarbage: garbageAction == "include",
+		SkipGarbageCheck: garbageAction == "remove",
+		IncludeGarbage:   garbageAction == "include",
 	}
 
 	result, err := e.smartCommitter.Commit(ctx, commitOpts)
