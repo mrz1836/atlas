@@ -408,14 +408,29 @@ func runAutoApprove(ctx context.Context, out tui.Output, taskStore task.Store, w
 	return nil
 }
 
+// findCurrentStepResult finds the most recent StepResult for the current step.
+// Returns nil if no result exists for the current step.
+// This function searches by StepIndex field rather than array position because
+// StepResults is a history list where array index may not match step index
+// (e.g., after interruptions/resumes or step retries).
+func findCurrentStepResult(t *domain.Task) *domain.StepResult {
+	if t == nil {
+		return nil
+	}
+	// Search backwards to find most recent result for current step
+	for i := len(t.StepResults) - 1; i >= 0; i-- {
+		if t.StepResults[i].StepIndex == t.CurrentStep {
+			return &t.StepResults[i]
+		}
+	}
+	return nil
+}
+
 // hasStepLevelApproval checks if the current step has approval options.
 // This indicates the step requires user input before proceeding (e.g., garbage file handling).
 func hasStepLevelApproval(t *domain.Task) bool {
-	if t == nil || t.CurrentStep >= len(t.StepResults) {
-		return false
-	}
-	result := t.StepResults[t.CurrentStep]
-	return len(result.ApprovalOptions) > 0
+	result := findCurrentStepResult(t)
+	return result != nil && len(result.ApprovalOptions) > 0
 }
 
 // runInteractiveApproval runs the interactive approval flow with action menu.
@@ -438,7 +453,10 @@ func runInteractiveApproval(ctx context.Context, out tui.Output, taskStore task.
 // It displays the step output and shows a menu with the step's approval options.
 // After the user makes a choice, it automatically resumes the task.
 func runStepLevelApproval(ctx context.Context, out tui.Output, taskStore task.Store, ws *domain.Workspace, t *domain.Task, notifier *tui.Notifier) error {
-	stepResult := t.StepResults[t.CurrentStep]
+	stepResult := findCurrentStepResult(t)
+	if stepResult == nil {
+		return fmt.Errorf("no result found for current step %d: %w", t.CurrentStep, atlaserrors.ErrUnknownStepResultStatus)
+	}
 
 	// Display step output (the garbage warning or other step-specific message)
 	out.Warning(stepResult.Output)

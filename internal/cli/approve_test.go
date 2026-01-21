@@ -2199,7 +2199,8 @@ func TestHasStepLevelApproval(t *testing.T) {
 			CurrentStep: 0,
 			StepResults: []domain.StepResult{
 				{
-					StepName: "git_commit",
+					StepIndex: 0,
+					StepName:  "git_commit",
 					ApprovalOptions: []domain.ApprovalOption{
 						{Key: "r", Label: "Remove and continue", Recommended: true},
 						{Key: "i", Label: "Include anyway"},
@@ -2216,15 +2217,41 @@ func TestHasStepLevelApproval(t *testing.T) {
 		task := &domain.Task{
 			CurrentStep: 1, // Second step (index 1)
 			StepResults: []domain.StepResult{
-				{StepName: "step1", ApprovalOptions: nil}, // No options on first step
+				{StepIndex: 0, StepName: "step1", ApprovalOptions: nil}, // No options on first step
 				{
-					StepName: "git_commit",
+					StepIndex: 1,
+					StepName:  "git_commit",
 					ApprovalOptions: []domain.ApprovalOption{
 						{Key: "r", Label: "Remove"},
 					},
 				},
 			},
 		}
+		assert.True(t, hasStepLevelApproval(task))
+	})
+
+	t.Run("finds_approval_after_retry_with_mismatched_array_index", func(t *testing.T) {
+		t.Parallel()
+		// Simulates a scenario where task was interrupted and resumed,
+		// causing array index to not match step index
+		task := &domain.Task{
+			CurrentStep: 3, // We're on step 3
+			StepResults: []domain.StepResult{
+				{StepIndex: 0, StepName: "step0"},
+				{StepIndex: 1, StepName: "step1"},
+				{StepIndex: 2, StepName: "step2_retry1"}, // First attempt of step 2
+				{StepIndex: 2, StepName: "step2_retry2"}, // Retry of step 2
+				{
+					StepIndex: 3, // Current step - at array index 4
+					StepName:  "git_commit",
+					ApprovalOptions: []domain.ApprovalOption{
+						{Key: "r", Label: "Remove"},
+					},
+				},
+			},
+		}
+		// Old implementation would fail: t.StepResults[3] has StepIndex 2, not 3
+		// New implementation correctly finds StepIndex 3 at array position 4
 		assert.True(t, hasStepLevelApproval(task))
 	})
 }
