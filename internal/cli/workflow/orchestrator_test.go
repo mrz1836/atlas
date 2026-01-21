@@ -488,3 +488,447 @@ func TestApplyCLIOverridesFromTask_NoVerifyDisablesVerify(t *testing.T) {
 		t.Error("expected verify step to be not required after applying --no-verify override")
 	}
 }
+
+func TestGenerateWorkspaceName(t *testing.T) {
+	tests := []struct {
+		name        string
+		description string
+		want        string
+	}{
+		{
+			name:        "simple description",
+			description: "Add user authentication",
+			want:        "add-user-authentication",
+		},
+		{
+			name:        "description with special characters",
+			description: "Fix bug #123: API error!",
+			want:        "fix-bug-123-api-error",
+		},
+		{
+			name:        "description with multiple spaces",
+			description: "Update   multiple   spaces",
+			want:        "update-multiple-spaces",
+		},
+		{
+			name:        "empty description",
+			description: "",
+			want:        "", // Will be replaced with timestamp
+		},
+		{
+			name:        "long description",
+			description: "This is a very long description that should be truncated to fit within the maximum workspace name length limit",
+			want:        "this-is-a-very-long-description-that-should-be-tru",
+		},
+		{
+			name:        "description with trailing hyphen after truncation",
+			description: "this is a description that ends with special chars-----------",
+			want:        "this-is-a-description-that-ends-with-special-chars",
+		},
+		{
+			name:        "only special characters",
+			description: "!@#$%^&*()",
+			want:        "", // Will be replaced with timestamp
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := GenerateWorkspaceName(tt.description)
+			if tt.want == "" {
+				// Check that a timestamp-based name was generated
+				if got == "" || len(got) < 5 {
+					t.Errorf("GenerateWorkspaceName() = %v, expected non-empty timestamp-based name", got)
+				}
+			} else {
+				if got != tt.want {
+					t.Errorf("GenerateWorkspaceName() = %v, want %v", got, tt.want)
+				}
+			}
+		})
+	}
+}
+
+func TestSanitizeWorkspaceName(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			name:  "basic sanitization",
+			input: "Hello World",
+			want:  "hello-world",
+		},
+		{
+			name:  "special characters removed",
+			input: "test@#$name",
+			want:  "testname",
+		},
+		{
+			name:  "multiple hyphens collapsed",
+			input: "test---name",
+			want:  "test-name",
+		},
+		{
+			name:  "leading and trailing hyphens trimmed",
+			input: "-test-name-",
+			want:  "test-name",
+		},
+		{
+			name:  "truncated to max length",
+			input: "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz",
+			want:  "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwx",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := sanitizeWorkspaceName(tt.input)
+			if got != tt.want {
+				t.Errorf("sanitizeWorkspaceName() = %v, want %v", got, tt.want)
+			}
+			if len(got) > maxWorkspaceNameLen {
+				t.Errorf("sanitizeWorkspaceName() length = %v, exceeds max %v", len(got), maxWorkspaceNameLen)
+			}
+		})
+	}
+}
+
+func TestApplyAgentModelOverrides(t *testing.T) {
+	tests := []struct {
+		name      string
+		agent     string
+		model     string
+		wantAgent domain.Agent
+		wantModel string
+	}{
+		{
+			name:      "both agent and model set",
+			agent:     "gemini",
+			model:     "opus",
+			wantAgent: domain.Agent("gemini"),
+			wantModel: "opus",
+		},
+		{
+			name:      "only agent set",
+			agent:     "claude",
+			model:     "",
+			wantAgent: domain.Agent("claude"),
+			wantModel: "",
+		},
+		{
+			name:      "only model set",
+			agent:     "",
+			model:     "sonnet",
+			wantAgent: "",
+			wantModel: "sonnet",
+		},
+		{
+			name:      "neither set",
+			agent:     "",
+			model:     "",
+			wantAgent: "",
+			wantModel: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmpl := &domain.Template{
+				Name:         "test-template",
+				DefaultAgent: "",
+				DefaultModel: "",
+			}
+
+			ApplyAgentModelOverrides(tmpl, tt.agent, tt.model)
+
+			if tmpl.DefaultAgent != tt.wantAgent {
+				t.Errorf("DefaultAgent = %v, want %v", tmpl.DefaultAgent, tt.wantAgent)
+			}
+			if tmpl.DefaultModel != tt.wantModel {
+				t.Errorf("DefaultModel = %v, want %v", tmpl.DefaultModel, tt.wantModel)
+			}
+		})
+	}
+}
+
+func TestApplyVerifyOverrides(t *testing.T) {
+	tests := []struct {
+		name       string
+		verify     bool
+		noVerify   bool
+		tmplVerify bool
+		wantVerify bool
+	}{
+		{
+			name:       "verify flag overrides template default",
+			verify:     true,
+			noVerify:   false,
+			tmplVerify: false,
+			wantVerify: true,
+		},
+		{
+			name:       "no-verify flag overrides template default",
+			verify:     false,
+			noVerify:   true,
+			tmplVerify: true,
+			wantVerify: false,
+		},
+		{
+			name:       "no flags uses template default true",
+			verify:     false,
+			noVerify:   false,
+			tmplVerify: true,
+			wantVerify: true,
+		},
+		{
+			name:       "no flags uses template default false",
+			verify:     false,
+			noVerify:   false,
+			tmplVerify: false,
+			wantVerify: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmpl := &domain.Template{
+				Name:   "test-template",
+				Verify: tt.tmplVerify,
+				Steps: []domain.StepDefinition{
+					{
+						Name:     "verify",
+						Type:     domain.StepTypeVerify,
+						Required: tt.tmplVerify,
+					},
+				},
+			}
+
+			ApplyVerifyOverrides(tmpl, tt.verify, tt.noVerify)
+
+			if tmpl.Verify != tt.wantVerify {
+				t.Errorf("Verify = %v, want %v", tmpl.Verify, tt.wantVerify)
+			}
+			if tmpl.Steps[0].Required != tt.wantVerify {
+				t.Errorf("verify step Required = %v, want %v", tmpl.Steps[0].Required, tt.wantVerify)
+			}
+		})
+	}
+}
+
+func TestApplyVerifyOverrides_VerifyModelPropagation(t *testing.T) {
+	t.Run("propagates VerifyModel when no different agent", func(t *testing.T) {
+		tmpl := &domain.Template{
+			Name:        "test-template",
+			Verify:      true,
+			VerifyModel: "opus-3",
+			Steps: []domain.StepDefinition{
+				{
+					Name:     "verify",
+					Type:     domain.StepTypeVerify,
+					Required: true,
+					Config:   nil,
+				},
+			},
+		}
+
+		ApplyVerifyOverrides(tmpl, true, false)
+
+		if tmpl.Steps[0].Config == nil {
+			t.Fatal("expected Config to be initialized")
+		}
+		if model, ok := tmpl.Steps[0].Config["model"].(string); !ok || model != "opus-3" {
+			t.Errorf("expected model to be 'opus-3', got %v", model)
+		}
+	})
+
+	t.Run("does not propagate VerifyModel when step has different agent", func(t *testing.T) {
+		tmpl := &domain.Template{
+			Name:         "test-template",
+			Verify:       true,
+			VerifyModel:  "opus-3",
+			DefaultAgent: domain.Agent("claude"),
+			Steps: []domain.StepDefinition{
+				{
+					Name:     "verify",
+					Type:     domain.StepTypeVerify,
+					Required: true,
+					Config: map[string]any{
+						"agent": "gemini", // Different agent
+					},
+				},
+			},
+		}
+
+		ApplyVerifyOverrides(tmpl, true, false)
+
+		// Model should not be propagated because step has different agent
+		if model, ok := tmpl.Steps[0].Config["model"].(string); ok && model == "opus-3" {
+			t.Errorf("expected model not to be propagated when step has different agent")
+		}
+	})
+
+	t.Run("does not override existing step model", func(t *testing.T) {
+		tmpl := &domain.Template{
+			Name:        "test-template",
+			Verify:      true,
+			VerifyModel: "opus-3",
+			Steps: []domain.StepDefinition{
+				{
+					Name:     "verify",
+					Type:     domain.StepTypeVerify,
+					Required: true,
+					Config: map[string]any{
+						"model": "sonnet-4", // Existing model
+					},
+				},
+			},
+		}
+
+		ApplyVerifyOverrides(tmpl, true, false)
+
+		// Existing model should be preserved
+		if model, ok := tmpl.Steps[0].Config["model"].(string); !ok || model != "sonnet-4" {
+			t.Errorf("expected model to remain 'sonnet-4', got %v", model)
+		}
+	})
+}
+
+func TestStepHasDifferentAgent(t *testing.T) {
+	tests := []struct {
+		name         string
+		stepConfig   map[string]any
+		defaultAgent domain.Agent
+		want         bool
+	}{
+		{
+			name:         "nil config",
+			stepConfig:   nil,
+			defaultAgent: domain.Agent("claude"),
+			want:         false,
+		},
+		{
+			name:         "empty config",
+			stepConfig:   map[string]any{},
+			defaultAgent: domain.Agent("claude"),
+			want:         false,
+		},
+		{
+			name: "same agent",
+			stepConfig: map[string]any{
+				"agent": "claude",
+			},
+			defaultAgent: domain.Agent("claude"),
+			want:         false,
+		},
+		{
+			name: "different agent",
+			stepConfig: map[string]any{
+				"agent": "gemini",
+			},
+			defaultAgent: domain.Agent("claude"),
+			want:         true,
+		},
+		{
+			name: "empty agent string",
+			stepConfig: map[string]any{
+				"agent": "",
+			},
+			defaultAgent: domain.Agent("claude"),
+			want:         false,
+		},
+		{
+			name: "agent wrong type",
+			stepConfig: map[string]any{
+				"agent": 123,
+			},
+			defaultAgent: domain.Agent("claude"),
+			want:         false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			step := &domain.StepDefinition{
+				Config: tt.stepConfig,
+			}
+			got := stepHasDifferentAgent(step, tt.defaultAgent)
+			if got != tt.want {
+				t.Errorf("stepHasDifferentAgent() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestShouldPropagateVerifyModel(t *testing.T) {
+	tests := []struct {
+		name                  string
+		verifyModel           string
+		stepHasDifferentAgent bool
+		want                  bool
+	}{
+		{
+			name:                  "should propagate when model set and no different agent",
+			verifyModel:           "opus-3",
+			stepHasDifferentAgent: false,
+			want:                  true,
+		},
+		{
+			name:                  "should not propagate when model empty",
+			verifyModel:           "",
+			stepHasDifferentAgent: false,
+			want:                  false,
+		},
+		{
+			name:                  "should not propagate when step has different agent",
+			verifyModel:           "opus-3",
+			stepHasDifferentAgent: true,
+			want:                  false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := shouldPropagateVerifyModel(tt.verifyModel, tt.stepHasDifferentAgent)
+			if got != tt.want {
+				t.Errorf("shouldPropagateVerifyModel() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestPropagateVerifyModel(t *testing.T) {
+	t.Run("initializes config if nil", func(t *testing.T) {
+		step := &domain.StepDefinition{
+			Config: nil,
+		}
+		propagateVerifyModel(step, "opus-3")
+		if step.Config == nil {
+			t.Error("expected Config to be initialized")
+		}
+		if model, ok := step.Config["model"].(string); !ok || model != "opus-3" {
+			t.Errorf("expected model to be 'opus-3', got %v", model)
+		}
+	})
+
+	t.Run("sets model when config exists but model not set", func(t *testing.T) {
+		step := &domain.StepDefinition{
+			Config: map[string]any{"other": "value"},
+		}
+		propagateVerifyModel(step, "opus-3")
+		if model, ok := step.Config["model"].(string); !ok || model != "opus-3" {
+			t.Errorf("expected model to be 'opus-3', got %v", model)
+		}
+	})
+
+	t.Run("does not override existing model", func(t *testing.T) {
+		step := &domain.StepDefinition{
+			Config: map[string]any{"model": "existing-model"},
+		}
+		propagateVerifyModel(step, "opus-3")
+		if model, ok := step.Config["model"].(string); !ok || model != "existing-model" {
+			t.Errorf("expected model to remain 'existing-model', got %v", model)
+		}
+	})
+}
