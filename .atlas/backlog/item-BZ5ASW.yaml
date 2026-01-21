@@ -1,0 +1,17 @@
+schema_version: "1.1"
+id: item-BZ5ASW
+guid: 8c9c1d1f-f99c-4b59-aac0-284c89290b70
+title: Add test coverage for this package, ideally >80%
+status: pending
+content:
+  description: Add excellent tests and test coverage. Aim for >=80% - also make sure you fix all linter issues - you can run (magex format:fix && magex lint)
+  category: testing
+  severity: low
+location:
+  file: /internal/cli/workflow
+context:
+  discovered_at: 2026-01-21T18:41:49.221296Z
+  discovered_by: human:mrz1836
+  git:
+    branch: master
+    commit: 6da84ee
