@@ -4,18 +4,18 @@ guid: 0d5c2934-1648-45b0-8793-821e7c7f3332
 title: Add test coverage for start.go
 status: pending
 content:
-    description: 'Current coverage is 56.66%. Target is >=80%. After adding tests, run: (magex format:fix && magex lint) and fix all issues.'
-    category: testing
-    severity: medium
-    tags:
-        - testing
-        - cli
-        - coverage
+  description: 'Current coverage is 56.66%. Target is >=80%. After adding tests, run: (magex format:fix && magex lint) and fix all issues.'
+  category: testing
+  severity: medium
+  tags:
+    - testing
+    - cli
+    - coverage
 location:
-    file: cmd/start.go
+  file: cmd/start.go
 context:
-    discovered_at: 2026-01-21T20:32:15.334432Z
-    discovered_by: human:mrz1836
-    git:
-        branch: master
-        commit: 712f7cd
+  discovered_at: 2026-01-21T20:32:15.334432Z
+  discovered_by: human:mrz1836
+  git:
+    branch: master
+    commit: 712f7cd
