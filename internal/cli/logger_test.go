@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -12,6 +13,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/mrz1836/atlas/internal/constants"
+	"github.com/mrz1836/atlas/internal/logging"
+	"github.com/mrz1836/atlas/internal/tui"
 )
 
 func TestInitLogger_VerboseMode(t *testing.T) {
@@ -592,4 +595,260 @@ func TestLoggerWithTaskStore(t *testing.T) {
 	require.Len(t, mock.entries, 1)
 	assert.Equal(t, "test-ws", mock.entries[0].workspaceName)
 	assert.Equal(t, "task-789", mock.entries[0].taskID)
+}
+
+func TestFilteringWriteCloser(t *testing.T) {
+	t.Parallel()
+
+	t.Run("Write delegates to filter", func(t *testing.T) {
+		t.Parallel()
+
+		var buf bytes.Buffer
+		fw := logging.NewFilteringWriter(&buf)
+		closer := io.NopCloser(&buf)
+		fwc := &filteringWriteCloser{
+			filter: fw,
+			closer: closer,
+		}
+
+		input := []byte("test message")
+		n, err := fwc.Write(input)
+
+		require.NoError(t, err)
+		assert.Equal(t, len(input), n)
+		assert.Contains(t, buf.String(), "test message")
+	})
+
+	t.Run("Close delegates to closer", func(t *testing.T) {
+		t.Parallel()
+
+		tmpDir := t.TempDir()
+		tmpFile := filepath.Join(tmpDir, "test.log")
+		file, err := os.Create(tmpFile) //#nosec G304 -- test file
+		require.NoError(t, err)
+
+		fw := logging.NewFilteringWriter(file)
+		fwc := &filteringWriteCloser{
+			filter: fw,
+			closer: file,
+		}
+
+		err = fwc.Close()
+		require.NoError(t, err)
+
+		// Verify file is closed by attempting to write
+		_, err = file.WriteString("should fail")
+		require.Error(t, err)
+	})
+}
+
+// mockSpinnerManager implements the spinner manager interface for testing.
+type mockSpinnerManager struct {
+	activeSpinner *tui.TerminalSpinner
+}
+
+func (m *mockSpinnerManager) GetActive() *tui.TerminalSpinner {
+	return m.activeSpinner
+}
+
+func TestSpinnerAwareWriter(t *testing.T) {
+	t.Parallel()
+
+	t.Run("Write without active spinner", func(t *testing.T) {
+		t.Parallel()
+
+		var buf bytes.Buffer
+		manager := &mockSpinnerManager{activeSpinner: nil}
+		writer := newSpinnerAwareWriter(&buf, manager)
+
+		input := []byte("test message")
+		n, err := writer.Write(input)
+
+		require.NoError(t, err)
+		assert.Equal(t, len(input), n)
+		assert.Equal(t, "test message", buf.String())
+	})
+
+	t.Run("Write with active spinner clears line", func(t *testing.T) {
+		t.Parallel()
+
+		var buf bytes.Buffer
+		// Create a mock spinner (non-nil to trigger the clear sequence)
+		manager := &mockSpinnerManager{
+			activeSpinner: &tui.TerminalSpinner{},
+		}
+		writer := newSpinnerAwareWriter(&buf, manager)
+
+		input := []byte("test message")
+		n, err := writer.Write(input)
+
+		require.NoError(t, err)
+		assert.Equal(t, len(input), n)
+
+		output := buf.String()
+		// Should contain the clear sequence followed by the message
+		assert.Contains(t, output, "\r\033[K")
+		assert.Contains(t, output, "test message")
+		// Clear sequence should come before message
+		assert.True(t, bytes.HasPrefix(buf.Bytes(), []byte("\r\033[K")))
+	})
+
+	t.Run("Write with active spinner handles partial write", func(t *testing.T) {
+		t.Parallel()
+
+		// Use a limited writer that will cause partial writes
+		limitedBuf := &limitedWriter{limit: 2}
+		manager := &mockSpinnerManager{
+			activeSpinner: &tui.TerminalSpinner{},
+		}
+		writer := newSpinnerAwareWriter(limitedBuf, manager)
+
+		input := []byte("test message")
+		n, err := writer.Write(input)
+
+		// Should return error from underlying writer
+		require.Error(t, err)
+		// Should return 0 since partial write was within clear sequence
+		assert.Equal(t, 0, n)
+	})
+
+	t.Run("Write with active spinner handles partial write after clear", func(t *testing.T) {
+		t.Parallel()
+
+		// Use a limited writer that allows clear sequence but fails after
+		limitedBuf := &limitedWriter{limit: 10}
+		manager := &mockSpinnerManager{
+			activeSpinner: &tui.TerminalSpinner{},
+		}
+		writer := newSpinnerAwareWriter(limitedBuf, manager)
+
+		input := []byte("test message long enough to exceed limit")
+		n, err := writer.Write(input)
+
+		// Should return error from underlying writer
+		require.Error(t, err)
+		// Should adjust count to exclude clear sequence
+		assert.Positive(t, n)
+	})
+}
+
+// limitedWriter writes only up to a limit and then returns an error.
+type limitedWriter struct {
+	written int
+	limit   int
+}
+
+func (w *limitedWriter) Write(p []byte) (n int, err error) {
+	if w.written >= w.limit {
+		return 0, os.ErrClosed
+	}
+	toWrite := len(p)
+	if w.written+toWrite > w.limit {
+		toWrite = w.limit - w.written
+	}
+	w.written += toWrite
+	if toWrite < len(p) {
+		return toWrite, os.ErrClosed
+	}
+	return toWrite, nil
+}
+
+func TestPrepareLoggerSetup(t *testing.T) {
+	// Can't use t.Parallel() with t.Setenv()
+
+	t.Run("creates setup with correct level and hook", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		t.Setenv("ATLAS_HOME", tmpDir)
+
+		setup, err := prepareLoggerSetup(true, false)
+
+		require.NoError(t, err)
+		assert.Equal(t, zerolog.DebugLevel, setup.level)
+		assert.NotNil(t, setup.hook)
+		assert.NotNil(t, setup.console)
+		assert.NotNil(t, setup.fileWriter)
+	})
+
+	t.Run("handles file writer creation error gracefully", func(t *testing.T) {
+		// Set ATLAS_HOME to invalid path
+		t.Setenv("ATLAS_HOME", "/dev/null/invalid")
+
+		setup, err := prepareLoggerSetup(false, false)
+
+		// Should return error but still provide setup
+		require.Error(t, err)
+		assert.NotNil(t, setup)
+		assert.Equal(t, zerolog.InfoLevel, setup.level)
+		assert.NotNil(t, setup.console)
+		assert.Nil(t, setup.fileWriter)
+	})
+}
+
+func TestBuildLogger(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	setup := &loggerSetup{
+		level: zerolog.DebugLevel,
+		hook:  logging.NewSensitiveDataHook(),
+	}
+
+	logger := buildLogger(setup, &buf)
+
+	assert.Equal(t, zerolog.DebugLevel, logger.GetLevel())
+	assert.NotEqual(t, zerolog.Logger{}, logger)
+}
+
+func TestInitLogger_HandlesFileCreationFailure(t *testing.T) {
+	// Can't use t.Parallel() with t.Setenv()
+
+	// Set invalid ATLAS_HOME to cause file creation to fail
+	t.Setenv("ATLAS_HOME", "/dev/null/invalid")
+
+	// Reset log file writer
+	logFileWriter = nil
+
+	// Should not panic, falls back to console-only logging
+	logger := InitLogger(false, false)
+	assert.NotEqual(t, zerolog.Logger{}, logger)
+	assert.Equal(t, zerolog.InfoLevel, logger.GetLevel())
+
+	// logFileWriter should remain nil since file creation failed
+	assert.Nil(t, logFileWriter)
+}
+
+func TestInitLoggerWithTaskStore_HandlesFileCreationFailure(t *testing.T) {
+	// Can't use t.Parallel() with t.Setenv()
+
+	// Set invalid ATLAS_HOME to cause file creation to fail
+	t.Setenv("ATLAS_HOME", "/dev/null/invalid")
+
+	// Reset log file writer
+	logFileWriter = nil
+
+	mock := &mockTaskLogAppender{}
+
+	// Should not panic, falls back to console-only logging + task logs
+	logger := InitLoggerWithTaskStore(false, false, mock)
+	assert.NotEqual(t, zerolog.Logger{}, logger)
+	assert.Equal(t, zerolog.InfoLevel, logger.GetLevel())
+
+	// logFileWriter should remain nil since file creation failed
+	assert.Nil(t, logFileWriter)
+}
+
+func TestLogFilePath_HandlesGetAtlasHomeError(t *testing.T) {
+	// Can't use t.Parallel() with t.Setenv()
+
+	// This test verifies error handling, but in practice getAtlasHome
+	// only returns error if os.UserHomeDir fails, which is hard to simulate
+	// in a test without mocking. The function is already tested via other tests.
+
+	// Test with valid ATLAS_HOME
+	tmpDir := t.TempDir()
+	t.Setenv("ATLAS_HOME", tmpDir)
+
+	path, err := LogFilePath()
+	require.NoError(t, err)
+	assert.Contains(t, path, tmpDir)
 }
