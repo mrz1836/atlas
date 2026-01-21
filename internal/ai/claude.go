@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"strings"
 
+	"github.com/rs/zerolog"
+
 	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/domain"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
@@ -53,11 +55,19 @@ func (e *DefaultExecutor) Execute(_ context.Context, cmd *exec.Cmd) ([]byte, []b
 // parsing the JSON response into an AIResult.
 type ClaudeCodeRunner struct {
 	base            BaseRunner // Embedded BaseRunner for timeout/retry handling
+	logger          zerolog.Logger
 	activityOptions *ActivityOptions
 }
 
 // ClaudeRunnerOption is a functional option for configuring ClaudeCodeRunner.
 type ClaudeRunnerOption func(*ClaudeCodeRunner)
+
+// WithClaudeLogger sets the logger for the ClaudeCodeRunner.
+func WithClaudeLogger(logger zerolog.Logger) ClaudeRunnerOption {
+	return func(r *ClaudeCodeRunner) {
+		r.logger = logger
+	}
+}
 
 // WithClaudeActivityCallback configures the activity callback for streaming activity events.
 func WithClaudeActivityCallback(opts ActivityOptions) ClaudeRunnerOption {
@@ -77,11 +87,16 @@ func NewClaudeCodeRunner(cfg *config.AIConfig, executor CommandExecutor, opts ..
 			Config:   cfg,
 			Executor: executor,
 			ErrType:  atlaserrors.ErrClaudeInvocation,
+			Logger:   zerolog.Nop(), // Will be updated if WithClaudeLogger is used
 		},
+		logger: zerolog.Nop(), // Default to no-op logger
 	}
 	for _, opt := range opts {
 		opt(r)
 	}
+
+	// Sync BaseRunner logger with ClaudeCodeRunner logger
+	r.base.Logger = r.logger
 
 	// If activity streaming is enabled, swap executor for StreamingExecutor
 	if r.activityOptions != nil && r.activityOptions.Callback != nil {

@@ -60,12 +60,16 @@ func NewGeminiRunner(cfg *config.AIConfig, executor CommandExecutor, opts ...Gem
 			Config:   cfg,
 			Executor: executor,
 			ErrType:  atlaserrors.ErrGeminiInvocation,
+			Logger:   zerolog.Nop(), // Will be updated if WithGeminiLogger is used
 		},
 		logger: zerolog.Nop(), // Default to no-op logger
 	}
 	for _, opt := range opts {
 		opt(r)
 	}
+
+	// Sync BaseRunner logger with GeminiRunner logger
+	r.base.Logger = r.logger
 
 	// If activity streaming is enabled, swap executor for StreamingExecutor
 	if r.activityOptions != nil && r.activityOptions.Callback != nil {
@@ -197,12 +201,18 @@ func (r *GeminiRunner) buildCommand(ctx context.Context, req *domain.AIRequest) 
 		"--output-format", outputFormat,
 	}
 
-	// Always use --yolo for non-interactive execution (auto-approve allowed actions)
-	args = append(args, "--yolo")
-
-	// Add --sandbox for read-only mode (restricts WHAT can be done)
+	// For verification (plan mode), use --sandbox without --yolo
+	// This ensures no actions can be auto-approved during read-only verification
+	// For implementation, use --yolo for non-interactive execution (auto-approve allowed actions)
 	if req.PermissionMode == "plan" {
 		args = append(args, "--sandbox")
+		// Deliberately NOT adding --yolo: any action will require approval (which fails non-interactively)
+		// This is the safest mode for verification - effectively read-only
+		r.logger.Debug().
+			Str("permission_mode", req.PermissionMode).
+			Msg("gemini running in sandbox mode without --yolo (read-only verification)")
+	} else {
+		args = append(args, "--yolo")
 	}
 
 	// Determine model: request > config

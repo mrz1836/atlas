@@ -6,6 +6,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/rs/zerolog"
+
 	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/ctxutil"
@@ -21,7 +23,8 @@ type ExecuteFunc func(ctx context.Context, req *domain.AIRequest) (*domain.AIRes
 type BaseRunner struct {
 	Config   *config.AIConfig
 	Executor CommandExecutor
-	ErrType  error // Provider-specific error type for wrapping
+	ErrType  error          // Provider-specific error type for wrapping
+	Logger   zerolog.Logger // Logger for retry/diagnostic logging (optional, uses nop if not set)
 }
 
 // ValidateWorkingDir checks if the working directory exists.
@@ -107,18 +110,41 @@ func (b *BaseRunner) runWithRetry(ctx context.Context, req *domain.AIRequest, ex
 	backoff := constants.InitialBackoff
 
 	for attempt := 1; attempt <= constants.MaxRetryAttempts; attempt++ {
+		if attempt > 1 {
+			b.Logger.Debug().
+				Int("attempt", attempt).
+				Int("max_attempts", constants.MaxRetryAttempts).
+				Msg("retrying AI request")
+		}
+
 		result, err := execute(ctx, req)
 		if err == nil {
+			if attempt > 1 {
+				b.Logger.Info().
+					Int("attempt", attempt).
+					Msg("AI request succeeded after retry")
+			}
 			return result, nil
 		}
 
 		// Don't retry non-retryable errors
 		if !isRetryable(err) {
+			b.Logger.Debug().
+				Err(err).
+				Int("attempt", attempt).
+				Msg("AI request failed with non-retryable error")
 			return nil, err
 		}
 
 		lastErr = err
 		if attempt < constants.MaxRetryAttempts {
+			b.Logger.Warn().
+				Err(err).
+				Int("attempt", attempt).
+				Int("max_attempts", constants.MaxRetryAttempts).
+				Dur("backoff", backoff).
+				Msg("AI request failed, will retry after backoff")
+
 			select {
 			case <-ctx.Done():
 				return nil, ctx.Err()
@@ -127,6 +153,11 @@ func (b *BaseRunner) runWithRetry(ctx context.Context, req *domain.AIRequest, ex
 			}
 		}
 	}
+
+	b.Logger.Error().
+		Err(lastErr).
+		Int("max_attempts", constants.MaxRetryAttempts).
+		Msg("AI request failed after max retries")
 
 	return nil, fmt.Errorf("%w: max retries exceeded: %w", b.ErrType, lastErr)
 }
