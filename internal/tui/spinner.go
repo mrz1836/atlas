@@ -35,6 +35,10 @@ const SpinnerInterval = 100 * time.Millisecond
 // ElapsedTimeThreshold is the duration after which elapsed time is shown in spinner.
 const ElapsedTimeThreshold = 30 * time.Second
 
+// SpinnerMessageThrottle is the minimum interval between spinner message updates.
+// This prevents excessive flashing during high-frequency activity events.
+const SpinnerMessageThrottle = 200 * time.Millisecond
+
 // spinnerManager is the singleton instance for tracking active spinners.
 var spinnerManager = &SpinnerManager{} //nolint:gochecknoglobals // Singleton for global spinner tracking
 
@@ -84,13 +88,18 @@ type TerminalSpinner struct {
 	mu      sync.Mutex
 	running bool
 	stopped bool // tracks if Stop() has been called for current cycle
+
+	// Throttling for message updates to prevent excessive flashing
+	lastMessageUpdate time.Time
+	throttleInterval  time.Duration
 }
 
 // NewTerminalSpinner creates a new spinner that writes to w.
 func NewTerminalSpinner(w io.Writer) *TerminalSpinner {
 	return &TerminalSpinner{
-		w:      w,
-		styles: NewOutputStyles(),
+		w:                w,
+		styles:           NewOutputStyles(),
+		throttleInterval: SpinnerMessageThrottle,
 	}
 }
 
@@ -102,6 +111,7 @@ func (s *TerminalSpinner) Start(ctx context.Context, message string) {
 
 	s.message = message
 	s.started = time.Now()
+	s.lastMessageUpdate = time.Now() // Initialize throttle timestamp
 
 	// If already running, just update the message
 	if s.running {
@@ -122,10 +132,25 @@ func (s *TerminalSpinner) Start(ctx context.Context, message string) {
 }
 
 // UpdateMessage changes the spinner message without stopping the animation.
+// Updates are throttled to prevent excessive terminal I/O during high-frequency events.
 func (s *TerminalSpinner) UpdateMessage(message string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	// Skip if message hasn't actually changed (deduplication)
+	if s.message == message {
+		return
+	}
+
+	// Throttle: only update if enough time has passed since last update
+	// This prevents flashing during high-frequency activity events
+	now := time.Now()
+	if now.Sub(s.lastMessageUpdate) < s.throttleInterval {
+		return
+	}
+
 	s.message = message
+	s.lastMessageUpdate = now
 }
 
 // Stop stops the spinner animation and clears the line.

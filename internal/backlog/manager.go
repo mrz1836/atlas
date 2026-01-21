@@ -1,6 +1,7 @@
 package backlog
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -37,6 +38,18 @@ const (
 	// legacyFilePrefix is the prefix for legacy discovery files.
 	legacyFilePrefix = "disc-"
 )
+
+// marshalYAML marshals a Discovery to YAML with 2-space indentation
+// to match the project's yamlfmt configuration.
+func marshalYAML(d *Discovery) ([]byte, error) {
+	var buf bytes.Buffer
+	encoder := yaml.NewEncoder(&buf)
+	encoder.SetIndent(2)
+	if err := encoder.Encode(d); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
 
 // Manager handles discovery storage operations.
 // It provides CRUD operations for discoveries stored as individual YAML files.
@@ -145,8 +158,8 @@ func (m *Manager) Add(ctx context.Context, d *Discovery) error {
 		return fmt.Errorf("validation failed: %w", err)
 	}
 
-	// Marshal to YAML
-	data, err := yaml.Marshal(d)
+	// Marshal to YAML with 2-space indentation
+	data, err := marshalYAML(d)
 	if err != nil {
 		return fmt.Errorf("failed to marshal discovery: %w", err)
 	}
@@ -314,8 +327,8 @@ func (m *Manager) Update(_ context.Context, d *Discovery) error {
 		return fmt.Errorf("validation failed: %w", err)
 	}
 
-	// Marshal to YAML
-	data, err := yaml.Marshal(d)
+	// Marshal to YAML with 2-space indentation
+	data, err := marshalYAML(d)
 	if err != nil {
 		return fmt.Errorf("failed to marshal discovery: %w", err)
 	}
@@ -635,8 +648,8 @@ func (m *Manager) migrateDiscovery(d *Discovery, oldPath string) error {
 	d.ID = newID
 	d.SchemaVersion = SchemaVersion
 
-	// Marshal to YAML
-	data, err := yaml.Marshal(d)
+	// Marshal to YAML with 2-space indentation
+	data, err := marshalYAML(d)
 	if err != nil {
 		return fmt.Errorf("failed to marshal migrated discovery: %w", err)
 	}

@@ -1447,3 +1447,72 @@ func TestManager_GUIDLookup(t *testing.T) {
 		assert.Equal(t, originalGUID, d2.GUID)
 	})
 }
+
+func TestManager_YAMLIndentation(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+	mgr, err := NewManager(tmpDir)
+	require.NoError(t, err)
+
+	t.Run("creates files with 2-space indentation", func(t *testing.T) {
+		d := &Discovery{
+			Title:  "Indentation test",
+			Status: StatusPending,
+			Content: Content{
+				Description: "Test description",
+				Category:    CategoryBug,
+				Severity:    SeverityHigh,
+				Tags:        []string{"test", "formatting"},
+			},
+			Context: Context{
+				DiscoveredAt: time.Now().UTC(),
+				DiscoveredBy: "human:tester",
+			},
+		}
+
+		err := mgr.Add(ctx, d)
+		require.NoError(t, err)
+
+		// Read the file and verify indentation
+		filePath := filepath.Join(mgr.Dir(), d.ID+".yaml")
+		content, err := os.ReadFile(filePath) // #nosec G304 -- test file read with controlled path
+		require.NoError(t, err)
+
+		// Check for 2-space indentation
+		assert.Contains(t, string(content), "content:\n  description:")
+		assert.Contains(t, string(content), "  category:")
+
+		// Ensure no 4-space indentation
+		assert.NotContains(t, string(content), "    description:")
+	})
+
+	t.Run("updates files with 2-space indentation", func(t *testing.T) {
+		d := &Discovery{
+			Title:  "Update test",
+			Status: StatusPending,
+			Content: Content{
+				Category: CategoryBug,
+				Severity: SeverityLow,
+			},
+			Context: Context{
+				DiscoveredAt: time.Now().UTC(),
+				DiscoveredBy: "human:tester",
+			},
+		}
+		err := mgr.Add(ctx, d)
+		require.NoError(t, err)
+
+		// Update the discovery
+		d.Content.Description = "Updated"
+		err = mgr.Update(ctx, d)
+		require.NoError(t, err)
+
+		// Verify 2-space indentation
+		filePath := filepath.Join(mgr.Dir(), d.ID+".yaml")
+		content, err := os.ReadFile(filePath) // #nosec G304 -- test file read with controlled path
+		require.NoError(t, err)
+		assert.Contains(t, string(content), "content:\n  description:")
+		assert.NotContains(t, string(content), "    description:")
+	})
+}

@@ -3,6 +3,7 @@ package tui_test
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"strings"
 	"sync"
@@ -79,7 +80,8 @@ func TestSpinner_UpdateMessage(t *testing.T) {
 	ctx := context.Background()
 	spinner.Start(ctx, "Initial")
 
-	time.Sleep(150 * time.Millisecond)
+	// Wait longer than throttle interval (200ms) to ensure update is not throttled
+	time.Sleep(250 * time.Millisecond)
 	spinner.UpdateMessage("Updated message")
 	time.Sleep(150 * time.Millisecond)
 
@@ -174,6 +176,7 @@ func TestSpinner_Constants(t *testing.T) {
 	// Verify constants are reasonable
 	assert.Equal(t, 100*time.Millisecond, tui.SpinnerInterval)
 	assert.Equal(t, 30*time.Second, tui.ElapsedTimeThreshold)
+	assert.Equal(t, 200*time.Millisecond, tui.SpinnerMessageThrottle)
 }
 
 func TestFormatDuration(t *testing.T) {
@@ -354,4 +357,57 @@ func TestSpinner_RaceCondition_MultipleStops(t *testing.T) {
 
 	// Should not panic and buffer should have content
 	assert.NotEmpty(t, buf.String())
+}
+
+func TestTerminalSpinner_UpdateMessageThrottling(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping throttling test in short mode")
+	}
+
+	buf := &safeSpinnerBuffer{}
+	s := tui.NewTerminalSpinner(buf)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	s.Start(ctx, "Initial message")
+	time.Sleep(50 * time.Millisecond) // Let animation start
+
+	// Attempt rapid updates (should be throttled)
+	// We'll try to update every 50ms, but with 200ms throttle,
+	// we should only see updates roughly every 200ms
+	for i := 0; i < 10; i++ {
+		msg := fmt.Sprintf("Message %d", i)
+		s.UpdateMessage(msg)
+
+		time.Sleep(50 * time.Millisecond) // 50ms between attempts
+	}
+
+	s.Stop()
+
+	// With 50ms attempts and 200ms throttle, in 500ms total time,
+	// we should see approximately 2-3 actual updates (plus the initial one)
+	// The exact number can vary due to timing, but it should be significantly
+	// less than the 10 attempted updates
+
+	// To verify throttling is working, we can check that not all 10 messages
+	// appear in the output. Due to throttling, many should be skipped.
+	output := buf.String()
+
+	// Count how many of our test messages appear in the output
+	foundCount := 0
+	for i := 0; i < 10; i++ {
+		if strings.Contains(output, fmt.Sprintf("Message %d", i)) {
+			foundCount++
+		}
+	}
+
+	// With throttling, we should see fewer messages than attempted
+	// Allow some flexibility, but it should be significantly throttled
+	require.Less(t, foundCount, 10, "updates should be throttled (not all messages should appear)")
+	require.Positive(t, foundCount, "at least some messages should appear")
+
+	// Additional verification: the actual number of frame updates should be
+	// consistent with the throttling interval
+	t.Logf("Found %d out of 10 messages in output (throttling working)", foundCount)
 }
