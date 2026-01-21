@@ -230,15 +230,28 @@ func (e *GitExecutor) CleanupOnPause(ctx context.Context, worktreePath string) e
 }
 
 // HandleGarbageDetected processes garbage files according to the specified action.
-func (e *GitExecutor) HandleGarbageDetected(_ context.Context, garbageFiles []git.GarbageFile, action GarbageHandlingAction) error {
+func (e *GitExecutor) HandleGarbageDetected(ctx context.Context, garbageFiles []git.GarbageFile, action GarbageHandlingAction) error {
 	switch action {
 	case GarbageRemoveAndContinue:
-		// Unstage garbage files using git rm --cached
-		// TODO: Full implementation requires git.Runner.Remove method
-		// For now, just log the action
-		for _, gf := range garbageFiles {
-			e.logger.Info().Str("file", gf.Path).Msg("would remove garbage file from staging")
+		// Unstage garbage files using git reset
+		if e.gitRunner == nil {
+			// Log warning but don't fail - smart committer will exclude garbage anyway
+			e.logger.Warn().
+				Int("count", len(garbageFiles)).
+				Msg("git runner not configured, cannot unstage garbage files")
+			return nil
 		}
+
+		paths := make([]string, len(garbageFiles))
+		for i, gf := range garbageFiles {
+			paths[i] = gf.Path
+		}
+		if err := e.gitRunner.ResetFiles(ctx, paths); err != nil {
+			return fmt.Errorf("failed to remove garbage files from staging: %w", err)
+		}
+		e.logger.Info().
+			Int("count", len(garbageFiles)).
+			Msg("removed garbage files from staging")
 		return nil
 
 	case GarbageIncludeAnyway:
@@ -817,6 +830,8 @@ func (e *GitExecutor) getPRNumber(config map[string]any, task *domain.Task) int 
 // Helper functions
 
 // formatGarbageWarning creates a human-readable warning about detected garbage files.
+// Options are displayed in the interactive menu via ApprovalOptions in the StepResult
+// returned by handleGarbageDetection.
 func formatGarbageWarning(files []git.GarbageFile) string {
 	if len(files) == 0 {
 		return ""
@@ -826,10 +841,6 @@ func formatGarbageWarning(files []git.GarbageFile) string {
 	for _, f := range files {
 		msg += fmt.Sprintf("  • %s (%s): %s\n", f.Path, f.Category, f.Reason)
 	}
-	msg += "\nOptions:\n"
-	msg += "  [r] Remove and continue (recommended)\n"
-	msg += "  [i] Include anyway\n"
-	msg += "  [a] Abort and fix manually\n"
 	return msg
 }
 

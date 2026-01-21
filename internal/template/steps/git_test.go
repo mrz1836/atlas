@@ -19,6 +19,8 @@ import (
 	"github.com/mrz1836/atlas/internal/git"
 )
 
+var errGitResetFailed = atlaserrors.ErrGitOperation
+
 // mockSmartCommitter is a mock implementation of git.SmartCommitService.
 type mockSmartCommitter struct {
 	analyzeFunc func(ctx context.Context) (*git.CommitAnalysis, error)
@@ -843,6 +845,85 @@ func TestGitExecutor_HandleGarbageDetected(t *testing.T) {
 	}
 }
 
+func TestGitExecutor_HandleGarbageDetected_ResetFilesCalled(t *testing.T) {
+	t.Run("ResetFiles called with correct paths", func(t *testing.T) {
+		ctx := context.Background()
+		var calledWithPaths []string
+
+		mockGitRunner := &mockRunner{
+			resetFilesFunc: func(_ context.Context, paths []string) error {
+				calledWithPaths = paths
+				return nil
+			},
+		}
+
+		executor := NewGitExecutor("/tmp/work",
+			WithGitRunner(mockGitRunner),
+		)
+
+		garbageFiles := []git.GarbageFile{
+			{Path: ".env", Category: git.GarbageSecrets},
+			{Path: "coverage.out", Category: git.GarbageBuildArtifact},
+			{Path: "debug.log", Category: git.GarbageDebug},
+		}
+
+		err := executor.HandleGarbageDetected(ctx, garbageFiles, GarbageRemoveAndContinue)
+		require.NoError(t, err)
+
+		// Verify ResetFiles was called with all garbage paths
+		require.Len(t, calledWithPaths, 3)
+		assert.Contains(t, calledWithPaths, ".env")
+		assert.Contains(t, calledWithPaths, "coverage.out")
+		assert.Contains(t, calledWithPaths, "debug.log")
+	})
+
+	t.Run("ResetFiles error propagated", func(t *testing.T) {
+		ctx := context.Background()
+		expectedErr := fmt.Errorf("git reset failed: %w", errGitResetFailed)
+
+		mockGitRunner := &mockRunner{
+			resetFilesFunc: func(_ context.Context, _ []string) error {
+				return expectedErr
+			},
+		}
+
+		executor := NewGitExecutor("/tmp/work",
+			WithGitRunner(mockGitRunner),
+		)
+
+		garbageFiles := []git.GarbageFile{
+			{Path: ".env", Category: git.GarbageSecrets},
+		}
+
+		err := executor.HandleGarbageDetected(ctx, garbageFiles, GarbageRemoveAndContinue)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to remove garbage files from staging")
+	})
+
+	t.Run("empty garbage files list", func(t *testing.T) {
+		ctx := context.Background()
+		resetFilesCalled := false
+
+		mockGitRunner := &mockRunner{
+			resetFilesFunc: func(_ context.Context, paths []string) error {
+				resetFilesCalled = true
+				// Should be called with empty list
+				assert.Empty(t, paths)
+				return nil
+			},
+		}
+
+		executor := NewGitExecutor("/tmp/work",
+			WithGitRunner(mockGitRunner),
+		)
+
+		err := executor.HandleGarbageDetected(ctx, []git.GarbageFile{}, GarbageRemoveAndContinue)
+		require.NoError(t, err)
+		// ResetFiles should be called even with empty list (it handles this gracefully)
+		assert.True(t, resetFilesCalled)
+	})
+}
+
 func TestGitExecutor_HandleGarbageDetected_NoRunner(t *testing.T) {
 	ctx := context.Background()
 	executor := NewGitExecutor("/tmp/work") // No git runner
@@ -870,13 +951,16 @@ func TestFormatGarbageWarning(t *testing.T) {
 
 	warning := formatGarbageWarning(files)
 
+	// Should contain file information
 	assert.Contains(t, warning, ".env")
 	assert.Contains(t, warning, "secrets")
 	assert.Contains(t, warning, "coverage.out")
 	assert.Contains(t, warning, "build_artifact")
-	assert.Contains(t, warning, "[r] Remove")
-	assert.Contains(t, warning, "[i] Include")
-	assert.Contains(t, warning, "[a] Abort")
+
+	// Should NOT contain shortcut text (options are shown via ApprovalOptions menu)
+	assert.NotContains(t, warning, "[r]")
+	assert.NotContains(t, warning, "[i]")
+	assert.NotContains(t, warning, "[a]")
 }
 
 func TestFormatGarbageWarning_Empty(t *testing.T) {
@@ -1019,7 +1103,9 @@ func TestJoinArtifactPaths(t *testing.T) {
 }
 
 // mockRunner is a minimal mock for git.Runner interface.
-type mockRunner struct{}
+type mockRunner struct {
+	resetFilesFunc func(ctx context.Context, paths []string) error
+}
 
 func (m *mockRunner) Status(_ context.Context) (*git.Status, error) {
 	return &git.Status{}, nil
@@ -1066,6 +1152,13 @@ func (m *mockRunner) RebaseAbort(_ context.Context) error {
 }
 
 func (m *mockRunner) Reset(_ context.Context) error {
+	return nil
+}
+
+func (m *mockRunner) ResetFiles(ctx context.Context, paths []string) error {
+	if m.resetFilesFunc != nil {
+		return m.resetFilesFunc(ctx, paths)
+	}
 	return nil
 }
 
