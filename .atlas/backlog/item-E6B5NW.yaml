@@ -4,18 +4,18 @@ guid: 405e3821-d540-4fa2-964a-6d8e11f22b3f
 title: Add test coverage for upgrade.go
 status: pending
 content:
-    description: 'Current coverage is 77.18%. Target is >=80%. After adding tests, run: (magex format:fix && magex lint) and fix all issues.'
-    category: testing
-    severity: low
-    tags:
-        - testing
-        - cli
-        - coverage
+  description: 'Current coverage is 77.18%. Target is >=80%. After adding tests, run: (magex format:fix && magex lint) and fix all issues.'
+  category: testing
+  severity: low
+  tags:
+    - testing
+    - cli
+    - coverage
 location:
-    file: cmd/upgrade.go
+  file: cmd/upgrade.go
 context:
-    discovered_at: 2026-01-21T20:32:33.255099Z
-    discovered_by: human:mrz1836
-    git:
-        branch: master
-        commit: 712f7cd
+  discovered_at: 2026-01-21T20:32:33.255099Z
+  discovered_by: human:mrz1836
+  git:
+    branch: master
+    commit: 712f7cd

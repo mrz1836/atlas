@@ -4,18 +4,18 @@ guid: d0852228-758b-492a-8f7b-bad54261897b
 title: Add test coverage for resume.go
 status: pending
 content:
-    description: 'Current coverage is 43.57%. Target is >=80%. After adding tests, run: (magex format:fix && magex lint) and fix all issues.'
-    category: testing
-    severity: medium
-    tags:
-        - testing
-        - cli
-        - coverage
+  description: 'Current coverage is 43.57%. Target is >=80%. After adding tests, run: (magex format:fix && magex lint) and fix all issues.'
+  category: testing
+  severity: medium
+  tags:
+    - testing
+    - cli
+    - coverage
 location:
-    file: cmd/resume.go
+  file: cmd/resume.go
 context:
-    discovered_at: 2026-01-21T20:32:10.77273Z
-    discovered_by: human:mrz1836
-    git:
-        branch: master
-        commit: 712f7cd
+  discovered_at: 2026-01-21T20:32:10.77273Z
+  discovered_by: human:mrz1836
+  git:
+    branch: master
+    commit: 712f7cd
