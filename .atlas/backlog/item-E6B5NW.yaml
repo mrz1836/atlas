@@ -14,11 +14,11 @@ content:
 location:
   file: cmd/upgrade.go
 context:
-    discovered_at: 2026-01-21T20:32:33.255099Z
-    discovered_by: human:mrz1836
-    git:
-        branch: master
-        commit: 712f7cd
+  discovered_at: 2026-01-21T20:32:33.255099Z
+  discovered_by: human:mrz1836
+  git:
+    branch: master
+    commit: 712f7cd
 lifecycle:
-    promoted_to_task: task-3bbd571b-11db-4e5a-9d6c-9cb37e9aaaa1
-    completed_at: 2026-01-21T21:29:04.144754Z
+  promoted_to_task: task-3bbd571b-11db-4e5a-9d6c-9cb37e9aaaa1
+  completed_at: 2026-01-21T21:29:04.144754Z
