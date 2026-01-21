@@ -553,13 +553,18 @@ func createResumeValidationRetryHandler(aiRunner ai.Runner, cfg *config.Config, 
 
 	executor := validation.NewExecutorWithRunner(validation.DefaultTimeout, &validation.DefaultCommandRunner{})
 
-	return validation.NewRetryHandlerFromConfig(
+	handler := validation.NewRetryHandlerFromConfig(
 		aiRunner,
 		executor,
 		cfg.Validation.AIRetryEnabled,
 		cfg.Validation.MaxAIRetryAttempts,
 		logger,
 	)
+
+	// Set operations config for per-operation AI settings
+	handler.SetOperationsConfig(&cfg.Operations)
+
+	return handler
 }
 
 // ensureWorktreeExists checks if the workspace worktree exists and recreates it if missing.

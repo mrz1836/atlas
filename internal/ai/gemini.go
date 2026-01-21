@@ -69,7 +69,7 @@ func NewGeminiRunner(cfg *config.AIConfig, executor CommandExecutor, opts ...Gem
 
 	// If activity streaming is enabled, swap executor for StreamingExecutor
 	if r.activityOptions != nil && r.activityOptions.Callback != nil {
-		r.base.Executor = NewStreamingExecutor(*r.activityOptions)
+		r.base.Executor = NewStreamingExecutor(*r.activityOptions, WithStreamProvider(StreamProviderGemini))
 	}
 
 	return r
@@ -106,13 +106,45 @@ func (r *GeminiRunner) execute(ctx context.Context, req *domain.AIRequest) (*dom
 		return r.handleExecutionError(ctx, err, stdout, stderr)
 	}
 
-	// Parse the JSON response
-	resp, parseErr := parseGeminiResponse(stdout)
+	// Parse the response - prefer streaming result if available
+	resp, parseErr := r.parseResponse(stdout)
 	if parseErr != nil {
 		return nil, parseErr
 	}
 
 	return resp.toAIResult(string(stderr)), nil
+}
+
+// isStreamingEnabled returns true if activity streaming is enabled.
+func (r *GeminiRunner) isStreamingEnabled() bool {
+	return r.activityOptions != nil && r.activityOptions.Callback != nil
+}
+
+// parseResponse parses the Gemini CLI response.
+// When streaming is enabled, it prefers the result from StreamingExecutor.
+// Otherwise, it parses stdout as a single JSON object.
+func (r *GeminiRunner) parseResponse(stdout []byte) (*GeminiResponse, error) {
+	// If streaming is enabled, try to get result from StreamingExecutor first
+	if r.isStreamingEnabled() {
+		if streamExec, ok := r.base.Executor.(*StreamingExecutor); ok {
+			if result := streamExec.LastGeminiResult(); result != nil {
+				return r.streamResultToGeminiResponse(result), nil
+			}
+		}
+	}
+
+	// Fall back to parsing stdout as JSON (for non-streaming or if no result in stream)
+	return parseGeminiResponse(stdout)
+}
+
+// streamResultToGeminiResponse converts a GeminiStreamResult to a GeminiResponse.
+func (r *GeminiRunner) streamResultToGeminiResponse(result *GeminiStreamResult) *GeminiResponse {
+	return &GeminiResponse{
+		Success:    result.Success,
+		SessionID:  result.SessionID,
+		DurationMs: result.DurationMs,
+		// NumTurns and TotalCostUSD are not available in stream-json result
+	}
 }
 
 // handleExecutionError processes errors from command execution.
@@ -155,8 +187,14 @@ func (r *GeminiRunner) tryParseErrorResponse(execErr error, stdout, stderr []byt
 
 // buildCommand constructs the gemini CLI command with appropriate flags.
 func (r *GeminiRunner) buildCommand(ctx context.Context, req *domain.AIRequest) *exec.Cmd {
+	// Use stream-json format when activity streaming is enabled for real-time tool events
+	outputFormat := "json"
+	if r.isStreamingEnabled() {
+		outputFormat = "stream-json"
+	}
+
 	args := []string{
-		"--output-format", "json", // JSON output format
+		"--output-format", outputFormat,
 	}
 
 	// Always use --yolo for non-interactive execution (auto-approve allowed actions)

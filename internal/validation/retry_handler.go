@@ -7,6 +7,7 @@ import (
 
 	"github.com/rs/zerolog"
 
+	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/contracts"
 	"github.com/mrz1836/atlas/internal/domain"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
@@ -33,10 +34,11 @@ func DefaultRetryConfig() RetryConfig {
 // It extracts error context from failed validation, invokes AI to fix issues,
 // and re-runs validation to verify the fix.
 type RetryHandler struct {
-	aiRunner contracts.AIRunner
-	executor *Executor
-	config   RetryConfig
-	logger   zerolog.Logger
+	aiRunner         contracts.AIRunner
+	executor         *Executor
+	config           RetryConfig
+	logger           zerolog.Logger
+	operationsConfig *config.OperationsConfig
 }
 
 // NewRetryHandler creates a retry handler.
@@ -52,8 +54,14 @@ func NewRetryHandler(aiRunner contracts.AIRunner, executor *Executor, config Ret
 // NewRetryHandlerFromConfig creates a RetryHandler using application config.
 // This is the recommended way to create a RetryHandler for CLI usage.
 func NewRetryHandlerFromConfig(aiRunner contracts.AIRunner, executor *Executor, enabled bool, maxAttempts int, logger zerolog.Logger) *RetryHandler {
-	config := RetryConfigFromAppConfig(enabled, maxAttempts)
-	return NewRetryHandler(aiRunner, executor, config, logger)
+	retryCfg := RetryConfigFromAppConfig(enabled, maxAttempts)
+	return NewRetryHandler(aiRunner, executor, retryCfg, logger)
+}
+
+// SetOperationsConfig sets the per-operation AI settings for validation retry.
+// This allows the handler to use operation-specific agent/model settings.
+func (h *RetryHandler) SetOperationsConfig(cfg *config.OperationsConfig) {
+	h.operationsConfig = cfg
 }
 
 // RetryResult contains the outcome of a retry attempt.
@@ -71,6 +79,10 @@ type RetryResult struct {
 	AIResult *domain.AIResult
 }
 
+// AICompleteCallback is called when AI fix completes but before validation runs.
+// This allows the caller to update UI state between the AI and validation phases.
+type AICompleteCallback func()
+
 // RetryWithAI attempts to fix validation errors using AI.
 // It extracts error context, invokes AI to fix, and re-runs validation.
 //
@@ -82,6 +94,7 @@ type RetryResult struct {
 //   - runnerConfig: Configuration for the validation runner (may be nil for defaults)
 //   - agent: The AI agent to use (claude, gemini, codex)
 //   - model: The specific model to use
+//   - onAIComplete: Optional callback invoked after AI fix completes, before validation runs
 //
 // Returns:
 //   - RetryResult: Contains the retry outcome including new validation results
@@ -97,6 +110,7 @@ func (h *RetryHandler) RetryWithAI(
 	runnerConfig *RunnerConfig,
 	agent domain.Agent,
 	model string,
+	onAIComplete AICompleteCallback,
 ) (*RetryResult, error) {
 	// Check if retry is enabled
 	if !h.config.Enabled {
@@ -104,14 +118,17 @@ func (h *RetryHandler) RetryWithAI(
 		return nil, atlaserrors.ErrRetryDisabled
 	}
 
+	// Get max attempts from operations config or fallback to config
+	maxAttempts := h.getMaxAttempts()
+
 	// Check if max attempts exceeded
-	if attemptNum > h.config.MaxAttempts {
+	if attemptNum > maxAttempts {
 		h.logger.Warn().
 			Int("attempt", attemptNum).
-			Int("max_attempts", h.config.MaxAttempts).
+			Int("max_attempts", maxAttempts).
 			Msg("maximum retry attempts exceeded")
 		return nil, fmt.Errorf("%w: attempt %d exceeds max %d",
-			atlaserrors.ErrMaxRetriesExceeded, attemptNum, h.config.MaxAttempts)
+			atlaserrors.ErrMaxRetriesExceeded, attemptNum, maxAttempts)
 	}
 
 	// Check context cancellation
@@ -134,16 +151,19 @@ func (h *RetryHandler) RetryWithAI(
 		return nil, fmt.Errorf("worktree directory missing: %s: %w", workDir, atlaserrors.ErrWorktreeNotFound)
 	}
 
+	// Resolve agent/model from operations config (priority: operations > passed values)
+	resolvedAgent, resolvedModel := h.getRetryAgentModel(agent, model)
+
 	h.logger.Info().
-		Str("agent", string(agent)).
-		Str("model", model).
+		Str("agent", string(resolvedAgent)).
+		Str("model", resolvedModel).
 		Int("attempt", attemptNum).
-		Int("max_attempts", h.config.MaxAttempts).
+		Int("max_attempts", maxAttempts).
 		Str("failed_step", result.FailedStepName).
 		Msg("starting AI-assisted validation retry")
 
 	// Extract error context from the failed result
-	retryCtx := ExtractErrorContext(result, attemptNum, h.config.MaxAttempts)
+	retryCtx := ExtractErrorContext(result, attemptNum, maxAttempts)
 
 	// Build AI prompt with error context
 	prompt := BuildAIPrompt(retryCtx)
@@ -155,8 +175,8 @@ func (h *RetryHandler) RetryWithAI(
 
 	// Invoke AI to fix the issues
 	aiReq := &domain.AIRequest{
-		Agent:      agent,
-		Model:      model,
+		Agent:      resolvedAgent,
+		Model:      resolvedModel,
 		Prompt:     prompt,
 		WorkingDir: workDir,
 	}
@@ -169,15 +189,15 @@ func (h *RetryHandler) RetryWithAI(
 	if err != nil {
 		h.logger.Error().
 			Err(err).
-			Str("agent", string(agent)).
-			Str("model", model).
+			Str("agent", string(resolvedAgent)).
+			Str("model", resolvedModel).
 			Msg("AI fix invocation failed")
 		return nil, fmt.Errorf("AI fix failed: %w", err)
 	}
 
 	h.logger.Info().
-		Str("agent", string(agent)).
-		Str("model", model).
+		Str("agent", string(resolvedAgent)).
+		Str("model", resolvedModel).
 		Bool("ai_success", aiResult.Success).
 		Int("files_changed", len(aiResult.FilesChanged)).
 		Msg("AI fix completed, re-running validation")
@@ -187,6 +207,12 @@ func (h *RetryHandler) RetryWithAI(
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	default:
+	}
+
+	// Notify caller that AI is complete before starting validation
+	// This allows UI to stop the AI spinner and optionally start validation progress
+	if onAIComplete != nil {
+		onAIComplete()
 	}
 
 	// Re-run validation using existing Runner
@@ -201,8 +227,8 @@ func (h *RetryHandler) RetryWithAI(
 
 	if runErr != nil {
 		h.logger.Warn().
-			Str("agent", string(agent)).
-			Str("model", model).
+			Str("agent", string(resolvedAgent)).
+			Str("model", resolvedModel).
 			Int("attempt", attemptNum).
 			Str("failed_step", newResult.FailedStepName).
 			Msg("validation still fails after AI fix")
@@ -213,8 +239,8 @@ func (h *RetryHandler) RetryWithAI(
 	}
 
 	h.logger.Info().
-		Str("agent", string(agent)).
-		Str("model", model).
+		Str("agent", string(resolvedAgent)).
+		Str("model", resolvedModel).
 		Int("attempt", attemptNum).
 		Int64("duration_ms", newResult.DurationMs).
 		Msg("validation passed after AI fix")
@@ -225,17 +251,59 @@ func (h *RetryHandler) RetryWithAI(
 
 // CanRetry checks if another retry attempt is allowed.
 func (h *RetryHandler) CanRetry(attemptNum int) bool {
-	return h.config.Enabled && attemptNum <= h.config.MaxAttempts
+	return h.config.Enabled && attemptNum <= h.getMaxAttempts()
 }
 
 // MaxAttempts returns the maximum retry attempts configured.
+// Uses operations.validation_retry.max_attempts if set, otherwise uses config.MaxAttempts.
 func (h *RetryHandler) MaxAttempts() int {
-	return h.config.MaxAttempts
+	return h.getMaxAttempts()
 }
 
 // IsEnabled returns whether AI retry is enabled.
 func (h *RetryHandler) IsEnabled() bool {
 	return h.config.Enabled
+}
+
+// getRetryAgentModel returns the agent and model to use for validation retry.
+// Priority: operations.validation_retry > passed defaults
+func (h *RetryHandler) getRetryAgentModel(defaultAgent domain.Agent, defaultModel string) (domain.Agent, string) {
+	if h.operationsConfig == nil {
+		return defaultAgent, defaultModel
+	}
+
+	opConfig := h.operationsConfig.ValidationRetry
+	if opConfig.IsEmpty() {
+		return defaultAgent, defaultModel
+	}
+
+	agent := defaultAgent
+	model := defaultModel
+	agentChanged := false
+
+	if opConfig.Agent != "" {
+		newAgent := domain.Agent(opConfig.Agent)
+		if newAgent != agent {
+			agent = newAgent
+			agentChanged = true
+		}
+	}
+
+	if opConfig.Model != "" {
+		model = opConfig.Model
+	} else if agentChanged {
+		model = agent.DefaultModel()
+	}
+
+	return agent, model
+}
+
+// getMaxAttempts returns the max attempts, preferring operations config if set.
+func (h *RetryHandler) getMaxAttempts() int {
+	if h.operationsConfig != nil && h.operationsConfig.ValidationRetry.MaxAttempts > 0 {
+		return h.operationsConfig.ValidationRetry.MaxAttempts
+	}
+	return h.config.MaxAttempts
 }
 
 // RetryConfigFromAppConfig creates a RetryConfig from application config values.

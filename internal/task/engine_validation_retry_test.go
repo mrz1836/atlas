@@ -26,7 +26,7 @@ type mockValidationRetryHandler struct {
 	isEnabled       bool
 	maxAttempts     int
 	canRetryFunc    func(int) bool
-	retryWithAIFunc func(context.Context, *validation.PipelineResult, string, int, *validation.RunnerConfig, domain.Agent, string) (*validation.RetryResult, error)
+	retryWithAIFunc func(context.Context, *validation.PipelineResult, string, int, *validation.RunnerConfig, domain.Agent, string, validation.AICompleteCallback) (*validation.RetryResult, error)
 }
 
 func (m *mockValidationRetryHandler) IsEnabled() bool {
@@ -47,9 +47,9 @@ func (m *mockValidationRetryHandler) CanRetry(attempt int) bool {
 	return attempt <= m.MaxAttempts()
 }
 
-func (m *mockValidationRetryHandler) RetryWithAI(ctx context.Context, pr *validation.PipelineResult, workDir string, attempt int, cfg *validation.RunnerConfig, agent domain.Agent, model string) (*validation.RetryResult, error) {
+func (m *mockValidationRetryHandler) RetryWithAI(ctx context.Context, pr *validation.PipelineResult, workDir string, attempt int, cfg *validation.RunnerConfig, agent domain.Agent, model string, onAIComplete validation.AICompleteCallback) (*validation.RetryResult, error) {
 	if m.retryWithAIFunc != nil {
-		return m.retryWithAIFunc(ctx, pr, workDir, attempt, cfg, agent, model)
+		return m.retryWithAIFunc(ctx, pr, workDir, attempt, cfg, agent, model, onAIComplete)
 	}
 	return nil, errNotImplemented
 }
@@ -322,7 +322,7 @@ func TestAttemptValidationRetry_SuccessFirstAttempt(t *testing.T) {
 	engine.validationRetryHandler = &mockValidationRetryHandler{
 		isEnabled:   true,
 		maxAttempts: 3,
-		retryWithAIFunc: func(_ context.Context, _ *validation.PipelineResult, _ string, _ int, _ *validation.RunnerConfig, _ domain.Agent, _ string) (*validation.RetryResult, error) {
+		retryWithAIFunc: func(_ context.Context, _ *validation.PipelineResult, _ string, _ int, _ *validation.RunnerConfig, _ domain.Agent, _ string, _ validation.AICompleteCallback) (*validation.RetryResult, error) {
 			return successResult, nil
 		},
 	}
@@ -368,7 +368,7 @@ func TestAttemptValidationRetry_SuccessNthAttempt(t *testing.T) {
 	engine.validationRetryHandler = &mockValidationRetryHandler{
 		isEnabled:   true,
 		maxAttempts: 3,
-		retryWithAIFunc: func(_ context.Context, _ *validation.PipelineResult, _ string, attempt int, _ *validation.RunnerConfig, _ domain.Agent, _ string) (*validation.RetryResult, error) {
+		retryWithAIFunc: func(_ context.Context, _ *validation.PipelineResult, _ string, attempt int, _ *validation.RunnerConfig, _ domain.Agent, _ string, _ validation.AICompleteCallback) (*validation.RetryResult, error) {
 			attemptCount++
 			if attemptCount < 3 {
 				// Fail first 2 attempts
@@ -432,7 +432,7 @@ func TestAttemptValidationRetry_AttemptsExhausted(t *testing.T) {
 	engine.validationRetryHandler = &mockValidationRetryHandler{
 		isEnabled:   true,
 		maxAttempts: 3,
-		retryWithAIFunc: func(_ context.Context, _ *validation.PipelineResult, _ string, attempt int, _ *validation.RunnerConfig, _ domain.Agent, _ string) (*validation.RetryResult, error) {
+		retryWithAIFunc: func(_ context.Context, _ *validation.PipelineResult, _ string, attempt int, _ *validation.RunnerConfig, _ domain.Agent, _ string, _ validation.AICompleteCallback) (*validation.RetryResult, error) {
 			attemptCount++
 			return &validation.RetryResult{
 				Success:       false,
@@ -796,7 +796,7 @@ func TestAttemptValidationRetry_CanRetryFalse(t *testing.T) {
 			// Stop after 2 attempts
 			return attempt <= 2
 		},
-		retryWithAIFunc: func(_ context.Context, _ *validation.PipelineResult, _ string, attempt int, _ *validation.RunnerConfig, _ domain.Agent, _ string) (*validation.RetryResult, error) {
+		retryWithAIFunc: func(_ context.Context, _ *validation.PipelineResult, _ string, attempt int, _ *validation.RunnerConfig, _ domain.Agent, _ string, _ validation.AICompleteCallback) (*validation.RetryResult, error) {
 			attemptCount++
 			return &validation.RetryResult{
 				Success:       false,
@@ -1069,7 +1069,7 @@ func TestAttemptValidationRetry_UsesCustomCommands(t *testing.T) {
 	engine.validationRetryHandler = &mockValidationRetryHandler{
 		isEnabled:   true,
 		maxAttempts: 3,
-		retryWithAIFunc: func(_ context.Context, _ *validation.PipelineResult, _ string, _ int, cfg *validation.RunnerConfig, _ domain.Agent, _ string) (*validation.RetryResult, error) {
+		retryWithAIFunc: func(_ context.Context, _ *validation.PipelineResult, _ string, _ int, cfg *validation.RunnerConfig, _ domain.Agent, _ string, _ validation.AICompleteCallback) (*validation.RetryResult, error) {
 			// Capture the config that was passed
 			receivedConfig = cfg
 			return &validation.RetryResult{

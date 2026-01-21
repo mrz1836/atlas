@@ -722,6 +722,8 @@ func createProgressCallback(ctx context.Context, out tui.Output, _ string, state
 			handleRetryAIStart(ctx, out, event, state)
 		case "retry_ai_complete":
 			handleRetryAIComplete(out, event, state)
+		case "retry_validation_start":
+			handleRetryValidationStart(ctx, out, event, state)
 		case "auto_fix_start":
 			handleAutoFixStart(ctx, out, event, state)
 		case "auto_fix_complete":
@@ -869,16 +871,27 @@ func handleRetryAIComplete(out tui.Output, event task.StepProgressEvent, state *
 	}
 	state.baseMessage = ""
 
-	// Display completion message
-	out.Success("Retry AI fix completed")
-
-	// Display metrics if available
+	// Display completion message only if we have metrics (final completion)
+	// If no metrics, this is the intermediate notification before validation
 	if event.DurationMs > 0 || event.NumTurns > 0 || event.FilesChangedCount > 0 {
+		out.Success("Retry AI fix completed")
 		metrics := buildStepMetrics(event.DurationMs, event.NumTurns, event.FilesChangedCount)
 		if metrics != "" {
 			out.Info(fmt.Sprintf("  %s", metrics))
 		}
 	}
+}
+
+// handleRetryValidationStart handles the retry_validation_start event.
+// This is called after AI fix completes but before validation re-runs.
+func handleRetryValidationStart(ctx context.Context, out tui.Output, event task.StepProgressEvent, state *progressState) {
+	msg := event.Status
+	if msg == "" {
+		msg = "Validating after AI fix..."
+	}
+	// Store base message for activity updates
+	state.baseMessage = msg
+	state.activeSpinner = out.Spinner(ctx, msg)
 }
 
 // buildRetryAIStartMessage builds the retry AI start message based on the event.
@@ -1269,6 +1282,7 @@ func runDryRun(ctx context.Context, sc *startContext, tmpl *domain.Template, des
 		TestCommands:      cfg.Validation.Commands.Test,
 		PreCommitCommands: cfg.Validation.Commands.PreCommit,
 		CIConfig:          &cfg.CI,
+		OperationsConfig:  &cfg.Operations,
 	})
 
 	// Create simulated task for dry-run

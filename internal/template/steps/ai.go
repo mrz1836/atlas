@@ -9,6 +9,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/mrz1836/atlas/internal/ai"
+	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/domain"
 	"github.com/mrz1836/atlas/internal/validation"
@@ -17,9 +18,10 @@ import (
 // AIExecutor handles AI steps (analyze, implement).
 // It uses the ai.Runner interface to execute prompts via Claude Code CLI.
 type AIExecutor struct {
-	runner         ai.Runner
-	workingDir     string
-	artifactHelper *ArtifactHelper
+	runner           ai.Runner
+	workingDir       string
+	artifactHelper   *ArtifactHelper
+	operationsConfig *config.OperationsConfig
 }
 
 // AIExecutorOption is a functional option for configuring AIExecutor.
@@ -31,6 +33,14 @@ type AIExecutorOption func(*AIExecutor)
 func WithAIWorkingDir(dir string) AIExecutorOption {
 	return func(e *AIExecutor) {
 		e.workingDir = dir
+	}
+}
+
+// WithAIOperationsConfig sets the per-operation AI settings.
+// These settings override ai.agent/model for specific step types.
+func WithAIOperationsConfig(cfg *config.OperationsConfig) AIExecutorOption {
+	return func(e *AIExecutor) {
+		e.operationsConfig = cfg
 	}
 }
 
@@ -148,6 +158,7 @@ func (e *AIExecutor) Type() domain.StepType {
 }
 
 // buildRequest constructs an AIRequest from task and step configuration.
+// Priority: step.Config > operations.{type} > task.Config (ai defaults)
 func (e *AIExecutor) buildRequest(task *domain.Task, step *domain.StepDefinition) *domain.AIRequest {
 	req := &domain.AIRequest{
 		Agent:      task.Config.Agent,
@@ -163,7 +174,10 @@ func (e *AIExecutor) buildRequest(task *domain.Task, step *domain.StepDefinition
 		req.PermissionMode = task.Config.PermissionMode
 	}
 
-	// Override with step-specific config if present
+	// Apply operations config for this step type (overrides task defaults)
+	e.applyOperationsConfig(req, step)
+
+	// Override with step-specific config if present (highest priority)
 	e.applyStepConfig(req, task.Description, step.Config)
 
 	// Check for include_previous_errors config (used by fix template)
@@ -173,6 +187,46 @@ func (e *AIExecutor) buildRequest(task *domain.Task, step *domain.StepDefinition
 	}
 
 	return req
+}
+
+// applyOperationsConfig applies per-operation AI settings based on step name/type.
+// These settings override task defaults but can be overridden by step.Config.
+func (e *AIExecutor) applyOperationsConfig(req *domain.AIRequest, step *domain.StepDefinition) {
+	if e.operationsConfig == nil {
+		return
+	}
+
+	opConfig := e.operationsConfig.GetForStep(step.Name, string(step.Type))
+	if opConfig.IsEmpty() {
+		return
+	}
+
+	// Apply agent (only if specified)
+	agentChanged := false
+	if opConfig.Agent != "" {
+		newAgent := domain.Agent(opConfig.Agent)
+		if newAgent != req.Agent {
+			req.Agent = newAgent
+			agentChanged = true
+		}
+	}
+
+	// Apply model (if specified, or use new agent's default if agent changed)
+	if opConfig.Model != "" {
+		req.Model = opConfig.Model
+	} else if agentChanged {
+		req.Model = req.Agent.DefaultModel()
+	}
+
+	// Apply timeout (if specified)
+	if opConfig.Timeout > 0 {
+		req.Timeout = opConfig.Timeout
+	}
+
+	// Apply permission mode (if specified)
+	if opConfig.PermissionMode != "" {
+		req.PermissionMode = opConfig.PermissionMode
+	}
 }
 
 // injectPreviousValidationErrors finds the most recent failed validation result

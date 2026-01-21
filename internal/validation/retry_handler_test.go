@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/domain"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 )
@@ -127,7 +128,7 @@ func TestRetryHandler_RetryWithAI_InvokesAIAndRerunsValidation(t *testing.T) {
 		},
 	}
 
-	result, err := handler.RetryWithAI(context.Background(), failedResult, "/tmp", 1, nil, domain.AgentClaude, "sonnet")
+	result, err := handler.RetryWithAI(context.Background(), failedResult, "/tmp", 1, nil, domain.AgentClaude, "sonnet", nil)
 
 	require.NoError(t, err)
 	require.NotNil(t, result)
@@ -146,7 +147,7 @@ func TestRetryHandler_RetryWithAI_RespectsMaxAttempts(t *testing.T) {
 	handler := NewRetryHandler(nil, nil, RetryConfig{MaxAttempts: 3, Enabled: true}, zerolog.Nop())
 
 	// Attempt 4 should fail
-	_, err := handler.RetryWithAI(context.Background(), &PipelineResult{}, "/tmp", 4, nil, domain.AgentClaude, "sonnet")
+	_, err := handler.RetryWithAI(context.Background(), &PipelineResult{}, "/tmp", 4, nil, domain.AgentClaude, "sonnet", nil)
 
 	require.Error(t, err)
 	require.ErrorIs(t, err, atlaserrors.ErrMaxRetriesExceeded)
@@ -156,7 +157,7 @@ func TestRetryHandler_RetryWithAI_RespectsMaxAttempts(t *testing.T) {
 func TestRetryHandler_RetryWithAI_DisabledRetry(t *testing.T) {
 	handler := NewRetryHandler(nil, nil, RetryConfig{MaxAttempts: 3, Enabled: false}, zerolog.Nop())
 
-	_, err := handler.RetryWithAI(context.Background(), &PipelineResult{}, "/tmp", 1, nil, domain.AgentClaude, "sonnet")
+	_, err := handler.RetryWithAI(context.Background(), &PipelineResult{}, "/tmp", 1, nil, domain.AgentClaude, "sonnet", nil)
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, atlaserrors.ErrRetryDisabled)
@@ -171,7 +172,7 @@ func TestRetryHandler_RetryWithAI_AIFailure(t *testing.T) {
 
 	handler := NewRetryHandler(mockAI, nil, DefaultRetryConfig(), zerolog.Nop())
 
-	_, err := handler.RetryWithAI(context.Background(), &PipelineResult{}, "/tmp", 1, nil, domain.AgentClaude, "sonnet")
+	_, err := handler.RetryWithAI(context.Background(), &PipelineResult{}, "/tmp", 1, nil, domain.AgentClaude, "sonnet", nil)
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "AI fix failed")
@@ -197,7 +198,7 @@ func TestRetryHandler_RetryWithAI_ValidationStillFails(t *testing.T) {
 		FailedStepName: "lint",
 	}
 
-	result, err := handler.RetryWithAI(context.Background(), failedResult, "/tmp", 1, nil, domain.AgentClaude, "sonnet")
+	result, err := handler.RetryWithAI(context.Background(), failedResult, "/tmp", 1, nil, domain.AgentClaude, "sonnet", nil)
 
 	require.Error(t, err)
 	require.ErrorIs(t, err, atlaserrors.ErrValidationFailed)
@@ -212,7 +213,7 @@ func TestRetryHandler_RetryWithAI_ContextCancellation(t *testing.T) {
 
 	handler := NewRetryHandler(nil, nil, DefaultRetryConfig(), zerolog.Nop())
 
-	_, err := handler.RetryWithAI(ctx, &PipelineResult{}, "/tmp", 1, nil, domain.AgentClaude, "sonnet")
+	_, err := handler.RetryWithAI(ctx, &PipelineResult{}, "/tmp", 1, nil, domain.AgentClaude, "sonnet", nil)
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, context.Canceled)
@@ -235,7 +236,7 @@ func TestRetryHandler_RetryWithAI_PassesWorkDir(t *testing.T) {
 
 	handler := NewRetryHandler(mockAI, executor, DefaultRetryConfig(), zerolog.Nop())
 
-	_, err := handler.RetryWithAI(context.Background(), &PipelineResult{}, workDir, 1, nil, domain.AgentClaude, "sonnet")
+	_, err := handler.RetryWithAI(context.Background(), &PipelineResult{}, workDir, 1, nil, domain.AgentClaude, "sonnet", nil)
 
 	require.NoError(t, err)
 	assert.Equal(t, workDir, capturedWorkDir)
@@ -285,7 +286,7 @@ func TestRetryHandler_LogsAttemptNumber(t *testing.T) {
 
 	_, err := handler.RetryWithAI(context.Background(), &PipelineResult{
 		FailedStepName: "test",
-	}, "/tmp", 2, nil, domain.AgentClaude, "sonnet")
+	}, "/tmp", 2, nil, domain.AgentClaude, "sonnet", nil)
 
 	require.NoError(t, err)
 }
@@ -310,9 +311,121 @@ func TestRetryHandler_UsesRunnerConfig(t *testing.T) {
 		LintCommands:   []string{"custom-lint"},
 	}
 
-	_, err := handler.RetryWithAI(context.Background(), &PipelineResult{}, "/tmp", 1, runnerConfig, domain.AgentClaude, "sonnet")
+	_, err := handler.RetryWithAI(context.Background(), &PipelineResult{}, "/tmp", 1, runnerConfig, domain.AgentClaude, "sonnet", nil)
 
 	require.NoError(t, err)
 	// Verify commands were run (at least one command should have executed)
 	assert.Positive(t, mockRunner.CallCount())
+}
+
+func TestRetryHandler_OperationsConfigOverridesAgentModel(t *testing.T) {
+	var capturedAgent domain.Agent
+	var capturedModel string
+
+	mockAI := &MockAIRunner{
+		RunFn: func(_ context.Context, req *domain.AIRequest) (*domain.AIResult, error) {
+			capturedAgent = req.Agent
+			capturedModel = req.Model
+			return &domain.AIResult{Success: true}, nil
+		},
+	}
+
+	mockRunner := &MockCommandRunnerForRetry{ShouldFix: true}
+	executor := NewExecutorWithRunner(time.Minute, mockRunner)
+
+	handler := NewRetryHandler(mockAI, executor, DefaultRetryConfig(), zerolog.Nop())
+
+	// Set operations config that overrides the passed agent/model
+	opsConfig := &config.OperationsConfig{
+		ValidationRetry: config.OperationAIConfig{
+			Agent: "gemini",
+			Model: "pro",
+		},
+	}
+	handler.SetOperationsConfig(opsConfig)
+
+	_, err := handler.RetryWithAI(context.Background(), &PipelineResult{}, "/tmp", 1, nil, domain.AgentClaude, "sonnet", nil)
+
+	require.NoError(t, err)
+	// Should use operations config values instead of passed values
+	assert.Equal(t, domain.Agent("gemini"), capturedAgent)
+	assert.Equal(t, "pro", capturedModel)
+}
+
+func TestRetryHandler_OperationsConfigMaxAttempts(t *testing.T) {
+	handler := NewRetryHandler(nil, nil, RetryConfig{MaxAttempts: 2, Enabled: true}, zerolog.Nop())
+
+	// Without operations config, max attempts is 2
+	assert.Equal(t, 2, handler.MaxAttempts())
+
+	// Set operations config with max_attempts = 5
+	opsConfig := &config.OperationsConfig{
+		ValidationRetry: config.OperationAIConfig{
+			MaxAttempts: 5,
+		},
+	}
+	handler.SetOperationsConfig(opsConfig)
+
+	// Now max attempts should be 5
+	assert.Equal(t, 5, handler.MaxAttempts())
+	assert.True(t, handler.CanRetry(4))  // 4 <= 5
+	assert.True(t, handler.CanRetry(5))  // 5 <= 5
+	assert.False(t, handler.CanRetry(6)) // 6 > 5
+}
+
+func TestRetryHandler_OperationsConfigAgentChangeUsesDefaultModel(t *testing.T) {
+	var capturedModel string
+
+	mockAI := &MockAIRunner{
+		RunFn: func(_ context.Context, req *domain.AIRequest) (*domain.AIResult, error) {
+			capturedModel = req.Model
+			return &domain.AIResult{Success: true}, nil
+		},
+	}
+
+	mockRunner := &MockCommandRunnerForRetry{ShouldFix: true}
+	executor := NewExecutorWithRunner(time.Minute, mockRunner)
+
+	handler := NewRetryHandler(mockAI, executor, DefaultRetryConfig(), zerolog.Nop())
+
+	// Set operations config with only agent change (no model)
+	opsConfig := &config.OperationsConfig{
+		ValidationRetry: config.OperationAIConfig{
+			Agent: "gemini",
+			// No model specified - should use gemini's default
+		},
+	}
+	handler.SetOperationsConfig(opsConfig)
+
+	_, err := handler.RetryWithAI(context.Background(), &PipelineResult{}, "/tmp", 1, nil, domain.AgentClaude, "opus", nil)
+
+	require.NoError(t, err)
+	// Should use gemini's default model since agent changed but model not specified
+	assert.Equal(t, domain.Agent("gemini").DefaultModel(), capturedModel)
+}
+
+func TestRetryHandler_NilOperationsConfigUsesPassedValues(t *testing.T) {
+	var capturedAgent domain.Agent
+	var capturedModel string
+
+	mockAI := &MockAIRunner{
+		RunFn: func(_ context.Context, req *domain.AIRequest) (*domain.AIResult, error) {
+			capturedAgent = req.Agent
+			capturedModel = req.Model
+			return &domain.AIResult{Success: true}, nil
+		},
+	}
+
+	mockRunner := &MockCommandRunnerForRetry{ShouldFix: true}
+	executor := NewExecutorWithRunner(time.Minute, mockRunner)
+
+	handler := NewRetryHandler(mockAI, executor, DefaultRetryConfig(), zerolog.Nop())
+	// No operations config set
+
+	_, err := handler.RetryWithAI(context.Background(), &PipelineResult{}, "/tmp", 1, nil, domain.AgentClaude, "opus", nil)
+
+	require.NoError(t, err)
+	// Should use passed values
+	assert.Equal(t, domain.AgentClaude, capturedAgent)
+	assert.Equal(t, "opus", capturedModel)
 }

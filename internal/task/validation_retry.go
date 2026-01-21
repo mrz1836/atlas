@@ -23,6 +23,7 @@ type ValidationRetryHandler interface {
 	//   - runnerConfig: Configuration for the validation runner (may be nil for defaults)
 	//   - agent: The AI agent to use (claude, gemini, codex)
 	//   - model: The specific model to use
+	//   - onAIComplete: Optional callback invoked after AI fix completes, before validation runs
 	//
 	// Returns:
 	//   - RetryResult: Contains the retry outcome including new validation results
@@ -35,6 +36,7 @@ type ValidationRetryHandler interface {
 		runnerConfig *validation.RunnerConfig,
 		agent domain.Agent,
 		model string,
+		onAIComplete validation.AICompleteCallback,
 	) (*validation.RetryResult, error)
 
 	// CanRetry checks if another retry attempt is allowed.

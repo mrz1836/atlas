@@ -218,6 +218,59 @@ func TestClaudeCodeRunner_BuildCommand(t *testing.T) {
 		assert.Contains(t, cmd.Args, "sonnet")
 	})
 
+	t.Run("uses stream-json format when activity streaming enabled", func(t *testing.T) {
+		cfg := &config.AIConfig{
+			Model:   "sonnet",
+			Timeout: 30 * time.Minute,
+		}
+		// Create runner with activity callback to enable streaming
+		runner := NewClaudeCodeRunner(cfg, &MockExecutor{}, WithClaudeActivityCallback(ActivityOptions{
+			Callback:  func(_ ActivityEvent) {},
+			Verbosity: VerbosityMedium,
+		}))
+
+		req := &domain.AIRequest{
+			Prompt: "test",
+			Model:  "sonnet",
+		}
+
+		cmd := runner.buildCommand(context.Background(), req)
+
+		assert.Contains(t, cmd.Args, "--output-format")
+		assert.Contains(t, cmd.Args, "stream-json")
+		// stream-json requires --verbose flag
+		assert.Contains(t, cmd.Args, "--verbose")
+
+		// Verify the exact position of output format value
+		for i, arg := range cmd.Args {
+			if arg == "--output-format" && i+1 < len(cmd.Args) {
+				assert.Equal(t, "stream-json", cmd.Args[i+1], "output-format should be stream-json")
+				break
+			}
+		}
+	})
+
+	t.Run("does not use verbose flag without activity streaming", func(t *testing.T) {
+		cfg := &config.AIConfig{
+			Model:   "sonnet",
+			Timeout: 30 * time.Minute,
+		}
+		// No activity callback - should use regular json format
+		runner := NewClaudeCodeRunner(cfg, &MockExecutor{})
+
+		req := &domain.AIRequest{
+			Prompt: "test",
+			Model:  "sonnet",
+		}
+
+		cmd := runner.buildCommand(context.Background(), req)
+
+		assert.Contains(t, cmd.Args, "--output-format")
+		assert.Contains(t, cmd.Args, "json")
+		assert.NotContains(t, cmd.Args, "--verbose")
+		assert.NotContains(t, cmd.Args, "stream-json")
+	})
+
 	t.Run("builds command with permission mode", func(t *testing.T) {
 		cfg := &config.AIConfig{
 			Model:   "sonnet",
@@ -639,6 +692,145 @@ func (m *RetryMockExecutor) Execute(_ context.Context, _ *exec.Cmd) ([]byte, []b
 		return nil, []byte("network error"), errRetryMockNetwork
 	}
 	return m.successResponse, nil, nil
+}
+
+// StreamingMockExecutor is a mock that simulates Claude Code's stream-json output.
+type StreamingMockExecutor struct {
+	StreamOutput []byte // Simulated stream-json output
+	Stderr       []byte
+	Err          error
+}
+
+func (m *StreamingMockExecutor) Execute(_ context.Context, _ *exec.Cmd) ([]byte, []byte, error) {
+	if m.Err != nil {
+		return nil, m.Stderr, m.Err
+	}
+	return m.StreamOutput, m.Stderr, nil
+}
+
+func TestClaudeCodeRunner_StreamingExecution(t *testing.T) {
+	t.Run("parses json output without streaming", func(t *testing.T) {
+		// When not using StreamingExecutor, Claude returns single JSON (not NDJSON)
+		jsonOutput := []byte(`{"type":"result","subtype":"success","is_error":false,"result":"Analysis complete.","session_id":"test-session","duration_ms":2500,"num_turns":2,"total_cost_usd":0.025}`)
+
+		cfg := &config.AIConfig{
+			Model:   "sonnet",
+			Timeout: 30 * time.Minute,
+		}
+
+		mockExec := &StreamingMockExecutor{
+			StreamOutput: jsonOutput,
+		}
+
+		// Create runner with mock executor (not StreamingExecutor)
+		runner := NewClaudeCodeRunner(cfg, mockExec)
+
+		result, err := runner.Run(context.Background(), &domain.AIRequest{
+			Prompt: "Analyze main.go",
+			Model:  "sonnet",
+		})
+
+		require.NoError(t, err)
+		require.NotNil(t, result)
+		assert.Equal(t, "Analysis complete.", result.Output)
+		assert.Equal(t, "test-session", result.SessionID)
+		assert.True(t, result.Success)
+	})
+
+	t.Run("handles error in json output", func(t *testing.T) {
+		// Simulate an error result from Claude Code
+		jsonOutput := []byte(`{"type":"result","subtype":"error","is_error":true,"result":"Rate limit exceeded","session_id":"error-session"}`)
+
+		cfg := &config.AIConfig{
+			Model:   "sonnet",
+			Timeout: 30 * time.Minute,
+		}
+
+		mockExec := &StreamingMockExecutor{
+			StreamOutput: jsonOutput,
+		}
+
+		runner := NewClaudeCodeRunner(cfg, mockExec)
+
+		result, err := runner.Run(context.Background(), &domain.AIRequest{
+			Prompt: "test",
+			Model:  "sonnet",
+		})
+
+		require.NoError(t, err)
+		require.NotNil(t, result)
+		assert.False(t, result.Success)
+		assert.Equal(t, "Rate limit exceeded", result.Output)
+	})
+}
+
+func TestClaudeCodeRunner_ParseResponse(t *testing.T) {
+	t.Run("uses streaming executor result when available", func(t *testing.T) {
+		cfg := &config.AIConfig{
+			Model:   "sonnet",
+			Timeout: 30 * time.Minute,
+		}
+
+		// Create runner with streaming enabled
+		runner := NewClaudeCodeRunner(cfg, nil, WithClaudeActivityCallback(ActivityOptions{
+			Callback:  func(_ ActivityEvent) {},
+			Verbosity: VerbosityMedium,
+		}))
+
+		// The streaming executor should be used
+		streamExec, ok := runner.base.Executor.(*StreamingExecutor)
+		require.True(t, ok, "Expected StreamingExecutor when activity callback is set")
+
+		// Manually set a result on the streaming executor
+		streamExec.lastClaudeResult = &ClaudeResponse{
+			Type:      "result",
+			Result:    "Streaming result",
+			SessionID: "stream-session",
+		}
+
+		// parseResponse should return the streaming result
+		resp, err := runner.parseResponse([]byte(`{"type":"result","result":"Fallback"}`))
+		require.NoError(t, err)
+		assert.Equal(t, "Streaming result", resp.Result)
+		assert.Equal(t, "stream-session", resp.SessionID)
+	})
+
+	t.Run("falls back to stdout parsing when streaming result is nil", func(t *testing.T) {
+		cfg := &config.AIConfig{
+			Model:   "sonnet",
+			Timeout: 30 * time.Minute,
+		}
+
+		// Create runner with streaming enabled
+		runner := NewClaudeCodeRunner(cfg, nil, WithClaudeActivityCallback(ActivityOptions{
+			Callback:  func(_ ActivityEvent) {},
+			Verbosity: VerbosityMedium,
+		}))
+
+		// The streaming executor's lastResult is nil by default
+
+		// parseResponse should fall back to parsing stdout
+		resp, err := runner.parseResponse([]byte(`{"type":"result","result":"Fallback result","session_id":"fallback-session"}`))
+		require.NoError(t, err)
+		assert.Equal(t, "Fallback result", resp.Result)
+		assert.Equal(t, "fallback-session", resp.SessionID)
+	})
+
+	t.Run("parses stdout directly when streaming is disabled", func(t *testing.T) {
+		cfg := &config.AIConfig{
+			Model:   "sonnet",
+			Timeout: 30 * time.Minute,
+		}
+
+		// Create runner without streaming
+		runner := NewClaudeCodeRunner(cfg, &MockExecutor{})
+
+		// parseResponse should parse stdout directly
+		resp, err := runner.parseResponse([]byte(`{"type":"result","result":"Direct result","session_id":"direct-session"}`))
+		require.NoError(t, err)
+		assert.Equal(t, "Direct result", resp.Result)
+		assert.Equal(t, "direct-session", resp.SessionID)
+	})
 }
 
 // Compile-time check that ClaudeCodeRunner implements Runner.

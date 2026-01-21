@@ -17,6 +17,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/mrz1836/atlas/internal/ai"
+	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/domain"
 	"github.com/mrz1836/atlas/internal/errors"
@@ -65,6 +66,7 @@ type VerifyExecutor struct {
 	workingDir       string
 	artifactHelper   *ArtifactHelper
 	progressCallback func(event interface{})
+	operationsConfig *config.OperationsConfig
 }
 
 // GarbageChecker defines the interface for garbage file detection.
@@ -96,6 +98,13 @@ func WithGarbageChecker(checker GarbageChecker) VerifyExecutorOption {
 func WithVerifyProgressCallback(callback func(event interface{})) VerifyExecutorOption {
 	return func(e *VerifyExecutor) {
 		e.progressCallback = callback
+	}
+}
+
+// WithVerifyOperationsConfig sets the per-operation AI settings for verify steps.
+func WithVerifyOperationsConfig(cfg *config.OperationsConfig) VerifyExecutorOption {
+	return func(e *VerifyExecutor) {
+		e.operationsConfig = cfg
 	}
 }
 
@@ -294,6 +303,7 @@ func (e *VerifyExecutor) Type() domain.StepType {
 }
 
 // buildRequest constructs an AIRequest for verification.
+// Priority: step.Config > operations.verify > task.Config (ai defaults)
 func (e *VerifyExecutor) buildRequest(task *domain.Task, step *domain.StepDefinition) *domain.AIRequest {
 	req := &domain.AIRequest{
 		Agent:          task.Config.Agent, // Default to task agent
@@ -305,7 +315,10 @@ func (e *VerifyExecutor) buildRequest(task *domain.Task, step *domain.StepDefini
 		PermissionMode: "plan", // Default to read-only for verification (safety)
 	}
 
-	// Apply step-specific config overrides
+	// Apply operations config for verify step (overrides task defaults)
+	e.applyOperationsConfig(req)
+
+	// Apply step-specific config overrides (highest priority)
 	if step.Config == nil {
 		return req
 	}
@@ -338,6 +351,46 @@ func (e *VerifyExecutor) buildRequest(task *domain.Task, step *domain.StepDefini
 	}
 
 	return req
+}
+
+// applyOperationsConfig applies per-operation AI settings for verify steps.
+// These settings override task defaults but can be overridden by step.Config.
+func (e *VerifyExecutor) applyOperationsConfig(req *domain.AIRequest) {
+	if e.operationsConfig == nil {
+		return
+	}
+
+	opConfig := e.operationsConfig.Verify
+	if opConfig.IsEmpty() {
+		return
+	}
+
+	// Apply agent (only if specified)
+	agentChanged := false
+	if opConfig.Agent != "" {
+		newAgent := domain.Agent(opConfig.Agent)
+		if newAgent != req.Agent {
+			req.Agent = newAgent
+			agentChanged = true
+		}
+	}
+
+	// Apply model (if specified, or use new agent's default if agent changed)
+	if opConfig.Model != "" {
+		req.Model = opConfig.Model
+	} else if agentChanged {
+		req.Model = req.Agent.DefaultModel()
+	}
+
+	// Apply timeout (if specified)
+	if opConfig.Timeout > 0 {
+		req.Timeout = opConfig.Timeout
+	}
+
+	// Apply permission mode (if specified)
+	if opConfig.PermissionMode != "" {
+		req.PermissionMode = opConfig.PermissionMode
+	}
 }
 
 // buildVerificationPrompt creates the prompt for AI verification.

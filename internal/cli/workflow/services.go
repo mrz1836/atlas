@@ -196,6 +196,7 @@ func (f *ServiceFactory) CreateExecutorRegistry(deps RegistryDeps) *steps.Execut
 		CIFailureHandler:           deps.GitServices.CIFailureHandler,
 		BaseBranch:                 deps.Config.Git.BaseBranch,
 		CIConfig:                   &deps.Config.CI,
+		OperationsConfig:           &deps.Config.Operations,
 		FormatCommands:             deps.Config.Validation.Commands.Format,
 		LintCommands:               deps.Config.Validation.Commands.Lint,
 		TestCommands:               deps.Config.Validation.Commands.Test,
@@ -252,13 +253,18 @@ func (f *ServiceFactory) CreateValidationRetryHandler(aiRunner ai.Runner, cfg *c
 	executor := validation.NewExecutorWithRunner(validation.DefaultTimeout, &validation.DefaultCommandRunner{})
 
 	// Create retry handler with config
-	return validation.NewRetryHandlerFromConfig(
+	handler := validation.NewRetryHandlerFromConfig(
 		aiRunner,
 		executor,
 		cfg.Validation.AIRetryEnabled,
 		cfg.Validation.MaxAIRetryAttempts,
 		f.logger,
 	)
+
+	// Set operations config for per-operation AI settings
+	handler.SetOperationsConfig(&cfg.Operations)
+
+	return handler
 }
 
 // CreateHookManager creates the hook manager for crash recovery and checkpointing.

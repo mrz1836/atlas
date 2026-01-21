@@ -929,5 +929,165 @@ func TestGeminiResponse_toAIResult(t *testing.T) {
 	})
 }
 
+func TestGeminiRunner_Streaming(t *testing.T) {
+	EnsureNoRealAPIKeys(t)
+
+	t.Run("uses StreamingExecutor with Gemini provider when activity callback set", func(t *testing.T) {
+		cfg := &config.AIConfig{
+			Model:   "flash",
+			Timeout: 30 * time.Minute,
+		}
+
+		var receivedEvents []ActivityEvent
+		runner := NewGeminiRunner(cfg, nil, WithGeminiActivityCallback(ActivityOptions{
+			Callback: func(event ActivityEvent) {
+				receivedEvents = append(receivedEvents, event)
+			},
+			Verbosity: VerbosityHigh,
+		}))
+
+		// Verify StreamingExecutor is used
+		_, ok := runner.base.Executor.(*StreamingExecutor)
+		assert.True(t, ok, "Expected StreamingExecutor when activity callback is set")
+
+		// Verify it's configured with Gemini provider
+		if streamExec, ok := runner.base.Executor.(*StreamingExecutor); ok {
+			assert.Equal(t, StreamProviderGemini, streamExec.provider)
+		}
+	})
+
+	t.Run("uses DefaultExecutor when no activity callback", func(t *testing.T) {
+		cfg := &config.AIConfig{
+			Model:   "flash",
+			Timeout: 30 * time.Minute,
+		}
+
+		runner := NewGeminiRunner(cfg, nil)
+
+		_, ok := runner.base.Executor.(*DefaultExecutor)
+		assert.True(t, ok, "Expected DefaultExecutor when no activity callback")
+	})
+
+	t.Run("isStreamingEnabled returns true when callback is set", func(t *testing.T) {
+		cfg := &config.AIConfig{
+			Model:   "flash",
+			Timeout: 30 * time.Minute,
+		}
+
+		runner := NewGeminiRunner(cfg, nil, WithGeminiActivityCallback(ActivityOptions{
+			Callback:  func(_ ActivityEvent) {},
+			Verbosity: VerbosityMedium,
+		}))
+
+		assert.True(t, runner.isStreamingEnabled())
+	})
+
+	t.Run("isStreamingEnabled returns false when no callback", func(t *testing.T) {
+		cfg := &config.AIConfig{
+			Model:   "flash",
+			Timeout: 30 * time.Minute,
+		}
+
+		runner := NewGeminiRunner(cfg, nil)
+
+		assert.False(t, runner.isStreamingEnabled())
+	})
+}
+
+func TestGeminiRunner_BuildCommand_Streaming(t *testing.T) {
+	t.Run("uses stream-json format when streaming enabled", func(t *testing.T) {
+		cfg := &config.AIConfig{
+			Model:   "flash",
+			Timeout: 30 * time.Minute,
+		}
+		runner := NewGeminiRunner(cfg, &MockExecutor{}, WithGeminiActivityCallback(ActivityOptions{
+			Callback:  func(_ ActivityEvent) {},
+			Verbosity: VerbosityMedium,
+		}))
+
+		req := &domain.AIRequest{
+			Prompt: "test prompt",
+			Model:  "flash",
+		}
+
+		cmd := runner.buildCommand(context.Background(), req)
+
+		// Should use stream-json format
+		assert.Contains(t, cmd.Args, "--output-format")
+		// Find the index of --output-format and check the next value
+		for i, arg := range cmd.Args {
+			if arg == "--output-format" && i+1 < len(cmd.Args) {
+				assert.Equal(t, "stream-json", cmd.Args[i+1])
+				break
+			}
+		}
+	})
+
+	t.Run("uses json format when streaming disabled", func(t *testing.T) {
+		cfg := &config.AIConfig{
+			Model:   "flash",
+			Timeout: 30 * time.Minute,
+		}
+		runner := NewGeminiRunner(cfg, &MockExecutor{})
+
+		req := &domain.AIRequest{
+			Prompt: "test prompt",
+			Model:  "flash",
+		}
+
+		cmd := runner.buildCommand(context.Background(), req)
+
+		// Should use json format
+		assert.Contains(t, cmd.Args, "--output-format")
+		// Find the index of --output-format and check the next value
+		for i, arg := range cmd.Args {
+			if arg == "--output-format" && i+1 < len(cmd.Args) {
+				assert.Equal(t, "json", cmd.Args[i+1])
+				break
+			}
+		}
+	})
+}
+
+func TestGeminiRunner_StreamResultToGeminiResponse(t *testing.T) {
+	t.Parallel()
+
+	cfg := &config.AIConfig{
+		Model:   "flash",
+		Timeout: 30 * time.Minute,
+	}
+	runner := NewGeminiRunner(cfg, nil)
+
+	t.Run("converts success result", func(t *testing.T) {
+		result := &GeminiStreamResult{
+			Success:      true,
+			SessionID:    "test-session-123",
+			DurationMs:   5419,
+			TotalTokens:  16166,
+			InputTokens:  15783,
+			OutputTokens: 124,
+			ToolCalls:    3,
+		}
+
+		resp := runner.streamResultToGeminiResponse(result)
+
+		assert.True(t, resp.Success)
+		assert.Equal(t, "test-session-123", resp.SessionID)
+		assert.Equal(t, 5419, resp.DurationMs)
+	})
+
+	t.Run("converts error result", func(t *testing.T) {
+		result := &GeminiStreamResult{
+			Success:   false,
+			SessionID: "error-session",
+		}
+
+		resp := runner.streamResultToGeminiResponse(result)
+
+		assert.False(t, resp.Success)
+		assert.Equal(t, "error-session", resp.SessionID)
+	})
+}
+
 // Compile-time check that GeminiRunner implements Runner.
 var _ Runner = (*GeminiRunner)(nil)

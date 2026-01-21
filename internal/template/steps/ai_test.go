@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/domain"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 	"github.com/mrz1836/atlas/internal/validation"
@@ -457,5 +458,183 @@ func TestAIExecutor_Execute_IncludePreviousErrors(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "success", result.Status)
 		assert.Equal(t, "Fix any issues", runner.request.Prompt)
+	})
+}
+
+func TestAIExecutor_OperationsConfigPriority(t *testing.T) {
+	t.Run("operations config overrides task defaults", func(t *testing.T) {
+		ctx := context.Background()
+		runner := &mockAIRunner{
+			result: &domain.AIResult{Output: "done"},
+		}
+
+		opsConfig := &config.OperationsConfig{
+			Analyze: config.OperationAIConfig{
+				Agent:   "gemini",
+				Model:   "pro",
+				Timeout: 25 * time.Minute,
+			},
+		}
+
+		executor := NewAIExecutor(runner, nil, zerolog.Nop(), WithAIOperationsConfig(opsConfig))
+
+		task := &domain.Task{
+			ID:          "task-123",
+			Description: "Analyze the bug",
+			Config: domain.TaskConfig{
+				Agent:   "claude",
+				Model:   "sonnet",
+				Timeout: 30 * time.Minute,
+			},
+		}
+		step := &domain.StepDefinition{
+			Name: "analyze",
+			Type: domain.StepTypeAI,
+		}
+
+		_, err := executor.Execute(ctx, task, step)
+
+		require.NoError(t, err)
+		assert.Equal(t, domain.Agent("gemini"), runner.request.Agent)
+		assert.Equal(t, "pro", runner.request.Model)
+		assert.Equal(t, 25*time.Minute, runner.request.Timeout)
+	})
+
+	t.Run("step config overrides operations config", func(t *testing.T) {
+		ctx := context.Background()
+		runner := &mockAIRunner{
+			result: &domain.AIResult{Output: "done"},
+		}
+
+		opsConfig := &config.OperationsConfig{
+			Implement: config.OperationAIConfig{
+				Agent: "gemini",
+				Model: "pro",
+			},
+		}
+
+		executor := NewAIExecutor(runner, nil, zerolog.Nop(), WithAIOperationsConfig(opsConfig))
+
+		task := &domain.Task{
+			ID:          "task-123",
+			Description: "Implement the feature",
+			Config: domain.TaskConfig{
+				Agent: "claude",
+				Model: "sonnet",
+			},
+		}
+		step := &domain.StepDefinition{
+			Name: "implement",
+			Type: domain.StepTypeAI,
+			Config: map[string]any{
+				"agent": "codex",
+				"model": "o1",
+			},
+		}
+
+		_, err := executor.Execute(ctx, task, step)
+
+		require.NoError(t, err)
+		assert.Equal(t, domain.Agent("codex"), runner.request.Agent)
+		assert.Equal(t, "o1", runner.request.Model)
+	})
+
+	t.Run("task defaults used when no operations config", func(t *testing.T) {
+		ctx := context.Background()
+		runner := &mockAIRunner{
+			result: &domain.AIResult{Output: "done"},
+		}
+
+		// No operations config
+		executor := NewAIExecutor(runner, nil, zerolog.Nop())
+
+		task := &domain.Task{
+			ID:          "task-123",
+			Description: "Do something",
+			Config: domain.TaskConfig{
+				Agent:   "claude",
+				Model:   "opus",
+				Timeout: 45 * time.Minute,
+			},
+		}
+		step := &domain.StepDefinition{
+			Name: "analyze",
+			Type: domain.StepTypeAI,
+		}
+
+		_, err := executor.Execute(ctx, task, step)
+
+		require.NoError(t, err)
+		assert.Equal(t, domain.Agent("claude"), runner.request.Agent)
+		assert.Equal(t, "opus", runner.request.Model)
+		assert.Equal(t, 45*time.Minute, runner.request.Timeout)
+	})
+
+	t.Run("operations config permission_mode is applied", func(t *testing.T) {
+		ctx := context.Background()
+		runner := &mockAIRunner{
+			result: &domain.AIResult{Output: "done"},
+		}
+
+		opsConfig := &config.OperationsConfig{
+			Analyze: config.OperationAIConfig{
+				Agent:          "claude",
+				Model:          "opus",
+				PermissionMode: "plan",
+			},
+		}
+
+		executor := NewAIExecutor(runner, nil, zerolog.Nop(), WithAIOperationsConfig(opsConfig))
+
+		task := &domain.Task{
+			ID:          "task-123",
+			Description: "Analyze",
+			Config:      domain.TaskConfig{Agent: "claude", Model: "sonnet"},
+		}
+		step := &domain.StepDefinition{
+			Name: "analyze",
+			Type: domain.StepTypeAI,
+		}
+
+		_, err := executor.Execute(ctx, task, step)
+
+		require.NoError(t, err)
+		assert.Equal(t, "plan", runner.request.PermissionMode)
+	})
+
+	t.Run("agent change without model uses agent default", func(t *testing.T) {
+		ctx := context.Background()
+		runner := &mockAIRunner{
+			result: &domain.AIResult{Output: "done"},
+		}
+
+		opsConfig := &config.OperationsConfig{
+			Verify: config.OperationAIConfig{
+				Agent: "gemini",
+				// No model specified - should use gemini's default
+			},
+		}
+
+		executor := NewAIExecutor(runner, nil, zerolog.Nop(), WithAIOperationsConfig(opsConfig))
+
+		task := &domain.Task{
+			ID:          "task-123",
+			Description: "Verify",
+			Config: domain.TaskConfig{
+				Agent: "claude",
+				Model: "opus",
+			},
+		}
+		step := &domain.StepDefinition{
+			Name: "verify",
+			Type: domain.StepTypeAI,
+		}
+
+		_, err := executor.Execute(ctx, task, step)
+
+		require.NoError(t, err)
+		assert.Equal(t, domain.Agent("gemini"), runner.request.Agent)
+		// Should use gemini's default model
+		assert.Equal(t, domain.Agent("gemini").DefaultModel(), runner.request.Model)
 	})
 }

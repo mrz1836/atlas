@@ -140,6 +140,13 @@ func (e *Engine) attemptValidationRetry(
 		// Notify that AI fix is starting
 		e.notifyRetryAIStart(task, attempt, maxAttempts)
 
+		// Create callback to notify when AI completes but before validation runs
+		// This allows the UI to stop the AI spinner and transition to validation state
+		onAIComplete := func() {
+			e.notifyRetryAIComplete(task, attempt, nil) // nil result for intermediate notification
+			e.notifyRetryValidationStart(task, attempt, maxAttempts)
+		}
+
 		lastResult, lastErr = e.validationRetryHandler.RetryWithAI(
 			ctx,
 			pipelineResult,
@@ -148,12 +155,8 @@ func (e *Engine) attemptValidationRetry(
 			runnerConfig,
 			task.Config.Agent,
 			task.Config.Model,
+			onAIComplete,
 		)
-
-		// Notify that AI fix has completed (if we have a result)
-		if lastResult != nil {
-			e.notifyRetryAIComplete(task, attempt, lastResult)
-		}
 
 		if lastErr == nil && lastResult != nil && lastResult.Success {
 			e.logger.Info().
@@ -222,12 +225,54 @@ func (e *Engine) getValidationWorkDir(task *domain.Task) string {
 
 // buildValidationRunnerConfig creates runner config from task config.
 // Returns the validation commands stored in the engine during initialization.
-func (e *Engine) buildValidationRunnerConfig(_ *domain.Task) *validation.RunnerConfig {
+// Includes a progress callback to report validation sub-step progress.
+func (e *Engine) buildValidationRunnerConfig(task *domain.Task) *validation.RunnerConfig {
 	return &validation.RunnerConfig{
 		FormatCommands:    e.formatCommands,
 		LintCommands:      e.lintCommands,
 		TestCommands:      e.testCommands,
 		PreCommitCommands: e.preCommitCommands,
+		ProgressCallback:  e.createValidationProgressCallback(task),
+	}
+}
+
+// createValidationProgressCallback creates a progress callback for validation sub-steps.
+// This converts validation progress events to the engine's StepProgressEvent format.
+func (e *Engine) createValidationProgressCallback(task *domain.Task) validation.ProgressCallback {
+	if e.config.ProgressCallback == nil {
+		return nil
+	}
+
+	// Map validation phase names to 0-indexed positions
+	phaseIndex := map[string]int{
+		"pre-commit": 0,
+		"format":     1,
+		"lint":       2,
+		"test":       3,
+	}
+
+	return func(step, status string, info *validation.ProgressInfo) {
+		// Only report on starting status (to update spinner message)
+		if status != "starting" {
+			return
+		}
+
+		subStepTotal := 4
+		if info != nil && info.TotalSteps > 0 {
+			subStepTotal = info.TotalSteps
+		}
+
+		e.config.ProgressCallback(StepProgressEvent{
+			Type:          "progress",
+			TaskID:        task.ID,
+			WorkspaceName: task.WorkspaceID,
+			StepIndex:     task.CurrentStep,
+			TotalSteps:    len(task.Steps),
+			StepName:      "validation",
+			SubStep:       step,
+			SubStepIndex:  phaseIndex[step],
+			SubStepTotal:  subStepTotal,
+		})
 	}
 }
 
@@ -317,6 +362,24 @@ func (e *Engine) notifyRetryAIComplete(task *domain.Task, _ int, result *validat
 		event.DurationMs = int64(result.AIResult.DurationMs)
 		event.NumTurns = result.AIResult.NumTurns
 		event.FilesChangedCount = len(result.AIResult.FilesChanged)
+	}
+
+	e.config.ProgressCallback(event)
+}
+
+// notifyRetryValidationStart sends a progress notification when retry validation begins.
+// This is called after AI completes but before validation runs.
+func (e *Engine) notifyRetryValidationStart(task *domain.Task, attempt, maxAttempts int) {
+	if e.config.ProgressCallback == nil {
+		return
+	}
+
+	event := StepProgressEvent{
+		Type:          "retry_validation_start",
+		TaskID:        task.ID,
+		WorkspaceName: task.WorkspaceID,
+		StepIndex:     task.CurrentStep,
+		Status:        fmt.Sprintf("Retry %d/%d: Validating...", attempt, maxAttempts),
 	}
 
 	e.config.ProgressCallback(event)

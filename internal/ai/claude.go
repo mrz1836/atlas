@@ -117,13 +117,30 @@ func (r *ClaudeCodeRunner) execute(ctx context.Context, req *domain.AIRequest) (
 		return r.handleExecutionError(ctx, err, stdout, stderr)
 	}
 
-	// Parse the JSON response
-	resp, parseErr := parseClaudeResponse(stdout)
+	// Parse the response - prefer streaming result if available
+	resp, parseErr := r.parseResponse(stdout)
 	if parseErr != nil {
 		return nil, parseErr
 	}
 
 	return resp.toAIResult(string(stderr)), nil
+}
+
+// parseResponse parses the Claude CLI response.
+// When streaming is enabled, it prefers the result from StreamingExecutor.
+// Otherwise, it parses stdout as a single JSON object.
+func (r *ClaudeCodeRunner) parseResponse(stdout []byte) (*ClaudeResponse, error) {
+	// If streaming is enabled, try to get result from StreamingExecutor first
+	if r.isStreamingEnabled() {
+		if streamExec, ok := r.base.Executor.(*StreamingExecutor); ok {
+			if result := streamExec.LastClaudeResult(); result != nil {
+				return result, nil
+			}
+		}
+	}
+
+	// Fall back to parsing stdout as JSON (for non-streaming or if no result in stream)
+	return parseClaudeResponse(stdout)
 }
 
 // handleExecutionError processes errors from command execution.
@@ -152,11 +169,28 @@ func (r *ClaudeCodeRunner) tryParseErrorResponse(execErr error, stdout, stderr [
 	return result, true
 }
 
+// isStreamingEnabled returns true if activity streaming is enabled.
+func (r *ClaudeCodeRunner) isStreamingEnabled() bool {
+	return r.activityOptions != nil && r.activityOptions.Callback != nil
+}
+
 // buildCommand constructs the claude CLI command with appropriate flags.
 func (r *ClaudeCodeRunner) buildCommand(ctx context.Context, req *domain.AIRequest) *exec.Cmd {
+	// Use stream-json format when activity streaming is enabled for real-time tool events
+	outputFormat := "json"
+	useStreaming := r.isStreamingEnabled()
+	if useStreaming {
+		outputFormat = "stream-json"
+	}
+
 	args := []string{
-		"-p",                      // Print mode (non-interactive)
-		"--output-format", "json", // JSON output format
+		"-p", // Print mode (non-interactive)
+		"--output-format", outputFormat,
+	}
+
+	// stream-json requires --verbose flag
+	if useStreaming {
+		args = append(args, "--verbose")
 	}
 
 	// Determine model: request > config
