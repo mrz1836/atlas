@@ -34,6 +34,7 @@ import (
 	"os"
 
 	"github.com/charmbracelet/huh"
+	"github.com/charmbracelet/lipgloss"
 	"golang.org/x/term"
 
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
@@ -222,6 +223,21 @@ func AtlasTheme() *huh.Theme {
 	t.Focused.SelectSelector = t.Focused.SelectSelector.Foreground(ColorPrimary)
 	t.Focused.SelectedOption = t.Focused.SelectedOption.Foreground(ColorPrimary)
 	t.Focused.TextInput.Cursor = t.Focused.TextInput.Cursor.Foreground(ColorPrimary)
+
+	// Button styling - use ColorPrimary for focused (active) button
+	t.Focused.FocusedButton = lipgloss.NewStyle().
+		Background(ColorPrimary).
+		Foreground(lipgloss.AdaptiveColor{Light: "#FFFFFF", Dark: "#000000"}).
+		Bold(true).
+		Padding(0, 2).
+		MarginRight(1)
+
+	// Use ColorMuted for blurred (inactive) button
+	t.Focused.BlurredButton = lipgloss.NewStyle().
+		Background(ColorMuted).
+		Foreground(lipgloss.AdaptiveColor{Light: "#FFFFFF", Dark: "#EEEEEE"}).
+		Padding(0, 2).
+		MarginRight(1)
 
 	// Map ColorSuccess to selected/completed state
 	t.Focused.SelectedPrefix = t.Focused.SelectedPrefix.Foreground(ColorSuccess)
