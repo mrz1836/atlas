@@ -4741,3 +4741,179 @@ func TestEngine_ApplyGitGarbageChoice(t *testing.T) {
 		assert.Contains(t, err.Error(), "unknown garbage handling choice")
 	})
 }
+
+// TestEngine_HandleStepResult_ApprovalContextInTransition tests that approval context
+// (step name and output) is included in the transition reason when a step requires approval.
+func TestEngine_HandleStepResult_ApprovalContextInTransition(t *testing.T) {
+	t.Run("includes step name in transition reason", func(t *testing.T) {
+		ctx := context.Background()
+
+		store := newMockStore()
+		registry := steps.NewExecutorRegistry()
+		engine := NewEngine(store, registry, DefaultEngineConfig(), testLogger())
+
+		task := &domain.Task{
+			ID:          "task-123",
+			WorkspaceID: "test",
+			Status:      constants.TaskStatusRunning,
+			CurrentStep: 0,
+			Steps:       []domain.Step{{Name: "human_review", Type: domain.StepTypeHuman, Status: "running"}},
+			StepResults: []domain.StepResult{},
+			Transitions: []domain.Transition{},
+		}
+
+		result := &domain.StepResult{
+			StepIndex:   0,
+			StepName:    "human_review",
+			Status:      constants.StepStatusAwaitingApproval,
+			Output:      "Please review the changes",
+			CompletedAt: time.Now().UTC(),
+		}
+		step := &domain.StepDefinition{Name: "human_review", Type: domain.StepTypeHuman}
+
+		err := engine.HandleStepResult(ctx, task, result, step)
+
+		require.NoError(t, err)
+		assert.Equal(t, constants.TaskStatusAwaitingApproval, task.Status)
+
+		// Find the transition to AwaitingApproval
+		var approvalTransition *domain.Transition
+		for i := range task.Transitions {
+			if task.Transitions[i].ToStatus == constants.TaskStatusAwaitingApproval {
+				approvalTransition = &task.Transitions[i]
+				break
+			}
+		}
+
+		require.NotNil(t, approvalTransition, "should have transition to AwaitingApproval")
+		assert.Contains(t, approvalTransition.Reason, "human_review")
+		assert.Contains(t, approvalTransition.Reason, "requires approval")
+	})
+
+	t.Run("includes output in transition reason", func(t *testing.T) {
+		ctx := context.Background()
+
+		store := newMockStore()
+		registry := steps.NewExecutorRegistry()
+		engine := NewEngine(store, registry, DefaultEngineConfig(), testLogger())
+
+		task := &domain.Task{
+			ID:          "task-456",
+			WorkspaceID: "test",
+			Status:      constants.TaskStatusRunning,
+			CurrentStep: 0,
+			Steps:       []domain.Step{{Name: "verify", Type: domain.StepTypeVerify, Status: "running"}},
+			StepResults: []domain.StepResult{},
+			Transitions: []domain.Transition{},
+		}
+
+		result := &domain.StepResult{
+			StepIndex:   0,
+			StepName:    "verify",
+			Status:      constants.StepStatusAwaitingApproval,
+			Output:      "Garbage file detected: temp.tmp",
+			CompletedAt: time.Now().UTC(),
+		}
+		step := &domain.StepDefinition{Name: "verify", Type: domain.StepTypeVerify}
+
+		err := engine.HandleStepResult(ctx, task, result, step)
+
+		require.NoError(t, err)
+
+		// Find the transition to AwaitingApproval
+		var approvalTransition *domain.Transition
+		for i := range task.Transitions {
+			if task.Transitions[i].ToStatus == constants.TaskStatusAwaitingApproval {
+				approvalTransition = &task.Transitions[i]
+				break
+			}
+		}
+
+		require.NotNil(t, approvalTransition, "should have transition to AwaitingApproval")
+		assert.Contains(t, approvalTransition.Reason, "verify")
+		assert.Contains(t, approvalTransition.Reason, "Garbage file detected")
+	})
+
+	t.Run("truncates long output in transition reason", func(t *testing.T) {
+		ctx := context.Background()
+
+		store := newMockStore()
+		registry := steps.NewExecutorRegistry()
+		engine := NewEngine(store, registry, DefaultEngineConfig(), testLogger())
+
+		task := &domain.Task{
+			ID:          "task-789",
+			WorkspaceID: "test",
+			Status:      constants.TaskStatusRunning,
+			CurrentStep: 0,
+			Steps:       []domain.Step{{Name: "review", Type: domain.StepTypeHuman, Status: "running"}},
+			StepResults: []domain.StepResult{},
+			Transitions: []domain.Transition{},
+		}
+
+		// Create output longer than 100 characters
+		longOutput := strings.Repeat("This is a very long output message. ", 10)
+		result := &domain.StepResult{
+			StepIndex:   0,
+			StepName:    "review",
+			Status:      constants.StepStatusAwaitingApproval,
+			Output:      longOutput,
+			CompletedAt: time.Now().UTC(),
+		}
+		step := &domain.StepDefinition{Name: "review", Type: domain.StepTypeHuman}
+
+		err := engine.HandleStepResult(ctx, task, result, step)
+
+		require.NoError(t, err)
+
+		// Find the transition to AwaitingApproval
+		var approvalTransition *domain.Transition
+		for i := range task.Transitions {
+			if task.Transitions[i].ToStatus == constants.TaskStatusAwaitingApproval {
+				approvalTransition = &task.Transitions[i]
+				break
+			}
+		}
+
+		require.NotNil(t, approvalTransition, "should have transition to AwaitingApproval")
+		// Should be truncated with ellipsis
+		assert.Contains(t, approvalTransition.Reason, "...")
+		// Reason should not be longer than ~200 chars (step context + truncated output)
+		assert.Less(t, len(approvalTransition.Reason), 250)
+	})
+
+	t.Run("fallback to generic reason when result is nil", func(t *testing.T) {
+		ctx := context.Background()
+
+		store := newMockStore()
+		registry := steps.NewExecutorRegistry()
+		engine := NewEngine(store, registry, DefaultEngineConfig(), testLogger())
+
+		task := &domain.Task{
+			ID:          "task-nil",
+			WorkspaceID: "test",
+			Status:      constants.TaskStatusRunning,
+			CurrentStep: 0,
+			Steps:       []domain.Step{{Name: "review", Type: domain.StepTypeHuman, Status: "running"}},
+			StepResults: []domain.StepResult{},
+			Transitions: []domain.Transition{},
+		}
+
+		// Test with nil result passed to the internal function
+		err := engine.handleAwaitingApprovalResult(ctx, task, nil)
+
+		require.NoError(t, err)
+
+		// Find the transition to AwaitingApproval
+		var approvalTransition *domain.Transition
+		for i := range task.Transitions {
+			if task.Transitions[i].ToStatus == constants.TaskStatusAwaitingApproval {
+				approvalTransition = &task.Transitions[i]
+				break
+			}
+		}
+
+		require.NotNil(t, approvalTransition, "should have transition to AwaitingApproval")
+		assert.Contains(t, approvalTransition.Reason, "awaiting user approval")
+	})
+}
