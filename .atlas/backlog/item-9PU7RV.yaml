@@ -4,18 +4,18 @@ guid: 0e131f4f-26e9-4ec0-b9d2-fa0be488e0a1
 title: Add test coverage for validate.go
 status: pending
 content:
-    description: 'Current coverage is 53.23%. Target is >=80%. After adding tests, run: (magex format:fix && magex lint) and fix all issues.'
-    category: testing
-    severity: medium
-    tags:
-        - testing
-        - cli
-        - coverage
+  description: 'Current coverage is 53.23%. Target is >=80%. After adding tests, run: (magex format:fix && magex lint) and fix all issues.'
+  category: testing
+  severity: medium
+  tags:
+    - testing
+    - cli
+    - coverage
 location:
-    file: cmd/validate.go
+  file: cmd/validate.go
 context:
-    discovered_at: 2026-01-21T20:32:12.415718Z
-    discovered_by: human:mrz1836
-    git:
-        branch: master
-        commit: 712f7cd
+  discovered_at: 2026-01-21T20:32:12.415718Z
+  discovered_by: human:mrz1836
+  git:
+    branch: master
+    commit: 712f7cd

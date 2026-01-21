@@ -837,3 +837,208 @@ func TestLogStylesLevelColor(t *testing.T) {
 		})
 	}
 }
+
+func TestAddWorkspaceLogsCmd(t *testing.T) {
+	// Test that the command is added to a parent command
+	parent := &cobra.Command{
+		Use: "workspace",
+	}
+
+	addWorkspaceLogsCmd(parent)
+
+	// Verify logs command was added
+	logsCmd := parent.Commands()
+	require.Len(t, logsCmd, 1)
+	assert.Equal(t, "logs <name>", logsCmd[0].Use)
+}
+
+func TestRunWorkspaceLogsWithOutput_ExistsCheckError(t *testing.T) {
+	// Use an invalid base directory that will cause workspace existence check to fail
+	invalidDir := "/dev/null/invalid"
+
+	var buf bytes.Buffer
+
+	err := runWorkspaceLogsWithOutput(context.Background(), &buf, "test-ws", logsOptions{}, invalidDir, "")
+	require.Error(t, err)
+	// This will fail during Get operation
+	assert.Contains(t, err.Error(), "failed to")
+}
+
+func TestRunWorkspaceLogsWithOutput_StoreCreationErrorJSON(t *testing.T) {
+	// Use an invalid base directory that will cause store creation to fail
+	invalidDir := "/dev/null/invalid"
+
+	var buf bytes.Buffer
+
+	err := runWorkspaceLogsWithOutput(context.Background(), &buf, "test-ws", logsOptions{}, invalidDir, OutputJSON)
+	require.Error(t, err)
+	assert.Contains(t, buf.String(), `"status"`)
+	assert.Contains(t, buf.String(), `"error"`)
+}
+
+func TestRunWorkspaceLogsWithOutput_GetWorkspaceError(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create a workspace directory structure but corrupt it to cause Get to fail
+	wsDir := filepath.Join(tmpDir, constants.WorkspacesDir, "corrupt-ws")
+	require.NoError(t, os.MkdirAll(wsDir, 0o750))
+
+	// Write invalid JSON to the workspace file
+	wsFile := filepath.Join(wsDir, constants.WorkspaceFileName)
+	require.NoError(t, os.WriteFile(wsFile, []byte("invalid json"), 0o600))
+
+	var buf bytes.Buffer
+
+	err := runWorkspaceLogsWithOutput(context.Background(), &buf, "corrupt-ws", logsOptions{}, tmpDir, "")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to get workspace")
+}
+
+func TestRunWorkspaceLogsWithOutput_GetWorkspaceErrorJSON(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create a workspace directory structure but corrupt it to cause Get to fail
+	wsDir := filepath.Join(tmpDir, constants.WorkspacesDir, "corrupt-ws")
+	require.NoError(t, os.MkdirAll(wsDir, 0o750))
+
+	// Write invalid JSON to the workspace file
+	wsFile := filepath.Join(wsDir, constants.WorkspaceFileName)
+	require.NoError(t, os.WriteFile(wsFile, []byte("invalid json"), 0o600))
+
+	var buf bytes.Buffer
+
+	err := runWorkspaceLogsWithOutput(context.Background(), &buf, "corrupt-ws", logsOptions{}, tmpDir, OutputJSON)
+	require.Error(t, err)
+	assert.Contains(t, buf.String(), `"status"`)
+	assert.Contains(t, buf.String(), `"error"`)
+}
+
+func TestDisplayLogs_ContextCancellation(t *testing.T) {
+	tmpDir := t.TempDir()
+	logPath := filepath.Join(tmpDir, "test.log")
+	require.NoError(t, os.WriteFile(logPath, []byte(`{"ts":"2025-12-27T10:00:00Z","level":"info","event":"test"}`), 0o600))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately
+
+	var buf bytes.Buffer
+
+	err := displayLogs(ctx, logPath, &buf, logsOptions{}, "")
+	require.Error(t, err)
+	assert.Equal(t, context.Canceled, err)
+}
+
+func TestFilterByStep_InvalidJSON(t *testing.T) {
+	lines := [][]byte{
+		[]byte(`{"ts":"2025-12-27T10:00:00Z","level":"info","event":"e1","step_name":"implement"}`),
+		[]byte(`invalid json line`),
+		[]byte(`{"ts":"2025-12-27T10:02:00Z","level":"info","event":"e3","step_name":"implement"}`),
+	}
+
+	// Invalid JSON lines should be skipped
+	filtered := filterByStep(lines, "implement")
+	assert.Len(t, filtered, 2)
+}
+
+func TestOutputLogsJSON_EmptyLines(t *testing.T) {
+	var buf bytes.Buffer
+
+	err := outputLogsJSON(&buf, [][]byte{})
+	require.NoError(t, err)
+	assert.Equal(t, "[]\n", buf.String())
+}
+
+func TestFollowLogs_FileOpenError(t *testing.T) {
+	// Try to open a non-existent file
+	nonExistentPath := "/nonexistent/path/to/file.log"
+
+	ctx := context.Background()
+	var buf bytes.Buffer
+	styles := newLogStyles()
+
+	err := followLogs(ctx, nonExistentPath, &buf, styles, "", "")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to open log file")
+}
+
+func TestFollowLogs_JSONOutput(t *testing.T) {
+	tmpDir := t.TempDir()
+	logPath := filepath.Join(tmpDir, "test.log")
+
+	// Create initial log file
+	require.NoError(t, os.WriteFile(logPath, []byte(""), 0o600))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	var buf bytes.Buffer
+	styles := newLogStyles()
+
+	// Start followLogs in JSON output mode
+	done := make(chan error, 1)
+	go func() {
+		done <- followLogs(ctx, logPath, &buf, styles, OutputJSON, "")
+	}()
+
+	// Wait for followLogs to start
+	time.Sleep(100 * time.Millisecond)
+
+	// Append new content to the log file
+	f, err := os.OpenFile(logPath, os.O_APPEND|os.O_WRONLY, 0o600) //#nosec G304 -- test file path
+	require.NoError(t, err)
+	_, err = f.WriteString(`{"ts":"2025-12-27T10:00:00Z","level":"info","event":"json output test","step_name":"test"}` + "\n")
+	require.NoError(t, err)
+	require.NoError(t, f.Close())
+
+	// Wait for poll cycle
+	time.Sleep(700 * time.Millisecond)
+
+	cancel()
+	err = <-done
+	require.NoError(t, err)
+
+	// Verify output contains the JSON log entry (no "Watching" message in JSON mode)
+	output := buf.String()
+	assert.NotContains(t, output, "Watching for new log entries")
+	assert.Contains(t, output, "json output test")
+}
+
+func TestFindMostRecentTask_EqualTimesUseIDTiebreaker(t *testing.T) {
+	sameTime := time.Now()
+	tasks := []domain.TaskRef{
+		{ID: "task-aaa", StartedAt: &sameTime},
+		{ID: "task-zzz", StartedAt: &sameTime},
+		{ID: "task-mmm", StartedAt: &sameTime},
+	}
+
+	result := findMostRecentTask(tasks)
+	require.NotNil(t, result)
+	// When times are equal, should use ID as tiebreaker (lexicographically larger)
+	assert.Equal(t, "task-zzz", result.ID)
+}
+
+func TestRunWorkspaceLogs_JSONOutputWithStepFilter(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	startTime := time.Now()
+	tasks := []domain.TaskRef{
+		{ID: "task-550e8400-e29b-41d4-a716-446655440000", Status: constants.TaskStatusCompleted, StartedAt: &startTime},
+	}
+
+	logContent := `{"ts":"2025-12-27T10:00:00Z","level":"info","event":"implement log","step_name":"implement"}
+{"ts":"2025-12-27T10:01:00Z","level":"info","event":"validate log","step_name":"validate"}
+`
+	createTestWorkspaceWithLogs(t, tmpDir, "test-ws", tasks, logContent)
+
+	var buf bytes.Buffer
+
+	err := runWorkspaceLogsWithOutput(context.Background(), &buf, "test-ws", logsOptions{
+		stepName: "validate",
+	}, tmpDir, OutputJSON)
+	require.NoError(t, err)
+
+	output := buf.String()
+	// Should be valid JSON array with only validate step
+	assert.True(t, strings.HasPrefix(strings.TrimSpace(output), "["))
+	assert.True(t, strings.HasSuffix(strings.TrimSpace(output), "]"))
+	assert.Contains(t, output, "validate log")
+	assert.NotContains(t, output, "implement log")
+}
