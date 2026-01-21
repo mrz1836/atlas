@@ -29,3 +29,12 @@ type Runner interface {
 	// Returns an error wrapped with errors.ErrClaudeInvocation on failure.
 	Run(ctx context.Context, req *domain.AIRequest) (*domain.AIResult, error)
 }
+
+// TerminatableRunner is implemented by runners that can terminate running processes.
+// This is used to clean up AI subprocesses during Ctrl+C interruption to prevent
+// orphaned processes from lingering after Atlas exits.
+type TerminatableRunner interface {
+	// TerminateRunningProcess terminates any currently running AI subprocess.
+	// Returns nil if no process is running or if termination succeeds.
+	TerminateRunningProcess() error
+}

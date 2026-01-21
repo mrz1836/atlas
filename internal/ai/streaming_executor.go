@@ -4,9 +4,12 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"errors"
 	"io"
+	"os"
 	"os/exec"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -39,6 +42,8 @@ type StreamingExecutor struct {
 	lastClaudeResult   *ClaudeResponse     // Stores the final result from Claude stream events
 	lastGeminiResult   *GeminiStreamResult // Stores the final result from Gemini stream events
 	lastResultMu       sync.Mutex
+	runningProcess     *os.Process // Track the running process for termination
+	processMu          sync.Mutex  // Protect process access
 }
 
 // StreamingExecutorOption configures a StreamingExecutor.
@@ -95,6 +100,11 @@ func (e *StreamingExecutor) Execute(ctx context.Context, cmd *exec.Cmd) ([]byte,
 		return nil, nil, startErr
 	}
 
+	// Track the running process for termination
+	e.processMu.Lock()
+	e.runningProcess = cmd.Process
+	e.processMu.Unlock()
+
 	// Start synthetic progress in background if no real activity
 	e.startSyntheticProgress(ctx)
 	defer e.stopSyntheticProgress()
@@ -122,6 +132,11 @@ func (e *StreamingExecutor) Execute(ctx context.Context, cmd *exec.Cmd) ([]byte,
 	// Wait for the command to finish
 	err = cmd.Wait()
 
+	// Clear the process reference after completion
+	e.processMu.Lock()
+	e.runningProcess = nil
+	e.processMu.Unlock()
+
 	return stdout.Bytes(), stderr.Bytes(), err
 }
 
@@ -139,6 +154,53 @@ func (e *StreamingExecutor) LastGeminiResult() *GeminiStreamResult {
 	e.lastResultMu.Lock()
 	defer e.lastResultMu.Unlock()
 	return e.lastGeminiResult
+}
+
+// GetRunningPID returns the PID of the currently running process, or 0 if none.
+func (e *StreamingExecutor) GetRunningPID() int {
+	e.processMu.Lock()
+	defer e.processMu.Unlock()
+	if e.runningProcess != nil {
+		return e.runningProcess.Pid
+	}
+	return 0
+}
+
+// TerminateProcess terminates the running process gracefully with SIGTERM.
+// If the process doesn't exit within a short timeout, SIGKILL is sent.
+// Returns nil if no process is running or if termination succeeds.
+func (e *StreamingExecutor) TerminateProcess() error {
+	e.processMu.Lock()
+	proc := e.runningProcess
+	e.processMu.Unlock()
+
+	if proc == nil {
+		return nil // No process to terminate
+	}
+
+	// First try SIGTERM for graceful shutdown
+	if err := proc.Signal(syscall.SIGTERM); err != nil {
+		// Process may have already exited
+		if errors.Is(err, os.ErrProcessDone) {
+			return nil
+		}
+		return err
+	}
+
+	// Give process a short time to exit gracefully, then force kill
+	// We use a goroutine to avoid blocking the caller
+	go func() {
+		time.Sleep(2 * time.Second)
+		e.processMu.Lock()
+		currentProc := e.runningProcess
+		e.processMu.Unlock()
+		// Only kill if same process is still running
+		if currentProc != nil && currentProc.Pid == proc.Pid {
+			_ = proc.Kill() // Best effort, ignore errors
+		}
+	}()
+
+	return nil
 }
 
 // streamStdout reads stdout line by line, parsing stream-json events

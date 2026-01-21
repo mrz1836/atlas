@@ -113,6 +113,12 @@ func (r *ClaudeCodeRunner) Run(ctx context.Context, req *domain.AIRequest) (*dom
 	return r.base.RunWithTimeout(ctx, req, r.execute)
 }
 
+// TerminateRunningProcess terminates any currently running AI subprocess.
+// This implements the TerminatableRunner interface for cleanup on Ctrl+C.
+func (r *ClaudeCodeRunner) TerminateRunningProcess() error {
+	return r.base.TerminateRunningProcess()
+}
+
 // execute performs a single AI request execution.
 func (r *ClaudeCodeRunner) execute(ctx context.Context, req *domain.AIRequest) (*domain.AIResult, error) {
 	// Pre-flight check: verify working directory exists
@@ -248,3 +254,6 @@ func (r *ClaudeCodeRunner) buildCommand(ctx context.Context, req *domain.AIReque
 
 // Compile-time check that ClaudeCodeRunner implements Runner.
 var _ Runner = (*ClaudeCodeRunner)(nil)
+
+// Compile-time check that ClaudeCodeRunner implements TerminatableRunner.
+var _ TerminatableRunner = (*ClaudeCodeRunner)(nil)

@@ -86,6 +86,12 @@ func (r *GeminiRunner) Run(ctx context.Context, req *domain.AIRequest) (*domain.
 	return r.base.RunWithTimeout(ctx, req, r.execute)
 }
 
+// TerminateRunningProcess terminates any currently running AI subprocess.
+// This implements the TerminatableRunner interface for cleanup on Ctrl+C.
+func (r *GeminiRunner) TerminateRunningProcess() error {
+	return r.base.TerminateRunningProcess()
+}
+
 // execute performs a single AI request execution.
 func (r *GeminiRunner) execute(ctx context.Context, req *domain.AIRequest) (*domain.AIResult, error) {
 	// Pre-flight check: verify working directory exists
@@ -246,3 +252,6 @@ func (r *GeminiRunner) buildCommand(ctx context.Context, req *domain.AIRequest) 
 
 // Compile-time check that GeminiRunner implements Runner.
 var _ Runner = (*GeminiRunner)(nil)
+
+// Compile-time check that GeminiRunner implements TerminatableRunner.
+var _ TerminatableRunner = (*GeminiRunner)(nil)

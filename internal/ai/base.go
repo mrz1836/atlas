@@ -103,6 +103,16 @@ func (b *BaseRunner) HandleProviderExecutionError(
 	})
 }
 
+// TerminateRunningProcess terminates any running subprocess.
+// This is used to clean up AI processes during Ctrl+C interruption.
+// Returns nil if the executor doesn't support termination or if no process is running.
+func (b *BaseRunner) TerminateRunningProcess() error {
+	if streamExec, ok := b.Executor.(*StreamingExecutor); ok {
+		return streamExec.TerminateProcess()
+	}
+	return nil // Non-streaming executor doesn't track processes
+}
+
 // runWithRetry executes the AI request with exponential backoff retry logic.
 // Only transient errors are retried; non-retryable errors return immediately.
 func (b *BaseRunner) runWithRetry(ctx context.Context, req *domain.AIRequest, execute ExecuteFunc) (*domain.AIResult, error) {
