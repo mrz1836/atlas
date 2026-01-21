@@ -197,5 +197,69 @@ func DefaultConfig() *Config {
 				Abandoned: 168 * time.Hour, // 7 days
 			},
 		},
+		Operations: DefaultOperationsConfig(),
+	}
+}
+
+// DefaultOperationsConfig returns sensible defaults for per-operation AI settings.
+// These defaults are designed to optimize for quality and cost:
+// - opus for analysis (best reasoning for root cause analysis)
+// - sonnet for implementation (balance of speed and capability for coding)
+// - gemini flash for verification (different AI perspective, fast)
+// - sonnet for validation retry (reliable fixes)
+// - opus for SDD (complex specification reasoning)
+func DefaultOperationsConfig() OperationsConfig {
+	return OperationsConfig{
+		// Analyze: Deep reasoning for bug analysis, root cause identification.
+		// opus provides the best reasoning capability for complex analysis.
+		Analyze: OperationAIConfig{
+			Agent:          "claude",
+			Model:          "opus",
+			Timeout:        20 * time.Minute,
+			PermissionMode: "plan", // Read-only for analysis
+		},
+
+		// Implement: Code generation and modification.
+		// sonnet balances speed and capability for coding tasks.
+		Implement: OperationAIConfig{
+			Agent:          "claude",
+			Model:          "sonnet",
+			Timeout:        30 * time.Minute,
+			PermissionMode: "", // Full access for implementation
+		},
+
+		// Verify: Cross-validation using different AI perspective.
+		// Using gemini provides a different perspective from claude.
+		Verify: OperationAIConfig{
+			Agent:          "gemini",
+			Model:          "flash",
+			Timeout:        5 * time.Minute,
+			PermissionMode: "plan", // Read-only for verification
+		},
+
+		// ValidationRetry: Fix lint/test/format errors.
+		// sonnet is reliable for fixing validation issues.
+		ValidationRetry: OperationAIConfig{
+			Agent:       "claude",
+			Model:       "sonnet",
+			Timeout:     15 * time.Minute,
+			MaxAttempts: 3, // Override validation.max_ai_retry_attempts
+		},
+
+		// SDD: Speckit specification-driven development.
+		// opus provides complex reasoning for specifications.
+		SDD: OperationAIConfig{
+			Agent:   "claude",
+			Model:   "opus",
+			Timeout: 25 * time.Minute,
+		},
+
+		// CIFailure: Analyze and fix CI failures.
+		// sonnet is capable of analyzing CI failure logs.
+		CIFailure: OperationAIConfig{
+			Agent:   "claude",
+			Model:   "sonnet",
+			Timeout: 10 * time.Minute,
+		},
 	}
 }

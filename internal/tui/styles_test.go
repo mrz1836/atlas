@@ -690,7 +690,7 @@ func TestTreeChars_Constants(t *testing.T) {
 
 // TestRenderHyperlink_Styles tests hyperlink rendering in styles package.
 func TestRenderHyperlink_Styles(t *testing.T) {
-	t.Parallel()
+	// Not using t.Parallel() because subtests modify environment variables
 
 	t.Run("creates OSC 8 hyperlink when colors enabled", func(t *testing.T) {
 		// Save and restore NO_COLOR
@@ -722,7 +722,7 @@ func TestRenderHyperlink_Styles(t *testing.T) {
 
 // TestRenderFileHyperlink_Styles tests file hyperlink rendering.
 func TestRenderFileHyperlink_Styles(t *testing.T) {
-	t.Parallel()
+	// Not using t.Parallel() because subtests modify environment variables
 
 	t.Run("creates file:// URL hyperlink", func(t *testing.T) {
 		// Save and restore NO_COLOR

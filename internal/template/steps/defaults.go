@@ -100,6 +100,10 @@ type ExecutorDeps struct {
 	// If nil, CI executor will use default constant values.
 	CIConfig *config.CIConfig
 
+	// OperationsConfig contains per-operation AI settings.
+	// If nil, executors will use task defaults.
+	OperationsConfig *config.OperationsConfig
+
 	// Validation command configuration from project config.
 	// These commands override the defaults when running validation during task execution.
 	FormatCommands    []string
@@ -121,12 +125,29 @@ type ExecutorDeps struct {
 func NewDefaultRegistry(deps ExecutorDeps) *ExecutorRegistry {
 	r := NewExecutorRegistry()
 
-	// Register AI executor (requires AIRunner)
-	if deps.AIRunner != nil {
-		r.Register(NewAIExecutor(deps.AIRunner, deps.ArtifactSaver, deps.Logger, WithAIWorkingDir(deps.WorkDir)))
-	}
+	registerAIExecutor(r, deps)
+	registerValidationExecutor(r, deps)
+	registerGitExecutor(r, deps)
+	r.Register(NewHumanExecutor())
+	registerSDDExecutor(r, deps)
+	registerCIExecutor(r, deps)
+	registerVerifyExecutor(r, deps)
 
-	// Register validation executor with optional artifact saving, notifications, retry, and commands
+	return r
+}
+
+func registerAIExecutor(r *ExecutorRegistry, deps ExecutorDeps) {
+	if deps.AIRunner == nil {
+		return
+	}
+	aiOpts := []AIExecutorOption{WithAIWorkingDir(deps.WorkDir)}
+	if deps.OperationsConfig != nil {
+		aiOpts = append(aiOpts, WithAIOperationsConfig(deps.OperationsConfig))
+	}
+	r.Register(NewAIExecutor(deps.AIRunner, deps.ArtifactSaver, deps.Logger, aiOpts...))
+}
+
+func registerValidationExecutor(r *ExecutorRegistry, deps ExecutorDeps) {
 	validationOpts := []ValidationExecutorOption{
 		WithValidationArtifactSaver(deps.ArtifactSaver),
 		WithValidationNotifier(deps.Notifier),
@@ -142,11 +163,10 @@ func NewDefaultRegistry(deps ExecutorDeps) *ExecutorRegistry {
 		validationOpts = append(validationOpts, WithValidationProgressCallback(deps.ValidationProgressCallback))
 	}
 	r.Register(NewValidationExecutorWithOptions(deps.WorkDir, validationOpts...))
+}
 
-	// Register git executor with dependencies for commit, push, and PR creation
-	gitExecutorOpts := []GitExecutorOption{
-		WithGitLogger(deps.Logger),
-	}
+func registerGitExecutor(r *ExecutorRegistry, deps ExecutorDeps) {
+	gitExecutorOpts := []GitExecutorOption{WithGitLogger(deps.Logger)}
 	if deps.ArtifactSaver != nil {
 		gitExecutorOpts = append(gitExecutorOpts, WithGitArtifactSaver(deps.ArtifactSaver))
 	}
@@ -169,19 +189,17 @@ func NewDefaultRegistry(deps ExecutorDeps) *ExecutorRegistry {
 		gitExecutorOpts = append(gitExecutorOpts, WithGitRunner(deps.GitRunner))
 	}
 	r.Register(NewGitExecutor(deps.WorkDir, gitExecutorOpts...))
+}
 
-	// Register human executor
-	r.Register(NewHumanExecutor())
-
-	// Register SDD executor (requires AIRunner)
-	if deps.AIRunner != nil {
-		r.Register(NewSDDExecutorWithArtifactSaver(deps.AIRunner, deps.ArtifactSaver, deps.WorkDir, deps.Logger))
+func registerSDDExecutor(r *ExecutorRegistry, deps ExecutorDeps) {
+	if deps.AIRunner == nil {
+		return
 	}
+	r.Register(NewSDDExecutorWithArtifactSaver(deps.AIRunner, deps.ArtifactSaver, deps.WorkDir, deps.Logger))
+}
 
-	// Register CI executor with HubRunner and CIFailureHandler dependencies
-	ciExecutorOpts := []CIExecutorOption{
-		WithCILogger(deps.Logger),
-	}
+func registerCIExecutor(r *ExecutorRegistry, deps ExecutorDeps) {
+	ciExecutorOpts := []CIExecutorOption{WithCILogger(deps.Logger)}
 	if deps.ArtifactSaver != nil {
 		ciExecutorOpts = append(ciExecutorOpts, WithCIArtifactSaver(deps.ArtifactSaver))
 	}
@@ -195,18 +213,21 @@ func NewDefaultRegistry(deps ExecutorDeps) *ExecutorRegistry {
 		ciExecutorOpts = append(ciExecutorOpts, WithCIConfig(deps.CIConfig))
 	}
 	r.Register(NewCIExecutor(ciExecutorOpts...))
+}
 
-	// Register verify executor (requires AIRunner for AI verification)
-	if deps.AIRunner != nil {
-		garbageDetector := git.NewGarbageDetector(nil)
-		verifyOpts := []VerifyExecutorOption{WithVerifyWorkingDir(deps.WorkDir)}
-		if deps.ProgressCallback != nil {
-			verifyOpts = append(verifyOpts, WithVerifyProgressCallback(deps.ProgressCallback))
-		}
-		r.Register(NewVerifyExecutor(deps.AIRunner, garbageDetector, deps.ArtifactSaver, deps.Logger, verifyOpts...))
+func registerVerifyExecutor(r *ExecutorRegistry, deps ExecutorDeps) {
+	if deps.AIRunner == nil {
+		return
 	}
-
-	return r
+	garbageDetector := git.NewGarbageDetector(nil)
+	verifyOpts := []VerifyExecutorOption{WithVerifyWorkingDir(deps.WorkDir)}
+	if deps.ProgressCallback != nil {
+		verifyOpts = append(verifyOpts, WithVerifyProgressCallback(deps.ProgressCallback))
+	}
+	if deps.OperationsConfig != nil {
+		verifyOpts = append(verifyOpts, WithVerifyOperationsConfig(deps.OperationsConfig))
+	}
+	r.Register(NewVerifyExecutor(deps.AIRunner, garbageDetector, deps.ArtifactSaver, deps.Logger, verifyOpts...))
 }
 
 // NewMinimalRegistry creates a registry with only non-AI executors.

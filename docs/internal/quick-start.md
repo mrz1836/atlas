@@ -2007,6 +2007,58 @@ ai:
   max_budget_usd: 0
 
 #------------------------------------------------------------------------------
+# Operation-Specific AI Settings
+#------------------------------------------------------------------------------
+# Override ai.agent/model for specific operations across ALL templates.
+# Priority: step.Config > operations.{type} > ai.{agent,model}
+operations:
+  # Analysis: Deep reasoning for bug analysis, root cause identification.
+  # Used by: bugfix template "analyze" step, feature spec analysis.
+  analyze:
+    agent: claude           # Best reasoning capability
+    model: opus
+    timeout: 20m
+    permission_mode: plan   # Read-only
+
+  # Implementation: Code generation and modification.
+  # Used by: all templates "implement" step.
+  implement:
+    agent: claude           # Balance of speed and capability
+    model: sonnet
+    timeout: 30m
+    permission_mode: ""     # Full access for implementation
+
+  # Verification: Cross-validation using different AI perspective.
+  # Used by: verify step when --verify flag is used.
+  verify:
+    agent: gemini           # Different agent = diverse perspective
+    model: flash            # Fast checks
+    timeout: 5m
+    permission_mode: plan   # Read-only
+
+  # Validation retry: Fix lint/test/format errors.
+  # Used when: validation fails and ai_retry_enabled=true.
+  validation_retry:
+    agent: claude
+    model: sonnet
+    timeout: 15m
+    max_attempts: 3         # Override validation.max_ai_retry_attempts
+
+  # SDD: Speckit specification-driven development.
+  # Used by: feature template specify/plan/tasks/implement steps.
+  sdd:
+    agent: claude
+    model: opus             # Complex spec reasoning
+    timeout: 25m
+
+  # CI failure: Analyze and fix CI failures.
+  # Used when: ci_wait step fails and retry is attempted.
+  ci_failure:
+    agent: claude
+    model: sonnet
+    timeout: 10m
+
+#------------------------------------------------------------------------------
 # Git Configuration
 #------------------------------------------------------------------------------
 git:
@@ -2463,5 +2515,5 @@ atlas config --help
 
 ---
 
-**Version:** 1.2.11
-**Last Updated:** 2026-01-20
+**Version:** 1.2.12
+**Last Updated:** 2026-01-21
