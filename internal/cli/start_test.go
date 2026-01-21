@@ -984,8 +984,11 @@ func TestStartTaskExecution_ContextCanceled(t *testing.T) {
 	out := tui.NewOutput(os.Stdout, "")
 
 	// Should fail due to canceled context
-	_, _, err = startTaskExecution(ctx, ws, tmpl, "test description", "", "", "", logger, out)
+	task, store, state, err := startTaskExecution(ctx, ws, tmpl, "test description", "", "", "", logger, out)
 	require.Error(t, err)
+	require.Nil(t, task)
+	require.Nil(t, store)
+	require.Nil(t, state)
 	// Error may be context.Canceled or a wrapped error
 }
 

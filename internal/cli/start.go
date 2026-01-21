@@ -291,7 +291,7 @@ func executeTask(ctx context.Context, sc *startContext, sigHandler *signal.Handl
 		Msg("workspace created")
 
 	// Start task execution
-	t, taskStore, err := startTaskExecution(ctx, ws, tmpl, description, opts.agent, opts.model, opts.fromBacklogID, logger, out)
+	t, taskStore, state, err := startTaskExecution(ctx, ws, tmpl, description, opts.agent, opts.model, opts.fromBacklogID, logger, out)
 
 	// Store CLI overrides in task metadata for resume (if task was created)
 	storeCLIOverridesIfNeeded(ctx, t, taskStore, ws.Name, &opts, logger)
@@ -299,7 +299,7 @@ func executeTask(ctx context.Context, sc *startContext, sigHandler *signal.Handl
 	// Check if we were interrupted by Ctrl+C
 	select {
 	case <-sigHandler.Interrupted():
-		return handleInterruption(ctx, sc, ws, t, logger, out)
+		return handleInterruption(ctx, sc, ws, t, state, logger, out)
 	default:
 	}
 
@@ -451,15 +451,36 @@ func storeCLIOverridesIfNeeded(ctx context.Context, t *domain.Task, taskStore *t
 	}
 }
 
+// terminateAIProcess terminates any running AI process to prevent orphaned processes.
+func terminateAIProcess(state *progressState, logger zerolog.Logger) {
+	if state == nil || state.aiRunner == nil {
+		return
+	}
+
+	termRunner, ok := state.aiRunner.(ai.TerminatableRunner)
+	if !ok {
+		return
+	}
+
+	if err := termRunner.TerminateRunningProcess(); err != nil {
+		logger.Warn().Err(err).Msg("failed to terminate AI process")
+	} else {
+		logger.Debug().Msg("AI process terminated on interrupt")
+	}
+}
+
 // handleInterruption handles graceful shutdown when user presses Ctrl+C.
 // It saves the task and workspace state so the user can resume later.
-func handleInterruption(ctx context.Context, sc *startContext, ws *domain.Workspace, t *domain.Task, logger zerolog.Logger, out tui.Output) error {
+func handleInterruption(ctx context.Context, sc *startContext, ws *domain.Workspace, t *domain.Task, state *progressState, logger zerolog.Logger, out tui.Output) error {
 	logger.Info().
 		Str("workspace_name", ws.Name).
 		Str("task_id", safeTaskID(t)).
 		Msg("received interrupt signal, initiating graceful shutdown")
 
 	out.Warning("\n⚠ Interrupt received - saving state...")
+
+	// Terminate any running AI process first to prevent orphaned processes
+	terminateAIProcess(state, logger)
 
 	// Use a context without cancellation for cleanup since the original is canceled
 	cleanupCtx := context.WithoutCancel(ctx)
@@ -579,15 +600,16 @@ func safeTaskID(t *domain.Task) string {
 }
 
 // startTaskExecution creates and starts the task engine.
-// Returns the task, task store (for subsequent updates), and any error.
-func startTaskExecution(ctx context.Context, ws *domain.Workspace, tmpl *domain.Template, description, agent, model, fromBacklogID string, logger zerolog.Logger, out tui.Output) (*domain.Task, *task.FileStore, error) {
+// Returns the task, task store (for subsequent updates), progress state, and any error.
+// The progress state contains the AI runner for process termination on interrupt.
+func startTaskExecution(ctx context.Context, ws *domain.Workspace, tmpl *domain.Template, description, agent, model, fromBacklogID string, logger zerolog.Logger, out tui.Output) (*domain.Task, *task.FileStore, *progressState, error) {
 	// Create service factory
 	services := workflow.NewServiceFactory(logger)
 
 	// Create task store and load config
 	taskStore, cfg, err := services.SetupTaskStoreAndConfig(ctx)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	// Create hook manager for crash recovery
@@ -610,6 +632,9 @@ func startTaskExecution(ctx context.Context, ws *domain.Workspace, tmpl *domain.
 	// Create AI runner with activity streaming
 	aiRunner := services.CreateAIRunnerWithActivity(cfg, activityOpts)
 
+	// Store runner in state for termination on interrupt
+	state.aiRunner = aiRunner
+
 	// Resolve git config settings with fallbacks
 	gitCfg := ResolveGitConfig(cfg)
 
@@ -624,7 +649,7 @@ func startTaskExecution(ctx context.Context, ws *domain.Workspace, tmpl *domain.
 		PRDescModel:         gitCfg.PRDescModel,
 	})
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	// Create git stats provider for live status display
@@ -695,7 +720,7 @@ func startTaskExecution(ctx context.Context, ws *domain.Workspace, tmpl *domain.
 
 	// Start task
 	t, err := startTask(ctx, engine, ws, tmpl, description, fromBacklogID, logger)
-	return t, taskStore, err
+	return t, taskStore, state, err
 }
 
 // progressState holds shared state for progress and activity callbacks.
@@ -704,6 +729,7 @@ type progressState struct {
 	activeSpinner    tui.Spinner
 	baseMessage      string             // e.g., "Step 1/8: implement (claude/sonnet)"
 	gitStatsProvider *git.StatsProvider // Provider for live git stats display
+	aiRunner         ai.Runner          // AI runner for process termination on interrupt
 }
 
 // createProgressCallback creates the progress callback for UI feedback.
