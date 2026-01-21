@@ -4,17 +4,17 @@ guid: 8c9c1d1f-f99c-4b59-aac0-284c89290b70
 title: Add test coverage for this package, ideally >80%
 status: completed
 content:
-    description: Add excellent tests and test coverage. Aim for >=80% - also make sure you fix all linter issues - you can run (magex format:fix && magex lint)
-    category: testing
-    severity: low
+  description: Add excellent tests and test coverage. Aim for >=80% - also make sure you fix all linter issues - you can run (magex format:fix && magex lint)
+  category: testing
+  severity: low
 location:
-    file: /internal/cli/workflow
+  file: /internal/cli/workflow
 context:
-    discovered_at: 2026-01-21T18:41:49.221296Z
-    discovered_by: human:mrz1836
-    git:
-        branch: master
-        commit: 6da84ee
+  discovered_at: 2026-01-21T18:41:49.221296Z
+  discovered_by: human:mrz1836
+  git:
+    branch: master
+    commit: 6da84ee
 lifecycle:
-    promoted_to_task: task-e96517df-0ccf-4506-908d-71b2fd37c503
-    completed_at: 2026-01-21T20:07:00.450791Z
+  promoted_to_task: task-e96517df-0ccf-4506-908d-71b2fd37c503
+  completed_at: 2026-01-21T20:07:00.450791Z
