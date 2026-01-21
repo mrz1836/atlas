@@ -109,7 +109,7 @@ func (p *Prompter) selectTemplateInteractive(registry *template.Registry) (*doma
 				Options(options...).
 				Value(&selected),
 		),
-	).WithTheme(huh.ThemeCharm())
+	).WithTheme(tui.AtlasTheme())
 
 	if err := form.Run(); err != nil {
 		return nil, fmt.Errorf("template selection canceled: %w", err)
@@ -158,7 +158,7 @@ func (p *Prompter) promptWorkspaceConflict(name string) (string, error) {
 				).
 				Value(&action),
 		),
-	).WithTheme(huh.ThemeCharm())
+	).WithTheme(tui.AtlasTheme())
 
 	if err := form.Run(); err != nil {
 		return "", err
@@ -178,7 +178,7 @@ func (p *Prompter) promptNewWorkspaceName() (string, error) {
 				Value(&name).
 				Validate(ValidateWorkspaceName),
 		),
-	).WithTheme(huh.ThemeCharm())
+	).WithTheme(tui.AtlasTheme())
 
 	if err := form.Run(); err != nil {
 		return "", err

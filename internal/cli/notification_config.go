@@ -5,6 +5,8 @@ import (
 	"context"
 
 	"github.com/charmbracelet/huh"
+
+	"github.com/mrz1836/atlas/internal/tui"
 )
 
 // Notification event constants.
@@ -85,7 +87,7 @@ func NewNotificationConfigForm(cfg *NotificationProviderConfig) *huh.Form {
 				).
 				Value(&cfg.Events),
 		),
-	).WithTheme(huh.ThemeCharm())
+	).WithTheme(tui.AtlasTheme())
 }
 
 // CollectNotificationConfigInteractive runs the notification configuration form and returns the collected config.

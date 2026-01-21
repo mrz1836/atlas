@@ -283,7 +283,7 @@ func runBacklogAddInteractive(ctx context.Context, mgr *backlog.Manager) (*backl
 				}).
 				Value(&lineStr),
 		),
-	).WithTheme(huh.ThemeCharm())
+	).WithTheme(tui.AtlasTheme())
 
 	if err := form.Run(); err != nil {
 		return nil, fmt.Errorf("form canceled: %w", err)

@@ -11,6 +11,7 @@ import (
 
 	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/constants"
+	"github.com/mrz1836/atlas/internal/tui"
 )
 
 // ValidationProviderConfig holds validation configuration values collected from user input.
@@ -119,7 +120,7 @@ func NewValidationConfigForm(cfg *ValidationProviderConfig) *huh.Form {
 				Value(&cfg.CustomPrePR).
 				Placeholder("custom-validation-script"),
 		),
-	).WithTheme(huh.ThemeCharm())
+	).WithTheme(tui.AtlasTheme())
 }
 
 // CollectValidationConfigInteractive runs the validation configuration form.

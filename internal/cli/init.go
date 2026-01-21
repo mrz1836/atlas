@@ -21,6 +21,7 @@ import (
 	"github.com/mrz1836/atlas/internal/constants"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 	"github.com/mrz1836/atlas/internal/git"
+	"github.com/mrz1836/atlas/internal/tui"
 )
 
 // InitFlags holds flags specific to the init command.
@@ -409,7 +410,7 @@ func promptInstallManagedTools(w io.Writer, tools []config.Tool, styles *initSty
 				Negative("No").
 				Value(&install),
 		),
-	).WithTheme(huh.ThemeCharm())
+	).WithTheme(tui.AtlasTheme())
 
 	if err := form.Run(); err != nil {
 		return false, err
@@ -744,7 +745,7 @@ func promptProjectConfigCreation(w io.Writer, styles *initStyles) (bool, error) 
 				Negative("No (use global config only)").
 				Value(&createProjectConfig),
 		),
-	).WithTheme(huh.ThemeCharm())
+	).WithTheme(tui.AtlasTheme())
 
 	if err := form.Run(); err != nil {
 		return false, err

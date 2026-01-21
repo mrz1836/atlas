@@ -19,6 +19,7 @@ import (
 	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/errors"
+	"github.com/mrz1836/atlas/internal/tui"
 )
 
 // UpgradeFlags holds flags specific to the upgrade command.
@@ -429,7 +430,7 @@ func (u *upgradeCmd) promptConfirmation(count int) (bool, error) {
 				Negative("No").
 				Value(&confirm),
 		),
-	).WithTheme(huh.ThemeCharm())
+	).WithTheme(tui.AtlasTheme())
 
 	if err := form.Run(); err != nil {
 		return false, err

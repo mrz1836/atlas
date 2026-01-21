@@ -13,6 +13,7 @@ import (
 	"github.com/charmbracelet/huh"
 
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
+	"github.com/mrz1836/atlas/internal/tui"
 )
 
 // AIProviderConfig holds AI provider configuration values collected from user input.
@@ -90,7 +91,7 @@ func NewAIConfigForm(cfg *AIProviderConfig, maxTurnsStr *string) *huh.Form {
 				Placeholder("10").
 				Validate(validateMaxTurns),
 		),
-	).WithTheme(huh.ThemeCharm())
+	).WithTheme(tui.AtlasTheme())
 }
 
 // createAIConfigForm is the default factory for creating AI config forms.
