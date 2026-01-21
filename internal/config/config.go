@@ -50,6 +50,10 @@ type Config struct {
 
 	// Hooks contains settings for the hook system (crash recovery & context persistence).
 	Hooks HookConfig `yaml:"hooks" mapstructure:"hooks"`
+
+	// Operations contains per-operation AI settings.
+	// These override ai.agent/model for specific step types across all templates.
+	Operations OperationsConfig `yaml:"operations,omitempty" mapstructure:"operations"`
 }
 
 // AIConfig contains settings for AI/LLM operations.
@@ -349,6 +353,101 @@ type ApprovalConfig struct {
 	// This message is used for both the PR review and comment (fallback).
 	// Default: "Approved and Merged by ATLAS"
 	MergeMessage string `yaml:"merge_message" mapstructure:"merge_message"`
+}
+
+// OperationsConfig contains per-operation AI settings.
+// These override ai.agent/model for specific step types across all templates.
+// Priority: step.Config > operations.{type} > ai.{agent,model}
+type OperationsConfig struct {
+	// Analyze contains settings for analysis steps (reasoning-heavy tasks like bug analysis).
+	// Used by: bugfix template "analyze" step, feature spec analysis.
+	Analyze OperationAIConfig `yaml:"analyze,omitempty" mapstructure:"analyze"`
+
+	// Implement contains settings for implementation steps (code generation/modification).
+	// Used by: all templates "implement" step.
+	Implement OperationAIConfig `yaml:"implement,omitempty" mapstructure:"implement"`
+
+	// Verify contains settings for verification steps (cross-validation of implementation).
+	// Used by: verify step when --verify flag is used.
+	Verify OperationAIConfig `yaml:"verify,omitempty" mapstructure:"verify"`
+
+	// ValidationRetry contains settings for validation retry (AI fixes validation errors).
+	// Used when: validation fails and ai_retry_enabled=true.
+	ValidationRetry OperationAIConfig `yaml:"validation_retry,omitempty" mapstructure:"validation_retry"`
+
+	// SDD contains settings for SDD/Speckit steps (specification-driven development).
+	// Used by: feature template specify/plan/tasks/implement steps.
+	SDD OperationAIConfig `yaml:"sdd,omitempty" mapstructure:"sdd"`
+
+	// CIFailure contains settings for CI failure analysis.
+	// Used when: ci_wait step fails and retry is attempted.
+	CIFailure OperationAIConfig `yaml:"ci_failure,omitempty" mapstructure:"ci_failure"`
+}
+
+// OperationAIConfig defines AI settings for a specific operation type.
+type OperationAIConfig struct {
+	// Agent specifies which AI CLI to use for this operation.
+	// If empty, falls back to ai.agent setting.
+	// Valid values: "claude", "gemini", "codex"
+	Agent string `yaml:"agent,omitempty" mapstructure:"agent"`
+
+	// Model specifies the AI model to use for this operation.
+	// If empty, falls back to ai.model setting.
+	Model string `yaml:"model,omitempty" mapstructure:"model"`
+
+	// Timeout is the maximum duration for this operation type.
+	// If zero, falls back to ai.timeout setting.
+	Timeout time.Duration `yaml:"timeout,omitempty" mapstructure:"timeout"`
+
+	// PermissionMode controls AI permissions for this operation.
+	// Valid values: "" (default/full access), "plan" (read-only sandbox)
+	PermissionMode string `yaml:"permission_mode,omitempty" mapstructure:"permission_mode"`
+
+	// MaxAttempts is the maximum retry attempts for this operation.
+	// Only used by validation_retry. If zero, falls back to validation.max_ai_retry_attempts.
+	MaxAttempts int `yaml:"max_attempts,omitempty" mapstructure:"max_attempts"`
+}
+
+// GetForStep returns the operation config for a given step name and type.
+// Step names like "analyze", "implement", "verify" map directly to operation configs.
+// For SDD steps, the step type takes precedence.
+// Returns an empty config if no specific config is found (caller should use defaults).
+func (o *OperationsConfig) GetForStep(stepName, stepType string) OperationAIConfig {
+	// First check by step type for special types
+	switch stepType {
+	case "sdd":
+		return o.SDD
+	case "verify":
+		return o.Verify
+	}
+
+	// Then check by step name
+	switch stepName {
+	case "analyze":
+		return o.Analyze
+	case "implement":
+		return o.Implement
+	case "verify":
+		return o.Verify
+	case "validation_retry":
+		return o.ValidationRetry
+	case "ci_failure":
+		return o.CIFailure
+	}
+
+	// For SDD-related step names (from speckit)
+	switch stepName {
+	case "sdd-specify", "sdd-plan", "sdd-tasks", "sdd-implement", "sdd-clarify", "sdd-analyze":
+		return o.SDD
+	}
+
+	return OperationAIConfig{}
+}
+
+// IsEmpty returns true if the operation config has no values set.
+func (o *OperationAIConfig) IsEmpty() bool {
+	return o.Agent == "" && o.Model == "" && o.Timeout == 0 &&
+		o.PermissionMode == "" && o.MaxAttempts == 0
 }
 
 // HookConfig contains all configurable settings for the hook system.

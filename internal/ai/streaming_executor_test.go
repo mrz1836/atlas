@@ -347,3 +347,445 @@ func TestStreamingExecutor_ImplementsCommandExecutor(t *testing.T) {
 		t.Error("stdout should contain 'interface test'")
 	}
 }
+
+func TestStreamingExecutor_ParsesStreamJSON(t *testing.T) {
+	t.Parallel()
+
+	var receivedEvents []ActivityEvent
+	var mu sync.Mutex
+
+	executor := NewStreamingExecutor(ActivityOptions{
+		Callback: func(event ActivityEvent) {
+			mu.Lock()
+			receivedEvents = append(receivedEvents, event)
+			mu.Unlock()
+		},
+		Verbosity: VerbosityHigh,
+	})
+
+	// Execute a command that outputs realistic Claude stream-json format to stdout
+	ctx := context.Background()
+	cmd := exec.CommandContext(ctx, "sh", "-c", `
+		echo '{"type":"system","subtype":"init","session_id":"test123","tools":["Read","Edit"]}'
+		echo '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_1","name":"Read","input":{"file_path":"main.go"}}]},"session_id":"test123"}'
+		echo '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"file content"}]}}'
+		echo '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_2","name":"Edit","input":{"file_path":"config.go"}}]},"session_id":"test123"}'
+		echo '{"type":"result","subtype":"success","is_error":false,"result":"Done","session_id":"test123","duration_ms":1000,"num_turns":2,"total_cost_usd":0.05}'
+	`)
+
+	stdout, _, err := executor.Execute(ctx, cmd)
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+
+	// Verify stdout was captured
+	if !strings.Contains(string(stdout), "assistant") {
+		t.Error("stdout should contain stream-json events")
+	}
+
+	// Wait a bit for async processing
+	time.Sleep(50 * time.Millisecond)
+
+	mu.Lock()
+	events := make([]ActivityEvent, len(receivedEvents))
+	copy(events, receivedEvents)
+	mu.Unlock()
+
+	// Should have parsed the tool events
+	if len(events) < 2 {
+		t.Errorf("Received %d events, want >= 2", len(events))
+	}
+
+	// Check that we got reading and writing events from stream-json
+	var hasReading, hasWriting bool
+	for _, e := range events {
+		if e.Type == ActivityReading && e.File == "main.go" {
+			hasReading = true
+		}
+		if e.Type == ActivityWriting && e.File == "config.go" {
+			hasWriting = true
+		}
+	}
+
+	if !hasReading {
+		t.Error("Did not receive Reading event from stream-json")
+	}
+	if !hasWriting {
+		t.Error("Did not receive Writing event from stream-json")
+	}
+
+	// Check that last result was captured
+	lastResult := executor.LastClaudeResult()
+	if lastResult == nil {
+		t.Fatal("LastResult should not be nil")
+	}
+	if lastResult.Result != "Done" {
+		t.Errorf("LastResult.Result = %q, want %q", lastResult.Result, "Done")
+	}
+	if lastResult.SessionID != "test123" {
+		t.Errorf("LastResult.SessionID = %q, want %q", lastResult.SessionID, "test123")
+	}
+}
+
+func TestStreamingExecutor_MediumVerbosityShowsFileOps(t *testing.T) {
+	t.Parallel()
+
+	var receivedEvents []ActivityEvent
+	var mu sync.Mutex
+
+	// Use medium verbosity - should show file operations
+	executor := NewStreamingExecutor(ActivityOptions{
+		Callback: func(event ActivityEvent) {
+			mu.Lock()
+			receivedEvents = append(receivedEvents, event)
+			mu.Unlock()
+		},
+		Verbosity: VerbosityMedium,
+	})
+
+	// Use realistic Claude stream-json format
+	ctx := context.Background()
+	cmd := exec.CommandContext(ctx, "sh", "-c", `
+		echo '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Read","input":{"file_path":"main.go"}}]}}'
+		echo '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t2","name":"Edit","input":{"file_path":"config.go"}}]}}'
+		echo '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t3","name":"Bash","input":{"command":"go test","description":"Run tests"}}]}}'
+	`)
+
+	_, _, err := executor.Execute(ctx, cmd)
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+
+	time.Sleep(50 * time.Millisecond)
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	// Medium verbosity should show all file operations and commands
+	var hasReading, hasWriting, hasExecuting bool
+	for _, e := range receivedEvents {
+		if e.Type == ActivityReading {
+			hasReading = true
+		}
+		if e.Type == ActivityWriting {
+			hasWriting = true
+		}
+		if e.Type == ActivityExecuting {
+			hasExecuting = true
+		}
+	}
+
+	if !hasReading {
+		t.Error("Medium verbosity should show Reading events")
+	}
+	if !hasWriting {
+		t.Error("Medium verbosity should show Writing events")
+	}
+	if !hasExecuting {
+		t.Error("Medium verbosity should show Executing events")
+	}
+}
+
+func TestStreamingExecutor_LowVerbosityFiltersFileOps(t *testing.T) {
+	t.Parallel()
+
+	var receivedEvents []ActivityEvent
+	var mu sync.Mutex
+
+	// Use low verbosity - should filter out file operations
+	executor := NewStreamingExecutor(ActivityOptions{
+		Callback: func(event ActivityEvent) {
+			mu.Lock()
+			receivedEvents = append(receivedEvents, event)
+			mu.Unlock()
+		},
+		Verbosity: VerbosityLow,
+	})
+
+	// Use realistic Claude stream-json format
+	ctx := context.Background()
+	cmd := exec.CommandContext(ctx, "sh", "-c", `
+		echo '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Read","input":{"file_path":"main.go"}}]}}'
+		echo '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t2","name":"Task","input":{"subagent_type":"Explore"}}]}}'
+	`)
+
+	_, _, err := executor.Execute(ctx, cmd)
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+
+	time.Sleep(50 * time.Millisecond)
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	// Low verbosity should filter out Reading but allow Analyzing (Task/sub-agent)
+	var hasReading, hasAnalyzing bool
+	for _, e := range receivedEvents {
+		if e.Type == ActivityReading {
+			hasReading = true
+		}
+		if e.Type == ActivityAnalyzing {
+			hasAnalyzing = true
+		}
+	}
+
+	if hasReading {
+		t.Error("Low verbosity should filter out Reading events")
+	}
+	if !hasAnalyzing {
+		t.Error("Low verbosity should allow Analyzing events (from Task tool)")
+	}
+}
+
+func TestStreamingExecutor_LastResultNilWithoutResult(t *testing.T) {
+	t.Parallel()
+
+	executor := NewStreamingExecutor(ActivityOptions{
+		Callback:  func(_ ActivityEvent) {},
+		Verbosity: VerbosityHigh,
+	})
+
+	// Execute a command that doesn't output a result event
+	ctx := context.Background()
+	cmd := exec.CommandContext(ctx, "echo", "hello")
+
+	_, _, err := executor.Execute(ctx, cmd)
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+
+	// LastResult should be nil when no result event was received
+	if executor.LastClaudeResult() != nil {
+		t.Error("LastResult should be nil when no result event was received")
+	}
+}
+
+func TestStreamingExecutor_GeminiStreamJSON(t *testing.T) {
+	t.Parallel()
+
+	var receivedEvents []ActivityEvent
+	var mu sync.Mutex
+
+	// Use Gemini provider
+	executor := NewStreamingExecutor(ActivityOptions{
+		Callback: func(event ActivityEvent) {
+			mu.Lock()
+			receivedEvents = append(receivedEvents, event)
+			mu.Unlock()
+		},
+		Verbosity: VerbosityHigh,
+	}, WithStreamProvider(StreamProviderGemini))
+
+	// Execute a command that outputs realistic Gemini stream-json format to stdout
+	ctx := context.Background()
+	cmd := exec.CommandContext(ctx, "sh", "-c", `
+		echo '{"type":"init","timestamp":"2026-01-21T14:44:36.452Z","session_id":"test-gemini-123","model":"auto-gemini-3"}'
+		echo '{"type":"message","timestamp":"2026-01-21T14:44:36.517Z","role":"user","content":"What version?"}'
+		echo '{"type":"tool_use","timestamp":"2026-01-21T14:44:55.963Z","tool_name":"read_file","tool_id":"read_file-1","parameters":{"file_path":"go.mod"}}'
+		echo '{"type":"tool_result","timestamp":"2026-01-21T14:44:56.123Z","tool_id":"read_file-1","status":"success","output":"module example\n\ngo 1.24"}'
+		echo '{"type":"tool_use","timestamp":"2026-01-21T14:44:57.000Z","tool_name":"edit_file","tool_id":"edit_file-1","parameters":{"file_path":"main.go"}}'
+		echo '{"type":"result","timestamp":"2026-01-21T14:44:57.289Z","status":"success","stats":{"total_tokens":16166,"input_tokens":15783,"output_tokens":124,"duration_ms":5419,"tool_calls":2}}'
+	`)
+
+	stdout, _, err := executor.Execute(ctx, cmd)
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+
+	// Verify stdout was captured
+	if !strings.Contains(string(stdout), "tool_use") {
+		t.Error("stdout should contain Gemini stream-json events")
+	}
+
+	// Wait a bit for async processing
+	time.Sleep(50 * time.Millisecond)
+
+	mu.Lock()
+	events := make([]ActivityEvent, len(receivedEvents))
+	copy(events, receivedEvents)
+	mu.Unlock()
+
+	// Should have parsed the tool events (2 tool_use events)
+	if len(events) < 2 {
+		t.Errorf("Received %d events, want >= 2", len(events))
+	}
+
+	// Check that we got reading and writing events from Gemini stream-json
+	var hasReading, hasWriting bool
+	for _, e := range events {
+		if e.Type == ActivityReading && e.File == "go.mod" {
+			hasReading = true
+		}
+		if e.Type == ActivityWriting && e.File == "main.go" {
+			hasWriting = true
+		}
+	}
+
+	if !hasReading {
+		t.Error("Did not receive Reading event from Gemini stream-json")
+	}
+	if !hasWriting {
+		t.Error("Did not receive Writing event from Gemini stream-json")
+	}
+
+	// Check that last Gemini result was captured
+	lastResult := executor.LastGeminiResult()
+	if lastResult == nil {
+		t.Fatal("LastGeminiResult should not be nil")
+	}
+	if !lastResult.Success {
+		t.Error("LastGeminiResult.Success should be true")
+	}
+	if lastResult.SessionID != "test-gemini-123" {
+		t.Errorf("LastGeminiResult.SessionID = %q, want %q", lastResult.SessionID, "test-gemini-123")
+	}
+	if lastResult.DurationMs != 5419 {
+		t.Errorf("LastGeminiResult.DurationMs = %d, want %d", lastResult.DurationMs, 5419)
+	}
+	if lastResult.ToolCalls != 2 {
+		t.Errorf("LastGeminiResult.ToolCalls = %d, want %d", lastResult.ToolCalls, 2)
+	}
+
+	// Claude result should be nil since we're using Gemini provider
+	if executor.LastClaudeResult() != nil {
+		t.Error("LastClaudeResult should be nil when using Gemini provider")
+	}
+}
+
+func TestStreamingExecutor_GeminiMediumVerbosity(t *testing.T) {
+	t.Parallel()
+
+	var receivedEvents []ActivityEvent
+	var mu sync.Mutex
+
+	// Use Gemini provider with medium verbosity
+	executor := NewStreamingExecutor(ActivityOptions{
+		Callback: func(event ActivityEvent) {
+			mu.Lock()
+			receivedEvents = append(receivedEvents, event)
+			mu.Unlock()
+		},
+		Verbosity: VerbosityMedium,
+	}, WithStreamProvider(StreamProviderGemini))
+
+	ctx := context.Background()
+	cmd := exec.CommandContext(ctx, "sh", "-c", `
+		echo '{"type":"init","session_id":"test-123"}'
+		echo '{"type":"tool_use","tool_name":"read_file","tool_id":"t1","parameters":{"file_path":"config.go"}}'
+		echo '{"type":"tool_use","tool_name":"shell","tool_id":"t2","parameters":{"command":"go test ./..."}}'
+		echo '{"type":"tool_use","tool_name":"search_files","tool_id":"t3","parameters":{"pattern":"func Test"}}'
+	`)
+
+	_, _, err := executor.Execute(ctx, cmd)
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+
+	time.Sleep(50 * time.Millisecond)
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	// Medium verbosity should show all file operations and commands
+	var hasReading, hasExecuting, hasSearching bool
+	for _, e := range receivedEvents {
+		if e.Type == ActivityReading {
+			hasReading = true
+		}
+		if e.Type == ActivityExecuting {
+			hasExecuting = true
+		}
+		if e.Type == ActivitySearching {
+			hasSearching = true
+		}
+	}
+
+	if !hasReading {
+		t.Error("Medium verbosity should show Reading events for Gemini")
+	}
+	if !hasExecuting {
+		t.Error("Medium verbosity should show Executing events for Gemini")
+	}
+	if !hasSearching {
+		t.Error("Medium verbosity should show Searching events for Gemini")
+	}
+}
+
+func TestStreamingExecutor_GeminiLowVerbosityFiltersFileOps(t *testing.T) {
+	t.Parallel()
+
+	var receivedEvents []ActivityEvent
+	var mu sync.Mutex
+
+	// Use Gemini provider with low verbosity
+	executor := NewStreamingExecutor(ActivityOptions{
+		Callback: func(event ActivityEvent) {
+			mu.Lock()
+			receivedEvents = append(receivedEvents, event)
+			mu.Unlock()
+		},
+		Verbosity: VerbosityLow,
+	}, WithStreamProvider(StreamProviderGemini))
+
+	ctx := context.Background()
+	cmd := exec.CommandContext(ctx, "sh", "-c", `
+		echo '{"type":"init","session_id":"test-123"}'
+		echo '{"type":"tool_use","tool_name":"read_file","tool_id":"t1","parameters":{"file_path":"main.go"}}'
+		echo '{"type":"tool_use","tool_name":"UnknownAnalysisTool","tool_id":"t2","parameters":{}}'
+	`)
+
+	_, _, err := executor.Execute(ctx, cmd)
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+
+	time.Sleep(50 * time.Millisecond)
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	// Low verbosity should filter out Reading but allow Analyzing (unknown tool)
+	var hasReading, hasAnalyzing bool
+	for _, e := range receivedEvents {
+		if e.Type == ActivityReading {
+			hasReading = true
+		}
+		if e.Type == ActivityAnalyzing {
+			hasAnalyzing = true
+		}
+	}
+
+	if hasReading {
+		t.Error("Low verbosity should filter out Reading events for Gemini")
+	}
+	if !hasAnalyzing {
+		t.Error("Low verbosity should allow Analyzing events for Gemini")
+	}
+}
+
+func TestStreamingExecutor_WithStreamProvider(t *testing.T) {
+	t.Parallel()
+
+	t.Run("defaults to Claude provider", func(t *testing.T) {
+		executor := NewStreamingExecutor(ActivityOptions{
+			Callback:  func(_ ActivityEvent) {},
+			Verbosity: VerbosityHigh,
+		})
+
+		if executor.provider != StreamProviderClaude {
+			t.Errorf("Default provider = %q, want %q", executor.provider, StreamProviderClaude)
+		}
+	})
+
+	t.Run("can set Gemini provider", func(t *testing.T) {
+		executor := NewStreamingExecutor(ActivityOptions{
+			Callback:  func(_ ActivityEvent) {},
+			Verbosity: VerbosityHigh,
+		}, WithStreamProvider(StreamProviderGemini))
+
+		if executor.provider != StreamProviderGemini {
+			t.Errorf("Provider = %q, want %q", executor.provider, StreamProviderGemini)
+		}
+	})
+}

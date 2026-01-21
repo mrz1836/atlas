@@ -257,6 +257,240 @@ func TestValidate_InvalidValues(t *testing.T) {
 	}
 }
 
+func TestDefaultConfig_HasOperationsConfig(t *testing.T) {
+	cfg := DefaultConfig()
+
+	// Verify operations defaults are set
+	assert.Equal(t, "claude", cfg.Operations.Analyze.Agent)
+	assert.Equal(t, "opus", cfg.Operations.Analyze.Model)
+	assert.Equal(t, 20*time.Minute, cfg.Operations.Analyze.Timeout)
+	assert.Equal(t, "plan", cfg.Operations.Analyze.PermissionMode)
+
+	assert.Equal(t, "claude", cfg.Operations.Implement.Agent)
+	assert.Equal(t, "sonnet", cfg.Operations.Implement.Model)
+	assert.Equal(t, 30*time.Minute, cfg.Operations.Implement.Timeout)
+
+	assert.Equal(t, "gemini", cfg.Operations.Verify.Agent)
+	assert.Equal(t, "flash", cfg.Operations.Verify.Model)
+	assert.Equal(t, 5*time.Minute, cfg.Operations.Verify.Timeout)
+	assert.Equal(t, "plan", cfg.Operations.Verify.PermissionMode)
+
+	assert.Equal(t, "claude", cfg.Operations.ValidationRetry.Agent)
+	assert.Equal(t, "sonnet", cfg.Operations.ValidationRetry.Model)
+	assert.Equal(t, 15*time.Minute, cfg.Operations.ValidationRetry.Timeout)
+	assert.Equal(t, 3, cfg.Operations.ValidationRetry.MaxAttempts)
+
+	assert.Equal(t, "claude", cfg.Operations.SDD.Agent)
+	assert.Equal(t, "opus", cfg.Operations.SDD.Model)
+	assert.Equal(t, 25*time.Minute, cfg.Operations.SDD.Timeout)
+
+	assert.Equal(t, "claude", cfg.Operations.CIFailure.Agent)
+	assert.Equal(t, "sonnet", cfg.Operations.CIFailure.Model)
+	assert.Equal(t, 10*time.Minute, cfg.Operations.CIFailure.Timeout)
+}
+
+func TestOperationsConfig_GetForStep(t *testing.T) {
+	cfg := DefaultOperationsConfig()
+
+	tests := []struct {
+		name          string
+		stepName      string
+		stepType      string
+		expectedAgent string
+		expectedModel string
+	}{
+		{
+			name:          "analyze step",
+			stepName:      "analyze",
+			stepType:      "ai",
+			expectedAgent: "claude",
+			expectedModel: "opus",
+		},
+		{
+			name:          "implement step",
+			stepName:      "implement",
+			stepType:      "ai",
+			expectedAgent: "claude",
+			expectedModel: "sonnet",
+		},
+		{
+			name:          "verify step by name",
+			stepName:      "verify",
+			stepType:      "ai",
+			expectedAgent: "gemini",
+			expectedModel: "flash",
+		},
+		{
+			name:          "verify step by type",
+			stepName:      "custom_verify",
+			stepType:      "verify",
+			expectedAgent: "gemini",
+			expectedModel: "flash",
+		},
+		{
+			name:          "validation_retry step",
+			stepName:      "validation_retry",
+			stepType:      "ai",
+			expectedAgent: "claude",
+			expectedModel: "sonnet",
+		},
+		{
+			name:          "ci_failure step",
+			stepName:      "ci_failure",
+			stepType:      "ai",
+			expectedAgent: "claude",
+			expectedModel: "sonnet",
+		},
+		{
+			name:          "sdd step by type",
+			stepName:      "custom_sdd",
+			stepType:      "sdd",
+			expectedAgent: "claude",
+			expectedModel: "opus",
+		},
+		{
+			name:          "sdd-specify step",
+			stepName:      "sdd-specify",
+			stepType:      "ai",
+			expectedAgent: "claude",
+			expectedModel: "opus",
+		},
+		{
+			name:          "sdd-implement step",
+			stepName:      "sdd-implement",
+			stepType:      "ai",
+			expectedAgent: "claude",
+			expectedModel: "opus",
+		},
+		{
+			name:          "unknown step returns empty",
+			stepName:      "unknown",
+			stepType:      "unknown",
+			expectedAgent: "",
+			expectedModel: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			opConfig := cfg.GetForStep(tt.stepName, tt.stepType)
+			assert.Equal(t, tt.expectedAgent, opConfig.Agent)
+			assert.Equal(t, tt.expectedModel, opConfig.Model)
+		})
+	}
+}
+
+func TestOperationAIConfig_IsEmpty(t *testing.T) {
+	tests := []struct {
+		name     string
+		config   OperationAIConfig
+		expected bool
+	}{
+		{
+			name:     "completely empty",
+			config:   OperationAIConfig{},
+			expected: true,
+		},
+		{
+			name:     "only agent set",
+			config:   OperationAIConfig{Agent: "claude"},
+			expected: false,
+		},
+		{
+			name:     "only model set",
+			config:   OperationAIConfig{Model: "sonnet"},
+			expected: false,
+		},
+		{
+			name:     "only timeout set",
+			config:   OperationAIConfig{Timeout: 5 * time.Minute},
+			expected: false,
+		},
+		{
+			name:     "only permission_mode set",
+			config:   OperationAIConfig{PermissionMode: "plan"},
+			expected: false,
+		},
+		{
+			name:     "only max_attempts set",
+			config:   OperationAIConfig{MaxAttempts: 3},
+			expected: false,
+		},
+		{
+			name: "fully populated",
+			config: OperationAIConfig{
+				Agent:          "claude",
+				Model:          "sonnet",
+				Timeout:        30 * time.Minute,
+				PermissionMode: "default",
+				MaxAttempts:    5,
+			},
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, tt.config.IsEmpty())
+		})
+	}
+}
+
+func TestOperationsConfig_YAMLSerialization(t *testing.T) {
+	original := OperationsConfig{
+		Analyze: OperationAIConfig{
+			Agent:          "claude",
+			Model:          "opus",
+			Timeout:        20 * time.Minute,
+			PermissionMode: "plan",
+		},
+		Implement: OperationAIConfig{
+			Agent:   "claude",
+			Model:   "sonnet",
+			Timeout: 30 * time.Minute,
+		},
+		Verify: OperationAIConfig{
+			Agent:          "gemini",
+			Model:          "flash",
+			Timeout:        5 * time.Minute,
+			PermissionMode: "plan",
+		},
+		ValidationRetry: OperationAIConfig{
+			Agent:       "claude",
+			Model:       "sonnet",
+			Timeout:     15 * time.Minute,
+			MaxAttempts: 3,
+		},
+		SDD: OperationAIConfig{
+			Agent:   "claude",
+			Model:   "opus",
+			Timeout: 25 * time.Minute,
+		},
+		CIFailure: OperationAIConfig{
+			Agent:   "claude",
+			Model:   "sonnet",
+			Timeout: 10 * time.Minute,
+		},
+	}
+
+	// Serialize to YAML
+	data, err := yaml.Marshal(original)
+	require.NoError(t, err, "should marshal to YAML")
+
+	// Deserialize back
+	var restored OperationsConfig
+	err = yaml.Unmarshal(data, &restored)
+	require.NoError(t, err, "should unmarshal from YAML")
+
+	// Verify all fields
+	assert.Equal(t, original.Analyze, restored.Analyze)
+	assert.Equal(t, original.Implement, restored.Implement)
+	assert.Equal(t, original.Verify, restored.Verify)
+	assert.Equal(t, original.ValidationRetry, restored.ValidationRetry)
+	assert.Equal(t, original.SDD, restored.SDD)
+	assert.Equal(t, original.CIFailure, restored.CIFailure)
+}
+
 func TestValidate_ValidConfig(t *testing.T) {
 	tests := []struct {
 		name   string
