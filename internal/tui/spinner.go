@@ -9,6 +9,18 @@ import (
 	"time"
 )
 
+// flushWriter attempts to flush the writer if it supports flushing.
+// This ensures escape sequences are sent immediately to the terminal,
+// preventing multi-line output when the terminal is in the background.
+func flushWriter(w io.Writer) {
+	type syncer interface {
+		Sync() error
+	}
+	if s, ok := w.(syncer); ok {
+		_ = s.Sync()
+	}
+}
+
 // spinnerFrames are the animation frames for the spinner.
 var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"} //nolint:gochecknoglobals // Package-level constant for spinner animation
 
@@ -137,6 +149,7 @@ func (s *TerminalSpinner) Stop() {
 	// This ensures any logs that come through after ClearActive()
 	// will write to an already-cleared line
 	_, _ = fmt.Fprint(s.w, "\r\033[K")
+	flushWriter(s.w)
 
 	// Now safe to mark as inactive
 	spinnerManager.ClearActive()
@@ -185,6 +198,7 @@ func (s *TerminalSpinner) animate(ctx context.Context, done <-chan struct{}) {
 			if wasRunning {
 				// Clear line BEFORE marking inactive
 				_, _ = fmt.Fprint(s.w, "\r\033[K")
+				flushWriter(s.w)
 				spinnerManager.ClearActive()
 			}
 			return
@@ -204,6 +218,7 @@ func (s *TerminalSpinner) animate(ctx context.Context, done <-chan struct{}) {
 			// Render spinner frame with message
 			spinnerFrame := s.styles.Info.Render(spinnerFrames[frame%len(spinnerFrames)])
 			_, _ = fmt.Fprintf(s.w, "\r\033[K%s %s", spinnerFrame, msg)
+			flushWriter(s.w)
 			s.mu.Unlock()
 
 			frame++
