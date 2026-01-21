@@ -925,9 +925,10 @@ func (m *LockRetryMockRunner) DiffStaged(_ context.Context) (string, error)     
 func (m *LockRetryMockRunner) BranchExists(_ context.Context, _ string) (bool, error) {
 	return false, nil
 }
-func (m *LockRetryMockRunner) Fetch(_ context.Context, _ string) error  { return nil }
-func (m *LockRetryMockRunner) Rebase(_ context.Context, _ string) error { return nil }
-func (m *LockRetryMockRunner) RebaseAbort(_ context.Context) error      { return nil }
+func (m *LockRetryMockRunner) Fetch(_ context.Context, _ string) error        { return nil }
+func (m *LockRetryMockRunner) Rebase(_ context.Context, _ string) error       { return nil }
+func (m *LockRetryMockRunner) RebaseAbort(_ context.Context) error            { return nil }
+func (m *LockRetryMockRunner) ResetFiles(_ context.Context, _ []string) error { return nil }
 
 // Compile-time interface check
 var _ Runner = (*LockRetryMockRunner)(nil)

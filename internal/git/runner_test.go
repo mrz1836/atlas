@@ -1172,3 +1172,201 @@ func TestCLIRunner_Add_EmptyPaths(t *testing.T) {
 		assert.True(t, status.HasStagedChanges())
 	})
 }
+
+// TestCLIRunner_ResetFiles tests the ResetFiles method.
+func TestCLIRunner_ResetFiles(t *testing.T) {
+	t.Run("unstage single file", func(t *testing.T) {
+		repoPath := setupTestRepo(t)
+		createFile(t, repoPath, "file1.txt", "content1")
+		createFile(t, repoPath, "file2.txt", "content2")
+		commitInitial(t, repoPath)
+
+		// Create and stage new files
+		createFile(t, repoPath, "newfile1.txt", "new1")
+		createFile(t, repoPath, "newfile2.txt", "new2")
+
+		runner, err := NewRunner(context.Background(), repoPath)
+		require.NoError(t, err)
+
+		// Stage both files
+		err = runner.Add(context.Background(), nil)
+		require.NoError(t, err)
+
+		// Verify both are staged
+		status, err := runner.Status(context.Background())
+		require.NoError(t, err)
+		assert.Len(t, status.Staged, 2)
+
+		// Unstage only newfile1.txt
+		err = runner.ResetFiles(context.Background(), []string{"newfile1.txt"})
+		require.NoError(t, err)
+
+		// Verify newfile1.txt is unstaged (untracked), newfile2.txt still staged
+		status, err = runner.Status(context.Background())
+		require.NoError(t, err)
+		assert.Len(t, status.Staged, 1)
+		assert.Equal(t, "newfile2.txt", status.Staged[0].Path)
+		assert.Contains(t, status.Untracked, "newfile1.txt")
+	})
+
+	t.Run("unstage multiple files", func(t *testing.T) {
+		repoPath := setupTestRepo(t)
+		createFile(t, repoPath, "initial.txt", "initial")
+		commitInitial(t, repoPath)
+
+		// Create and stage multiple new files
+		createFile(t, repoPath, "garbage1.txt", "garbage1")
+		createFile(t, repoPath, "garbage2.txt", "garbage2")
+		createFile(t, repoPath, "keep.txt", "keep")
+
+		runner, err := NewRunner(context.Background(), repoPath)
+		require.NoError(t, err)
+
+		// Stage all files
+		err = runner.Add(context.Background(), nil)
+		require.NoError(t, err)
+
+		// Unstage the garbage files
+		err = runner.ResetFiles(context.Background(), []string{"garbage1.txt", "garbage2.txt"})
+		require.NoError(t, err)
+
+		// Verify only keep.txt is staged
+		status, err := runner.Status(context.Background())
+		require.NoError(t, err)
+		assert.Len(t, status.Staged, 1)
+		assert.Equal(t, "keep.txt", status.Staged[0].Path)
+		assert.Contains(t, status.Untracked, "garbage1.txt")
+		assert.Contains(t, status.Untracked, "garbage2.txt")
+	})
+
+	t.Run("empty paths does nothing", func(t *testing.T) {
+		repoPath := setupTestRepo(t)
+		createFile(t, repoPath, "file.txt", "content")
+		commitInitial(t, repoPath)
+
+		createFile(t, repoPath, "newfile.txt", "new")
+
+		runner, err := NewRunner(context.Background(), repoPath)
+		require.NoError(t, err)
+
+		err = runner.Add(context.Background(), nil)
+		require.NoError(t, err)
+
+		// Empty paths should be a no-op
+		err = runner.ResetFiles(context.Background(), []string{})
+		require.NoError(t, err)
+
+		// File should still be staged
+		status, err := runner.Status(context.Background())
+		require.NoError(t, err)
+		assert.Len(t, status.Staged, 1)
+	})
+
+	t.Run("nil paths does nothing", func(t *testing.T) {
+		repoPath := setupTestRepo(t)
+		createFile(t, repoPath, "file.txt", "content")
+		commitInitial(t, repoPath)
+
+		createFile(t, repoPath, "newfile.txt", "new")
+
+		runner, err := NewRunner(context.Background(), repoPath)
+		require.NoError(t, err)
+
+		err = runner.Add(context.Background(), nil)
+		require.NoError(t, err)
+
+		// Nil paths should be a no-op
+		err = runner.ResetFiles(context.Background(), nil)
+		require.NoError(t, err)
+
+		// File should still be staged
+		status, err := runner.Status(context.Background())
+		require.NoError(t, err)
+		assert.Len(t, status.Staged, 1)
+	})
+
+	t.Run("unstage modified file", func(t *testing.T) {
+		repoPath := setupTestRepo(t)
+		createFile(t, repoPath, "file.txt", "initial content")
+		commitInitial(t, repoPath)
+
+		// Modify and stage the file
+		createFile(t, repoPath, "file.txt", "modified content")
+
+		runner, err := NewRunner(context.Background(), repoPath)
+		require.NoError(t, err)
+
+		err = runner.Add(context.Background(), []string{"file.txt"})
+		require.NoError(t, err)
+
+		// Verify it's staged
+		status, err := runner.Status(context.Background())
+		require.NoError(t, err)
+		assert.Len(t, status.Staged, 1)
+
+		// Unstage it
+		err = runner.ResetFiles(context.Background(), []string{"file.txt"})
+		require.NoError(t, err)
+
+		// Should now be unstaged (modified in working tree)
+		status, err = runner.Status(context.Background())
+		require.NoError(t, err)
+		assert.Empty(t, status.Staged)
+		assert.Len(t, status.Unstaged, 1)
+	})
+
+	t.Run("unstage file in subdirectory", func(t *testing.T) {
+		repoPath := setupTestRepo(t)
+		createFile(t, repoPath, "initial.txt", "initial")
+		commitInitial(t, repoPath)
+
+		// Create subdirectory and file
+		subdir := filepath.Join(repoPath, "internal", "garbage")
+		require.NoError(t, os.MkdirAll(subdir, 0o750))
+		garbageFile := filepath.Join(subdir, ".env")
+		require.NoError(t, os.WriteFile(garbageFile, []byte("SECRET=value"), 0o600))
+
+		runner, err := NewRunner(context.Background(), repoPath)
+		require.NoError(t, err)
+
+		// Stage all
+		err = runner.Add(context.Background(), nil)
+		require.NoError(t, err)
+
+		// Unstage the garbage file by path
+		err = runner.ResetFiles(context.Background(), []string{"internal/garbage/.env"})
+		require.NoError(t, err)
+
+		// Verify it's unstaged
+		status, err := runner.Status(context.Background())
+		require.NoError(t, err)
+		assert.Empty(t, status.Staged)
+		assert.Contains(t, status.Untracked, "internal/garbage/.env")
+	})
+
+	t.Run("context cancellation", func(t *testing.T) {
+		repoPath := setupTestRepo(t)
+		runner, err := NewRunner(context.Background(), repoPath)
+		require.NoError(t, err)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		err = runner.ResetFiles(ctx, []string{"file.txt"})
+		assert.ErrorIs(t, err, context.Canceled)
+	})
+
+	t.Run("non-existent file in staging is no-op", func(t *testing.T) {
+		repoPath := setupTestRepo(t)
+		createFile(t, repoPath, "initial.txt", "initial")
+		commitInitial(t, repoPath)
+
+		runner, err := NewRunner(context.Background(), repoPath)
+		require.NoError(t, err)
+
+		// git reset -- nonexistent.txt doesn't error if file doesn't exist in staging
+		// This is expected behavior - it's a no-op for files not in the index
+		err = runner.ResetFiles(context.Background(), []string{"nonexistent.txt"})
+		require.NoError(t, err)
+	})
+}

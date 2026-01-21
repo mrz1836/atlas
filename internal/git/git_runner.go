@@ -289,6 +289,30 @@ func (r *CLIRunner) Reset(ctx context.Context) error {
 	return nil
 }
 
+// ResetFiles unstages specific files (git reset -- path1 path2 ...).
+// This is used to remove garbage files from staging before commit.
+func (r *CLIRunner) ResetFiles(ctx context.Context, paths []string) error {
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return err
+	}
+
+	if len(paths) == 0 {
+		return nil
+	}
+
+	// Proactively clean up stale lock files
+	r.cleanupStaleLocks(ctx)
+
+	// Build args: git reset -- path1 path2 ...
+	args := append([]string{"reset", "--"}, paths...)
+	_, err := r.runGitCommand(ctx, args...)
+	if err != nil {
+		return fmt.Errorf("failed to unstage files: %w", err)
+	}
+
+	return nil
+}
+
 // diff is the internal implementation for diff operations.
 func (r *CLIRunner) diff(ctx context.Context, cached bool) (string, error) {
 	if err := ctxutil.Canceled(ctx); err != nil {

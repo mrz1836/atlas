@@ -52,6 +52,7 @@ type MockRunner struct {
 	RebaseFunc        func(ctx context.Context, onto string) error
 	RebaseAbortFunc   func(ctx context.Context) error
 	ResetFunc         func(ctx context.Context) error
+	ResetFilesFunc    func(ctx context.Context, paths []string) error
 }
 
 func (m *MockRunner) Push(ctx context.Context, remote, branch string, setUpstream bool) error {
@@ -134,6 +135,13 @@ func (m *MockRunner) RebaseAbort(ctx context.Context) error {
 func (m *MockRunner) Reset(ctx context.Context) error {
 	if m.ResetFunc != nil {
 		return m.ResetFunc(ctx)
+	}
+	return nil
+}
+
+func (m *MockRunner) ResetFiles(ctx context.Context, paths []string) error {
+	if m.ResetFilesFunc != nil {
+		return m.ResetFilesFunc(ctx, paths)
 	}
 	return nil
 }

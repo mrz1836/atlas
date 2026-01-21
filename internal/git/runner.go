@@ -50,4 +50,8 @@ type Runner interface {
 
 	// Reset unstages all staged changes (git reset HEAD).
 	Reset(ctx context.Context) error
+
+	// ResetFiles unstages specific files (git reset -- path1 path2 ...).
+	// This is used to remove garbage files from staging before commit.
+	ResetFiles(ctx context.Context, paths []string) error
 }
