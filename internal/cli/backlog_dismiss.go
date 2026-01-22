@@ -5,11 +5,10 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/spf13/cobra"
-
 	"github.com/mrz1836/atlas/internal/backlog"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 	"github.com/mrz1836/atlas/internal/tui"
+	"github.com/spf13/cobra"
 )
 
 // backlogDismissFlags holds the flags for the dismiss command.

@@ -13,6 +13,26 @@ import (
 	"golang.org/x/term"
 )
 
+// safeWriter wraps an io.Writer with mutex protection for concurrent access.
+// This is necessary when the same writer is used by multiple goroutines,
+// such as a spinner animation and command output streaming.
+type safeWriter struct {
+	mu sync.Mutex
+	w  io.Writer
+}
+
+// newSafeWriter creates a mutex-protected writer wrapper.
+func newSafeWriter(w io.Writer) *safeWriter {
+	return &safeWriter{w: w}
+}
+
+// Write implements io.Writer with mutex protection.
+func (sw *safeWriter) Write(p []byte) (n int, err error) {
+	sw.mu.Lock()
+	defer sw.mu.Unlock()
+	return sw.w.Write(p)
+}
+
 // flushWriter attempts to flush the writer if it supports flushing.
 // This ensures escape sequences are sent immediately to the terminal,
 // preventing multi-line output when the terminal is in the background.
@@ -84,7 +104,7 @@ func GlobalSpinnerManager() *SpinnerManager {
 // TerminalSpinner provides animated progress indication for terminal output.
 // This is the concrete implementation of spinner functionality.
 type TerminalSpinner struct {
-	w       io.Writer
+	w       *safeWriter // Thread-safe writer wrapper
 	styles  *OutputStyles
 	message string
 	started time.Time
@@ -99,12 +119,21 @@ type TerminalSpinner struct {
 }
 
 // NewTerminalSpinner creates a new spinner that writes to w.
+// The writer is wrapped with mutex protection to prevent race conditions
+// when multiple goroutines write to it concurrently.
 func NewTerminalSpinner(w io.Writer) *TerminalSpinner {
 	return &TerminalSpinner{
-		w:                w,
+		w:                newSafeWriter(w),
 		styles:           NewOutputStyles(),
 		throttleInterval: SpinnerMessageThrottle,
 	}
+}
+
+// Writer returns the thread-safe writer used by this spinner.
+// This allows other components (like command executors) to write to the same
+// output stream safely without race conditions.
+func (s *TerminalSpinner) Writer() io.Writer {
+	return s.w
 }
 
 // Start begins the spinner animation with the given message.
@@ -254,10 +283,11 @@ func (s *TerminalSpinner) animate(ctx context.Context, done <-chan struct{}) {
 			if maxMsgLen > 0 {
 				msg = truncateToWidth(msg, maxMsgLen)
 			}
+			s.mu.Unlock()
 
+			// Write to output (protected by safeWriter)
 			_, _ = fmt.Fprintf(s.w, "\r\033[K%s %s", spinnerFrame, msg)
 			flushWriter(s.w)
-			s.mu.Unlock()
 
 			frame++
 		}

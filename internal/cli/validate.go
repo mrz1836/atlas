@@ -7,13 +7,12 @@ import (
 	"io"
 	"os"
 
-	"github.com/spf13/cobra"
-
 	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/errors"
 	"github.com/mrz1836/atlas/internal/tui"
 	"github.com/mrz1836/atlas/internal/validation"
+	"github.com/spf13/cobra"
 )
 
 // AddValidateCommand adds the validate command to the root command.
@@ -80,9 +79,14 @@ func runValidate(ctx context.Context, cmd *cobra.Command, w io.Writer) error {
 	// Create executor and runner
 	executor := validation.NewExecutor(cfg.Validation.Timeout)
 
+	// Create spinner for progress indication (only for TTY output)
+	// The spinner wraps the writer with mutex protection for thread safety
+	spinner := tui.NewTerminalSpinner(w)
+
 	// Enable live output streaming in verbose mode
+	// Use the spinner's writer to ensure thread-safe access to the output
 	if verbose {
-		executor.SetLiveOutput(w)
+		executor.SetLiveOutput(spinner.Writer())
 	}
 
 	runnerConfig := &validation.RunnerConfig{
@@ -92,9 +96,6 @@ func runValidate(ctx context.Context, cmd *cobra.Command, w io.Writer) error {
 		PreCommitCommands: cfg.Validation.Commands.PreCommit,
 	}
 	runner := validation.NewRunner(executor, runnerConfig)
-
-	// Create spinner for progress indication (only for TTY output)
-	spinner := tui.NewTerminalSpinner(w)
 
 	// Set up progress callback for TUI output
 	runner.SetProgressCallback(func(step, status string, info *validation.ProgressInfo) {
