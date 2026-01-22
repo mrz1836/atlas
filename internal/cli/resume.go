@@ -130,8 +130,8 @@ func runResume(ctx context.Context, cmd *cobra.Command, w io.Writer, workspaceNa
 		return err
 	}
 
-	// Create engine
-	engine, err := createResumeEngine(ctx, ws, taskStore, currentTask, logger, out) //nolint:contextcheck // ctx inherits from parent via signal.NewHandler
+	// Create engine and get progress state for process termination
+	engine, state, err := createResumeEngine(ctx, ws, taskStore, currentTask, logger, out) //nolint:contextcheck // ctx inherits from parent via signal.NewHandler
 	if err != nil {
 		return handleResumeError(outputFormat, w, workspaceName, currentTask.ID, err)
 	}
@@ -144,7 +144,7 @@ func runResume(ctx context.Context, cmd *cobra.Command, w io.Writer, workspaceNa
 		if opts.menu {
 			// User explicitly wants the recovery menu
 			//nolint:contextcheck // context properly propagated through function calls
-			return handleRecoveryMenu(ctx, cmd, out, taskStore, ws, currentTask, engine, tmpl, sigHandler, wsStore, outputFormat, w, workspaceName, logger)
+			return handleRecoveryMenu(ctx, cmd, out, taskStore, ws, currentTask, engine, tmpl, state, sigHandler, wsStore, outputFormat, w, workspaceName, logger)
 		}
 		// Direct resume for interrupted tasks
 		displayResumeInfo(out, workspaceName, currentTask)
@@ -153,7 +153,7 @@ func runResume(ctx context.Context, cmd *cobra.Command, w io.Writer, workspaceNa
 		}
 		currentTask.Metadata["worktree_dir"] = ws.WorktreePath
 		//nolint:contextcheck // context properly propagated through function calls
-		return executeResumeAndHandleResult(ctx, engine, currentTask, tmpl, sigHandler, out, ws, wsStore, outputFormat, w, workspaceName, logger)
+		return executeResumeAndHandleResult(ctx, engine, currentTask, tmpl, state, sigHandler, out, ws, wsStore, outputFormat, w, workspaceName, logger)
 
 	case constants.TaskStatusValidationFailed,
 		constants.TaskStatusGHFailed,
@@ -168,11 +168,11 @@ func runResume(ctx context.Context, cmd *cobra.Command, w io.Writer, workspaceNa
 			}
 			currentTask.Metadata["worktree_dir"] = ws.WorktreePath
 			//nolint:contextcheck // context properly propagated through function calls
-			return executeResumeAndHandleResult(ctx, engine, currentTask, tmpl, sigHandler, out, ws, wsStore, outputFormat, w, workspaceName, logger)
+			return executeResumeAndHandleResult(ctx, engine, currentTask, tmpl, state, sigHandler, out, ws, wsStore, outputFormat, w, workspaceName, logger)
 		}
 		// Show interactive recovery menu with auto-execution
 		//nolint:contextcheck // context properly propagated through function calls
-		return handleRecoveryMenu(ctx, cmd, out, taskStore, ws, currentTask, engine, tmpl, sigHandler, wsStore, outputFormat, w, workspaceName, logger)
+		return handleRecoveryMenu(ctx, cmd, out, taskStore, ws, currentTask, engine, tmpl, state, sigHandler, wsStore, outputFormat, w, workspaceName, logger)
 
 	case constants.TaskStatusAwaitingApproval:
 		// Existing approval flow
@@ -182,7 +182,7 @@ func runResume(ctx context.Context, cmd *cobra.Command, w io.Writer, workspaceNa
 		}
 		currentTask.Metadata["worktree_dir"] = ws.WorktreePath
 		//nolint:contextcheck // context properly propagated through function calls
-		return executeResumeAndHandleResult(ctx, engine, currentTask, tmpl, sigHandler, out, ws, wsStore, outputFormat, w, workspaceName, logger)
+		return executeResumeAndHandleResult(ctx, engine, currentTask, tmpl, state, sigHandler, out, ws, wsStore, outputFormat, w, workspaceName, logger)
 
 	default:
 		return handleResumeError(outputFormat, w, workspaceName, currentTask.ID,
@@ -266,13 +266,14 @@ func prepareResumeTemplate(currentTask *domain.Task, opts resumeOptions, outputF
 }
 
 // executeResumeAndHandleResult executes the resume and handles the result/interruption.
-func executeResumeAndHandleResult(ctx context.Context, engine *task.Engine, currentTask *domain.Task, tmpl *domain.Template, sigHandler *signal.Handler, out tui.Output, ws *domain.Workspace, wsStore workspace.Store, outputFormat string, w io.Writer, workspaceName string, logger zerolog.Logger) error {
+// The state parameter contains the AI runner for process termination on interrupt.
+func executeResumeAndHandleResult(ctx context.Context, engine *task.Engine, currentTask *domain.Task, tmpl *domain.Template, state *progressState, sigHandler *signal.Handler, out tui.Output, ws *domain.Workspace, wsStore workspace.Store, outputFormat string, w io.Writer, workspaceName string, logger zerolog.Logger) error {
 	// Resume task execution
 	if err := engine.Resume(ctx, currentTask, tmpl); err != nil {
 		// Check if we were interrupted by Ctrl+C
 		select {
 		case <-sigHandler.Interrupted():
-			return handleResumeInterruption(ctx, out, ws, currentTask, wsStore, logger)
+			return handleResumeInterruption(ctx, out, ws, currentTask, state, wsStore, logger)
 		default:
 		}
 
@@ -285,7 +286,7 @@ func executeResumeAndHandleResult(ctx context.Context, engine *task.Engine, curr
 	// Check if we were interrupted by Ctrl+C (even if no error)
 	select {
 	case <-sigHandler.Interrupted():
-		return handleResumeInterruption(ctx, out, ws, currentTask, wsStore, logger)
+		return handleResumeInterruption(ctx, out, ws, currentTask, state, wsStore, logger)
 	default:
 	}
 
@@ -350,7 +351,8 @@ func displayResumeResult(out tui.Output, ws *domain.Workspace, t *domain.Task, e
 }
 
 // createResumeEngine creates the task engine with all required dependencies.
-func createResumeEngine(ctx context.Context, ws *domain.Workspace, taskStore *task.FileStore, currentTask *domain.Task, logger zerolog.Logger, out tui.Output) (*task.Engine, error) {
+// Returns the engine and a progressState containing the AI runner for process termination.
+func createResumeEngine(ctx context.Context, ws *domain.Workspace, taskStore *task.FileStore, currentTask *domain.Task, logger zerolog.Logger, out tui.Output) (*task.Engine, *progressState, error) {
 	cfg, err := config.Load(ctx)
 	if err != nil {
 		logger.Warn().Err(err).Msg("failed to load config, using default notification settings")
@@ -379,9 +381,12 @@ func createResumeEngine(ctx context.Context, ws *domain.Workspace, taskStore *ta
 	// Create AI runner with activity streaming
 	aiRunner := services.CreateAIRunnerWithActivity(cfg, activityOpts)
 
+	// Store runner in state for termination on interrupt
+	state.aiRunner = aiRunner
+
 	gitRunner, err := git.NewRunner(ctx, ws.WorktreePath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create git runner: %w", err)
+		return nil, nil, fmt.Errorf("failed to create git runner: %w", err)
 	}
 
 	// Create git stats provider for live status display
@@ -467,19 +472,23 @@ func createResumeEngine(ctx context.Context, ws *domain.Workspace, taskStore *ta
 		engineOpts = append(engineOpts, task.WithHookManager(hookManager))
 	}
 
-	return task.NewEngine(taskStore, execRegistry, engineCfg, logger, engineOpts...), nil
+	return task.NewEngine(taskStore, execRegistry, engineCfg, logger, engineOpts...), state, nil
 }
 
 // handleResumeInterruption handles graceful shutdown when user presses Ctrl+C during resume.
 // It saves the task and workspace state so the user can resume later.
+// The state parameter contains the AI runner for process termination.
 // The wsStore parameter allows dependency injection for testing - pass nil to skip persistence.
-func handleResumeInterruption(ctx context.Context, out tui.Output, ws *domain.Workspace, t *domain.Task, wsStore workspace.Store, logger zerolog.Logger) error {
+func handleResumeInterruption(ctx context.Context, out tui.Output, ws *domain.Workspace, t *domain.Task, state *progressState, wsStore workspace.Store, logger zerolog.Logger) error {
 	logger.Info().
 		Str("workspace_name", ws.Name).
 		Str("task_id", t.ID).
 		Msg("received interrupt signal during resume, initiating graceful shutdown")
 
 	out.Warning("\n⚠ Interrupt received - saving state...")
+
+	// Terminate any running AI process first to prevent orphaned processes
+	terminateAIProcess(state, logger)
 
 	// Use a context without cancellation for cleanup since the original is canceled
 	cleanupCtx := context.WithoutCancel(ctx)
@@ -760,7 +769,8 @@ func showRecoveryContextAndPrompt(ctx context.Context, t *domain.Task, out tui.O
 }
 
 // handleRecoveryMenu shows the interactive recovery menu and executes the chosen action with auto-resume.
-func handleRecoveryMenu(ctx context.Context, _ *cobra.Command, out tui.Output, taskStore *task.FileStore, ws *domain.Workspace, t *domain.Task, engine *task.Engine, tmpl *domain.Template, sigHandler *signal.Handler, wsStore workspace.Store, outputFormat string, w io.Writer, workspaceName string, logger zerolog.Logger) error {
+// The state parameter contains the AI runner for process termination on interrupt.
+func handleRecoveryMenu(ctx context.Context, _ *cobra.Command, out tui.Output, taskStore *task.FileStore, ws *domain.Workspace, t *domain.Task, engine *task.Engine, tmpl *domain.Template, state *progressState, sigHandler *signal.Handler, wsStore workspace.Store, outputFormat string, w io.Writer, workspaceName string, logger zerolog.Logger) error {
 	// Load config for notification settings
 	cfg, err := config.Load(ctx)
 	if err != nil {
@@ -799,7 +809,7 @@ func handleRecoveryMenu(ctx context.Context, _ *cobra.Command, out tui.Output, t
 
 				// Auto-resume execution
 				out.Info("Auto-resuming task execution...")
-				return executeResumeAndHandleResult(ctx, engine, t, tmpl, sigHandler, out, ws, wsStore, outputFormat, w, workspaceName, logger)
+				return executeResumeAndHandleResult(ctx, engine, t, tmpl, state, sigHandler, out, ws, wsStore, outputFormat, w, workspaceName, logger)
 			}
 			return nil
 		}
