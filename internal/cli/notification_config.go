@@ -90,6 +90,17 @@ func NewNotificationConfigForm(cfg *NotificationProviderConfig) *huh.Form {
 	).WithTheme(tui.AtlasTheme())
 }
 
+// formRunner is an interface that matches huh.Form's Run method.
+// This is defined in abandon.go but repeated here for clarity.
+
+//nolint:gochecknoglobals // Test injection point - standard Go testing pattern
+var createNotificationConfigForm = defaultCreateNotificationConfigForm
+
+// defaultCreateNotificationConfigForm is the production implementation.
+func defaultCreateNotificationConfigForm(cfg *NotificationProviderConfig) formRunner {
+	return NewNotificationConfigForm(cfg)
+}
+
 // CollectNotificationConfigInteractive runs the notification configuration form and returns the collected config.
 // It validates all inputs and handles form errors.
 func CollectNotificationConfigInteractive(ctx context.Context, cfg *NotificationProviderConfig) error {
@@ -108,7 +119,7 @@ func CollectNotificationConfigInteractive(ctx context.Context, cfg *Notification
 		cfg.Events = defaults.Events
 	}
 
-	form := NewNotificationConfigForm(cfg)
+	form := createNotificationConfigForm(cfg)
 	if err := form.Run(); err != nil {
 		return err
 	}
