@@ -25,14 +25,21 @@ func TestStats_FormatCompact(t *testing.T) {
 			stats: &Stats{
 				NewFiles: 3,
 			},
-			expected: "3N",
+			expected: "📄 3",
 		},
 		{
 			name: "only modified files",
 			stats: &Stats{
 				ModifiedFiles: 5,
 			},
-			expected: "5M",
+			expected: "✏️ 5",
+		},
+		{
+			name: "only deleted files",
+			stats: &Stats{
+				DeletedFiles: 2,
+			},
+			expected: "🗑️ 2",
 		},
 		{
 			name: "both new and modified files",
@@ -40,7 +47,16 @@ func TestStats_FormatCompact(t *testing.T) {
 				NewFiles:      2,
 				ModifiedFiles: 3,
 			},
-			expected: "2N 3M",
+			expected: "📄 2  ✏️ 3",
+		},
+		{
+			name: "new modified and deleted files",
+			stats: &Stats{
+				NewFiles:      1,
+				ModifiedFiles: 2,
+				DeletedFiles:  3,
+			},
+			expected: "📄 1  ✏️ 2  🗑️ 3",
 		},
 		{
 			name: "only line counts",
@@ -57,7 +73,7 @@ func TestStats_FormatCompact(t *testing.T) {
 				Additions:     120,
 				Deletions:     45,
 			},
-			expected: "3M +120/-45",
+			expected: "✏️ 3  +120/-45",
 		},
 		{
 			name: "full stats",
@@ -67,7 +83,18 @@ func TestStats_FormatCompact(t *testing.T) {
 				Additions:     200,
 				Deletions:     100,
 			},
-			expected: "1N 2M +200/-100",
+			expected: "📄 1  ✏️ 2  +200/-100",
+		},
+		{
+			name: "full stats with deleted",
+			stats: &Stats{
+				NewFiles:      1,
+				ModifiedFiles: 2,
+				DeletedFiles:  3,
+				Additions:     200,
+				Deletions:     100,
+			},
+			expected: "📄 1  ✏️ 2  🗑️ 3  +200/-100",
 		},
 		{
 			name: "zero deletions",
@@ -76,7 +103,7 @@ func TestStats_FormatCompact(t *testing.T) {
 				Additions:     50,
 				Deletions:     0,
 			},
-			expected: "1M +50/-0",
+			expected: "✏️ 1  +50/-0",
 		},
 	}
 
@@ -121,6 +148,13 @@ func TestStats_IsEmpty(t *testing.T) {
 			expected: false,
 		},
 		{
+			name: "has deleted files",
+			stats: &Stats{
+				DeletedFiles: 1,
+			},
+			expected: false,
+		},
+		{
 			name: "has additions",
 			stats: &Stats{
 				Additions: 10,
@@ -152,65 +186,98 @@ func TestParseStatusForCounts(t *testing.T) {
 		output           string
 		expectedNew      int
 		expectedModified int
+		expectedDeleted  int
 	}{
 		{
 			name:             "empty output",
 			output:           "",
 			expectedNew:      0,
 			expectedModified: 0,
+			expectedDeleted:  0,
 		},
 		{
 			name:             "untracked files",
 			output:           "?? file1.txt\n?? file2.txt\n?? dir/file3.txt",
 			expectedNew:      3,
 			expectedModified: 0,
+			expectedDeleted:  0,
 		},
 		{
 			name:             "staged new file",
 			output:           "A  newfile.go",
 			expectedNew:      1,
 			expectedModified: 0,
+			expectedDeleted:  0,
 		},
 		{
 			name:             "modified files",
 			output:           " M file1.go\nM  file2.go\nMM file3.go",
 			expectedNew:      0,
 			expectedModified: 3,
+			expectedDeleted:  0,
 		},
 		{
 			name:             "renamed file",
 			output:           "R  old.go -> new.go",
 			expectedNew:      0,
 			expectedModified: 1,
+			expectedDeleted:  0,
 		},
 		{
-			name:             "deleted file",
+			name:             "deleted file unstaged",
 			output:           " D deleted.go",
 			expectedNew:      0,
-			expectedModified: 1,
+			expectedModified: 0,
+			expectedDeleted:  1,
+		},
+		{
+			name:             "deleted file staged",
+			output:           "D  deleted.go",
+			expectedNew:      0,
+			expectedModified: 0,
+			expectedDeleted:  1,
+		},
+		{
+			name:             "multiple deleted files",
+			output:           "D  file1.go\n D file2.go\nD  file3.go",
+			expectedNew:      0,
+			expectedModified: 0,
+			expectedDeleted:  3,
 		},
 		{
 			name:             "mixed status",
 			output:           "## main...origin/main\n?? untracked.txt\nA  staged_new.go\n M modified.go\nD  deleted.go",
 			expectedNew:      2,
+			expectedModified: 1,
+			expectedDeleted:  1,
+		},
+		{
+			name:             "all file types",
+			output:           "?? new.txt\nA  added.go\n M modified.go\nD  deleted.go\nR  old.go -> renamed.go",
+			expectedNew:      2,
 			expectedModified: 2,
+			expectedDeleted:  1,
 		},
 		{
 			name:             "branch line only",
 			output:           "## main...origin/main [ahead 1]",
 			expectedNew:      0,
 			expectedModified: 0,
+			expectedDeleted:  0,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			newFiles, modifiedFiles := parseStatusForCounts(tt.output)
+			newFiles, modifiedFiles, deletedFiles := parseStatusForCounts(tt.output)
 			if newFiles != tt.expectedNew {
 				t.Errorf("parseStatusForCounts() newFiles = %d, want %d", newFiles, tt.expectedNew)
 			}
 			if modifiedFiles != tt.expectedModified {
 				t.Errorf("parseStatusForCounts() modifiedFiles = %d, want %d", modifiedFiles, tt.expectedModified)
+			}
+			if deletedFiles != tt.expectedDeleted {
+				t.Errorf("parseStatusForCounts() deletedFiles = %d, want %d", deletedFiles, tt.expectedDeleted)
 			}
 		})
 	}

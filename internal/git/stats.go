@@ -4,6 +4,7 @@ package git
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"strings"
 	"sync"
@@ -14,11 +15,12 @@ import (
 type Stats struct {
 	NewFiles      int // Number of new/untracked files
 	ModifiedFiles int // Number of modified files
+	DeletedFiles  int // Number of deleted files
 	Additions     int // Lines added
 	Deletions     int // Lines deleted
 }
 
-// FormatCompact returns a compact format like "3M +120/-45" for spinner display.
+// FormatCompact returns a compact format like "📄 1  ✏️ 3  +120/-45" for spinner display.
 // Returns empty string if there are no changes.
 func (s *Stats) FormatCompact() string {
 	if s == nil {
@@ -27,16 +29,19 @@ func (s *Stats) FormatCompact() string {
 
 	var parts []string
 
-	// File count (new + modified)
-	fileCount := s.NewFiles + s.ModifiedFiles
-	if fileCount > 0 {
-		if s.NewFiles > 0 && s.ModifiedFiles > 0 {
-			parts = append(parts, strconv.Itoa(s.NewFiles)+"N "+strconv.Itoa(s.ModifiedFiles)+"M")
-		} else if s.NewFiles > 0 {
-			parts = append(parts, strconv.Itoa(s.NewFiles)+"N")
-		} else {
-			parts = append(parts, strconv.Itoa(s.ModifiedFiles)+"M")
-		}
+	// Build file parts with icons
+	var fileParts []string
+	if s.NewFiles > 0 {
+		fileParts = append(fileParts, fmt.Sprintf("📄 %d", s.NewFiles))
+	}
+	if s.ModifiedFiles > 0 {
+		fileParts = append(fileParts, fmt.Sprintf("✏️ %d", s.ModifiedFiles))
+	}
+	if s.DeletedFiles > 0 {
+		fileParts = append(fileParts, fmt.Sprintf("🗑️ %d", s.DeletedFiles))
+	}
+	if len(fileParts) > 0 {
+		parts = append(parts, strings.Join(fileParts, "  "))
 	}
 
 	// Line counts
@@ -47,7 +52,7 @@ func (s *Stats) FormatCompact() string {
 	if len(parts) == 0 {
 		return ""
 	}
-	return strings.Join(parts, " ")
+	return strings.Join(parts, "  ")
 }
 
 // IsEmpty returns true if there are no changes tracked.
@@ -55,7 +60,7 @@ func (s *Stats) IsEmpty() bool {
 	if s == nil {
 		return true
 	}
-	return s.NewFiles == 0 && s.ModifiedFiles == 0 && s.Additions == 0 && s.Deletions == 0
+	return s.NewFiles == 0 && s.ModifiedFiles == 0 && s.DeletedFiles == 0 && s.Additions == 0 && s.Deletions == 0
 }
 
 // StatsProvider calculates git stats with caching and debouncing.
@@ -123,7 +128,7 @@ func (p *StatsProvider) calculateStats(ctx context.Context) *Stats {
 	// Get status for file counts
 	statusOutput, err := RunCommand(ctx, p.workDir, "status", "--porcelain", "-uall")
 	if err == nil {
-		stats.NewFiles, stats.ModifiedFiles = parseStatusForCounts(statusOutput)
+		stats.NewFiles, stats.ModifiedFiles, stats.DeletedFiles = parseStatusForCounts(statusOutput)
 	}
 
 	// Get diff stats for line counts (both staged and unstaged)
@@ -138,10 +143,10 @@ func (p *StatsProvider) calculateStats(ctx context.Context) *Stats {
 	return stats
 }
 
-// parseStatusForCounts parses git status --porcelain output to count new and modified files.
-func parseStatusForCounts(output string) (newFiles, modifiedFiles int) {
+// parseStatusForCounts parses git status --porcelain output to count new, modified, and deleted files.
+func parseStatusForCounts(output string) (newFiles, modifiedFiles, deletedFiles int) {
 	if output == "" {
-		return 0, 0
+		return 0, 0, 0
 	}
 
 	lines := strings.Split(output, "\n")
@@ -169,15 +174,20 @@ func parseStatusForCounts(output string) (newFiles, modifiedFiles int) {
 			continue
 		}
 
-		// Modified files
+		// Deleted files (check before modified since D takes precedence)
+		if indexStatus == 'D' || workTreeStatus == 'D' {
+			deletedFiles++
+			continue
+		}
+
+		// Modified or renamed files
 		if indexStatus == 'M' || workTreeStatus == 'M' ||
-			indexStatus == 'R' || workTreeStatus == 'R' ||
-			indexStatus == 'D' || workTreeStatus == 'D' {
+			indexStatus == 'R' || workTreeStatus == 'R' {
 			modifiedFiles++
 		}
 	}
 
-	return newFiles, modifiedFiles
+	return newFiles, modifiedFiles, deletedFiles
 }
 
 // parseNumstat parses git diff --numstat output to count additions and deletions.

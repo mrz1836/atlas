@@ -166,6 +166,18 @@ func TestGarbageDetector_DetectGarbage_BuildArtifacts(t *testing.T) {
 			category: GarbageBuildArtifact,
 		},
 		{
+			name:     "coverage reject html",
+			files:    []string{"coverage_reject.html"},
+			expected: 1,
+			category: GarbageBuildArtifact,
+		},
+		{
+			name:     "coverage test html",
+			files:    []string{"coverage_test.html"},
+			expected: 1,
+			category: GarbageBuildArtifact,
+		},
+		{
 			name:     "vendor directory file",
 			files:    []string{"vendor/github.com/pkg/mod.go"},
 			expected: 1,
@@ -410,6 +422,7 @@ func TestDefaultGarbageConfig(t *testing.T) {
 
 	// Verify build patterns
 	assert.Contains(t, config.BuildPatterns, "coverage.out")
+	assert.Contains(t, config.BuildPatterns, "coverage*.html")
 	assert.Contains(t, config.BuildPatterns, "vendor/")
 	assert.Contains(t, config.BuildPatterns, ".DS_Store")
 

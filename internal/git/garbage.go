@@ -26,7 +26,7 @@ import (
 //
 // BUILD ARTIFACTS:
 //   coverage.out         - Go test coverage output
-//   coverage.html        - Coverage HTML report
+//   coverage*.html       - Coverage HTML reports (coverage.html, coverage_reject.html, etc.)
 //   vendor/              - Go vendor directory
 //   node_modules/        - Node.js dependencies
 //   dist/                - Distribution/build output
@@ -87,7 +87,7 @@ func DefaultGarbageConfig() *GarbageConfig {
 		},
 		BuildPatterns: []string{
 			"coverage.out",
-			"coverage.html",
+			"coverage*.html",
 			"vendor/",
 			"node_modules/",
 			"dist/",
