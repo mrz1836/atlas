@@ -23,6 +23,7 @@ import (
 	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/domain"
 	"github.com/mrz1836/atlas/internal/errors"
+	"github.com/mrz1836/atlas/internal/task"
 	"github.com/mrz1836/atlas/internal/template"
 	"github.com/mrz1836/atlas/internal/tui"
 	"github.com/mrz1836/atlas/internal/workspace"
@@ -2135,4 +2136,611 @@ func TestEnrichDescriptionFromBacklog_NonExistentBacklog(t *testing.T) {
 
 	// Should return original description when backlog not found
 	assert.Equal(t, description, result)
+}
+
+// TestSafeTaskID tests the safeTaskID helper function
+func TestSafeTaskID(t *testing.T) {
+	tests := []struct {
+		name     string
+		task     *domain.Task
+		expected string
+	}{
+		{
+			name:     "nil task returns placeholder",
+			task:     nil,
+			expected: "(none)",
+		},
+		{
+			name: "task with ID returns ID",
+			task: &domain.Task{
+				ID: "task-123",
+			},
+			expected: "task-123",
+		},
+		{
+			name: "task with empty ID returns empty string",
+			task: &domain.Task{
+				ID: "",
+			},
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := safeTaskID(tt.task)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+// TestIsValidAgent tests the isValidAgent helper function
+func TestIsValidAgent(t *testing.T) {
+	tests := []struct {
+		name  string
+		agent string
+		valid bool
+	}{
+		{
+			name:  "claude is valid",
+			agent: "claude",
+			valid: true,
+		},
+		{
+			name:  "gemini is valid",
+			agent: "gemini",
+			valid: true,
+		},
+		{
+			name:  "codex is valid",
+			agent: "codex",
+			valid: true,
+		},
+		{
+			name:  "invalid agent",
+			agent: "gpt-4",
+			valid: false,
+		},
+		{
+			name:  "invalid agent openai",
+			agent: "openai",
+			valid: false,
+		},
+		{
+			name:  "empty string",
+			agent: "",
+			valid: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := isValidAgent(tt.agent)
+			assert.Equal(t, tt.valid, result)
+		})
+	}
+}
+
+// TestValidateAgent tests the validateAgent function
+func TestValidateAgent(t *testing.T) {
+	tests := []struct {
+		name    string
+		agent   string
+		wantErr bool
+	}{
+		{
+			name:    "valid claude agent",
+			agent:   "claude",
+			wantErr: false,
+		},
+		{
+			name:    "valid gemini agent",
+			agent:   "gemini",
+			wantErr: false,
+		},
+		{
+			name:    "empty agent is valid",
+			agent:   "",
+			wantErr: false,
+		},
+		{
+			name:    "invalid agent",
+			agent:   "openai",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateAgent(tt.agent)
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.True(t, errors.IsExitCode2Error(err))
+				assert.ErrorIs(t, err, errors.ErrAgentNotFound)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+// TestBuildStepStartMessage tests the buildStepStartMessage helper
+func TestBuildStepStartMessage(t *testing.T) {
+	tests := []struct {
+		name     string
+		event    task.StepProgressEvent
+		expected string
+	}{
+		{
+			name: "with agent and model",
+			event: task.StepProgressEvent{
+				StepIndex:  0,
+				TotalSteps: 5,
+				StepName:   "implement",
+				Agent:      "claude",
+				Model:      "sonnet",
+			},
+			expected: "Step 1/5: implement (claude/sonnet)...",
+		},
+		{
+			name: "without agent and model",
+			event: task.StepProgressEvent{
+				StepIndex:  2,
+				TotalSteps: 8,
+				StepName:   "validate",
+			},
+			expected: "Step 3/8: validate...",
+		},
+		{
+			name: "with agent but no model",
+			event: task.StepProgressEvent{
+				StepIndex:  4,
+				TotalSteps: 10,
+				StepName:   "verify",
+				Agent:      "claude",
+			},
+			expected: "Step 5/10: verify...",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := buildStepStartMessage(tt.event)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+// TestBuildRetryAIStartMessage tests the buildRetryAIStartMessage helper
+func TestBuildRetryAIStartMessage(t *testing.T) {
+	tests := []struct {
+		name     string
+		event    task.StepProgressEvent
+		expected string
+	}{
+		{
+			name: "with status",
+			event: task.StepProgressEvent{
+				Status: "Retrying validation fix",
+				Agent:  "claude",
+				Model:  "opus",
+			},
+			expected: "Retrying validation fix (claude/opus)...",
+		},
+		{
+			name: "without status",
+			event: task.StepProgressEvent{
+				Agent: "gemini",
+				Model: "pro",
+			},
+			expected: "Retry AI fix (gemini/pro)...",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := buildRetryAIStartMessage(tt.event)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+// TestBuildAutoFixStartMessage tests the buildAutoFixStartMessage helper
+func TestBuildAutoFixStartMessage(t *testing.T) {
+	tests := []struct {
+		name     string
+		event    task.StepProgressEvent
+		expected string
+	}{
+		{
+			name: "with status and agent/model",
+			event: task.StepProgressEvent{
+				Status: "Fixing verification issues",
+				Agent:  "claude",
+				Model:  "sonnet",
+			},
+			expected: "Fixing verification issues (claude/sonnet)...",
+		},
+		{
+			name: "without status but with agent/model",
+			event: task.StepProgressEvent{
+				Agent: "gemini",
+				Model: "flash",
+			},
+			expected: "Auto-fixing verification issues (gemini/flash)...",
+		},
+		{
+			name:     "without any details",
+			event:    task.StepProgressEvent{},
+			expected: "Auto-fixing verification issues...",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := buildAutoFixStartMessage(tt.event)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+// TestDisplayPRURL tests the displayPRURL helper
+func TestDisplayPRURL(t *testing.T) {
+	tests := []struct {
+		name         string
+		output       string
+		expectOutput bool
+	}{
+		{
+			name:         "empty output",
+			output:       "",
+			expectOutput: false,
+		},
+		{
+			name:         "output without PR",
+			output:       "Some regular output",
+			expectOutput: false,
+		},
+		{
+			name:         "output with PR URL",
+			output:       "Created PR #123\nhttps://github.com/user/repo/pull/123",
+			expectOutput: true,
+		},
+		{
+			name:         "output with http URL",
+			output:       "Created PR #456\nhttp://gitlab.com/user/repo/-/merge_requests/456",
+			expectOutput: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(_ *testing.T) {
+			var buf bytes.Buffer
+			out := tui.NewOutput(&buf, "text")
+
+			displayPRURL(out, tt.output)
+
+			// Just verify it doesn't panic
+			_ = buf.String()
+		})
+	}
+}
+
+// TestCreateActivityOptions tests the createActivityOptions function
+func TestCreateActivityOptions(t *testing.T) {
+	tests := []struct {
+		name              string
+		activityVerbosity string
+		expectNil         bool
+	}{
+		{
+			name:              "default verbosity",
+			activityVerbosity: "default",
+			expectNil:         false,
+		},
+		{
+			name:              "verbose",
+			activityVerbosity: "verbose",
+			expectNil:         false,
+		},
+		{
+			name:              "quiet",
+			activityVerbosity: "quiet",
+			expectNil:         false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &config.Config{
+				AI: config.AIConfig{
+					ActivityVerbosity: tt.activityVerbosity,
+				},
+			}
+			state := &progressState{}
+			logger := zerolog.Nop()
+
+			opts := createActivityOptions(cfg, state, "test-ws", logger)
+
+			if tt.expectNil {
+				assert.Nil(t, opts)
+			} else {
+				assert.NotNil(t, opts)
+				assert.NotNil(t, opts.Callback)
+				assert.Equal(t, "test-ws", opts.WorkspaceName)
+			}
+		})
+	}
+}
+
+// TestStoreCLIOverridesIfNeeded tests the storeCLIOverridesIfNeeded function
+func TestStoreCLIOverridesIfNeeded(t *testing.T) {
+	t.Run("nil task does nothing", func(_ *testing.T) {
+		// Should not panic
+		storeCLIOverridesIfNeeded(context.Background(), nil, nil, "test-ws", &startOptions{}, zerolog.Nop())
+	})
+
+	t.Run("nil task store does nothing", func(_ *testing.T) {
+		task := &domain.Task{ID: "task-123"}
+		// Should not panic
+		storeCLIOverridesIfNeeded(context.Background(), task, nil, "test-ws", &startOptions{}, zerolog.Nop())
+	})
+
+	t.Run("stores overrides with backlog ID", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		taskStore, err := task.NewFileStore(tmpDir)
+		require.NoError(t, err)
+
+		// Create workspace first
+		wsStore, err := workspace.NewFileStore(tmpDir)
+		require.NoError(t, err)
+		ws := &domain.Workspace{
+			Name:      "test-ws",
+			Status:    constants.WorkspaceStatusActive,
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+		}
+		require.NoError(t, wsStore.Create(context.Background(), ws))
+
+		// Create task
+		testTask := &domain.Task{
+			ID:          "task-123",
+			WorkspaceID: "test-ws",
+			Status:      constants.TaskStatusPending,
+			Metadata:    make(map[string]any),
+		}
+		require.NoError(t, taskStore.Create(context.Background(), "test-ws", testTask))
+
+		opts := &startOptions{
+			verify:        true,
+			agent:         "claude",
+			model:         "opus",
+			fromBacklogID: "disc-abc123",
+		}
+
+		storeCLIOverridesIfNeeded(context.Background(), testTask, taskStore, "test-ws", opts, zerolog.Nop())
+
+		// Verify metadata was set
+		assert.Equal(t, "disc-abc123", testTask.Metadata["from_backlog_id"])
+	})
+}
+
+// TestTerminateAIProcess tests the terminateAIProcess function
+func TestTerminateAIProcess(t *testing.T) {
+	t.Run("nil state does nothing", func(_ *testing.T) {
+		// Should not panic
+		terminateAIProcess(nil, zerolog.Nop())
+	})
+
+	t.Run("nil runner does nothing", func(_ *testing.T) {
+		state := &progressState{aiRunner: nil}
+		// Should not panic
+		terminateAIProcess(state, zerolog.Nop())
+	})
+
+	t.Run("non-terminatable runner does nothing", func(_ *testing.T) {
+		runner := &mockAIRunner{}
+		state := &progressState{aiRunner: runner}
+		// Should not panic
+		terminateAIProcess(state, zerolog.Nop())
+	})
+}
+
+// TestDisplayInterruptionSummary tests the displayInterruptionSummary function
+func TestDisplayInterruptionSummary(t *testing.T) {
+	t.Run("with task", func(t *testing.T) {
+		var buf bytes.Buffer
+		out := tui.NewOutput(&buf, "text")
+
+		ws := &domain.Workspace{
+			Name:         "test-ws",
+			WorktreePath: "/tmp/test-ws",
+		}
+
+		task := &domain.Task{
+			ID:          "task-123",
+			Status:      constants.TaskStatusInterrupted,
+			CurrentStep: 2,
+			Steps: []domain.Step{
+				{Name: "step1"},
+				{Name: "step2"},
+				{Name: "step3"},
+			},
+		}
+
+		displayInterruptionSummary(out, ws, task)
+
+		output := buf.String()
+		assert.Contains(t, output, "Task state saved")
+		assert.Contains(t, output, "test-ws")
+		assert.Contains(t, output, "task-123")
+		assert.Contains(t, output, "atlas resume test-ws")
+	})
+
+	t.Run("without task", func(t *testing.T) {
+		var buf bytes.Buffer
+		out := tui.NewOutput(&buf, "text")
+
+		ws := &domain.Workspace{
+			Name:         "test-ws",
+			WorktreePath: "/tmp/test-ws",
+		}
+
+		displayInterruptionSummary(out, ws, nil)
+
+		output := buf.String()
+		assert.Contains(t, output, "Task state saved")
+		assert.Contains(t, output, "test-ws")
+	})
+}
+
+// TestRunDryRun tests the runDryRun function
+func TestRunDryRun(t *testing.T) {
+	t.Run("dry run with text output", func(t *testing.T) {
+		var buf bytes.Buffer
+		sc := &startContext{
+			ctx:          context.Background(),
+			outputFormat: "text",
+			out:          tui.NewOutput(&buf, "text"),
+			w:            &buf,
+		}
+
+		tmpl := &domain.Template{
+			Name:         "bugfix",
+			BranchPrefix: "fix",
+			Steps: []domain.StepDefinition{
+				{
+					Name:     "implement",
+					Type:     domain.StepTypeAI,
+					Required: true,
+				},
+			},
+		}
+
+		cfg := config.DefaultConfig()
+		logger := zerolog.Nop()
+
+		err := runDryRun(context.Background(), sc, tmpl, "test description", "test-ws", cfg, logger)
+		require.NoError(t, err)
+
+		output := buf.String()
+		assert.Contains(t, output, "DRY-RUN MODE")
+		assert.Contains(t, output, "test-ws")
+		assert.Contains(t, output, "bugfix")
+	})
+
+	t.Run("dry run with json output", func(t *testing.T) {
+		var buf bytes.Buffer
+		sc := &startContext{
+			ctx:          context.Background(),
+			outputFormat: "json",
+			out:          tui.NewOutput(&buf, "json"),
+			w:            &buf,
+		}
+
+		tmpl := &domain.Template{
+			Name:         "feature",
+			BranchPrefix: "feat",
+			Steps: []domain.StepDefinition{
+				{
+					Name:     "implement",
+					Type:     domain.StepTypeAI,
+					Required: true,
+				},
+			},
+		}
+
+		cfg := config.DefaultConfig()
+		logger := zerolog.Nop()
+
+		err := runDryRun(context.Background(), sc, tmpl, "test description", "test-ws", cfg, logger)
+		require.NoError(t, err)
+
+		var resp dryRunResponse
+		require.NoError(t, json.Unmarshal(buf.Bytes(), &resp))
+		assert.True(t, resp.DryRun)
+		assert.Equal(t, "feature", resp.Template)
+		assert.Equal(t, "test-ws", resp.Workspace.Name)
+	})
+
+	t.Run("dry run with context cancellation", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel() // Cancel immediately
+
+		var buf bytes.Buffer
+		sc := &startContext{
+			ctx:          ctx,
+			outputFormat: "text",
+			out:          tui.NewOutput(&buf, "text"),
+			w:            &buf,
+		}
+
+		tmpl := &domain.Template{
+			Name:         "bugfix",
+			BranchPrefix: "fix",
+			Steps:        []domain.StepDefinition{},
+		}
+
+		cfg := config.DefaultConfig()
+		logger := zerolog.Nop()
+
+		err := runDryRun(ctx, sc, tmpl, "test description", "test-ws", cfg, logger)
+		require.Error(t, err)
+		assert.ErrorIs(t, err, context.Canceled)
+	})
+}
+
+// TestLogConfigSources tests the logConfigSources function
+func TestLogConfigSources(t *testing.T) {
+	t.Run("logs config sources", func(_ *testing.T) {
+		cfg := &config.Config{
+			AI: config.AIConfig{
+				Agent: "claude",
+				Model: "sonnet",
+			},
+			Templates: config.TemplatesConfig{
+				CustomTemplates: map[string]string{
+					"custom1": "custom1.yaml",
+				},
+			},
+			CI: config.CIConfig{
+				RequiredWorkflows: []string{"ci.yaml"},
+			},
+			Validation: config.ValidationConfig{
+				Commands: config.ValidationCommands{
+					Format: []string{"gofmt"},
+					Lint:   []string{"golangci-lint"},
+				},
+			},
+		}
+
+		// Should not panic
+		logConfigSources(cfg, zerolog.Nop())
+	})
+}
+
+// TestUpdateWorkspaceStatusToPaused tests the updateWorkspaceStatusToPaused function
+func TestUpdateWorkspaceStatusToPaused(t *testing.T) {
+	t.Run("updates workspace status to paused", func(t *testing.T) {
+		ws := &domain.Workspace{
+			Name:      "test-ws",
+			Status:    constants.WorkspaceStatusActive,
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+		}
+
+		sc := &startContext{outputFormat: "text"}
+		sc.updateWorkspaceStatusToPaused(context.Background(), ws, zerolog.Nop())
+
+		// Verify the in-memory status was updated
+		assert.Equal(t, constants.WorkspaceStatusPaused, ws.Status)
+	})
+}
+
+// TestGetGitStatsString tests the getGitStatsString helper
+func TestGetGitStatsString(t *testing.T) {
+	t.Run("nil provider returns empty string", func(t *testing.T) {
+		result := getGitStatsString(nil)
+		assert.Empty(t, result)
+	})
 }
