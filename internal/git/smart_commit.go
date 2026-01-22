@@ -369,10 +369,13 @@ func (r *SmartCommitRunner) buildCommitResult(commits []CommitInfo) (*CommitResu
 
 // commitGroup stages files and creates a commit for a single group.
 func (r *SmartCommitRunner) commitGroup(ctx context.Context, group FileGroup) (*CommitInfo, error) {
+	// Use lock retry with cleanup to handle stale locks from crashed processes
+	retryConfig := DefaultLockRetryConfigWithCleanup(r.workDir)
+
 	// Reset staging to ensure clean state for this group
 	// This prevents files from other groups (or pre-staged files) from being included
 	// Use lock retry to handle concurrent git operations
-	err := RunWithLockRetryVoid(ctx, DefaultLockRetryConfig(), r.logger, func(ctx context.Context) error {
+	err := RunWithLockRetryVoid(ctx, retryConfig, r.logger, func(ctx context.Context) error {
 		return r.runner.Reset(ctx)
 	})
 	if err != nil {
@@ -381,7 +384,7 @@ func (r *SmartCommitRunner) commitGroup(ctx context.Context, group FileGroup) (*
 
 	// Stage only this group's files with lock retry
 	paths := GetFilePaths(group.Files)
-	err = RunWithLockRetryVoid(ctx, DefaultLockRetryConfig(), r.logger, func(ctx context.Context) error {
+	err = RunWithLockRetryVoid(ctx, retryConfig, r.logger, func(ctx context.Context) error {
 		return r.runner.Add(ctx, paths)
 	})
 	if err != nil {
@@ -392,7 +395,7 @@ func (r *SmartCommitRunner) commitGroup(ctx context.Context, group FileGroup) (*
 	message := r.generateCommitMessage(ctx, group)
 
 	// Create the commit with lock retry to handle concurrent git operations
-	err = RunWithLockRetryVoid(ctx, DefaultLockRetryConfig(), r.logger, func(ctx context.Context) error {
+	err = RunWithLockRetryVoid(ctx, retryConfig, r.logger, func(ctx context.Context) error {
 		return r.runner.Commit(ctx, message)
 	})
 	if err != nil {

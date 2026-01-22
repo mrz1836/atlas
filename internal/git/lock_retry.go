@@ -4,6 +4,7 @@ package git
 
 import (
 	"context"
+	"path/filepath"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -19,6 +20,13 @@ type LockRetryConfig struct {
 	MaxDelay time.Duration
 	// Multiplier is the delay multiplier per attempt (default: 2.0).
 	Multiplier float64
+	// CleanupOnRetry enables stale lock file cleanup before each retry attempt.
+	// When enabled, the retry loop will attempt to remove stale lock files
+	// that may have been left behind by crashed/interrupted processes.
+	CleanupOnRetry bool
+	// CleanupWorkDir is the git working directory for lock cleanup.
+	// Required when CleanupOnRetry is true.
+	CleanupWorkDir string
 }
 
 // DefaultLockRetryConfig returns sensible defaults for lock file retry.
@@ -31,6 +39,17 @@ func DefaultLockRetryConfig() LockRetryConfig {
 		MaxDelay:     2 * time.Second,
 		Multiplier:   2.0,
 	}
+}
+
+// DefaultLockRetryConfigWithCleanup returns a lock retry config with stale lock cleanup enabled.
+// The workDir should be the git working directory (the directory containing .git).
+// This config will attempt to clean up stale lock files before each retry,
+// which helps recover from locks left behind by crashed/interrupted processes.
+func DefaultLockRetryConfigWithCleanup(workDir string) LockRetryConfig {
+	config := DefaultLockRetryConfig()
+	config.CleanupOnRetry = true
+	config.CleanupWorkDir = workDir
+	return config
 }
 
 // RunWithLockRetry executes a git operation with retry logic for lock file errors.
@@ -80,6 +99,15 @@ func RunWithLockRetry[R any](
 		// Don't wait after the last attempt
 		if attempt >= config.MaxAttempts {
 			break
+		}
+
+		// Attempt to clean up stale lock files before retrying
+		// This helps recover from locks left behind by crashed/interrupted processes
+		if config.CleanupOnRetry && config.CleanupWorkDir != "" {
+			gitDir := filepath.Join(config.CleanupWorkDir, ".git")
+			if cleanupErr := CleanupStaleLockFiles(ctx, gitDir, DefaultLockStalenessThreshold, logger); cleanupErr != nil {
+				logger.Debug().Err(cleanupErr).Msg("lock cleanup during retry failed")
+			}
 		}
 
 		// Wait before retrying
