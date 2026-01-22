@@ -7,13 +7,26 @@ import (
 	"io"
 	"os"
 
+	"github.com/spf13/cobra"
+
 	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/errors"
 	"github.com/mrz1836/atlas/internal/tui"
 	"github.com/mrz1836/atlas/internal/validation"
-	"github.com/spf13/cobra"
 )
+
+// ValidateOptions allows dependency injection for testing the validate command.
+type ValidateOptions struct {
+	// Runner is an optional validation runner. If nil, a real one will be created.
+	Runner ValidationRunner
+}
+
+// ValidationRunner interface allows mocking the validation pipeline for tests.
+type ValidationRunner interface {
+	SetProgressCallback(cb validation.ProgressCallback)
+	Run(ctx context.Context, workDir string) (*validation.PipelineResult, error)
+}
 
 // AddValidateCommand adds the validate command to the root command.
 func AddValidateCommand(root *cobra.Command) {
@@ -46,8 +59,14 @@ Examples:
 	return cmd
 }
 
-//nolint:gocognit // TODO: Refactor to reduce complexity - extract progress callback setup and result handling
 func runValidate(ctx context.Context, cmd *cobra.Command, w io.Writer) error {
+	return runValidateWithOptions(ctx, cmd, w, nil)
+}
+
+// runValidateWithOptions is the testable version that accepts optional dependencies.
+//
+//nolint:gocognit // TODO: Refactor to reduce complexity - extract progress callback setup and result handling
+func runValidateWithOptions(ctx context.Context, cmd *cobra.Command, w io.Writer, opts *ValidateOptions) error {
 	// Check context cancellation
 	select {
 	case <-ctx.Done():
@@ -76,26 +95,32 @@ func runValidate(ctx context.Context, cmd *cobra.Command, w io.Writer) error {
 		return fmt.Errorf("failed to get working directory: %w", err)
 	}
 
-	// Create executor and runner
-	executor := validation.NewExecutor(cfg.Validation.Timeout)
-
 	// Create spinner for progress indication (only for TTY output)
 	// The spinner wraps the writer with mutex protection for thread safety
 	spinner := tui.NewTerminalSpinner(w)
 
-	// Enable live output streaming in verbose mode
-	// Use the spinner's writer to ensure thread-safe access to the output
-	if verbose {
-		executor.SetLiveOutput(spinner.Writer())
-	}
+	// Use injected runner if provided (for testing), otherwise create real runner
+	var runner ValidationRunner
+	if opts != nil && opts.Runner != nil {
+		runner = opts.Runner
+	} else {
+		// Create executor and runner
+		executor := validation.NewExecutor(cfg.Validation.Timeout)
 
-	runnerConfig := &validation.RunnerConfig{
-		FormatCommands:    cfg.Validation.Commands.Format,
-		LintCommands:      cfg.Validation.Commands.Lint,
-		TestCommands:      cfg.Validation.Commands.Test,
-		PreCommitCommands: cfg.Validation.Commands.PreCommit,
+		// Enable live output streaming in verbose mode
+		// Use the spinner's writer to ensure thread-safe access to the output
+		if verbose {
+			executor.SetLiveOutput(spinner.Writer())
+		}
+
+		runnerConfig := &validation.RunnerConfig{
+			FormatCommands:    cfg.Validation.Commands.Format,
+			LintCommands:      cfg.Validation.Commands.Lint,
+			TestCommands:      cfg.Validation.Commands.Test,
+			PreCommitCommands: cfg.Validation.Commands.PreCommit,
+		}
+		runner = validation.NewRunner(executor, runnerConfig)
 	}
-	runner := validation.NewRunner(executor, runnerConfig)
 
 	// Set up progress callback for TUI output
 	runner.SetProgressCallback(func(step, status string, info *validation.ProgressInfo) {

@@ -8,13 +8,61 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/mrz1836/atlas/internal/errors"
-	"github.com/mrz1836/atlas/internal/tui"
-	"github.com/mrz1836/atlas/internal/validation"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/mrz1836/atlas/internal/errors"
+	"github.com/mrz1836/atlas/internal/tui"
+	"github.com/mrz1836/atlas/internal/validation"
 )
+
+// mockValidationRunner implements ValidationRunner for fast testing.
+type mockValidationRunner struct {
+	result   *validation.PipelineResult
+	err      error
+	callback validation.ProgressCallback
+}
+
+func (m *mockValidationRunner) SetProgressCallback(cb validation.ProgressCallback) {
+	m.callback = cb
+}
+
+func (m *mockValidationRunner) Run(_ context.Context, _ string) (*validation.PipelineResult, error) {
+	// Simulate progress callbacks if callback is set
+	if m.callback != nil {
+		m.callback("pre-commit", "starting", &validation.ProgressInfo{CurrentStep: 1, TotalSteps: 4})
+		m.callback("pre-commit", "completed", &validation.ProgressInfo{CurrentStep: 1, TotalSteps: 4, DurationMs: 10})
+		m.callback("format", "starting", &validation.ProgressInfo{CurrentStep: 2, TotalSteps: 4})
+		m.callback("format", "completed", &validation.ProgressInfo{CurrentStep: 2, TotalSteps: 4, DurationMs: 20})
+		m.callback("lint", "starting", &validation.ProgressInfo{CurrentStep: 3, TotalSteps: 4})
+		m.callback("lint", "completed", &validation.ProgressInfo{CurrentStep: 3, TotalSteps: 4, DurationMs: 30})
+		m.callback("test", "starting", &validation.ProgressInfo{CurrentStep: 4, TotalSteps: 4})
+		m.callback("test", "completed", &validation.ProgressInfo{CurrentStep: 4, TotalSteps: 4, DurationMs: 40})
+	}
+	return m.result, m.err
+}
+
+// newSuccessMockRunner creates a mock runner that returns success.
+func newSuccessMockRunner() *mockValidationRunner {
+	return &mockValidationRunner{
+		result: &validation.PipelineResult{
+			Success: true,
+			FormatResults: []validation.Result{
+				{Command: "magex fmt", Success: true, ExitCode: 0, DurationMs: 10},
+			},
+			LintResults: []validation.Result{
+				{Command: "magex lint", Success: true, ExitCode: 0, DurationMs: 20},
+			},
+			TestResults: []validation.Result{
+				{Command: "magex test:race", Success: true, ExitCode: 0, DurationMs: 30},
+			},
+			PreCommitResults: []validation.Result{
+				{Command: "go-pre-commit", Success: true, ExitCode: 0, DurationMs: 5},
+			},
+		},
+	}
+}
 
 // safeBuffer is a thread-safe buffer for use in tests
 // where concurrent writes may occur (e.g., spinner animations).
@@ -763,8 +811,7 @@ func TestHandlePipelineFailure_MultipleStepsWithOnlyOneFailure(t *testing.T) {
 func TestRunValidate_ConfigLoadWithDefaults(t *testing.T) {
 	t.Parallel()
 	// This test verifies that even if config loading fails, the command uses defaults
-	// and continues execution. We can't easily mock config.Load, but we can verify
-	// the command doesn't panic or fail prematurely.
+	// and continues execution. Uses mock runner to avoid running real commands.
 	cmd := newValidateCmd()
 	root := &cobra.Command{Use: "atlas"}
 	AddGlobalFlags(root, &GlobalFlags{})
@@ -772,11 +819,11 @@ func TestRunValidate_ConfigLoadWithDefaults(t *testing.T) {
 
 	var buf bytes.Buffer
 	ctx := context.Background()
+	opts := &ValidateOptions{Runner: newSuccessMockRunner()}
 
-	// This may fail due to missing commands, but it should not panic
-	// and should handle the config loading path
-	err := runValidate(ctx, cmd, &buf)
-	_ = err // May succeed or fail depending on environment
+	// With mock runner, this should succeed quickly
+	err := runValidateWithOptions(ctx, cmd, &buf, opts)
+	require.NoError(t, err)
 }
 
 func TestRunValidate_OutputFormats(t *testing.T) {
@@ -879,8 +926,7 @@ func TestRunValidate_FlagParsing(t *testing.T) {
 func TestRunValidate_ProgressCallbackStates(t *testing.T) {
 	t.Parallel()
 	// Test that all progress callback states are handled
-	// We can't easily test the actual callback execution without mocking,
-	// but we verify the callback is set up correctly
+	// Uses mock runner to verify callback execution without running real commands.
 	cmd := newValidateCmd()
 	root := &cobra.Command{Use: "atlas"}
 	AddGlobalFlags(root, &GlobalFlags{})
@@ -888,10 +934,11 @@ func TestRunValidate_ProgressCallbackStates(t *testing.T) {
 
 	var buf bytes.Buffer
 	ctx := context.Background()
+	opts := &ValidateOptions{Runner: newSuccessMockRunner()}
 
-	err := runValidate(ctx, cmd, &buf)
-	// May succeed or fail, we're verifying the callback setup doesn't panic
-	_ = err
+	err := runValidateWithOptions(ctx, cmd, &buf, opts)
+	// With mock runner, this should succeed and exercise all callback states
+	require.NoError(t, err)
 }
 
 func TestHandlePipelineFailure_WithOnlyError(t *testing.T) {
@@ -986,7 +1033,7 @@ func TestHandlePipelineFailure_NoResultsInPipeline(t *testing.T) {
 func TestRunValidate_SuccessPath(t *testing.T) {
 	t.Parallel()
 	// This test verifies the success path is exercised
-	// Though it may fail in practice, it tests the code path
+	// Uses mock runner to test the success path quickly.
 	cmd := newValidateCmd()
 	root := &cobra.Command{Use: "atlas"}
 	AddGlobalFlags(root, &GlobalFlags{})
@@ -994,12 +1041,14 @@ func TestRunValidate_SuccessPath(t *testing.T) {
 
 	var buf bytes.Buffer
 	ctx := context.Background()
+	opts := &ValidateOptions{Runner: newSuccessMockRunner()}
 
-	err := runValidate(ctx, cmd, &buf)
+	err := runValidateWithOptions(ctx, cmd, &buf, opts)
 
-	// Even if it fails, we've exercised the validation pipeline path
-	// The important thing is no panic occurs
-	_ = err
+	// With mock runner, should succeed and show success message
+	require.NoError(t, err)
+	output := buf.String()
+	assert.Contains(t, output, "passed")
 }
 
 func TestRunValidate_AllOutputModes(t *testing.T) {
@@ -1165,6 +1214,7 @@ func TestNewValidateCmd_ShorthandFlags(t *testing.T) {
 func TestRunValidate_CombinedFlags(t *testing.T) {
 	t.Parallel()
 	// Test with multiple flags set simultaneously
+	// Uses mock runner to test flag handling quickly.
 	cmd := newValidateCmd()
 	root := &cobra.Command{Use: "atlas"}
 	AddGlobalFlags(root, &GlobalFlags{Output: "json", Verbose: true})
@@ -1176,10 +1226,11 @@ func TestRunValidate_CombinedFlags(t *testing.T) {
 
 	var buf bytes.Buffer
 	ctx := context.Background()
+	opts := &ValidateOptions{Runner: newSuccessMockRunner()}
 
-	err := runValidate(ctx, cmd, &buf)
-	// May succeed or fail, testing the combined flag handling
-	_ = err
+	err := runValidateWithOptions(ctx, cmd, &buf, opts)
+	// With mock runner, should succeed with combined flags
+	require.NoError(t, err)
 }
 
 func TestPipelineResultToResponse_ComplexScenario(t *testing.T) {
