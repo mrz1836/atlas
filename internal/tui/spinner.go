@@ -5,8 +5,12 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"sync"
 	"time"
+	"unicode/utf8"
+
+	"golang.org/x/term"
 )
 
 // flushWriter attempts to flush the writer if it supports flushing.
@@ -242,6 +246,15 @@ func (s *TerminalSpinner) animate(ctx context.Context, done <-chan struct{}) {
 
 			// Render spinner frame with message
 			spinnerFrame := s.styles.Info.Render(spinnerFrames[frame%len(spinnerFrames)])
+
+			// Truncate message to fit within terminal width to prevent line wrapping.
+			// Account for spinner frame (2 runes) + space (1) + safety margin (1) = 4
+			termWidth := getTerminalWidth()
+			maxMsgLen := termWidth - 4
+			if maxMsgLen > 0 {
+				msg = truncateToWidth(msg, maxMsgLen)
+			}
+
 			_, _ = fmt.Fprintf(s.w, "\r\033[K%s %s", spinnerFrame, msg)
 			flushWriter(s.w)
 			s.mu.Unlock()
@@ -259,6 +272,31 @@ func formatElapsedTime(d time.Duration) string {
 	minutes := int(d.Minutes())
 	seconds := int(d.Seconds()) % 60
 	return fmt.Sprintf("(%dm %ds elapsed)", minutes, seconds)
+}
+
+// getTerminalWidth returns the current terminal width for spinner output.
+// Uses stderr since spinners typically write there.
+// Returns 80 as fallback if width cannot be determined.
+func getTerminalWidth() int {
+	width, _, err := term.GetSize(int(os.Stderr.Fd()))
+	if err != nil || width <= 0 {
+		return 80 // Fallback to standard terminal width
+	}
+	return width
+}
+
+// truncateToWidth truncates a string to fit within maxWidth runes,
+// appending "..." if truncation is needed.
+func truncateToWidth(s string, maxWidth int) string {
+	if maxWidth <= 3 {
+		return "..."
+	}
+	runeCount := utf8.RuneCountInString(s)
+	if runeCount <= maxWidth {
+		return s
+	}
+	runes := []rune(s)
+	return string(runes[:maxWidth-3]) + "..."
 }
 
 // FormatDuration formats a duration in milliseconds for display (e.g., "1.2s").

@@ -67,6 +67,80 @@ func TestElapsedTimeThreshold(t *testing.T) {
 		"Elapsed time should be displayed after 30 seconds per AC #8")
 }
 
+// TestTruncateToWidth tests the truncateToWidth function for spinner message truncation.
+//
+//nolint:gosmopolitan // Unicode characters are intentional for testing multi-byte handling
+func TestTruncateToWidth(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		maxWidth int
+		expected string
+	}{
+		{
+			name:     "short string no truncation",
+			input:    "Hello",
+			maxWidth: 10,
+			expected: "Hello",
+		},
+		{
+			name:     "exact fit",
+			input:    "Hello",
+			maxWidth: 5,
+			expected: "Hello",
+		},
+		{
+			name:     "needs truncation",
+			input:    "Hello World",
+			maxWidth: 8,
+			expected: "Hello...",
+		},
+		{
+			name:     "unicode string no truncation",
+			input:    "日本語テスト",
+			maxWidth: 10,
+			expected: "日本語テスト",
+		},
+		{
+			name:     "unicode string needs truncation",
+			input:    "日本語テスト",
+			maxWidth: 5,
+			expected: "日本...",
+		},
+		{
+			name:     "very narrow width",
+			input:    "Hello World",
+			maxWidth: 3,
+			expected: "...",
+		},
+		{
+			name:     "width less than 3",
+			input:    "Hello",
+			maxWidth: 2,
+			expected: "...",
+		},
+		{
+			name:     "empty string",
+			input:    "",
+			maxWidth: 10,
+			expected: "",
+		},
+		{
+			name:     "mixed unicode and ascii",
+			input:    "Hello 世界 World",
+			maxWidth: 10,
+			expected: "Hello 世...",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := truncateToWidth(tt.input, tt.maxWidth)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
 // TestNoopSpinnerInternal tests the NoopSpinner methods directly for coverage.
 // The internal test package can access unexported methods if needed.
 func TestNoopSpinnerInternal(t *testing.T) {
