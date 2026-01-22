@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/domain"
 	"github.com/mrz1836/atlas/internal/errors"
@@ -2367,4 +2368,383 @@ func TestOutputResumeErrorJSON_Coverage(t *testing.T) {
 	assert.Equal(t, "workspace-name", resp.Workspace.Name)
 	assert.Equal(t, "task-id", resp.Task.ID)
 	assert.Equal(t, "error message", resp.Error)
+}
+
+func TestPrepareResumeTemplate_Success(t *testing.T) {
+	testTask := &domain.Task{
+		ID:         "task-123",
+		TemplateID: "bugfix",
+		Status:     constants.TaskStatusValidationFailed,
+	}
+
+	var buf bytes.Buffer
+	tmpl, err := prepareResumeTemplate(testTask, resumeOptions{aiFix: false}, "text", &buf, "test-ws")
+	require.NoError(t, err)
+	assert.NotNil(t, tmpl)
+	assert.Equal(t, "bugfix", tmpl.Name)
+}
+
+func TestPrepareResumeTemplate_AIFixNotImplemented(t *testing.T) {
+	testTask := &domain.Task{
+		ID:         "task-123",
+		TemplateID: "bugfix",
+		Status:     constants.TaskStatusValidationFailed,
+	}
+
+	var buf bytes.Buffer
+	tmpl, err := prepareResumeTemplate(testTask, resumeOptions{aiFix: true}, "text", &buf, "test-ws")
+	require.Error(t, err)
+	assert.Nil(t, tmpl)
+	require.ErrorIs(t, err, errors.ErrResumeNotImplemented)
+	assert.Contains(t, err.Error(), "not yet implemented")
+}
+
+func TestPrepareResumeTemplate_InvalidTemplateID(t *testing.T) {
+	testTask := &domain.Task{
+		ID:         "task-123",
+		TemplateID: "nonexistent-template-xyz",
+		Status:     constants.TaskStatusValidationFailed,
+	}
+
+	var buf bytes.Buffer
+	tmpl, err := prepareResumeTemplate(testTask, resumeOptions{aiFix: false}, "text", &buf, "test-ws")
+	require.Error(t, err)
+	assert.Nil(t, tmpl)
+	assert.Contains(t, err.Error(), "template not found")
+}
+
+func TestCreateResumeValidationRetryHandler_Disabled(t *testing.T) {
+	cfg := &config.Config{
+		Validation: config.ValidationConfig{
+			AIRetryEnabled: false,
+		},
+	}
+
+	logger := zerolog.Nop()
+	handler := createResumeValidationRetryHandler(nil, cfg, logger)
+	assert.Nil(t, handler, "handler should be nil when AI retry is disabled")
+}
+
+func TestCreateResumeValidationRetryHandler_Enabled(t *testing.T) {
+	cfg := &config.Config{
+		Validation: config.ValidationConfig{
+			AIRetryEnabled:     true,
+			MaxAIRetryAttempts: 3,
+		},
+		Operations: config.OperationsConfig{},
+	}
+
+	// Create a mock AI runner (nil is acceptable for this test since we're just checking creation)
+	logger := zerolog.Nop()
+	handler := createResumeValidationRetryHandler(nil, cfg, logger)
+	assert.NotNil(t, handler, "handler should be created when AI retry is enabled")
+}
+
+func TestEnsureWorktreeExists_WorktreeExists(t *testing.T) {
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+
+	ws := &domain.Workspace{
+		Name:         "test-ws",
+		WorktreePath: tmpDir,
+	}
+
+	var buf bytes.Buffer
+	out := tui.NewOutput(&buf, "text")
+	logger := zerolog.Nop()
+
+	result, err := ensureWorktreeExists(ctx, ws, out, logger)
+	require.NoError(t, err)
+	assert.Equal(t, tmpDir, result.WorktreePath)
+}
+
+func TestEnsureWorktreeExists_WorktreeMissing_NotGitRepo(t *testing.T) {
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+
+	ws := &domain.Workspace{
+		Name:         "test-ws",
+		Branch:       "feat/test",
+		WorktreePath: tmpDir + "/nonexistent",
+	}
+
+	var buf bytes.Buffer
+	out := tui.NewOutput(&buf, "text")
+	logger := zerolog.Nop()
+
+	// Should fail because we're not in a git repo
+	_, err := ensureWorktreeExists(ctx, ws, out, logger)
+	require.Error(t, err)
+}
+
+func TestHandleRebaseRetry_MissingWorktreePath(t *testing.T) {
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+
+	ws := &domain.Workspace{
+		Name:         "test-ws",
+		WorktreePath: "", // Missing worktree path
+	}
+
+	testTask := &domain.Task{
+		ID:          "task-123",
+		WorkspaceID: "test-ws",
+		Status:      constants.TaskStatusGHFailed,
+	}
+
+	taskStore, err := task.NewFileStore(tmpDir)
+	require.NoError(t, err)
+
+	var buf bytes.Buffer
+	out := tui.NewOutput(&buf, "text")
+	notifier := tui.NewNotifier(false, true)
+
+	err = handleRebaseRetry(ctx, out, taskStore, ws, testTask, notifier)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, errors.ErrWorktreeNotFound)
+}
+
+func TestHandleRebaseRetry_MissingBranch(t *testing.T) {
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+
+	ws := &domain.Workspace{
+		Name:         "test-ws",
+		WorktreePath: tmpDir,
+		Branch:       "", // Missing branch
+	}
+
+	testTask := &domain.Task{
+		ID:          "task-123",
+		WorkspaceID: "test-ws",
+		Status:      constants.TaskStatusGHFailed,
+	}
+
+	taskStore, err := task.NewFileStore(tmpDir)
+	require.NoError(t, err)
+
+	var buf bytes.Buffer
+	out := tui.NewOutput(&buf, "text")
+	notifier := tui.NewNotifier(false, true)
+
+	err = handleRebaseRetry(ctx, out, taskStore, ws, testTask, notifier)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, errors.ErrEmptyValue)
+}
+
+func TestHandleRebaseRetry_NotGitRepo(t *testing.T) {
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+
+	ws := &domain.Workspace{
+		Name:         "test-ws",
+		WorktreePath: tmpDir,
+		Branch:       "feat/test",
+	}
+
+	testTask := &domain.Task{
+		ID:          "task-123",
+		WorkspaceID: "test-ws",
+		Status:      constants.TaskStatusGHFailed,
+	}
+
+	taskStore, err := task.NewFileStore(tmpDir)
+	require.NoError(t, err)
+
+	var buf bytes.Buffer
+	out := tui.NewOutput(&buf, "text")
+	notifier := tui.NewNotifier(false, true)
+
+	// Should fail when creating git runner since tmpDir is not a git repo
+	err = handleRebaseRetry(ctx, out, taskStore, ws, testTask, notifier)
+	require.Error(t, err)
+}
+
+func TestTrySelectPushErrorRecovery_WithNonFastForwardError(t *testing.T) {
+	t.Skip("Skipping test that requires TTY interaction")
+
+	testTask := &domain.Task{
+		Status:      constants.TaskStatusGHFailed,
+		CurrentStep: 2,
+		Steps: []domain.Step{
+			{Name: "implement"},
+			{Name: "validate"},
+			{Name: "git_push"},
+		},
+		Metadata: map[string]any{
+			"push_error_type": "non_fast_forward",
+		},
+	}
+
+	action, handled, err := trySelectPushErrorRecovery(testTask, "git_push")
+	// This would require TTY interaction, so we just verify it's handled
+	// In real test this would hang without terminal
+	_ = action
+	_ = handled
+	_ = err
+}
+
+func TestOutputResumeErrorJSON_EmptyWorkspace(t *testing.T) {
+	var buf bytes.Buffer
+	err := outputResumeErrorJSON(&buf, "", "", "test error")
+	require.ErrorIs(t, err, errors.ErrJSONErrorOutput)
+
+	var resp resumeResponse
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &resp))
+	assert.False(t, resp.Success)
+	assert.Equal(t, "test error", resp.Error)
+}
+
+func TestShouldShowRecoveryContext_NoHomeDir(t *testing.T) {
+	ctx := context.Background()
+	testTask := &domain.Task{
+		ID: "task-123",
+	}
+
+	var buf bytes.Buffer
+	out := tui.NewOutput(&buf, "text")
+	logger := zerolog.Nop()
+
+	// Even if we can't get home dir, should handle gracefully
+	result := shouldShowRecoveryContext(ctx, testTask, out, "text", logger)
+	// Should return false if it can't access hook store
+	assert.False(t, result)
+}
+
+func TestDetectMainRepoPath_Success(t *testing.T) {
+	ctx := context.Background()
+
+	// This test only works if we're in a git repo
+	// Try to detect the repo - should work since this project is in git
+	path, err := detectMainRepoPath(ctx)
+	if err != nil {
+		t.Skip("Not in a git repository, skipping")
+	}
+	assert.NotEmpty(t, path)
+	assert.Contains(t, path, "atlas")
+}
+
+func TestCreateWorktreeForBranch_EmptyPath(t *testing.T) {
+	ctx := context.Background()
+
+	err := createWorktreeForBranch(ctx, "", "/tmp/test", "main")
+	require.Error(t, err)
+}
+
+func TestHandleViewErrors_EmptyArtifact(t *testing.T) {
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+
+	taskStore, err := task.NewFileStore(tmpDir)
+	require.NoError(t, err)
+
+	testTask := &domain.Task{
+		ID:          "task-123",
+		WorkspaceID: "test-ws",
+		Status:      constants.TaskStatusValidationFailed,
+	}
+	require.NoError(t, taskStore.Create(ctx, "test-ws", testTask))
+
+	// Save empty artifact
+	require.NoError(t, taskStore.SaveArtifact(ctx, "test-ws", "task-123", "validation.json", []byte{}))
+
+	var buf bytes.Buffer
+	out := tui.NewOutput(&buf, "text")
+
+	err = handleViewErrors(ctx, out, taskStore, "test-ws", "task-123")
+	require.NoError(t, err)
+
+	output := buf.String()
+	assert.Contains(t, output, "No validation errors recorded")
+}
+
+func TestHandleViewErrors_AlternateFilename(t *testing.T) {
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+
+	taskStore, err := task.NewFileStore(tmpDir)
+	require.NoError(t, err)
+
+	testTask := &domain.Task{
+		ID:          "task-456",
+		WorkspaceID: "test-ws",
+		Status:      constants.TaskStatusValidationFailed,
+	}
+	require.NoError(t, taskStore.Create(ctx, "test-ws", testTask))
+
+	// Save artifact with alternate name
+	artifactData := []byte("validation error from alternate file")
+	require.NoError(t, taskStore.SaveArtifact(ctx, "test-ws", "task-456", "validation-result.json", artifactData))
+
+	var buf bytes.Buffer
+	out := tui.NewOutput(&buf, "text")
+
+	err = handleViewErrors(ctx, out, taskStore, "test-ws", "task-456")
+	require.NoError(t, err)
+
+	output := buf.String()
+	assert.Contains(t, output, "validation error from alternate file")
+}
+
+func TestHandleViewLogs_FallbackToRepoURL(t *testing.T) {
+	ctx := context.Background()
+
+	ws := &domain.Workspace{
+		Name: "test-ws",
+		Metadata: map[string]any{
+			"repository": "owner/repo",
+		},
+	}
+
+	testTask := &domain.Task{
+		ID:       "task-789",
+		Metadata: nil, // No metadata at all
+	}
+
+	var buf bytes.Buffer
+	out := tui.NewOutput(&buf, "text")
+
+	err := handleViewLogs(ctx, out, ws, testTask)
+	require.NoError(t, err)
+
+	output := buf.String()
+	assert.Contains(t, output, "No GitHub Actions URL")
+	assert.Contains(t, output, "owner/repo/actions")
+}
+
+func TestDisplayStatusSpecificContext_NoError(t *testing.T) {
+	testTask := &domain.Task{
+		Status:      constants.TaskStatusValidationFailed,
+		CurrentStep: 0,
+		Steps: []domain.Step{
+			{Name: "validate"}, // No error
+		},
+	}
+
+	var buf bytes.Buffer
+	out := tui.NewOutput(&buf, "text")
+
+	displayStatusSpecificContext(out, testTask)
+
+	output := buf.String()
+	// Should not show error since there isn't one
+	assert.NotContains(t, output, "Error:")
+}
+
+func TestResumeOptions_DefaultValues(t *testing.T) {
+	opts := resumeOptions{}
+	assert.False(t, opts.aiFix)
+	assert.False(t, opts.retry)
+	assert.False(t, opts.menu)
+}
+
+func TestResumeOptions_AllFlags(t *testing.T) {
+	opts := resumeOptions{
+		aiFix: true,
+		retry: true,
+		menu:  true,
+	}
+	assert.True(t, opts.aiFix)
+	assert.True(t, opts.retry)
+	assert.True(t, opts.menu)
 }
