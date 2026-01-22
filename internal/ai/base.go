@@ -103,14 +103,20 @@ func (b *BaseRunner) HandleProviderExecutionError(
 	})
 }
 
+// ProcessTerminator is an interface for executors that support process termination.
+type ProcessTerminator interface {
+	TerminateProcess() error
+}
+
 // TerminateRunningProcess terminates any running subprocess.
 // This is used to clean up AI processes during Ctrl+C interruption.
 // Returns nil if the executor doesn't support termination or if no process is running.
 func (b *BaseRunner) TerminateRunningProcess() error {
-	if streamExec, ok := b.Executor.(*StreamingExecutor); ok {
-		return streamExec.TerminateProcess()
+	// Check if executor supports termination (StreamingExecutor or DefaultExecutor)
+	if terminator, ok := b.Executor.(ProcessTerminator); ok {
+		return terminator.TerminateProcess()
 	}
-	return nil // Non-streaming executor doesn't track processes
+	return nil // Executor doesn't support process termination
 }
 
 // runWithRetry executes the AI request with exponential backoff retry logic.
@@ -157,6 +163,8 @@ func (b *BaseRunner) runWithRetry(ctx context.Context, req *domain.AIRequest, ex
 
 			select {
 			case <-ctx.Done():
+				// Terminate any running process from previous attempt before returning
+				_ = b.TerminateRunningProcess()
 				return nil, ctx.Err()
 			case <-timeSleep(backoff):
 				backoff *= constants.BackoffMultiplier

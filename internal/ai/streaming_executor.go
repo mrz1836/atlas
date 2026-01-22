@@ -168,6 +168,8 @@ func (e *StreamingExecutor) GetRunningPID() int {
 
 // TerminateProcess terminates the running process gracefully with SIGTERM.
 // If the process doesn't exit within a short timeout, SIGKILL is sent.
+// This method blocks until the SIGKILL is sent (if needed) to prevent
+// orphaned processes when the parent exits before the kill fires.
 // Returns nil if no process is running or if termination succeeds.
 func (e *StreamingExecutor) TerminateProcess() error {
 	e.processMu.Lock()
@@ -187,18 +189,39 @@ func (e *StreamingExecutor) TerminateProcess() error {
 		return err
 	}
 
-	// Give process a short time to exit gracefully, then force kill
-	// We use a goroutine to avoid blocking the caller
-	go func() {
-		time.Sleep(2 * time.Second)
+	// Wait 2 seconds for graceful exit, then send SIGKILL.
+	// We poll to check if process has exited rather than calling Wait()
+	// because Execute() also calls cmd.Wait() and Wait() can only be called once.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		// Check if process is still referenced (cleared after cmd.Wait() completes)
 		e.processMu.Lock()
 		currentProc := e.runningProcess
 		e.processMu.Unlock()
-		// Only kill if same process is still running
-		if currentProc != nil && currentProc.Pid == proc.Pid {
-			_ = proc.Kill() // Best effort, ignore errors
+
+		if currentProc == nil || currentProc.Pid != proc.Pid {
+			// Process has exited and Execute() has completed
+			return nil
 		}
-	}()
+
+		// Also try to check if process is still alive by sending signal 0
+		if err := proc.Signal(syscall.Signal(0)); err != nil {
+			// Process no longer exists
+			return err
+		}
+
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	// Timeout: force kill synchronously
+	e.processMu.Lock()
+	currentProc := e.runningProcess
+	e.processMu.Unlock()
+
+	// Only kill if same process is still running
+	if currentProc != nil && currentProc.Pid == proc.Pid {
+		_ = proc.Kill() // Best effort, ignore errors
+	}
 
 	return nil
 }

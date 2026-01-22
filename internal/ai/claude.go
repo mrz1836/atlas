@@ -3,9 +3,14 @@ package ai
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
+	"sync"
+	"syscall"
+	"time"
 
 	"github.com/rs/zerolog"
 
@@ -39,15 +44,99 @@ type CommandExecutor interface {
 
 // DefaultExecutor is the production implementation of CommandExecutor.
 // It runs commands using the operating system's process execution.
-type DefaultExecutor struct{}
+// Unlike StreamingExecutor, it captures output synchronously but still
+// tracks the running process for termination support.
+type DefaultExecutor struct {
+	runningProcess *os.Process // Track the running process for termination
+	processMu      sync.Mutex  // Protect process access
+}
 
 // Execute runs the command and captures its output.
+// Uses Start() + Wait() pattern to allow process tracking for termination.
 func (e *DefaultExecutor) Execute(_ context.Context, cmd *exec.Cmd) ([]byte, []byte, error) {
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
-	err := cmd.Run()
+
+	// Start the command
+	if err := cmd.Start(); err != nil {
+		return nil, nil, err
+	}
+
+	// Track the running process for termination
+	e.processMu.Lock()
+	e.runningProcess = cmd.Process
+	e.processMu.Unlock()
+
+	// Wait for command completion
+	err := cmd.Wait()
+
+	// Clear the process reference after completion
+	e.processMu.Lock()
+	e.runningProcess = nil
+	e.processMu.Unlock()
+
 	return stdout.Bytes(), stderr.Bytes(), err
+}
+
+// TerminateProcess terminates the running process gracefully with SIGTERM.
+// If the process doesn't exit within a short timeout, SIGKILL is sent.
+// This method blocks until the SIGKILL is sent (if needed) to prevent
+// orphaned processes when the parent exits before the kill fires.
+// Returns nil if no process is running or if termination succeeds.
+func (e *DefaultExecutor) TerminateProcess() error {
+	e.processMu.Lock()
+	proc := e.runningProcess
+	e.processMu.Unlock()
+
+	if proc == nil {
+		return nil // No process to terminate
+	}
+
+	// First try SIGTERM for graceful shutdown
+	if err := proc.Signal(syscall.SIGTERM); err != nil {
+		// Process may have already exited
+		if errors.Is(err, os.ErrProcessDone) {
+			return nil
+		}
+		return err
+	}
+
+	// Wait 2 seconds for graceful exit, then send SIGKILL.
+	// We poll to check if process has exited rather than calling Wait()
+	// because Execute() also calls cmd.Wait() and Wait() can only be called once.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		// Check if process is still referenced (cleared after cmd.Wait() completes)
+		e.processMu.Lock()
+		currentProc := e.runningProcess
+		e.processMu.Unlock()
+
+		if currentProc == nil || currentProc.Pid != proc.Pid {
+			// Process has exited and Execute() has completed
+			return nil
+		}
+
+		// Also try to check if process is still alive by sending signal 0
+		if err := proc.Signal(syscall.Signal(0)); err != nil {
+			// Process no longer exists
+			return err
+		}
+
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	// Timeout: force kill synchronously
+	e.processMu.Lock()
+	currentProc := e.runningProcess
+	e.processMu.Unlock()
+
+	// Only kill if same process is still running
+	if currentProc != nil && currentProc.Pid == proc.Pid {
+		_ = proc.Kill() // Best effort, ignore errors
+	}
+
+	return nil
 }
 
 // ClaudeCodeRunner implements AIRunner for Claude Code CLI invocation.
