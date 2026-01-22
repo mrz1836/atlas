@@ -11,14 +11,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/mrz1836/atlas/internal/constants"
+	"github.com/mrz1836/atlas/internal/logging"
+	"github.com/mrz1836/atlas/internal/tui"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"golang.org/x/term"
 	"gopkg.in/natefinch/lumberjack.v2"
-
-	"github.com/mrz1836/atlas/internal/constants"
-	"github.com/mrz1836/atlas/internal/logging"
-	"github.com/mrz1836/atlas/internal/tui"
 )
 
 // LogFileWriter holds the log file writer for cleanup purposes.

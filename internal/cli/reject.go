@@ -12,8 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/spf13/cobra"
-
 	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/domain"
@@ -21,6 +19,7 @@ import (
 	"github.com/mrz1836/atlas/internal/task"
 	"github.com/mrz1836/atlas/internal/tui"
 	"github.com/mrz1836/atlas/internal/workspace"
+	"github.com/spf13/cobra"
 )
 
 // AddRejectCommand adds the reject command to the root command.
@@ -108,6 +107,13 @@ const (
 
 // runReject executes the reject command.
 func runReject(ctx context.Context, cmd *cobra.Command, w io.Writer, opts *rejectOptions) error {
+	outputFormat := cmd.Flag("output").Value.String()
+	return runRejectWithOutput(ctx, w, opts, "", outputFormat)
+}
+
+// runRejectWithOutput executes the reject command with specified output format and base directory.
+// This function is testable and accepts a storeBaseDir for dependency injection.
+func runRejectWithOutput(ctx context.Context, w io.Writer, opts *rejectOptions, storeBaseDir, outputFormat string) error {
 	// Check context cancellation at entry
 	select {
 	case <-ctx.Done():
@@ -116,7 +122,6 @@ func runReject(ctx context.Context, cmd *cobra.Command, w io.Writer, opts *rejec
 	}
 
 	logger := Logger()
-	outputFormat := cmd.Flag("output").Value.String()
 
 	// Respect NO_COLOR environment variable
 	tui.CheckNoColor()
@@ -139,7 +144,7 @@ func runReject(ctx context.Context, cmd *cobra.Command, w io.Writer, opts *rejec
 	}
 
 	// Create stores
-	wsStore, taskStore, err := CreateStores("")
+	wsStore, taskStore, err := CreateStores(storeBaseDir)
 	if err != nil {
 		return handleRejectError(outputFormat, w, "", err)
 	}

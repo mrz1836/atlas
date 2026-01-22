@@ -8,13 +8,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/spf13/cobra"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-
 	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/domain"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
+	"github.com/mrz1836/atlas/internal/tui"
+	"github.com/spf13/cobra"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // mockTaskStoreForReject implements task.Store interface for testing.
@@ -1360,4 +1360,552 @@ func TestProcessJSONRejectRetry_UpdateError(t *testing.T) {
 	require.NoError(t, jsonErr)
 	assert.False(t, resp.Success)
 	assert.Contains(t, resp.Error, "failed to save task")
+}
+
+// Integration tests using real file stores
+
+// testTaskID generates a valid task ID for testing.
+func testRejectTaskID(suffix string) string {
+	paddedSuffix := suffix
+	for len(paddedSuffix) < 12 {
+		paddedSuffix = "0" + paddedSuffix
+	}
+	return "task-00000000-0000-4000-8000-" + paddedSuffix[:12]
+}
+
+// TestRunRejectWithOutput_NoAwaitingTasks tests when no tasks are awaiting approval.
+func TestRunRejectWithOutput_NoAwaitingTasks(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("NO_COLOR", "1")
+
+	var buf bytes.Buffer
+	ctx := context.Background()
+
+	opts := &rejectOptions{
+		workspace: "test-ws",
+		retry:     true,
+		feedback:  "Fix it",
+		step:      1,
+	}
+
+	err := runRejectWithOutput(ctx, &buf, opts, tmpDir, OutputJSON)
+	require.ErrorIs(t, err, atlaserrors.ErrJSONErrorOutput)
+
+	var resp rejectResponse
+	jsonErr := json.Unmarshal(buf.Bytes(), &resp)
+	require.NoError(t, jsonErr)
+	assert.False(t, resp.Success)
+	// Error message varies based on whether workspace exists with no tasks or doesn't exist
+}
+
+// TestRunRejectWithOutput_WorkspaceNotFound tests workspace not found.
+func TestRunRejectWithOutput_WorkspaceNotFound(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("NO_COLOR", "1")
+
+	var buf bytes.Buffer
+	ctx := context.Background()
+
+	opts := &rejectOptions{
+		workspace: "nonexistent",
+		retry:     true,
+		feedback:  "Fix it",
+		step:      1,
+	}
+
+	err := runRejectWithOutput(ctx, &buf, opts, tmpDir, OutputJSON)
+	require.ErrorIs(t, err, atlaserrors.ErrJSONErrorOutput)
+
+	var resp rejectResponse
+	jsonErr := json.Unmarshal(buf.Bytes(), &resp)
+	require.NoError(t, jsonErr)
+	assert.False(t, resp.Success)
+	// Error message varies - could be "not found" or "no tasks found"
+}
+
+// TestRunRejectWithOutput_RejectRetrySuccess tests successful reject with retry.
+func TestRunRejectWithOutput_RejectRetrySuccess(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("NO_COLOR", "1")
+
+	taskID := testRejectTaskID("200001")
+
+	// Create workspace
+	wsStore, taskStore, err := CreateStores(tmpDir)
+	require.NoError(t, err)
+
+	now := time.Now()
+	ws := &domain.Workspace{
+		Name:         "test-ws",
+		WorktreePath: tmpDir + "/test-ws",
+		Branch:       "feat/test",
+		Status:       constants.WorkspaceStatusActive,
+		Tasks:        []domain.TaskRef{{ID: taskID}},
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
+	require.NoError(t, wsStore.Create(context.Background(), ws))
+
+	// Create task in awaiting approval state
+	task := &domain.Task{
+		ID:          taskID,
+		WorkspaceID: "test-ws",
+		Description: "Test task",
+		Status:      constants.TaskStatusAwaitingApproval,
+		Steps:       []domain.Step{{Name: "analyze"}, {Name: "implement"}, {Name: "validate"}},
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+	require.NoError(t, taskStore.Create(context.Background(), "test-ws", task))
+
+	var buf bytes.Buffer
+	ctx := context.Background()
+
+	opts := &rejectOptions{
+		workspace: "test-ws",
+		retry:     true,
+		feedback:  "Fix the authentication flow",
+		step:      2, // 1-indexed
+	}
+
+	err = runRejectWithOutput(ctx, &buf, opts, tmpDir, OutputJSON)
+	require.NoError(t, err)
+
+	var resp rejectResponse
+	jsonErr := json.Unmarshal(buf.Bytes(), &resp)
+	require.NoError(t, jsonErr)
+	assert.True(t, resp.Success)
+	assert.Equal(t, "retry", resp.Action)
+	assert.Equal(t, "test-ws", resp.WorkspaceName)
+	assert.Equal(t, taskID, resp.TaskID)
+	assert.Equal(t, "Fix the authentication flow", resp.Feedback)
+	assert.Equal(t, 2, resp.ResumeStep)
+
+	// Verify task was updated
+	updatedTask, err := taskStore.Get(ctx, "test-ws", taskID)
+	require.NoError(t, err)
+	assert.Equal(t, constants.TaskStatusRunning, updatedTask.Status)
+	assert.Equal(t, 1, updatedTask.CurrentStep) // 0-indexed internal
+	assert.Equal(t, "Fix the authentication flow", updatedTask.Metadata["rejection_feedback"])
+
+	// Verify artifact was saved
+	artifact, err := taskStore.GetArtifact(ctx, "test-ws", taskID, "rejection-feedback.md")
+	require.NoError(t, err)
+	assert.Contains(t, string(artifact), "Fix the authentication flow")
+	assert.Contains(t, string(artifact), "Resume From: Step 2")
+}
+
+// TestRunRejectWithOutput_RejectDoneSuccess tests successful reject done.
+func TestRunRejectWithOutput_RejectDoneSuccess(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("NO_COLOR", "1")
+
+	taskID := testRejectTaskID("200002")
+
+	// Create workspace
+	wsStore, taskStore, err := CreateStores(tmpDir)
+	require.NoError(t, err)
+
+	now := time.Now()
+	ws := &domain.Workspace{
+		Name:         "done-ws",
+		WorktreePath: tmpDir + "/done-ws",
+		Branch:       "feat/done",
+		Status:       constants.WorkspaceStatusActive,
+		Tasks:        []domain.TaskRef{{ID: taskID}},
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
+	require.NoError(t, wsStore.Create(context.Background(), ws))
+
+	// Create task
+	task := &domain.Task{
+		ID:          taskID,
+		WorkspaceID: "done-ws",
+		Description: "Done task",
+		Status:      constants.TaskStatusAwaitingApproval,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+	require.NoError(t, taskStore.Create(context.Background(), "done-ws", task))
+
+	var buf bytes.Buffer
+	ctx := context.Background()
+
+	opts := &rejectOptions{
+		workspace: "done-ws",
+		done:      true,
+	}
+
+	err = runRejectWithOutput(ctx, &buf, opts, tmpDir, OutputJSON)
+	require.NoError(t, err)
+
+	var resp rejectResponse
+	jsonErr := json.Unmarshal(buf.Bytes(), &resp)
+	require.NoError(t, jsonErr)
+	assert.True(t, resp.Success)
+	assert.Equal(t, "done", resp.Action)
+	assert.Equal(t, "done-ws", resp.WorkspaceName)
+	assert.Equal(t, taskID, resp.TaskID)
+
+	// Verify task was updated to rejected
+	updatedTask, err := taskStore.Get(ctx, "done-ws", taskID)
+	require.NoError(t, err)
+	assert.Equal(t, constants.TaskStatusRejected, updatedTask.Status)
+}
+
+// TestRunRejectWithOutput_AutoSelectStep tests auto-selection of step.
+func TestRunRejectWithOutput_AutoSelectStep(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("NO_COLOR", "1")
+
+	taskID := testRejectTaskID("200003")
+
+	// Create workspace and task
+	wsStore, taskStore, err := CreateStores(tmpDir)
+	require.NoError(t, err)
+
+	now := time.Now()
+	ws := &domain.Workspace{
+		Name:         "auto-ws",
+		WorktreePath: tmpDir + "/auto-ws",
+		Branch:       "feat/auto",
+		Status:       constants.WorkspaceStatusActive,
+		Tasks:        []domain.TaskRef{{ID: taskID}},
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
+	require.NoError(t, wsStore.Create(context.Background(), ws))
+
+	task := &domain.Task{
+		ID:          taskID,
+		WorkspaceID: "auto-ws",
+		Description: "Auto task",
+		Status:      constants.TaskStatusAwaitingApproval,
+		Steps:       []domain.Step{{Name: "analyze"}, {Name: "implement"}, {Name: "validate"}},
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+	require.NoError(t, taskStore.Create(context.Background(), "auto-ws", task))
+
+	var buf bytes.Buffer
+	ctx := context.Background()
+
+	opts := &rejectOptions{
+		workspace: "auto-ws",
+		retry:     true,
+		feedback:  "Please fix",
+		step:      0, // Auto-select
+	}
+
+	err = runRejectWithOutput(ctx, &buf, opts, tmpDir, OutputJSON)
+	require.NoError(t, err)
+
+	var resp rejectResponse
+	jsonErr := json.Unmarshal(buf.Bytes(), &resp)
+	require.NoError(t, jsonErr)
+	assert.True(t, resp.Success)
+	assert.Equal(t, 2, resp.ResumeStep) // Should auto-select "implement" (index 1, displayed as 2)
+}
+
+// TestRunRejectWithOutput_TextModeNoTasks tests text mode with no tasks.
+func TestRunRejectWithOutput_TextModeNoTasks(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("NO_COLOR", "1")
+
+	var buf bytes.Buffer
+	ctx := context.Background()
+
+	opts := &rejectOptions{}
+
+	err := runRejectWithOutput(ctx, &buf, opts, tmpDir, OutputText)
+	require.NoError(t, err)
+
+	output := buf.String()
+	assert.Contains(t, output, "No tasks awaiting approval")
+}
+
+// TestFindAndSelectTaskForReject_SingleTask tests auto-selection with one task.
+func TestFindAndSelectTaskForReject_SingleTask(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	taskID := testRejectTaskID("300001")
+
+	wsStore, taskStore, err := CreateStores(tmpDir)
+	require.NoError(t, err)
+
+	now := time.Now()
+	ws := &domain.Workspace{
+		Name:         "single-ws",
+		WorktreePath: tmpDir + "/single-ws",
+		Branch:       "feat/single",
+		Status:       constants.WorkspaceStatusActive,
+		Tasks:        []domain.TaskRef{{ID: taskID}},
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
+	require.NoError(t, wsStore.Create(context.Background(), ws))
+
+	task := &domain.Task{
+		ID:          taskID,
+		WorkspaceID: "single-ws",
+		Description: "Single task",
+		Status:      constants.TaskStatusAwaitingApproval,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+	require.NoError(t, taskStore.Create(context.Background(), "single-ws", task))
+
+	var buf bytes.Buffer
+	out := tui.NewOutput(&buf, OutputText)
+	opts := &rejectOptions{}
+
+	selectedWS, selectedTask, err := findAndSelectTaskForReject(context.Background(), OutputText, &buf, out, opts, wsStore, taskStore)
+	require.NoError(t, err)
+	require.NotNil(t, selectedWS)
+	require.NotNil(t, selectedTask)
+	assert.Equal(t, "single-ws", selectedWS.Name)
+	assert.Equal(t, taskID, selectedTask.ID)
+}
+
+// TestFindAndSelectTaskForReject_SpecificWorkspace tests selecting a specific workspace.
+func TestFindAndSelectTaskForReject_SpecificWorkspace(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	taskID1 := testRejectTaskID("300002")
+	taskID2 := testRejectTaskID("300003")
+
+	wsStore, taskStore, err := CreateStores(tmpDir)
+	require.NoError(t, err)
+
+	now := time.Now()
+
+	// Create two workspaces
+	ws1 := &domain.Workspace{
+		Name:         "ws1",
+		WorktreePath: tmpDir + "/ws1",
+		Branch:       "feat/ws1",
+		Status:       constants.WorkspaceStatusActive,
+		Tasks:        []domain.TaskRef{{ID: taskID1}},
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
+	require.NoError(t, wsStore.Create(context.Background(), ws1))
+
+	ws2 := &domain.Workspace{
+		Name:         "ws2",
+		WorktreePath: tmpDir + "/ws2",
+		Branch:       "feat/ws2",
+		Status:       constants.WorkspaceStatusActive,
+		Tasks:        []domain.TaskRef{{ID: taskID2}},
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
+	require.NoError(t, wsStore.Create(context.Background(), ws2))
+
+	// Create tasks
+	task1 := &domain.Task{
+		ID:          taskID1,
+		WorkspaceID: "ws1",
+		Status:      constants.TaskStatusAwaitingApproval,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+	require.NoError(t, taskStore.Create(context.Background(), "ws1", task1))
+
+	task2 := &domain.Task{
+		ID:          taskID2,
+		WorkspaceID: "ws2",
+		Status:      constants.TaskStatusAwaitingApproval,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+	require.NoError(t, taskStore.Create(context.Background(), "ws2", task2))
+
+	var buf bytes.Buffer
+	out := tui.NewOutput(&buf, OutputText)
+	opts := &rejectOptions{workspace: "ws2"}
+
+	selectedWS, selectedTask, err := findAndSelectTaskForReject(context.Background(), OutputText, &buf, out, opts, wsStore, taskStore)
+	require.NoError(t, err)
+	require.NotNil(t, selectedWS)
+	require.NotNil(t, selectedTask)
+	assert.Equal(t, "ws2", selectedWS.Name)
+	assert.Equal(t, taskID2, selectedTask.ID)
+}
+
+// TestDisplayTaskSummary tests the task summary display.
+func TestDisplayTaskSummary(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	out := tui.NewOutput(&buf, OutputText)
+
+	ws := &domain.Workspace{
+		Name:   "summary-ws",
+		Branch: "feat/summary",
+	}
+	task := &domain.Task{
+		ID:          "task-summary",
+		Description: "Summary task",
+		Status:      constants.TaskStatusAwaitingApproval,
+	}
+
+	displayTaskSummary(out, ws, task)
+
+	output := buf.String()
+	assert.Contains(t, output, "summary-ws")
+	assert.Contains(t, output, "Summary task")
+	assert.Contains(t, output, string(constants.TaskStatusAwaitingApproval))
+}
+
+// TestSelectResumeStep_EmptySteps tests step selection with no steps.
+func TestSelectResumeStep_EmptySteps(t *testing.T) {
+	t.Parallel()
+
+	// This function requires TUI interaction, so we can only test edge cases
+	task := &domain.Task{Steps: []domain.Step{}}
+
+	// The function returns 0 for empty steps without prompting
+	result := findDefaultResumeStep(task)
+	assert.Equal(t, 0, result)
+}
+
+// TestNewRejectCmd_Structure tests the command structure.
+func TestNewRejectCmd_Structure(t *testing.T) {
+	t.Parallel()
+
+	cmd := newRejectCmd()
+	require.NotNil(t, cmd)
+	assert.Equal(t, "reject", cmd.Name())
+	assert.NotNil(t, cmd.RunE)
+
+	// Verify flags
+	assert.NotNil(t, cmd.Flags().Lookup("retry"))
+	assert.NotNil(t, cmd.Flags().Lookup("done"))
+	assert.NotNil(t, cmd.Flags().Lookup("feedback"))
+	assert.NotNil(t, cmd.Flags().Lookup("step"))
+}
+
+// TestFindAndSelectTaskForReject_ErrorListingWorkspaces tests error handling.
+func TestFindAndSelectTaskForReject_ErrorListingWorkspaces(t *testing.T) {
+	t.Parallel()
+
+	// Create stores
+	wsStore := &mockWorkspaceStoreForReject{
+		listErr: atlaserrors.ErrWorkspaceNotFound,
+	}
+	taskStore := &mockTaskStoreForReject{}
+
+	var buf bytes.Buffer
+	out := tui.NewOutput(&buf, OutputJSON)
+	opts := &rejectOptions{}
+
+	_, _, err := findAndSelectTaskForReject(context.Background(), OutputJSON, &buf, out, opts, wsStore, taskStore)
+	require.Error(t, err)
+}
+
+// mockWorkspaceStoreForReject for testing error cases.
+type mockWorkspaceStoreForReject struct {
+	workspaces []*domain.Workspace
+	listErr    error
+}
+
+func (m *mockWorkspaceStoreForReject) List(_ context.Context) ([]*domain.Workspace, error) {
+	if m.listErr != nil {
+		return nil, m.listErr
+	}
+	return m.workspaces, nil
+}
+
+func (m *mockWorkspaceStoreForReject) Get(_ context.Context, _ string) (*domain.Workspace, error) {
+	return nil, atlaserrors.ErrWorkspaceNotFound
+}
+
+func (m *mockWorkspaceStoreForReject) Create(_ context.Context, _ *domain.Workspace) error {
+	return nil
+}
+
+func (m *mockWorkspaceStoreForReject) Update(_ context.Context, _ *domain.Workspace) error {
+	return nil
+}
+
+func (m *mockWorkspaceStoreForReject) Delete(_ context.Context, _ string) error {
+	return nil
+}
+
+func (m *mockWorkspaceStoreForReject) Exists(_ context.Context, _ string) (bool, error) {
+	return false, nil
+}
+
+func (m *mockWorkspaceStoreForReject) ResetMetadata(_ context.Context, _ string) error {
+	return nil
+}
+
+// TestProcessJSONRejectRetry_WithMetadata tests that metadata is properly set.
+func TestProcessJSONRejectRetry_WithMetadata(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	ctx := context.Background()
+
+	ws := &domain.Workspace{
+		Name:         "test-ws",
+		Branch:       "feat/test",
+		WorktreePath: "/path/to/worktree",
+	}
+	task := &domain.Task{
+		ID:          "task-1",
+		WorkspaceID: "test-ws",
+		Status:      constants.TaskStatusAwaitingApproval,
+		Steps:       []domain.Step{{Name: "implement"}},
+		Metadata:    map[string]any{"existing": "value"},
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
+	}
+
+	mockStore := &mockTaskStoreForReject{
+		tasks:     map[string][]*domain.Task{"test-ws": {task}},
+		artifacts: make(map[string][]byte),
+	}
+
+	opts := &rejectOptions{
+		workspace: "test-ws",
+		retry:     true,
+		feedback:  "Fix the issue",
+		step:      1,
+	}
+
+	err := processJSONRejectRetry(ctx, &buf, mockStore, ws, task, opts)
+	require.NoError(t, err)
+
+	// Verify metadata includes both existing and new values
+	assert.Equal(t, "value", task.Metadata["existing"])
+	assert.Equal(t, "Fix the issue", task.Metadata["rejection_feedback"])
+	assert.Equal(t, 0, task.Metadata["resume_from_step"])
+}
+
+// TestRunRejectWithOutput_CreateStoresError tests store creation error.
+func TestRunRejectWithOutput_CreateStoresError(t *testing.T) {
+	var buf bytes.Buffer
+	ctx := context.Background()
+
+	opts := &rejectOptions{
+		workspace: "test-ws",
+		retry:     true,
+		feedback:  "Fix it",
+		step:      1,
+	}
+
+	// Use an invalid base dir to trigger store creation error
+	err := runRejectWithOutput(ctx, &buf, opts, "/invalid/path/that/does/not/exist/and/cannot/be/created", OutputJSON)
+	require.Error(t, err)
 }
