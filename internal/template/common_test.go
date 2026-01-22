@@ -16,7 +16,7 @@ func TestDefaultValidationCommands(t *testing.T) {
 		assert.Contains(t, DefaultValidationCommands, "magex format:fix")
 		assert.Contains(t, DefaultValidationCommands, "magex lint")
 		assert.Contains(t, DefaultValidationCommands, "magex test:race")
-		assert.Contains(t, DefaultValidationCommands, "go-pre-commit run --all-files")
+		assert.Contains(t, DefaultValidationCommands, "go-pre-commit run --all-files --skip lint")
 	})
 }
 

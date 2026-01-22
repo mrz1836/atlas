@@ -536,7 +536,7 @@ atlas validate --quiet
 3. Lint + Test (parallel)
 
 **Default Commands:**
-- `go-pre-commit run --all-files`
+- `go-pre-commit run --all-files --skip lint`
 - `magex format:fix`
 - `magex lint`
 - `magex test`
@@ -2162,7 +2162,7 @@ validation:
 
     # Commands run before committing
     pre_commit:
-      - go-pre-commit run --all-files
+      - go-pre-commit run --all-files --skip lint
 
     # Custom commands to run before creating a PR
     custom_pre_pr: []

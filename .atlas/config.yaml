@@ -176,7 +176,7 @@ validation:
     # Commands run before committing (runs first)
     # Default: []
     pre_commit:
-      - go-pre-commit run --all-files
+      - go-pre-commit run --all-files --skip lint
 
     # Commands that format code (run with --fix semantics)
     # Default: []

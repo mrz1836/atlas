@@ -16,7 +16,7 @@ var DefaultValidationCommands = []string{
 	"magex format:fix",
 	"magex lint",
 	"magex test:race",
-	"go-pre-commit run --all-files",
+	"go-pre-commit run --all-files --skip lint",
 }
 
 // GitCommitStep creates a standard git commit step with the given description.
