@@ -156,12 +156,6 @@ func (r *Runner) Run(ctx context.Context, workDir string) (*PipelineResult, erro
 	}
 	r.reportProgress("format", "completed")
 
-	// Stage files after format (format is last step to modify files)
-	if stageErr := r.getStager().StageModifiedFiles(ctx, workDir); stageErr != nil {
-		log.Warn().Err(stageErr).Msg("failed to stage modified files")
-		// Non-fatal - continue with validation
-	}
-
 	// Check context cancellation between phases
 	if cancelErr := ctxutil.Canceled(ctx); cancelErr != nil {
 		return r.finalize(result, startTime), cancelErr
@@ -187,6 +181,14 @@ func (r *Runner) Run(ctx context.Context, workDir string) (*PipelineResult, erro
 	// Phase 4: Test (last)
 	if testErr := r.runTestPhase(ctx, result, workDir, log); testErr != nil {
 		return r.finalize(result, startTime), testErr
+	}
+
+	// Final staging - stage all files modified during validation (by pre-commit, format, etc.)
+	// Brief settle time ensures filesystem buffers are flushed before git status
+	time.Sleep(100 * time.Millisecond)
+	if stageErr := r.getStager().StageModifiedFiles(ctx, workDir); stageErr != nil {
+		log.Warn().Err(stageErr).Msg("failed to stage modified files")
+		// Non-fatal - continue with success
 	}
 
 	result.Success = true
