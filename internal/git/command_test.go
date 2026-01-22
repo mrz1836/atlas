@@ -35,6 +35,7 @@ func createTestGitRepo(t *testing.T) string {
 }
 
 func TestRunCommand_Success(t *testing.T) {
+	t.Parallel()
 	dir := createTestGitRepo(t)
 	ctx := context.Background()
 
@@ -46,6 +47,7 @@ func TestRunCommand_Success(t *testing.T) {
 }
 
 func TestRunCommand_WithStderr(t *testing.T) {
+	t.Parallel()
 	dir := createTestGitRepo(t)
 	ctx := context.Background()
 
@@ -59,6 +61,7 @@ func TestRunCommand_WithStderr(t *testing.T) {
 }
 
 func TestRunCommand_ContextCancellation(t *testing.T) {
+	t.Parallel()
 	dir := createTestGitRepo(t)
 
 	// Create a context that's already canceled
@@ -73,6 +76,7 @@ func TestRunCommand_ContextCancellation(t *testing.T) {
 }
 
 func TestRunCommand_ContextTimeout(t *testing.T) {
+	t.Parallel()
 	dir := createTestGitRepo(t)
 
 	// Create a context with very short timeout
@@ -90,6 +94,7 @@ func TestRunCommand_ContextTimeout(t *testing.T) {
 }
 
 func TestRunCommand_NonGitDirectory(t *testing.T) {
+	t.Parallel()
 	// Use a non-git directory
 	dir := t.TempDir()
 	ctx := context.Background()
@@ -106,7 +111,8 @@ func TestRunCommand_NonGitDirectory(t *testing.T) {
 	assert.True(t, containsNotGit, "error should mention not a git repository")
 }
 
-func TestRunCommand_EmptyWorkDir(_ *testing.T) {
+func TestRunCommand_EmptyWorkDir(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	// RunCommand with empty workDir - should use current dir
@@ -119,6 +125,7 @@ func TestRunCommand_EmptyWorkDir(_ *testing.T) {
 }
 
 func TestRunCommand_InvalidCommand(t *testing.T) {
+	t.Parallel()
 	dir := createTestGitRepo(t)
 	ctx := context.Background()
 
@@ -130,6 +137,7 @@ func TestRunCommand_InvalidCommand(t *testing.T) {
 }
 
 func TestRunCommand_StderrTrimming(t *testing.T) {
+	t.Parallel()
 	dir := createTestGitRepo(t)
 	ctx := context.Background()
 
@@ -143,6 +151,7 @@ func TestRunCommand_StderrTrimming(t *testing.T) {
 }
 
 func TestRunCommand_MultipleArgs(t *testing.T) {
+	t.Parallel()
 	dir := createTestGitRepo(t)
 	ctx := context.Background()
 
@@ -162,6 +171,7 @@ func TestRunCommand_MultipleArgs(t *testing.T) {
 }
 
 func TestRunCommand_OutputTrimming(t *testing.T) {
+	t.Parallel()
 	dir := createTestGitRepo(t)
 	ctx := context.Background()
 
@@ -176,6 +186,7 @@ func TestRunCommand_OutputTrimming(t *testing.T) {
 }
 
 func TestRunCommand_EmptyOutput(t *testing.T) {
+	t.Parallel()
 	dir := createTestGitRepo(t)
 	ctx := context.Background()
 

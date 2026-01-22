@@ -877,6 +877,16 @@ func TestSmartCommitRunner_GenerateCommitMessage_UsesSuggestedMessage(t *testing
 	assert.Equal(t, "fix(git): handle nil pointer in runner", message)
 }
 
+// fastLockRetryConfig returns a LockRetryConfig with minimal delays for testing.
+func fastLockRetryConfig() LockRetryConfig {
+	return LockRetryConfig{
+		MaxAttempts:  5,
+		InitialDelay: 1 * time.Millisecond,
+		MaxDelay:     5 * time.Millisecond,
+		Multiplier:   1.0,
+	}
+}
+
 // LockRetryMockRunner implements Runner interface for testing lock retry behavior.
 type LockRetryMockRunner struct {
 	resetCallCount  int
@@ -979,7 +989,9 @@ func TestSmartCommitRunner_CommitGroup_ResetLockRetry(t *testing.T) {
 				resetErrors: tt.resetErrors,
 			}
 
-			runner := NewSmartCommitRunner(mockRunner, "/tmp", nil)
+			// Use fast lock retry config to avoid test delays
+			runner := NewSmartCommitRunner(mockRunner, "/tmp", nil,
+				WithLockRetryConfig(fastLockRetryConfig()))
 
 			group := FileGroup{
 				Package:    "test",
@@ -1048,7 +1060,9 @@ func TestSmartCommitRunner_CommitGroup_AddLockRetry(t *testing.T) {
 				addErrors: tt.addErrors,
 			}
 
-			runner := NewSmartCommitRunner(mockRunner, "/tmp", nil)
+			// Use fast lock retry config to avoid test delays
+			runner := NewSmartCommitRunner(mockRunner, "/tmp", nil,
+				WithLockRetryConfig(fastLockRetryConfig()))
 
 			group := FileGroup{
 				Package:    "test",
@@ -1079,7 +1093,9 @@ func TestSmartCommitRunner_CommitGroup_NonLockError_NoRetry(t *testing.T) {
 			resetErrors: []error{nonLockErr},
 		}
 
-		runner := NewSmartCommitRunner(mockRunner, "/tmp", nil)
+		// Use fast lock retry config to avoid test delays
+		runner := NewSmartCommitRunner(mockRunner, "/tmp", nil,
+			WithLockRetryConfig(fastLockRetryConfig()))
 		group := FileGroup{
 			Package: "test",
 			Files:   []FileChange{{Path: "test.go", Status: ChangeModified}},
@@ -1097,7 +1113,9 @@ func TestSmartCommitRunner_CommitGroup_NonLockError_NoRetry(t *testing.T) {
 			addErrors: []error{nonLockErr},
 		}
 
-		runner := NewSmartCommitRunner(mockRunner, "/tmp", nil)
+		// Use fast lock retry config to avoid test delays
+		runner := NewSmartCommitRunner(mockRunner, "/tmp", nil,
+			WithLockRetryConfig(fastLockRetryConfig()))
 		group := FileGroup{
 			Package: "test",
 			Files:   []FileChange{{Path: "test.go", Status: ChangeModified}},
@@ -1120,7 +1138,9 @@ func TestSmartCommitRunner_CommitGroup_MixedLockErrors(t *testing.T) {
 		addErrors:   []error{lockErr, lockErr, nil},
 	}
 
-	runner := NewSmartCommitRunner(mockRunner, "/tmp", nil)
+	// Use fast lock retry config to avoid test delays
+	runner := NewSmartCommitRunner(mockRunner, "/tmp", nil,
+		WithLockRetryConfig(fastLockRetryConfig()))
 
 	group := FileGroup{
 		Package:    "test",

@@ -37,6 +37,7 @@ type SmartCommitRunner struct {
 	timeout            time.Duration    // Timeout for AI commit message generation
 	maxRetries         int              // Maximum number of retry attempts
 	retryBackoffFactor float64          // Exponential backoff factor for retries
+	lockRetryConfig    *LockRetryConfig // Custom lock retry config (nil = use default)
 
 	// Fallback configuration
 	fallbackEnabled bool     // Enable model fallback on format errors
@@ -138,6 +139,14 @@ func WithFallbackModels(models []string) SmartCommitRunnerOption {
 func WithLogger(logger zerolog.Logger) SmartCommitRunnerOption {
 	return func(r *SmartCommitRunner) {
 		r.logger = logger
+	}
+}
+
+// WithLockRetryConfig sets a custom lock retry configuration.
+// This is primarily useful for tests to use shorter delays.
+func WithLockRetryConfig(cfg LockRetryConfig) SmartCommitRunnerOption {
+	return func(r *SmartCommitRunner) {
+		r.lockRetryConfig = &cfg
 	}
 }
 
@@ -369,8 +378,13 @@ func (r *SmartCommitRunner) buildCommitResult(commits []CommitInfo) (*CommitResu
 
 // commitGroup stages files and creates a commit for a single group.
 func (r *SmartCommitRunner) commitGroup(ctx context.Context, group FileGroup) (*CommitInfo, error) {
-	// Use lock retry with cleanup to handle stale locks from crashed processes
-	retryConfig := DefaultLockRetryConfigWithCleanup(r.workDir)
+	// Use custom lock retry config if set, otherwise use default with cleanup
+	var retryConfig LockRetryConfig
+	if r.lockRetryConfig != nil {
+		retryConfig = *r.lockRetryConfig
+	} else {
+		retryConfig = DefaultLockRetryConfigWithCleanup(r.workDir)
+	}
 
 	// Reset staging to ensure clean state for this group
 	// This prevents files from other groups (or pre-staged files) from being included
