@@ -2,7 +2,7 @@ schema_version: "1.1"
 id: item-DH9TE5
 guid: 0d5c2934-1648-45b0-8793-821e7c7f3332
 title: Add test coverage for start.go
-status: pending
+status: completed
 content:
   description: 'Current coverage is 56.66%. Target is >=80%. After adding tests, run: (magex format:fix && magex lint) and fix all issues.'
   category: testing
@@ -19,3 +19,6 @@ context:
   git:
     branch: master
     commit: 712f7cd
+lifecycle:
+  promoted_to_task: task-e1cb01ce-8e05-49ea-ac61-2549ec9dcd2d
+  completed_at: 2026-01-22T03:19:10.236369Z
