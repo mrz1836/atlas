@@ -44,7 +44,7 @@ func TestProcessManager_IsProcessAlive(t *testing.T) {
 			name: "alive process returns true",
 			setup: func(t *testing.T) int {
 				// Spawn a sleep process
-				cmd := exec.CommandContext(context.Background(), "sleep", "30")
+				cmd := exec.CommandContext(context.Background(), "sleep", "1")
 				require.NoError(t, cmd.Start())
 				t.Cleanup(func() { _ = cmd.Process.Kill() })
 				return cmd.Process.Pid
@@ -99,7 +99,7 @@ func TestProcessManager_CleanupDeadProcesses(t *testing.T) {
 
 	t.Run("filters out dead processes", func(t *testing.T) {
 		// Create alive process
-		aliveCmd := exec.CommandContext(context.Background(), "sleep", "30")
+		aliveCmd := exec.CommandContext(context.Background(), "sleep", "1")
 		require.NoError(t, aliveCmd.Start())
 		t.Cleanup(func() { _ = aliveCmd.Process.Kill() })
 		alivePid := aliveCmd.Process.Pid
@@ -132,11 +132,11 @@ func TestProcessManager_CleanupDeadProcesses(t *testing.T) {
 	})
 
 	t.Run("all alive returns same slice", func(t *testing.T) {
-		cmd1 := exec.CommandContext(context.Background(), "sleep", "30")
+		cmd1 := exec.CommandContext(context.Background(), "sleep", "1")
 		require.NoError(t, cmd1.Start())
 		t.Cleanup(func() { _ = cmd1.Process.Kill() })
 
-		cmd2 := exec.CommandContext(context.Background(), "sleep", "30")
+		cmd2 := exec.CommandContext(context.Background(), "sleep", "1")
 		require.NoError(t, cmd2.Start())
 		t.Cleanup(func() { _ = cmd2.Process.Kill() })
 
@@ -163,11 +163,11 @@ func TestProcessManager_TerminateProcesses(t *testing.T) {
 
 	t.Run("graceful termination with SIGTERM", func(t *testing.T) {
 		// Spawn process that handles SIGTERM
-		cmd := exec.CommandContext(context.Background(), "sleep", "30")
+		cmd := exec.CommandContext(context.Background(), "sleep", "1")
 		require.NoError(t, cmd.Start())
 		pid := cmd.Process.Pid
 
-		terminated, errs := pm.TerminateProcesses([]int{pid}, 500*time.Millisecond)
+		terminated, errs := pm.TerminateProcesses([]int{pid}, 100*time.Millisecond)
 
 		assert.Equal(t, 1, terminated)
 		assert.Empty(t, errs)
@@ -236,7 +236,7 @@ func TestProcessManager_TerminateProcesses(t *testing.T) {
 	})
 
 	t.Run("mixed alive and dead processes", func(t *testing.T) {
-		aliveCmd := exec.CommandContext(context.Background(), "sleep", "30")
+		aliveCmd := exec.CommandContext(context.Background(), "sleep", "1")
 		require.NoError(t, aliveCmd.Start())
 		alivePid := aliveCmd.Process.Pid
 
@@ -276,15 +276,15 @@ func TestProcessManager_TerminateProcesses(t *testing.T) {
 	})
 
 	t.Run("multiple processes all terminate", func(t *testing.T) {
-		cmd1 := exec.CommandContext(context.Background(), "sleep", "30")
+		cmd1 := exec.CommandContext(context.Background(), "sleep", "1")
 		require.NoError(t, cmd1.Start())
 		pid1 := cmd1.Process.Pid
 
-		cmd2 := exec.CommandContext(context.Background(), "sleep", "30")
+		cmd2 := exec.CommandContext(context.Background(), "sleep", "1")
 		require.NoError(t, cmd2.Start())
 		pid2 := cmd2.Process.Pid
 
-		cmd3 := exec.CommandContext(context.Background(), "sleep", "30")
+		cmd3 := exec.CommandContext(context.Background(), "sleep", "1")
 		require.NoError(t, cmd3.Start())
 		pid3 := cmd3.Process.Pid
 
@@ -311,7 +311,7 @@ func TestProcessManager_TerminateProcesses(t *testing.T) {
 	})
 
 	t.Run("respects graceful wait duration", func(t *testing.T) {
-		cmd := exec.CommandContext(context.Background(), "sleep", "30")
+		cmd := exec.CommandContext(context.Background(), "sleep", "1")
 		require.NoError(t, cmd.Start())
 		pid := cmd.Process.Pid
 
