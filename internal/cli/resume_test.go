@@ -466,9 +466,9 @@ func TestHandleResumeInterruption(t *testing.T) {
 	out := tui.NewOutput(&buf, "text")
 	logger := zerolog.Nop()
 
-	// Call handleResumeInterruption
+	// Call handleResumeInterruption (state is nil since we're not testing AI process termination)
 	ctx := context.Background()
-	err := handleResumeInterruption(ctx, out, ws, testTask, nil, logger)
+	err := handleResumeInterruption(ctx, out, ws, testTask, nil, nil, logger)
 
 	// Should return the interrupted error
 	require.ErrorIs(t, err, errors.ErrTaskInterrupted)
@@ -511,7 +511,7 @@ func TestHandleResumeInterruption_DisplaysResumeInstructions(t *testing.T) {
 	logger := zerolog.Nop()
 
 	ctx := context.Background()
-	_ = handleResumeInterruption(ctx, out, ws, testTask, nil, logger)
+	_ = handleResumeInterruption(ctx, out, ws, testTask, nil, nil, logger)
 
 	output := buf.String()
 	// Should show resume command
@@ -546,7 +546,7 @@ func TestHandleResumeInterruption_SetsWorkspaceStatusToPaused(t *testing.T) {
 	logger := zerolog.Nop()
 
 	ctx := context.Background()
-	_ = handleResumeInterruption(ctx, out, ws, testTask, nil, logger)
+	_ = handleResumeInterruption(ctx, out, ws, testTask, nil, nil, logger)
 
 	// Should update workspace status to paused
 	assert.Equal(t, constants.WorkspaceStatusPaused, ws.Status,

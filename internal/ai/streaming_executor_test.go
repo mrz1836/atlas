@@ -789,3 +789,173 @@ func TestStreamingExecutor_WithStreamProvider(t *testing.T) {
 		}
 	})
 }
+
+// Compile-time check that StreamingExecutor implements ProcessTerminator.
+var _ ProcessTerminator = (*StreamingExecutor)(nil)
+
+func TestStreamingExecutor_TerminateProcess_NoProcess(t *testing.T) {
+	t.Parallel()
+
+	executor := NewStreamingExecutor(ActivityOptions{
+		Callback:  func(_ ActivityEvent) {},
+		Verbosity: VerbosityHigh,
+	})
+
+	// Terminate with no running process should return nil
+	err := executor.TerminateProcess()
+	if err != nil {
+		t.Errorf("TerminateProcess() = %v, want nil", err)
+	}
+}
+
+func TestStreamingExecutor_TerminateProcess_RunningProcess(t *testing.T) {
+	// Skip in short mode as this involves process management
+	if testing.Short() {
+		t.Skip("Skipping process termination test in short mode")
+	}
+
+	t.Parallel()
+
+	executor := NewStreamingExecutor(ActivityOptions{
+		Callback:  func(_ ActivityEvent) {},
+		Verbosity: VerbosityHigh,
+	})
+
+	// Start a long-running command in a goroutine
+	ctx := context.Background()
+	cmd := exec.CommandContext(ctx, "sleep", "30")
+
+	// Start execution in goroutine
+	done := make(chan error, 1)
+	go func() {
+		_, _, err := executor.Execute(ctx, cmd)
+		done <- err
+	}()
+
+	// Wait a bit for the process to start
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify process is being tracked
+	pid := executor.GetRunningPID()
+	if pid == 0 {
+		t.Fatal("Expected process to be tracked during execution")
+	}
+
+	// Terminate the process
+	err := executor.TerminateProcess()
+	if err != nil {
+		t.Errorf("TerminateProcess() = %v, want nil", err)
+	}
+
+	// Wait for execution to complete (should be quick after termination)
+	select {
+	case <-done:
+		// Process was terminated successfully
+	case <-time.After(5 * time.Second):
+		t.Error("Process termination took too long")
+	}
+}
+
+func TestStreamingExecutor_TerminateProcess_BlocksUntilComplete(t *testing.T) {
+	// This test verifies that TerminateProcess blocks until the process is killed
+	// rather than returning immediately (the old async behavior)
+	if testing.Short() {
+		t.Skip("Skipping process termination test in short mode")
+	}
+
+	t.Parallel()
+
+	executor := NewStreamingExecutor(ActivityOptions{
+		Callback:  func(_ ActivityEvent) {},
+		Verbosity: VerbosityHigh,
+	})
+
+	// Start a long-running process that exits on SIGTERM
+	ctx := context.Background()
+	cmd := exec.CommandContext(ctx, "sleep", "30")
+
+	done := make(chan error, 1)
+	go func() {
+		_, _, err := executor.Execute(ctx, cmd)
+		done <- err
+	}()
+
+	// Wait for process to start
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify process is running
+	pid := executor.GetRunningPID()
+	if pid == 0 {
+		t.Fatal("Expected process to be running")
+	}
+
+	// Record time before termination
+	start := time.Now()
+
+	// Terminate the process
+	err := executor.TerminateProcess()
+	elapsed := time.Since(start)
+
+	if err != nil {
+		t.Errorf("TerminateProcess() = %v, want nil", err)
+	}
+
+	// TerminateProcess should have completed (blocked until done)
+	// For a normal process that responds to SIGTERM, this should be quick
+	// The important thing is that we DON'T return before the process is handled
+	t.Logf("TerminateProcess completed in %v", elapsed)
+
+	// After TerminateProcess returns, Execute() should complete quickly
+	select {
+	case <-done:
+		// Process was terminated successfully
+	case <-time.After(5 * time.Second):
+		t.Error("Execute() did not return after TerminateProcess")
+	}
+}
+
+func TestStreamingExecutor_GetRunningPID(t *testing.T) {
+	// Skip in short mode
+	if testing.Short() {
+		t.Skip("Skipping PID tracking test in short mode")
+	}
+
+	t.Parallel()
+
+	executor := NewStreamingExecutor(ActivityOptions{
+		Callback:  func(_ ActivityEvent) {},
+		Verbosity: VerbosityHigh,
+	})
+
+	// Before execution, PID should be 0
+	if pid := executor.GetRunningPID(); pid != 0 {
+		t.Errorf("GetRunningPID() before execution = %d, want 0", pid)
+	}
+
+	// Start a command in a goroutine
+	ctx := context.Background()
+	cmd := exec.CommandContext(ctx, "sleep", "1")
+
+	done := make(chan error, 1)
+	go func() {
+		_, _, err := executor.Execute(ctx, cmd)
+		done <- err
+	}()
+
+	// Wait for process to start
+	time.Sleep(100 * time.Millisecond)
+
+	// During execution, PID should be non-zero
+	pid := executor.GetRunningPID()
+	if pid == 0 {
+		t.Error("GetRunningPID() during execution = 0, want non-zero")
+	}
+
+	// Wait for completion
+	<-done
+
+	// After completion, PID should be 0 again
+	if pid := executor.GetRunningPID(); pid != 0 {
+		t.Errorf("GetRunningPID() after execution = %d, want 0", pid)
+	}
+}

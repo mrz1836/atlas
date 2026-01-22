@@ -835,3 +835,114 @@ func TestClaudeCodeRunner_ParseResponse(t *testing.T) {
 
 // Compile-time check that ClaudeCodeRunner implements Runner.
 var _ Runner = (*ClaudeCodeRunner)(nil)
+
+// Compile-time check that DefaultExecutor implements ProcessTerminator.
+var _ ProcessTerminator = (*DefaultExecutor)(nil)
+
+func TestDefaultExecutor_TerminateProcess_NoProcess(t *testing.T) {
+	t.Parallel()
+
+	executor := &DefaultExecutor{}
+
+	// Terminate with no running process should return nil
+	err := executor.TerminateProcess()
+	assert.NoError(t, err)
+}
+
+func TestDefaultExecutor_TerminateProcess_RunningProcess(t *testing.T) {
+	// Skip in short mode as this involves process management
+	if testing.Short() {
+		t.Skip("Skipping process termination test in short mode")
+	}
+
+	t.Parallel()
+
+	executor := &DefaultExecutor{}
+
+	// Start a long-running command in a goroutine
+	ctx := context.Background()
+	cmd := exec.CommandContext(ctx, "sleep", "30")
+
+	// Start execution in goroutine
+	done := make(chan error, 1)
+	go func() {
+		_, _, err := executor.Execute(ctx, cmd)
+		done <- err
+	}()
+
+	// Wait a bit for the process to start
+	time.Sleep(100 * time.Millisecond)
+
+	// Terminate the process
+	err := executor.TerminateProcess()
+	require.NoError(t, err)
+
+	// Wait for execution to complete (should be quick after termination)
+	select {
+	case <-done:
+		// Process was terminated successfully
+	case <-time.After(5 * time.Second):
+		t.Error("Process termination took too long")
+	}
+}
+
+func TestDefaultExecutor_TerminateProcess_AlreadyExited(t *testing.T) {
+	t.Parallel()
+
+	executor := &DefaultExecutor{}
+
+	// Execute a quick command
+	ctx := context.Background()
+	cmd := exec.CommandContext(ctx, "echo", "hello")
+
+	_, _, err := executor.Execute(ctx, cmd)
+	require.NoError(t, err)
+
+	// Process already exited, terminate should return nil
+	err = executor.TerminateProcess()
+	assert.NoError(t, err)
+}
+
+func TestDefaultExecutor_TracksRunningProcess(t *testing.T) {
+	// Skip in short mode
+	if testing.Short() {
+		t.Skip("Skipping process tracking test in short mode")
+	}
+
+	t.Parallel()
+
+	executor := &DefaultExecutor{}
+
+	// Before execution, no process should be tracked
+	executor.processMu.Lock()
+	assert.Nil(t, executor.runningProcess)
+	executor.processMu.Unlock()
+
+	// Start a command in a goroutine
+	ctx := context.Background()
+	cmd := exec.CommandContext(ctx, "sleep", "1")
+
+	done := make(chan error, 1)
+	go func() {
+		_, _, err := executor.Execute(ctx, cmd)
+		done <- err
+	}()
+
+	// Wait for process to start
+	time.Sleep(100 * time.Millisecond)
+
+	// During execution, process should be tracked
+	executor.processMu.Lock()
+	assert.NotNil(t, executor.runningProcess)
+	pid := executor.runningProcess.Pid
+	executor.processMu.Unlock()
+	assert.Positive(t, pid)
+
+	// Wait for completion
+	<-done
+
+	// After completion, process should be cleared
+	executor.processMu.Lock()
+	assert.Nil(t, executor.runningProcess)
+	executor.processMu.Unlock()
+}

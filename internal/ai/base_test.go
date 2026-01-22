@@ -306,3 +306,50 @@ func TestBaseRunner_ValidateWorkingDir(t *testing.T) {
 		assert.ErrorIs(t, err, atlaserrors.ErrWorktreeNotFound)
 	})
 }
+
+func TestBaseRunner_TerminateRunningProcess(t *testing.T) {
+	t.Parallel()
+
+	t.Run("returns nil when executor is nil", func(t *testing.T) {
+		t.Parallel()
+		b := &BaseRunner{Executor: nil}
+
+		err := b.TerminateRunningProcess()
+
+		assert.NoError(t, err)
+	})
+
+	t.Run("returns nil when executor does not implement ProcessTerminator", func(t *testing.T) {
+		t.Parallel()
+		b := &BaseRunner{Executor: &MockExecutor{}}
+
+		err := b.TerminateRunningProcess()
+
+		assert.NoError(t, err)
+	})
+
+	t.Run("calls TerminateProcess on StreamingExecutor", func(t *testing.T) {
+		t.Parallel()
+		streamingExec := NewStreamingExecutor(ActivityOptions{
+			Callback:  func(_ ActivityEvent) {},
+			Verbosity: VerbosityHigh,
+		})
+		b := &BaseRunner{Executor: streamingExec}
+
+		// Should not error when no process is running
+		err := b.TerminateRunningProcess()
+
+		assert.NoError(t, err)
+	})
+
+	t.Run("calls TerminateProcess on DefaultExecutor", func(t *testing.T) {
+		t.Parallel()
+		defaultExec := &DefaultExecutor{}
+		b := &BaseRunner{Executor: defaultExec}
+
+		// Should not error when no process is running
+		err := b.TerminateRunningProcess()
+
+		assert.NoError(t, err)
+	})
+}
