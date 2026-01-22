@@ -11,11 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rs/zerolog"
-	"github.com/spf13/cobra"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-
 	"github.com/mrz1836/atlas/internal/ai"
 	"github.com/mrz1836/atlas/internal/backlog"
 	"github.com/mrz1836/atlas/internal/cli/workflow"
@@ -27,6 +22,10 @@ import (
 	"github.com/mrz1836/atlas/internal/template"
 	"github.com/mrz1836/atlas/internal/tui"
 	"github.com/mrz1836/atlas/internal/workspace"
+	"github.com/rs/zerolog"
+	"github.com/spf13/cobra"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // runGitCommand runs a git command in the specified directory.

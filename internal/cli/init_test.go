@@ -10,13 +10,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"gopkg.in/yaml.v3"
-
 	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/constants"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 )
 
 func TestNewInitCmd(t *testing.T) {
@@ -193,7 +192,7 @@ func TestBuildDefaultConfig(t *testing.T) {
 	assert.Equal(t, []string{"magex format:fix"}, cfg.Validation.Commands.Format)
 	assert.Equal(t, []string{"magex lint"}, cfg.Validation.Commands.Lint)
 	assert.Equal(t, []string{"magex test"}, cfg.Validation.Commands.Test)
-	assert.Equal(t, []string{"go-pre-commit run --all-files"}, cfg.Validation.Commands.PreCommit)
+	assert.Equal(t, []string{"go-pre-commit run --all-files --skip lint"}, cfg.Validation.Commands.PreCommit)
 
 	// Notification configuration
 	assert.True(t, cfg.Notifications.BellEnabled)
@@ -236,7 +235,7 @@ func TestSuggestValidationCommands(t *testing.T) {
 				{Name: constants.ToolGoPreCommit, Status: config.ToolStatusInstalled},
 			},
 			expectedFormat:    "magex format:fix",
-			expectedPreCommit: []string{"go-pre-commit run --all-files"},
+			expectedPreCommit: []string{"go-pre-commit run --all-files --skip lint"},
 		},
 		{
 			name: "without managed tools",

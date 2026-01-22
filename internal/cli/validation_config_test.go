@@ -5,11 +5,10 @@ import (
 	"context"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-
 	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/constants"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestValidationProviderConfig_Defaults(t *testing.T) {
@@ -51,7 +50,7 @@ func TestSuggestValidationDefaults_WithGoPreCommit(t *testing.T) {
 	assert.Equal(t, []string{"go vet ./..."}, defaults.Lint)
 	assert.Equal(t, []string{"go test ./..."}, defaults.Test)
 	// But should have go-pre-commit
-	assert.Equal(t, []string{"go-pre-commit run --all-files"}, defaults.PreCommit)
+	assert.Equal(t, []string{"go-pre-commit run --all-files --skip lint"}, defaults.PreCommit)
 }
 
 func TestSuggestValidationDefaults_WithBothTools(t *testing.T) {
@@ -67,7 +66,7 @@ func TestSuggestValidationDefaults_WithBothTools(t *testing.T) {
 	assert.Equal(t, []string{"magex format:fix"}, defaults.Format)
 	assert.Equal(t, []string{"magex lint"}, defaults.Lint)
 	assert.Equal(t, []string{"magex test"}, defaults.Test)
-	assert.Equal(t, []string{"go-pre-commit run --all-files"}, defaults.PreCommit)
+	assert.Equal(t, []string{"go-pre-commit run --all-files --skip lint"}, defaults.PreCommit)
 }
 
 func TestSuggestValidationDefaults_NoTools(t *testing.T) {
@@ -163,7 +162,7 @@ func TestNewValidationConfigForm(t *testing.T) {
 		FormatCmds:    "magex format:fix",
 		LintCmds:      "magex lint",
 		TestCmds:      "magex test",
-		PreCommitCmds: "go-pre-commit run --all-files",
+		PreCommitCmds: "go-pre-commit run --all-files --skip lint",
 		CustomPrePR:   "custom-hook",
 	}
 

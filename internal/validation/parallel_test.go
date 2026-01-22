@@ -520,7 +520,7 @@ func TestRunner_Run_EmptyCommandListsUseDefaults(t *testing.T) {
 	mockRunner.SetResponse("magex format:fix", "formatted", "", 0, nil)
 	mockRunner.SetResponse("magex lint", "lint ok", "", 0, nil)
 	mockRunner.SetResponse("magex test", "test ok", "", 0, nil)
-	mockRunner.SetResponse("go-pre-commit run --all-files", "precommit ok", "", 0, nil)
+	mockRunner.SetResponse("go-pre-commit run --all-files --skip lint", "precommit ok", "", 0, nil)
 
 	executor := validation.NewExecutorWithRunner(time.Minute, mockRunner)
 	// Empty config should use defaults

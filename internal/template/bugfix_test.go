@@ -119,7 +119,7 @@ func TestBugfixTemplate_ValidationCommands(t *testing.T) {
 		"magex format:fix",
 		"magex lint",
 		"magex test:race",
-		"go-pre-commit run --all-files",
+		"go-pre-commit run --all-files --skip lint",
 	}
 
 	assert.Equal(t, expectedCommands, tmpl.ValidationCommands)

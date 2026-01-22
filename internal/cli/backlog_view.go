@@ -8,10 +8,9 @@ import (
 	"sync"
 
 	"github.com/charmbracelet/glamour"
-	"github.com/spf13/cobra"
-
 	"github.com/mrz1836/atlas/internal/backlog"
 	"github.com/mrz1836/atlas/internal/tui"
+	"github.com/spf13/cobra"
 )
 
 var (

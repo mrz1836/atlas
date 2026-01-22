@@ -5,7 +5,6 @@ import (
 	"context"
 
 	"github.com/charmbracelet/huh"
-
 	"github.com/mrz1836/atlas/internal/tui"
 )
 

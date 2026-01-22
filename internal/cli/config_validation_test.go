@@ -96,7 +96,7 @@ func TestDisplayCurrentValidationConfig(t *testing.T) {
 				Format:      []string{"magex format:fix"},
 				Lint:        []string{"magex lint"},
 				Test:        []string{"magex test"},
-				PreCommit:   []string{"go-pre-commit run --all-files"},
+				PreCommit:   []string{"go-pre-commit run --all-files --skip lint"},
 				CustomPrePR: []string{"custom-hook"},
 			},
 		},

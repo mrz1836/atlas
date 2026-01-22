@@ -204,7 +204,7 @@ func TestValidationExecutor_Execute_DefaultCommands(t *testing.T) {
 		if call == "magex test" {
 			hasTest = true
 		}
-		if call == "go-pre-commit run --all-files" {
+		if call == "go-pre-commit run --all-files --skip lint" {
 			hasPreCommit = true
 		}
 	}
@@ -759,7 +759,7 @@ func TestValidationExecutor_Execute_UsesCustomCommands(t *testing.T) {
 			hasDefaultLint = true
 		case "magex test":
 			hasDefaultTest = true
-		case "go-pre-commit run --all-files":
+		case "go-pre-commit run --all-files --skip lint":
 			hasDefaultPreCommit = true
 		}
 	}
@@ -790,7 +790,7 @@ func TestValidationExecutor_Execute_UsesTestRaceFromConfig(t *testing.T) {
 		Format:    []string{"magex format:fix"},
 		Lint:      []string{"magex lint"},
 		Test:      []string{"magex test:race"}, // The key config value that was being ignored
-		PreCommit: []string{"go-pre-commit run --all-files"},
+		PreCommit: []string{"go-pre-commit run --all-files --skip lint"},
 	}
 
 	// Create temp directory for test

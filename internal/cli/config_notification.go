@@ -8,9 +8,8 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/spf13/cobra"
-
 	"github.com/mrz1836/atlas/internal/ctxutil"
+	"github.com/spf13/cobra"
 )
 
 // ConfigNotificationFlags holds flags specific to the config notifications command.

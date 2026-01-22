@@ -89,7 +89,7 @@ func TestConfig_YAMLSerialization(t *testing.T) {
 				Format:    []string{"magex format:fix"},
 				Lint:      []string{"magex lint"},
 				Test:      []string{"magex test"},
-				PreCommit: []string{"go-pre-commit run --all-files"},
+				PreCommit: []string{"go-pre-commit run --all-files --skip lint"},
 			},
 			Timeout:            10 * time.Minute,
 			ParallelExecution:  false,

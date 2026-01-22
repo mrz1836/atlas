@@ -13,13 +13,12 @@ import (
 
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/spf13/cobra"
-	"golang.org/x/sync/errgroup"
-
 	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/errors"
 	"github.com/mrz1836/atlas/internal/tui"
+	"github.com/spf13/cobra"
+	"golang.org/x/sync/errgroup"
 )
 
 // UpgradeFlags holds flags specific to the upgrade command.

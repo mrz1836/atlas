@@ -18,7 +18,7 @@ For generic Go conventions, see `AGENTS.md` and `tech-conventions/`. This file c
 
 ```bash
 # Before committing or opening PR
-magex format:fix && magex lint && magex test:race && go-pre-commit run --all-files
+go-pre-commit run --all-files --skip lint && magex format:fix && magex lint && magex test:race
 ```
 
 ---

@@ -103,7 +103,7 @@ const (
 	DefaultTestCommand = "magex test"
 
 	// DefaultPreCommitCommand is the default command for pre-commit hooks.
-	DefaultPreCommitCommand = "go-pre-commit run --all-files"
+	DefaultPreCommitCommand = "go-pre-commit run --all-files --skip lint"
 )
 
 // Git remote configuration.

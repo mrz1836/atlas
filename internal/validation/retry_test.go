@@ -113,7 +113,7 @@ func TestExtractErrorContext_IncludesErrorField(t *testing.T) {
 		FailedStepName: "pre-commit",
 		PreCommitResults: []Result{
 			{
-				Command:  "go-pre-commit run --all-files",
+				Command:  "go-pre-commit run --all-files --skip lint",
 				Success:  false,
 				ExitCode: 1,
 				Error:    "command timed out",

@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/huh"
-
 	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/tui"
@@ -69,7 +68,7 @@ func SuggestValidationDefaults(result *config.ToolDetectionResult) ValidationCom
 	}
 
 	if hasGoPreCommit {
-		cmds.PreCommit = []string{"go-pre-commit run --all-files"}
+		cmds.PreCommit = []string{"go-pre-commit run --all-files --skip lint"}
 	}
 
 	return cmds
@@ -113,7 +112,7 @@ func NewValidationConfigForm(cfg *ValidationProviderConfig) *huh.Form {
 				Title("Pre-commit Commands").
 				Description("Commands to run before commits (one per line)").
 				Value(&cfg.PreCommitCmds).
-				Placeholder("go-pre-commit run --all-files"),
+				Placeholder("go-pre-commit run --all-files --skip lint"),
 			huh.NewText().
 				Title("Custom Pre-PR Hooks").
 				Description("Additional commands to run before PR creation (one per line, optional)").
