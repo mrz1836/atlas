@@ -9,9 +9,6 @@ import (
 	"os"
 	"strings"
 
-	"github.com/rs/zerolog"
-	"github.com/spf13/cobra"
-
 	"github.com/mrz1836/atlas/internal/ai"
 	"github.com/mrz1836/atlas/internal/backlog"
 	"github.com/mrz1836/atlas/internal/cli/workflow"
@@ -27,6 +24,8 @@ import (
 	"github.com/mrz1836/atlas/internal/tui"
 	"github.com/mrz1836/atlas/internal/validation"
 	"github.com/mrz1836/atlas/internal/workspace"
+	"github.com/rs/zerolog"
+	"github.com/spf13/cobra"
 )
 
 // AddStartCommand adds the start command to the root command.
@@ -1575,5 +1574,5 @@ func getGitStatsString(provider *git.StatsProvider) string {
 		return ""
 	}
 
-	return tui.FormatGitStats(stats.NewFiles, stats.ModifiedFiles, stats.Additions, stats.Deletions)
+	return tui.FormatGitStats(stats.NewFiles, stats.ModifiedFiles, stats.DeletedFiles, stats.Additions, stats.Deletions)
 }

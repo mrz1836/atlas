@@ -7,13 +7,12 @@ import (
 	"io"
 	"os"
 
-	"github.com/spf13/cobra"
-
 	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/errors"
 	"github.com/mrz1836/atlas/internal/tui"
 	"github.com/mrz1836/atlas/internal/validation"
+	"github.com/spf13/cobra"
 )
 
 // ValidateOptions allows dependency injection for testing the validate command.
@@ -75,9 +74,11 @@ func runValidateWithOptions(ctx context.Context, cmd *cobra.Command, w io.Writer
 	}
 
 	logger := Logger()
-	outputFormat := cmd.Flag("output").Value.String()
-	verbose := cmd.Flag("verbose").Value.String() == "true"
-	quiet := cmd.Flag("quiet").Value.String() == "true"
+	// Get flag values with defensive null checks for testing
+	// (flags may not be properly inherited when runValidateWithOptions is called directly)
+	outputFormat := getStringFlagValue(cmd, "output")
+	verbose := getBoolFlagValue(cmd, "verbose")
+	quiet := getBoolFlagValue(cmd, "quiet")
 	tui.CheckNoColor()
 
 	out := tui.NewOutput(w, outputFormat)
@@ -247,4 +248,20 @@ func handlePipelineFailure(out tui.Output, result *validation.PipelineResult) er
 	}
 
 	return errors.ErrValidationFailed
+}
+
+// getStringFlagValue safely retrieves a string flag value, returning empty string if flag doesn't exist.
+func getStringFlagValue(cmd *cobra.Command, name string) string {
+	if f := cmd.Flag(name); f != nil {
+		return f.Value.String()
+	}
+	return ""
+}
+
+// getBoolFlagValue safely retrieves a bool flag value, returning false if flag doesn't exist.
+func getBoolFlagValue(cmd *cobra.Command, name string) bool {
+	if f := cmd.Flag(name); f != nil {
+		return f.Value.String() == "true"
+	}
+	return false
 }
