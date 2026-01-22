@@ -2,7 +2,7 @@ schema_version: "1.1"
 id: item-9PU7RV
 guid: 0e131f4f-26e9-4ec0-b9d2-fa0be488e0a1
 title: Add test coverage for validate.go
-status: pending
+status: completed
 content:
   description: 'Current coverage is 53.23%. Target is >=80%. After adding tests, run: (magex format:fix && magex lint) and fix all issues.'
   category: testing
@@ -19,3 +19,6 @@ context:
   git:
     branch: master
     commit: 712f7cd
+lifecycle:
+  promoted_to_task: task-b4dc74e8-1d7f-4a43-9fda-7830d69d7daf
+  completed_at: 2026-01-22T11:21:31.69724Z
