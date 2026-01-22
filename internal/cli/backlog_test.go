@@ -10,11 +10,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mrz1836/atlas/internal/backlog"
-	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/mrz1836/atlas/internal/backlog"
+	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 )
 
 // TestGetOutputFormat tests the getOutputFormat helper function.
