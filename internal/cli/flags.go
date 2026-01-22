@@ -5,10 +5,9 @@ import (
 	stderrors "errors"
 	"strings"
 
+	"github.com/mrz1836/atlas/internal/errors"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-
-	"github.com/mrz1836/atlas/internal/errors"
 )
 
 // Exit codes for the CLI.

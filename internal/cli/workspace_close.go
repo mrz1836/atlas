@@ -12,14 +12,13 @@ import (
 
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/rs/zerolog"
-	"github.com/spf13/cobra"
-
 	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/errors"
 	"github.com/mrz1836/atlas/internal/task"
 	"github.com/mrz1836/atlas/internal/tui"
 	"github.com/mrz1836/atlas/internal/workspace"
+	"github.com/rs/zerolog"
+	"github.com/spf13/cobra"
 )
 
 // addWorkspaceCloseCmd adds the close subcommand to the workspace command.
