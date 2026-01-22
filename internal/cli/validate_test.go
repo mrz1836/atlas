@@ -8,12 +8,13 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/mrz1836/atlas/internal/errors"
-	"github.com/mrz1836/atlas/internal/tui"
-	"github.com/mrz1836/atlas/internal/validation"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/mrz1836/atlas/internal/errors"
+	"github.com/mrz1836/atlas/internal/tui"
+	"github.com/mrz1836/atlas/internal/validation"
 )
 
 // mockValidationRunner implements ValidationRunner for fast testing.
@@ -818,7 +819,10 @@ func TestRunValidate_ConfigLoadWithDefaults(t *testing.T) {
 
 	var buf bytes.Buffer
 	ctx := context.Background()
-	opts := &ValidateOptions{Runner: newSuccessMockRunner()}
+	opts := &ValidateOptions{
+		Runner:  newSuccessMockRunner(),
+		WorkDir: "/mock/workdir",
+	}
 
 	// With mock runner, this should succeed quickly
 	err := runValidateWithOptions(ctx, cmd, &buf, opts)
@@ -933,7 +937,10 @@ func TestRunValidate_ProgressCallbackStates(t *testing.T) {
 
 	var buf bytes.Buffer
 	ctx := context.Background()
-	opts := &ValidateOptions{Runner: newSuccessMockRunner()}
+	opts := &ValidateOptions{
+		Runner:  newSuccessMockRunner(),
+		WorkDir: "/mock/workdir",
+	}
 
 	err := runValidateWithOptions(ctx, cmd, &buf, opts)
 	// With mock runner, this should succeed and exercise all callback states
@@ -1040,7 +1047,10 @@ func TestRunValidate_SuccessPath(t *testing.T) {
 
 	var buf bytes.Buffer
 	ctx := context.Background()
-	opts := &ValidateOptions{Runner: newSuccessMockRunner()}
+	opts := &ValidateOptions{
+		Runner:  newSuccessMockRunner(),
+		WorkDir: "/mock/workdir",
+	}
 
 	err := runValidateWithOptions(ctx, cmd, &buf, opts)
 
@@ -1225,7 +1235,10 @@ func TestRunValidate_CombinedFlags(t *testing.T) {
 
 	var buf bytes.Buffer
 	ctx := context.Background()
-	opts := &ValidateOptions{Runner: newSuccessMockRunner()}
+	opts := &ValidateOptions{
+		Runner:  newSuccessMockRunner(),
+		WorkDir: "/mock/workdir",
+	}
 
 	err := runValidateWithOptions(ctx, cmd, &buf, opts)
 	// With mock runner, should succeed with combined flags

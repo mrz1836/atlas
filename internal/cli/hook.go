@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/spf13/cobra"
+
 	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/crypto/native"
 	"github.com/mrz1836/atlas/internal/domain"
@@ -19,7 +21,6 @@ import (
 	"github.com/mrz1836/atlas/internal/hook"
 	"github.com/mrz1836/atlas/internal/tui"
 	"github.com/mrz1836/atlas/internal/workspace"
-	"github.com/spf13/cobra"
 )
 
 // AddHookCommand adds the hook command group to the root command.

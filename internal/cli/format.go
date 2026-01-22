@@ -7,10 +7,11 @@ import (
 	"io"
 	"os"
 
+	"github.com/spf13/cobra"
+
 	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/tui"
-	"github.com/spf13/cobra"
 )
 
 // AddFormatCommand adds the format command to the root command.

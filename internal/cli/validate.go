@@ -7,18 +7,22 @@ import (
 	"io"
 	"os"
 
+	"github.com/spf13/cobra"
+
 	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/errors"
 	"github.com/mrz1836/atlas/internal/tui"
 	"github.com/mrz1836/atlas/internal/validation"
-	"github.com/spf13/cobra"
 )
 
 // ValidateOptions allows dependency injection for testing the validate command.
 type ValidateOptions struct {
 	// Runner is an optional validation runner. If nil, a real one will be created.
 	Runner ValidationRunner
+	// WorkDir is an optional working directory. If empty, os.Getwd() is used.
+	// This allows tests to avoid race conditions with directory changes.
+	WorkDir string
 }
 
 // ValidationRunner interface allows mocking the validation pipeline for tests.
@@ -91,9 +95,14 @@ func runValidateWithOptions(ctx context.Context, cmd *cobra.Command, w io.Writer
 	}
 
 	// Get current working directory
-	workDir, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("failed to get working directory: %w", err)
+	var workDir string
+	if opts != nil && opts.WorkDir != "" {
+		workDir = opts.WorkDir
+	} else {
+		workDir, err = os.Getwd()
+		if err != nil {
+			return fmt.Errorf("failed to get working directory: %w", err)
+		}
 	}
 
 	// Create spinner for progress indication (only for TTY output)

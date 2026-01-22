@@ -18,10 +18,11 @@ import (
 	"strings"
 	"testing"
 
-	atlasErrors "github.com/mrz1836/atlas/internal/errors"
-	"github.com/mrz1836/atlas/internal/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	atlasErrors "github.com/mrz1836/atlas/internal/errors"
+	"github.com/mrz1836/atlas/internal/testutil"
 )
 
 // mockReleaseClient is a mock implementation of ReleaseClient.

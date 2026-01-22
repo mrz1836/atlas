@@ -9,12 +9,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mrz1836/atlas/internal/config"
-	"github.com/mrz1836/atlas/internal/errors"
-	"github.com/mrz1836/atlas/internal/tui"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/mrz1836/atlas/internal/config"
+	"github.com/mrz1836/atlas/internal/errors"
+	"github.com/mrz1836/atlas/internal/tui"
 )
 
 // mockCommandRunner is a test implementation of steps.CommandRunner.

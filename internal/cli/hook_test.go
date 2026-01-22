@@ -10,12 +10,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mrz1836/atlas/internal/domain"
-	atlaserrors "github.com/mrz1836/atlas/internal/errors"
-	"github.com/mrz1836/atlas/internal/tui"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/mrz1836/atlas/internal/domain"
+	atlaserrors "github.com/mrz1836/atlas/internal/errors"
+	"github.com/mrz1836/atlas/internal/tui"
 )
 
 // setupHookTestEnv sets up a temporary directory structure for hook tests.

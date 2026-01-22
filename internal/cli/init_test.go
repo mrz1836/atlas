@@ -10,12 +10,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mrz1836/atlas/internal/config"
-	"github.com/mrz1836/atlas/internal/constants"
-	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
+
+	"github.com/mrz1836/atlas/internal/config"
+	"github.com/mrz1836/atlas/internal/constants"
+	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 )
 
 func TestNewInitCmd(t *testing.T) {
