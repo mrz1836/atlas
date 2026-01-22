@@ -8,12 +8,13 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/mrz1836/atlas/internal/constants"
-	"github.com/mrz1836/atlas/internal/logging"
-	"github.com/mrz1836/atlas/internal/tui"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/mrz1836/atlas/internal/constants"
+	"github.com/mrz1836/atlas/internal/logging"
+	"github.com/mrz1836/atlas/internal/tui"
 )
 
 func TestInitLogger_VerboseMode(t *testing.T) {
