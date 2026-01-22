@@ -135,7 +135,7 @@ func StageModifiedFilesWithRunner(ctx context.Context, workDir string, runner Gi
 	log.Info().
 		Int("file_count", len(modified)).
 		Strs("files", modified).
-		Msg("staging files modified by pre-commit hooks")
+		Msg("staging files modified during validation")
 
 	// Stage modified files using git add with lock file retry (batch staging - fast path)
 	args := append([]string{"add"}, modified...)
