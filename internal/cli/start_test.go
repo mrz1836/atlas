@@ -208,10 +208,6 @@ func TestSelectTemplate_ContextCancellation(t *testing.T) {
 }
 
 func TestFindGitRepository(t *testing.T) {
-	// Save current directory
-	origDir, err := os.Getwd()
-	require.NoError(t, err)
-	defer func() { _ = os.Chdir(origDir) }()
 	initializer := workflow.NewInitializer(zerolog.Nop())
 
 	t.Run("in git repo", func(t *testing.T) {
@@ -227,11 +223,18 @@ func TestFindGitRepository(t *testing.T) {
 	})
 
 	t.Run("not in git repo", func(t *testing.T) {
+		// Save and restore working directory within this subtest
+		// This ensures we restore BEFORE t.TempDir() cleanup runs,
+		// avoiding race conditions with parallel tests calling os.Getwd()
+		origDir, err := os.Getwd()
+		require.NoError(t, err)
+		defer func() { _ = os.Chdir(origDir) }()
+
 		// Create temp directory outside git
 		tmpDir := t.TempDir()
 		require.NoError(t, os.Chdir(tmpDir))
 
-		_, err := initializer.FindGitRepository(context.Background())
+		_, err = initializer.FindGitRepository(context.Background())
 		require.Error(t, err)
 		assert.ErrorIs(t, err, errors.ErrNotGitRepo)
 	})
