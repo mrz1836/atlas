@@ -2,7 +2,7 @@ schema_version: "1.1"
 id: item-56Q4PV
 guid: 8f707c5b-9cab-4741-a202-ec712661e9d6
 title: Add test coverage for workspace_destroy.go
-status: pending
+status: completed
 content:
   description: 'Current coverage is 52.26%. Target is >=80%. After adding tests, run: (magex format:fix && magex lint) and fix all issues.'
   category: testing
@@ -19,3 +19,6 @@ context:
   git:
     branch: master
     commit: 712f7cd
+lifecycle:
+  promoted_to_task: task-d428f222-88e2-4dba-abcb-4b07060ff7b2
+  completed_at: 2026-01-22T04:20:01.561313Z
