@@ -674,18 +674,24 @@ func RenderFileHyperlink(text, path string) string {
 }
 
 // FormatGitStats formats git statistics with colors for spinner display.
-// Returns format like "3M +120/-45" with green additions and red deletions.
+// Returns format like "📄 1  ✏️ 3  +120/-45" with green additions and red deletions.
 // Respects NO_COLOR environment variable.
-func FormatGitStats(newFiles, modifiedFiles, additions, deletions int) string {
+func FormatGitStats(newFiles, modifiedFiles, deletedFiles, additions, deletions int) string {
 	var parts []string
 
-	// File counts
-	if newFiles > 0 && modifiedFiles > 0 {
-		parts = append(parts, fmt.Sprintf("%dN %dM", newFiles, modifiedFiles))
-	} else if newFiles > 0 {
-		parts = append(parts, fmt.Sprintf("%dN", newFiles))
-	} else if modifiedFiles > 0 {
-		parts = append(parts, fmt.Sprintf("%dM", modifiedFiles))
+	// Build file parts with icons
+	var fileParts []string
+	if newFiles > 0 {
+		fileParts = append(fileParts, fmt.Sprintf("📄 %d", newFiles))
+	}
+	if modifiedFiles > 0 {
+		fileParts = append(fileParts, fmt.Sprintf("✏️ %d", modifiedFiles))
+	}
+	if deletedFiles > 0 {
+		fileParts = append(fileParts, fmt.Sprintf("🗑️ %d", deletedFiles))
+	}
+	if len(fileParts) > 0 {
+		parts = append(parts, strings.Join(fileParts, "  "))
 	}
 
 	// Line counts with colors
@@ -703,5 +709,5 @@ func FormatGitStats(newFiles, modifiedFiles, additions, deletions int) string {
 	if len(parts) == 0 {
 		return ""
 	}
-	return strings.Join(parts, " ")
+	return strings.Join(parts, "  ")
 }

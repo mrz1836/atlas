@@ -740,3 +740,136 @@ func TestRenderFileHyperlink_Styles(t *testing.T) {
 		assert.Contains(t, result, "Click to open", "should contain display text")
 	})
 }
+
+// TestFormatGitStats tests the git statistics formatting with icons.
+func TestFormatGitStats(t *testing.T) {
+	// Save and restore NO_COLOR to ensure consistent test results
+	original := os.Getenv("NO_COLOR")
+	_ = os.Setenv("NO_COLOR", "1") // Disable colors for easier testing
+	defer func() {
+		if original == "" {
+			_ = os.Unsetenv("NO_COLOR")
+		} else {
+			_ = os.Setenv("NO_COLOR", original)
+		}
+	}()
+
+	tests := []struct {
+		name          string
+		newFiles      int
+		modifiedFiles int
+		deletedFiles  int
+		additions     int
+		deletions     int
+		expected      string
+	}{
+		{
+			name:     "empty stats",
+			expected: "",
+		},
+		{
+			name:     "only new files",
+			newFiles: 3,
+			expected: "📄 3",
+		},
+		{
+			name:          "only modified files",
+			modifiedFiles: 5,
+			expected:      "✏️ 5",
+		},
+		{
+			name:         "only deleted files",
+			deletedFiles: 2,
+			expected:     "🗑️ 2",
+		},
+		{
+			name:          "new and modified files",
+			newFiles:      2,
+			modifiedFiles: 3,
+			expected:      "📄 2  ✏️ 3",
+		},
+		{
+			name:          "new modified and deleted files",
+			newFiles:      1,
+			modifiedFiles: 2,
+			deletedFiles:  3,
+			expected:      "📄 1  ✏️ 2  🗑️ 3",
+		},
+		{
+			name:      "only line counts",
+			additions: 100,
+			deletions: 50,
+			expected:  "+100/-50",
+		},
+		{
+			name:          "files and line counts",
+			modifiedFiles: 3,
+			additions:     120,
+			deletions:     45,
+			expected:      "✏️ 3  +120/-45",
+		},
+		{
+			name:          "full stats",
+			newFiles:      1,
+			modifiedFiles: 2,
+			additions:     200,
+			deletions:     100,
+			expected:      "📄 1  ✏️ 2  +200/-100",
+		},
+		{
+			name:          "full stats with deleted",
+			newFiles:      1,
+			modifiedFiles: 2,
+			deletedFiles:  3,
+			additions:     200,
+			deletions:     100,
+			expected:      "📄 1  ✏️ 2  🗑️ 3  +200/-100",
+		},
+		{
+			name:          "zero deletions",
+			modifiedFiles: 1,
+			additions:     50,
+			deletions:     0,
+			expected:      "✏️ 1  +50/-0",
+		},
+		{
+			name:         "only deleted with line counts",
+			deletedFiles: 5,
+			additions:    0,
+			deletions:    300,
+			expected:     "🗑️ 5  +0/-300",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := FormatGitStats(tt.newFiles, tt.modifiedFiles, tt.deletedFiles, tt.additions, tt.deletions)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+// TestFormatGitStats_WithColors tests that colors are applied when NO_COLOR is not set.
+func TestFormatGitStats_WithColors(t *testing.T) {
+	// Save and restore NO_COLOR
+	original := os.Getenv("NO_COLOR")
+	_ = os.Unsetenv("NO_COLOR")
+	defer func() {
+		if original != "" {
+			_ = os.Setenv("NO_COLOR", original)
+		}
+	}()
+
+	result := FormatGitStats(1, 2, 0, 100, 50)
+
+	// Should contain ANSI escape codes for colors when NO_COLOR is not set
+	// The exact codes depend on the terminal, but we can verify:
+	// 1. Icons are present
+	assert.Contains(t, result, "📄")
+	assert.Contains(t, result, "✏️")
+
+	// 2. Line counts are present (may be styled)
+	stripped := stripANSI(result)
+	assert.Contains(t, stripped, "+100")
+	assert.Contains(t, stripped, "-50")
+}
