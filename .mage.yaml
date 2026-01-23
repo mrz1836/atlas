@@ -19,10 +19,3 @@ test:
   # Match CI timeout configuration (TEST_TIMEOUT_RACE_COVER in .env.base)
   # Default magex timeout is 10m which was killing tests prematurely
   timeout: 30m
-
-# Fast test target for quick development feedback
-# Skips slow tests marked with testing.Short()
-test:fast:
-  timeout: 5m
-  flags:
-    - "-short"
