@@ -206,9 +206,9 @@ func TestWithConfig_Success(t *testing.T) {
 		},
 	}
 
-	tmpl, err := WithConfig(r, "bugfix", cfg)
+	tmpl, err := WithConfig(r, "bug", cfg)
 	require.NoError(t, err)
-	assert.Equal(t, "bugfix", tmpl.Name)
+	assert.Equal(t, "bug", tmpl.Name)
 	assert.Equal(t, "haiku", tmpl.DefaultModel)
 }
 
@@ -223,8 +223,8 @@ func TestWithConfig_NotFound(t *testing.T) {
 func TestWithConfig_NilConfig(t *testing.T) {
 	r := NewDefaultRegistry()
 
-	tmpl, err := WithConfig(r, "bugfix", nil)
+	tmpl, err := WithConfig(r, "bug", nil)
 	require.NoError(t, err)
-	assert.Equal(t, "bugfix", tmpl.Name)
+	assert.Equal(t, "bug", tmpl.Name)
 	assert.Equal(t, "sonnet", tmpl.DefaultModel) // Original default
 }

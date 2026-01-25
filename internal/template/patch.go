@@ -7,10 +7,10 @@ import (
 	"github.com/mrz1836/atlas/internal/domain"
 )
 
-// NewHotfixTemplate creates the hotfix template for fixing issues on existing branches.
+// NewPatchTemplate creates the patch template for fixing issues on existing branches.
 // This template is designed for scenarios where a PR already exists and needs quick fixes.
 //
-// Unlike other templates that create a new branch and PR, the hotfix template:
+// Unlike other templates that create a new branch and PR, the patch template:
 // - Expects to work on an existing branch (use --target flag)
 // - Does NOT create a PR (the branch is already in a PR)
 // - Pushes directly to the target branch
@@ -24,12 +24,12 @@ import (
 //
 // Usage:
 //
-//	atlas start "fix lint errors" --template hotfix --target feat/my-feature
-func NewHotfixTemplate() *domain.Template {
+//	atlas start "fix lint errors" --template patch --target feat/my-feature
+func NewPatchTemplate() *domain.Template {
 	return &domain.Template{
-		Name:         "hotfix",
+		Name:         "patch",
 		Description:  "Fix issues on an existing branch (no PR creation)",
-		BranchPrefix: "hotfix", // Fallback if --target not used
+		BranchPrefix: "patch", // Fallback if --target not used
 		DefaultAgent: domain.AgentClaude,
 		DefaultModel: "sonnet",
 		Verify:       false, // OFF by default (enable with --verify)
@@ -61,7 +61,7 @@ func NewHotfixTemplate() *domain.Template {
 				Name:        "verify",
 				Type:        domain.StepTypeVerify,
 				Description: "Optional AI verification of fixes",
-				Required:    false, // Optional for hotfix
+				Required:    false, // Optional for patch
 				Timeout:     5 * time.Minute,
 				Config: map[string]any{
 					"agent":  "gemini",                     // Use Gemini for verification
@@ -77,7 +77,7 @@ func NewHotfixTemplate() *domain.Template {
 				Timeout:     10 * time.Minute,
 				RetryCount:  1,
 			},
-			newGitCommitStep("Commit hotfix changes"),
+			newGitCommitStep("Commit patch changes"),
 			newGitPushStep(),
 			// NO git_pr step - the branch is already in a PR
 			// NO ci_wait step - the existing PR will trigger CI

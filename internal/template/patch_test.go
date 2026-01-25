@@ -11,12 +11,12 @@ import (
 	"github.com/mrz1836/atlas/internal/domain"
 )
 
-func TestNewHotfixTemplate(t *testing.T) {
-	tmpl := NewHotfixTemplate()
+func TestNewPatchTemplate(t *testing.T) {
+	tmpl := NewPatchTemplate()
 
 	require.NotNil(t, tmpl)
-	assert.Equal(t, "hotfix", tmpl.Name)
-	assert.Equal(t, "hotfix", tmpl.BranchPrefix)
+	assert.Equal(t, "patch", tmpl.Name)
+	assert.Equal(t, "patch", tmpl.BranchPrefix)
 	assert.Equal(t, "sonnet", tmpl.DefaultModel)
 	assert.Equal(t, domain.AgentClaude, tmpl.DefaultAgent)
 	assert.False(t, tmpl.Verify)
@@ -25,10 +25,10 @@ func TestNewHotfixTemplate(t *testing.T) {
 	assert.Contains(t, tmpl.Description, "existing branch")
 }
 
-func TestHotfixTemplate_StepOrder(t *testing.T) {
-	tmpl := NewHotfixTemplate()
+func TestPatchTemplate_StepOrder(t *testing.T) {
+	tmpl := NewPatchTemplate()
 
-	// Hotfix template should NOT have git_pr, ci_wait, or review steps
+	// Patch template should NOT have git_pr, ci_wait, or review steps
 	// But SHOULD have verify step (optional) like other templates
 	expectedSteps := []string{
 		"detect", "fix", "verify", "validate", "git_commit", "git_push",
@@ -40,24 +40,24 @@ func TestHotfixTemplate_StepOrder(t *testing.T) {
 	}
 }
 
-func TestHotfixTemplate_NoPRStep(t *testing.T) {
-	tmpl := NewHotfixTemplate()
+func TestPatchTemplate_NoPRStep(t *testing.T) {
+	tmpl := NewPatchTemplate()
 
 	// Verify that git_pr step is NOT present
 	prStep := findStep(tmpl, "git_pr")
-	assert.Nil(t, prStep, "hotfix template should not have git_pr step")
+	assert.Nil(t, prStep, "patch template should not have git_pr step")
 
 	// Verify that ci_wait step is NOT present
 	ciWaitStep := findStep(tmpl, "ci_wait")
-	assert.Nil(t, ciWaitStep, "hotfix template should not have ci_wait step")
+	assert.Nil(t, ciWaitStep, "patch template should not have ci_wait step")
 
 	// Verify that review step is NOT present
 	reviewStep := findStep(tmpl, "review")
-	assert.Nil(t, reviewStep, "hotfix template should not have review step")
+	assert.Nil(t, reviewStep, "patch template should not have review step")
 }
 
-func TestHotfixTemplate_StepTypes(t *testing.T) {
-	tmpl := NewHotfixTemplate()
+func TestPatchTemplate_StepTypes(t *testing.T) {
+	tmpl := NewPatchTemplate()
 
 	expectedTypes := map[string]domain.StepType{
 		"detect":     domain.StepTypeValidation,
@@ -75,10 +75,10 @@ func TestHotfixTemplate_StepTypes(t *testing.T) {
 	}
 }
 
-func TestHotfixTemplate_RequiredSteps(t *testing.T) {
-	tmpl := NewHotfixTemplate()
+func TestPatchTemplate_RequiredSteps(t *testing.T) {
+	tmpl := NewPatchTemplate()
 
-	// In hotfix template, detect and verify are optional, others are required
+	// In patch template, detect and verify are optional, others are required
 	expectedRequired := map[string]bool{
 		"detect":     false, // Optional - user may already know what to fix
 		"fix":        true,
@@ -95,8 +95,8 @@ func TestHotfixTemplate_RequiredSteps(t *testing.T) {
 	}
 }
 
-func TestHotfixTemplate_Timeouts(t *testing.T) {
-	tmpl := NewHotfixTemplate()
+func TestPatchTemplate_Timeouts(t *testing.T) {
+	tmpl := NewPatchTemplate()
 
 	stepTimeouts := map[string]time.Duration{
 		"detect":     10 * time.Minute,
@@ -114,8 +114,8 @@ func TestHotfixTemplate_Timeouts(t *testing.T) {
 	}
 }
 
-func TestHotfixTemplate_RetryConfiguration(t *testing.T) {
-	tmpl := NewHotfixTemplate()
+func TestPatchTemplate_RetryConfiguration(t *testing.T) {
+	tmpl := NewPatchTemplate()
 
 	stepRetries := map[string]int{
 		"fix":      3,
@@ -130,8 +130,8 @@ func TestHotfixTemplate_RetryConfiguration(t *testing.T) {
 	}
 }
 
-func TestHotfixTemplate_ValidationCommands(t *testing.T) {
-	tmpl := NewHotfixTemplate()
+func TestPatchTemplate_ValidationCommands(t *testing.T) {
+	tmpl := NewPatchTemplate()
 
 	// Should use the same default validation commands
 	expectedCommands := []string{
@@ -144,8 +144,8 @@ func TestHotfixTemplate_ValidationCommands(t *testing.T) {
 	assert.Equal(t, expectedCommands, tmpl.ValidationCommands)
 }
 
-func TestHotfixTemplate_StepConfigurations(t *testing.T) {
-	tmpl := NewHotfixTemplate()
+func TestPatchTemplate_StepConfigurations(t *testing.T) {
+	tmpl := NewPatchTemplate()
 
 	// Check detect step config (validation in detect_only mode)
 	detectStep := findStep(tmpl, "detect")
@@ -170,34 +170,43 @@ func TestHotfixTemplate_StepConfigurations(t *testing.T) {
 	assert.Equal(t, "push", gitPushStep.Config["operation"])
 }
 
-func TestHotfixTemplate_DesignedForExistingBranch(t *testing.T) {
-	tmpl := NewHotfixTemplate()
+func TestPatchTemplate_DesignedForExistingBranch(t *testing.T) {
+	tmpl := NewPatchTemplate()
 
-	// The hotfix template is designed to work with --target flag
+	// The patch template is designed to work with --target flag
 	// but can also work with BranchPrefix as fallback
-	assert.Equal(t, "hotfix", tmpl.BranchPrefix,
-		"hotfix template should have a fallback branch prefix")
+	assert.Equal(t, "patch", tmpl.BranchPrefix,
+		"patch template should have a fallback branch prefix")
 
 	// Description should mention existing branch
 	assert.Contains(t, tmpl.Description, "existing branch",
 		"description should mention that this template is for existing branches")
 }
 
-func TestHotfixTemplate_RegisteredInDefaultRegistry(t *testing.T) {
+func TestPatchTemplate_RegisteredInDefaultRegistry(t *testing.T) {
 	registry := NewDefaultRegistry()
 
-	tmpl, err := registry.Get("hotfix")
+	tmpl, err := registry.Get("patch")
 	require.NoError(t, err)
 	require.NotNil(t, tmpl)
-	assert.Equal(t, "hotfix", tmpl.Name)
+	assert.Equal(t, "patch", tmpl.Name)
 }
 
-func TestHotfixTemplate_VerifyStep(t *testing.T) {
-	tmpl := NewHotfixTemplate()
+func TestPatchTemplate_HotfixAliasWorks(t *testing.T) {
+	registry := NewDefaultRegistry()
+
+	// "hotfix" alias should resolve to "patch" template
+	hotfixTmpl, err := registry.Get("hotfix")
+	require.NoError(t, err)
+	assert.Equal(t, "patch", hotfixTmpl.Name)
+}
+
+func TestPatchTemplate_VerifyStep(t *testing.T) {
+	tmpl := NewPatchTemplate()
 
 	// Verify step should exist and match other templates' pattern
 	verifyStep := findStep(tmpl, "verify")
-	require.NotNil(t, verifyStep, "hotfix template should have verify step for --verify flag support")
+	require.NotNil(t, verifyStep, "patch template should have verify step for --verify flag support")
 
 	// Check verify step configuration matches other templates
 	assert.Equal(t, domain.StepTypeVerify, verifyStep.Type)
@@ -213,8 +222,8 @@ func TestHotfixTemplate_VerifyStep(t *testing.T) {
 	assert.Contains(t, checks, "code_correctness", "verify should check code correctness")
 }
 
-func TestHotfixTemplate_DetectStepConfig(t *testing.T) {
-	tmpl := NewHotfixTemplate()
+func TestPatchTemplate_DetectStepConfig(t *testing.T) {
+	tmpl := NewPatchTemplate()
 
 	detectStep := findStep(tmpl, "detect")
 	require.NotNil(t, detectStep)
@@ -228,8 +237,8 @@ func TestHotfixTemplate_DetectStepConfig(t *testing.T) {
 	assert.False(t, detectStep.Required, "detect step should be optional for user-described issues")
 }
 
-func TestHotfixTemplate_FixStepConfig(t *testing.T) {
-	tmpl := NewHotfixTemplate()
+func TestPatchTemplate_FixStepConfig(t *testing.T) {
+	tmpl := NewPatchTemplate()
 
 	fixStep := findStep(tmpl, "fix")
 	require.NotNil(t, fixStep)
@@ -251,36 +260,32 @@ func TestHotfixTemplate_FixStepConfig(t *testing.T) {
 	assert.Equal(t, 3, fixStep.RetryCount)
 }
 
-func TestHotfixTemplate_ComparedToOtherTemplates(t *testing.T) {
+func TestPatchTemplate_ComparedToOtherTemplates(t *testing.T) {
 	registry := NewDefaultRegistry()
 
-	hotfix, err := registry.Get("hotfix")
+	patch, err := registry.Get("patch")
 	require.NoError(t, err)
 
-	bugfix, err := registry.Get("bugfix")
-	require.NoError(t, err)
-
-	fix, err := registry.Get("fix")
+	bug, err := registry.Get("bug")
 	require.NoError(t, err)
 
 	task, err := registry.Get("task")
 	require.NoError(t, err)
 
-	// Hotfix should have fewer steps than templates that create PRs
-	assert.Less(t, len(hotfix.Steps), len(bugfix.Steps), "hotfix should have fewer steps than bugfix (no PR workflow)")
-	assert.Less(t, len(hotfix.Steps), len(task.Steps), "hotfix should have fewer steps than task (no PR workflow)")
-	assert.Less(t, len(hotfix.Steps), len(fix.Steps), "hotfix should have fewer steps than fix (no PR workflow)")
+	// Patch should have fewer steps than templates that create PRs
+	assert.Less(t, len(patch.Steps), len(bug.Steps), "patch should have fewer steps than bug (no PR workflow)")
+	assert.Less(t, len(patch.Steps), len(task.Steps), "patch should have fewer steps than task (no PR workflow)")
 
-	// Hotfix should use same model as other fix-type templates
-	assert.Equal(t, fix.DefaultModel, hotfix.DefaultModel, "hotfix should use same model as fix")
+	// Patch should use same model as other fix-type templates
+	assert.Equal(t, bug.DefaultModel, patch.DefaultModel, "patch should use same model as bug")
 
-	// Hotfix should have VerifyModel like other templates
-	assert.Equal(t, bugfix.VerifyModel, hotfix.VerifyModel, "hotfix should have same VerifyModel as bugfix")
-	assert.Equal(t, task.VerifyModel, hotfix.VerifyModel, "hotfix should have same VerifyModel as task")
+	// Patch should have VerifyModel like other templates
+	assert.Equal(t, bug.VerifyModel, patch.VerifyModel, "patch should have same VerifyModel as bug")
+	assert.Equal(t, task.VerifyModel, patch.VerifyModel, "patch should have same VerifyModel as task")
 }
 
-func TestHotfixTemplate_StepOrderIsLogical(t *testing.T) {
-	tmpl := NewHotfixTemplate()
+func TestPatchTemplate_StepOrderIsLogical(t *testing.T) {
+	tmpl := NewPatchTemplate()
 
 	// Find indices of key steps
 	detectIdx, fixIdx, verifyIdx, validateIdx, commitIdx, pushIdx := -1, -1, -1, -1, -1, -1
@@ -310,8 +315,8 @@ func TestHotfixTemplate_StepOrderIsLogical(t *testing.T) {
 	assert.Less(t, commitIdx, pushIdx, "commit should come before push")
 }
 
-func TestHotfixTemplate_TwoIssueDetectionPaths(t *testing.T) {
-	tmpl := NewHotfixTemplate()
+func TestPatchTemplate_TwoIssueDetectionPaths(t *testing.T) {
+	tmpl := NewPatchTemplate()
 
 	// Path 1: User describes the issue (detect is optional)
 	detectStep := findStep(tmpl, "detect")
@@ -331,8 +336,8 @@ func TestHotfixTemplate_TwoIssueDetectionPaths(t *testing.T) {
 	assert.True(t, includeErrors, "fix should receive errors from detect step (path 2)")
 }
 
-func TestHotfixTemplate_ValidForUseCases(t *testing.T) {
-	tmpl := NewHotfixTemplate()
+func TestPatchTemplate_ValidForUseCases(t *testing.T) {
+	tmpl := NewPatchTemplate()
 
 	testCases := []struct {
 		name        string
@@ -380,10 +385,10 @@ func TestHotfixTemplate_ValidForUseCases(t *testing.T) {
 	}
 }
 
-func TestHotfixTemplate_VerifyFlagCompatibility(t *testing.T) {
-	tmpl := NewHotfixTemplate()
+func TestPatchTemplate_VerifyFlagCompatibility(t *testing.T) {
+	tmpl := NewPatchTemplate()
 
-	// Verify flag should work with hotfix template
+	// Verify flag should work with patch template
 	assert.Equal(t, "opus", tmpl.VerifyModel, "VerifyModel should be set for --verify flag")
 	assert.False(t, tmpl.Verify, "Verify should be false by default (opt-in)")
 

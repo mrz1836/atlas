@@ -20,29 +20,84 @@ func TestDefaultRegistry_ContainsAllTemplates(t *testing.T) {
 	r := NewDefaultRegistry()
 
 	templates := r.List()
-	assert.Len(t, templates, 6)
+	assert.Len(t, templates, 5)
 
-	// Verify all six templates are present
+	// Verify all five templates are present
 	names := make(map[string]bool)
 	for _, tmpl := range templates {
 		names[tmpl.Name] = true
 	}
 
-	assert.True(t, names["bugfix"], "missing bugfix template")
+	assert.True(t, names["bug"], "missing bug template")
+	assert.True(t, names["patch"], "missing patch template")
 	assert.True(t, names["feature"], "missing feature template")
 	assert.True(t, names["commit"], "missing commit template")
 	assert.True(t, names["task"], "missing task template")
-	assert.True(t, names["fix"], "missing fix template")
-	assert.True(t, names["hotfix"], "missing hotfix template")
 }
 
-func TestDefaultRegistry_GetBugfix(t *testing.T) {
+func TestDefaultRegistry_Aliases(t *testing.T) {
 	r := NewDefaultRegistry()
 
-	tmpl, err := r.Get("bugfix")
+	// Verify aliases are registered
+	aliases := r.Aliases()
+	assert.Len(t, aliases, 3)
+	assert.Equal(t, "bug", aliases["fix"])
+	assert.Equal(t, "bug", aliases["bugfix"])
+	assert.Equal(t, "patch", aliases["hotfix"])
+}
+
+func TestDefaultRegistry_AliasResolution(t *testing.T) {
+	r := NewDefaultRegistry()
+
+	// Test "fix" alias resolves to "bug" template
+	fixTmpl, err := r.Get("fix")
 	require.NoError(t, err)
-	assert.Equal(t, "bugfix", tmpl.Name)
+	assert.Equal(t, "bug", fixTmpl.Name)
+
+	// Test "bugfix" alias resolves to "bug" template
+	bugfixTmpl, err := r.Get("bugfix")
+	require.NoError(t, err)
+	assert.Equal(t, "bug", bugfixTmpl.Name)
+
+	// Test "hotfix" alias resolves to "patch" template
+	hotfixTmpl, err := r.Get("hotfix")
+	require.NoError(t, err)
+	assert.Equal(t, "patch", hotfixTmpl.Name)
+}
+
+func TestDefaultRegistry_IsAlias(t *testing.T) {
+	r := NewDefaultRegistry()
+
+	// Aliases should be detected
+	assert.True(t, r.IsAlias("fix"))
+	assert.True(t, r.IsAlias("bugfix"))
+	assert.True(t, r.IsAlias("hotfix"))
+
+	// Templates should not be detected as aliases
+	assert.False(t, r.IsAlias("bug"))
+	assert.False(t, r.IsAlias("patch"))
+	assert.False(t, r.IsAlias("feature"))
+	assert.False(t, r.IsAlias("task"))
+	assert.False(t, r.IsAlias("commit"))
+}
+
+func TestDefaultRegistry_GetBug(t *testing.T) {
+	r := NewDefaultRegistry()
+
+	tmpl, err := r.Get("bug")
+	require.NoError(t, err)
+	assert.Equal(t, "bug", tmpl.Name)
 	assert.Equal(t, "fix", tmpl.BranchPrefix)
+	assert.Equal(t, "sonnet", tmpl.DefaultModel)
+}
+
+func TestDefaultRegistry_GetPatch(t *testing.T) {
+	r := NewDefaultRegistry()
+
+	tmpl, err := r.Get("patch")
+	require.NoError(t, err)
+	assert.Equal(t, "patch", tmpl.Name)
+	assert.Equal(t, "patch", tmpl.BranchPrefix)
 	assert.Equal(t, "sonnet", tmpl.DefaultModel)
 }
 
@@ -76,12 +131,13 @@ func TestDefaultRegistry_GetTask(t *testing.T) {
 	assert.Equal(t, "sonnet", tmpl.DefaultModel)
 }
 
-func TestDefaultRegistry_GetFix(t *testing.T) {
+func TestDefaultRegistry_GetFixAlias(t *testing.T) {
 	r := NewDefaultRegistry()
 
+	// "fix" is now an alias for "bug"
 	tmpl, err := r.Get("fix")
 	require.NoError(t, err)
-	assert.Equal(t, "fix", tmpl.Name)
+	assert.Equal(t, "bug", tmpl.Name, "fix alias should resolve to bug template")
 	assert.Equal(t, "fix", tmpl.BranchPrefix)
 	assert.Equal(t, "sonnet", tmpl.DefaultModel)
 }
@@ -91,10 +147,10 @@ func TestDefaultRegistry_TemplatesAreCompiledIn(t *testing.T) {
 	// If templates were loaded from files, this would fail or require file I/O.
 	r := NewDefaultRegistry()
 
-	// All templates should be immediately available without file loading
-	for _, name := range []string{"bugfix", "feature", "commit", "task", "fix"} {
+	// All templates (and aliases) should be immediately available without file loading
+	for _, name := range []string{"bug", "patch", "feature", "commit", "task", "fix", "bugfix", "hotfix"} {
 		tmpl, err := r.Get(name)
-		require.NoError(t, err, "template %s should be available", name)
+		require.NoError(t, err, "template/alias %s should be available", name)
 		assert.NotEmpty(t, tmpl.Steps, "template %s should have steps", name)
 	}
 }
@@ -164,8 +220,8 @@ func TestNewRegistryWithConfig_NoCustom(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, r)
 
-	// Should have all 6 built-in templates
-	assert.Len(t, r.List(), 6)
+	// Should have all 5 built-in templates
+	assert.Len(t, r.List(), 5)
 }
 
 func TestNewRegistryWithConfig_EmptyCustom(t *testing.T) {
@@ -173,8 +229,8 @@ func TestNewRegistryWithConfig_EmptyCustom(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, r)
 
-	// Should have all 6 built-in templates
-	assert.Len(t, r.List(), 6)
+	// Should have all 5 built-in templates
+	assert.Len(t, r.List(), 5)
 }
 
 func TestNewRegistryWithConfig_CustomAdded(t *testing.T) {
@@ -187,8 +243,8 @@ func TestNewRegistryWithConfig_CustomAdded(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, r)
 
-	// Should have 7 templates (6 built-in + 1 custom)
-	assert.Len(t, r.List(), 7)
+	// Should have 6 templates (5 built-in + 1 custom)
+	assert.Len(t, r.List(), 6)
 
 	// Verify custom template is available
 	custom, err := r.Get("custom-workflow")
@@ -200,24 +256,24 @@ func TestNewRegistryWithConfig_CustomAdded(t *testing.T) {
 
 func TestNewRegistryWithConfig_OverrideBuiltin(t *testing.T) {
 	tmpDir := t.TempDir()
-	createCustomTemplateFile(t, tmpDir, "bugfix.yaml", customBugfixOverride)
+	createCustomTemplateFile(t, tmpDir, "bug.yaml", customBugfixOverride)
 
 	r, err := NewRegistryWithConfig(tmpDir, map[string]string{
-		"bugfix": "bugfix.yaml",
+		"bug": "bug.yaml",
 	})
 	require.NoError(t, err)
 	require.NotNil(t, r)
 
-	// Should still have 6 templates (custom replaces built-in)
-	assert.Len(t, r.List(), 6)
+	// Should still have 5 templates (custom replaces built-in)
+	assert.Len(t, r.List(), 5)
 
-	// Verify the bugfix template was replaced
-	bugfix, err := r.Get("bugfix")
+	// Verify the bug template was replaced (note: custom has name="bugfix" in YAML but we override with config key)
+	bug, err := r.Get("bug")
 	require.NoError(t, err)
-	assert.Equal(t, "bugfix", bugfix.Name)
-	assert.Equal(t, "Custom bugfix workflow", bugfix.Description)
-	assert.Equal(t, "hotfix", bugfix.BranchPrefix)
-	assert.Equal(t, "opus", bugfix.DefaultModel)
+	assert.Equal(t, "bug", bug.Name)
+	assert.Equal(t, "Custom bugfix workflow", bug.Description)
+	assert.Equal(t, "hotfix", bug.BranchPrefix)
+	assert.Equal(t, "opus", bug.DefaultModel)
 
 	// Verify other built-ins are unchanged
 	feature, err := r.Get("feature")
@@ -280,8 +336,8 @@ steps:
 	})
 	require.NoError(t, err)
 
-	// Should have 8 templates (6 built-in + 2 custom)
-	assert.Len(t, r.List(), 8)
+	// Should have 7 templates (5 built-in + 2 custom)
+	assert.Len(t, r.List(), 7)
 
 	// Verify both custom templates are available
 	w1, err := r.Get("workflow1")

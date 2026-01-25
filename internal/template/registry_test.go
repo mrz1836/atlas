@@ -234,3 +234,137 @@ func TestRegistry_RegisterOrReplace_Concurrent(t *testing.T) {
 	assert.Len(t, list, 1)
 	assert.Equal(t, "shared", list[0].Name)
 }
+
+func TestRegistry_RegisterAlias_Success(t *testing.T) {
+	r := NewRegistry()
+	tmpl := &domain.Template{Name: "original", Description: "Original template"}
+	require.NoError(t, r.Register(tmpl))
+
+	err := r.RegisterAlias("alias", "original")
+	require.NoError(t, err)
+
+	// Getting by alias should return the original template
+	got, err := r.Get("alias")
+	require.NoError(t, err)
+	assert.Equal(t, "original", got.Name)
+}
+
+func TestRegistry_RegisterAlias_EmptyAlias(t *testing.T) {
+	r := NewRegistry()
+	tmpl := &domain.Template{Name: "original", Description: "Original template"}
+	require.NoError(t, r.Register(tmpl))
+
+	err := r.RegisterAlias("", "original")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, atlaserrors.ErrTemplateNameEmpty)
+}
+
+func TestRegistry_RegisterAlias_EmptyTarget(t *testing.T) {
+	r := NewRegistry()
+
+	err := r.RegisterAlias("alias", "")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, atlaserrors.ErrTemplateNameEmpty)
+}
+
+func TestRegistry_RegisterAlias_TargetNotFound(t *testing.T) {
+	r := NewRegistry()
+
+	err := r.RegisterAlias("alias", "nonexistent")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, atlaserrors.ErrTemplateNotFound)
+}
+
+func TestRegistry_RegisterAlias_ConflictWithTemplate(t *testing.T) {
+	r := NewRegistry()
+	tmpl1 := &domain.Template{Name: "original", Description: "Original"}
+	tmpl2 := &domain.Template{Name: "other", Description: "Other"}
+	require.NoError(t, r.Register(tmpl1))
+	require.NoError(t, r.Register(tmpl2))
+
+	// Trying to create alias with same name as existing template should fail
+	err := r.RegisterAlias("original", "other")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, atlaserrors.ErrTemplateDuplicate)
+}
+
+func TestRegistry_RegisterAlias_MultipleAliases(t *testing.T) {
+	r := NewRegistry()
+	tmpl := &domain.Template{Name: "original", Description: "Original template"}
+	require.NoError(t, r.Register(tmpl))
+
+	// Register multiple aliases to same template
+	require.NoError(t, r.RegisterAlias("alias1", "original"))
+	require.NoError(t, r.RegisterAlias("alias2", "original"))
+
+	// Both aliases should resolve to original
+	got1, err := r.Get("alias1")
+	require.NoError(t, err)
+	assert.Equal(t, "original", got1.Name)
+
+	got2, err := r.Get("alias2")
+	require.NoError(t, err)
+	assert.Equal(t, "original", got2.Name)
+}
+
+func TestRegistry_Aliases(t *testing.T) {
+	r := NewRegistry()
+	tmpl := &domain.Template{Name: "original", Description: "Original template"}
+	require.NoError(t, r.Register(tmpl))
+	require.NoError(t, r.RegisterAlias("alias1", "original"))
+	require.NoError(t, r.RegisterAlias("alias2", "original"))
+
+	aliases := r.Aliases()
+	assert.Len(t, aliases, 2)
+	assert.Equal(t, "original", aliases["alias1"])
+	assert.Equal(t, "original", aliases["alias2"])
+}
+
+func TestRegistry_IsAlias(t *testing.T) {
+	r := NewRegistry()
+	tmpl := &domain.Template{Name: "original", Description: "Original template"}
+	require.NoError(t, r.Register(tmpl))
+	require.NoError(t, r.RegisterAlias("alias", "original"))
+
+	assert.True(t, r.IsAlias("alias"))
+	assert.False(t, r.IsAlias("original"))
+	assert.False(t, r.IsAlias("nonexistent"))
+}
+
+func TestRegistry_Alias_Concurrent(t *testing.T) {
+	r := NewRegistry()
+	tmpl := &domain.Template{Name: "original", Description: "Original template"}
+	require.NoError(t, r.Register(tmpl))
+
+	var wg sync.WaitGroup
+
+	// Register aliases concurrently
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func(n int) {
+			defer wg.Done()
+			_ = r.RegisterAlias(fmt.Sprintf("alias-%d", n), "original")
+		}(i)
+	}
+
+	// Read aliases concurrently
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func(n int) {
+			defer wg.Done()
+			_, _ = r.Get(fmt.Sprintf("alias-%d", n))
+		}(i)
+	}
+
+	// Check aliases concurrently
+	for i := 0; i < 50; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_ = r.Aliases()
+		}()
+	}
+
+	wg.Wait()
+	// If we get here without a race condition panic, the test passes
+}

@@ -15,6 +15,15 @@ func mustRegister(r *Registry, t *domain.Template) {
 	}
 }
 
+// mustRegisterAlias registers an alias and panics on error.
+// This is used during registry initialization where registration
+// errors indicate programming bugs.
+func mustRegisterAlias(r *Registry, alias, target string) {
+	if err := r.RegisterAlias(alias, target); err != nil {
+		panic(fmt.Sprintf("failed to register alias %s -> %s: %v", alias, target, err))
+	}
+}
+
 // NewDefaultRegistry creates a registry with all built-in templates.
 // Templates are compiled into the binary (not external files).
 // Panics if any template registration fails (indicates programming error).
@@ -22,12 +31,16 @@ func NewDefaultRegistry() *Registry {
 	r := NewRegistry()
 
 	// Register built-in templates
-	mustRegister(r, NewBugfixTemplate())
+	mustRegister(r, NewBugTemplate())   // Consolidated bug template (was bugfix + fix)
+	mustRegister(r, NewPatchTemplate()) // Renamed from hotfix
 	mustRegister(r, NewFeatureTemplate())
 	mustRegister(r, NewCommitTemplate())
 	mustRegister(r, NewTaskTemplate())
-	mustRegister(r, NewFixTemplate())
-	mustRegister(r, NewHotfixTemplate())
+
+	// Register aliases for backward compatibility
+	mustRegisterAlias(r, "fix", "bug")      // fix -> bug
+	mustRegisterAlias(r, "bugfix", "bug")   // bugfix -> bug
+	mustRegisterAlias(r, "hotfix", "patch") // hotfix -> patch
 
 	return r
 }

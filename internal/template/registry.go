@@ -13,26 +13,35 @@ import (
 
 // Registry provides thread-safe access to task templates.
 // Templates are stored by name and can be retrieved or listed.
+// Aliases can map alternative names to existing templates.
 type Registry struct {
 	mu        sync.RWMutex
 	templates map[string]*domain.Template
+	aliases   map[string]string // maps alias name to target template name
 }
 
 // NewRegistry creates a new empty template registry.
 func NewRegistry() *Registry {
 	return &Registry{
 		templates: make(map[string]*domain.Template),
+		aliases:   make(map[string]string),
 	}
 }
 
-// Get retrieves a template by name.
+// Get retrieves a template by name or alias.
 // Returns a clone of the template to prevent mutation of registry state.
 // Returns ErrTemplateNotFound if the template doesn't exist.
 func (r *Registry) Get(name string) (*domain.Template, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	t, ok := r.templates[name]
+	// Check if name is an alias and resolve to target
+	resolvedName := name
+	if target, isAlias := r.aliases[name]; isAlias {
+		resolvedName = target
+	}
+
+	t, ok := r.templates[resolvedName]
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", atlaserrors.ErrTemplateNotFound, name)
 	}
@@ -89,4 +98,59 @@ func (r *Registry) RegisterOrReplace(t *domain.Template) error {
 
 	r.templates[t.Name] = t
 	return nil
+}
+
+// RegisterAlias creates an alias that points to an existing template.
+// When Get is called with the alias name, it returns the target template.
+// Returns error if:
+// - alias or target is empty
+// - target template doesn't exist
+// - alias name conflicts with an existing template name
+func (r *Registry) RegisterAlias(alias, target string) error {
+	alias = strings.TrimSpace(alias)
+	target = strings.TrimSpace(target)
+
+	if alias == "" {
+		return fmt.Errorf("%w: alias name cannot be empty", atlaserrors.ErrTemplateNameEmpty)
+	}
+	if target == "" {
+		return fmt.Errorf("%w: alias target cannot be empty", atlaserrors.ErrTemplateNameEmpty)
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	// Check that target template exists
+	if _, exists := r.templates[target]; !exists {
+		return fmt.Errorf("%w: alias target %q", atlaserrors.ErrTemplateNotFound, target)
+	}
+
+	// Check that alias doesn't conflict with an existing template name
+	if _, exists := r.templates[alias]; exists {
+		return fmt.Errorf("%w: alias %q conflicts with existing template", atlaserrors.ErrTemplateDuplicate, alias)
+	}
+
+	r.aliases[alias] = target
+	return nil
+}
+
+// Aliases returns all registered aliases as a map from alias to target template name.
+func (r *Registry) Aliases() map[string]string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	result := make(map[string]string, len(r.aliases))
+	for alias, target := range r.aliases {
+		result[alias] = target
+	}
+	return result
+}
+
+// IsAlias returns true if the given name is a registered alias.
+func (r *Registry) IsAlias(name string) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	_, isAlias := r.aliases[name]
+	return isAlias
 }
