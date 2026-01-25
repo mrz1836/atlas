@@ -15,8 +15,9 @@ Templates define repeatable workflows for common software engineering tasks. Eac
 Templates encode best practices so you can execute complex workflows with a single command:
 
 ```bash
-atlas start "Fix nil pointer in user service" --template bugfix
+atlas start "Fix nil pointer in user service" --template bug
 atlas start "Add OAuth2 authentication" --template feature
+atlas start "fix lint errors" --template patch --target feat/my-feature
 ```
 
 ---
@@ -251,13 +252,35 @@ steps:
 
 ## Built-in Templates
 
-### bugfix
+### bug
 
-Simple bug fix workflow without SDD overhead.
+Smart bug fix workflow that auto-selects between two modes based on description length.
 
-**Steps:** analyze → implement → validate → commit → push → pr → ci_wait → review
+**With description (>20 chars):** analyze → implement → verify → validate → commit → push → pr → ci_wait → review
+**Without description (≤20 chars):** detect → implement → verify → validate → commit → push → pr → ci_wait → review
+
+The `detect` step runs validation commands to find issues, while the `analyze` step analyzes a user-provided bug description. The template automatically skips the irrelevant step based on the description length.
 
 **Best for:** Bug fixes, small patches, quick corrections
+
+**Aliases:** `fix`, `bugfix` (for backward compatibility)
+
+### patch
+
+Fix issues on an existing branch without creating a new PR.
+
+**Steps:** detect → fix → verify → validate → commit → push
+
+**Key difference:** No PR creation, CI wait, or review steps. Designed for use with `--target` flag to push fixes directly to an existing branch that already has a PR.
+
+**Best for:** Quick fixes on existing feature branches, fixing CI failures on PRs
+
+**Aliases:** `hotfix` (for backward compatibility)
+
+**Usage:**
+```bash
+atlas start "fix lint errors" --template patch --target feat/my-feature
+```
 
 ### feature
 

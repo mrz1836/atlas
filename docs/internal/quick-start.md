@@ -53,11 +53,10 @@
    - [Custom Templates](#custom-templates)
 7. [Task States](#task-states)
 8. [Workflows](#workflows)
-   - [Bugfix Workflow](#bugfix-workflow)
+   - [Bug Workflow](#bug-workflow)
    - [Feature Workflow (Speckit SDD)](#feature-workflow-speckit-sdd)
    - [Task Workflow](#task-workflow)
-   - [Fix Workflow](#fix-workflow)
-   - [Hotfix Workflow](#hotfix-workflow)
+   - [Patch Workflow](#patch-workflow)
    - [Parallel Features](#parallel-features)
    - [Error Recovery Workflow](#error-recovery-workflow)
 9. [Configuration](#configuration)
@@ -222,7 +221,7 @@ Start a new task with the given description.
 atlas start "fix null pointer in parseConfig"
 
 # Specify template
-atlas start "fix null pointer" --template bugfix
+atlas start "fix null pointer" --template bug
 
 # Custom workspace name & agent + model
 atlas start "do this thing..." -t task -w task-workspace --agent claude --model opus
@@ -234,30 +233,30 @@ atlas start "add logging" -t task --branch develop
 atlas start "continue work" -t task --branch develop --use-local
 
 # Fix issues on an existing branch (e.g., a branch already in a PR)
-atlas start "fix lint errors" --template hotfix --target feat/my-feature
+atlas start "fix lint errors" --template patch --target feat/my-feature
 
 # Enable/disable AI verification
 atlas start "simple edit" -t task --verify
 atlas start "simple edit" -t task --no-verify
 
 # Start from a backlog discovery (auto-promotes when task starts)
-atlas start "fix null pointer" -t bugfix -w fix-null-pointer --from-backlog item-A1B2C3
+atlas start "fix null pointer" -t bug -w fix-null-pointer --from-backlog item-A1B2C3
 
 # Non-interactive mode (requires --template)
-atlas start "fix bug" -t bugfix --no-interactive
+atlas start "fix bug" -t bug --no-interactive
 
 # Dry-run mode - see what would happen without making changes
-atlas start "fix null pointer" --template bugfix --dry-run
+atlas start "fix null pointer" --template bug --dry-run
 
 # Dry-run with JSON output for scripting
-atlas start "fix null pointer" --template bugfix --dry-run --output json
+atlas start "fix null pointer" --template bug --dry-run --output json
 ```
 
 **Flags:**
 
 | Flag | Short | Description | Values |
 |------|-------|-------------|--------|
-| `--template` | `-t` | Template to use | `bugfix`, `feature`, `task`, `commit`, `hotfix` |
+| `--template` | `-t` | Template to use | `bug`, `feature`, `task`, `commit`, `patch` |
 | `--workspace` | `-w` | Custom workspace name | Any string (sanitized) |
 | `--agent` | `-a` | AI agent/CLI to use | `claude`, `gemini`, `codex` |
 | `--model` | `-m` | AI model to use | Claude: `sonnet`, `opus`, `haiku`; Gemini: `flash`, `pro`; Codex: `codex`, `max`, `mini` |
@@ -294,7 +293,7 @@ Showing what would happen without making changes.
 ...
 
 === Summary ===
-Template: bugfix
+Template: bug
 Steps: 9 total
 Side Effects Prevented:
   - Workspace creation (git worktree)
@@ -465,23 +464,23 @@ Both `atlas start` and `atlas resume` support graceful shutdown via Ctrl+C:
 
 ```bash
 # Start a task
-atlas start "fix bug" --template bugfix
+atlas start "fix bug" --template bug
 # Press Ctrl+C at any time...
 
 # Output:
 # ⚠ Interrupt received - saving state...
 # ✓ Task state saved
 # ─────────────────────────────────────────
-# 📁 Workspace:    fix-bug
+# 📁 Workspace:    fix-bug-issue
 # 📁 Worktree:     /path/to/worktree
 # 📋 Task:         task-550e8400-e29b-41d4-a716-446655440000
 # 📊 Status:       interrupted
 # ⏸ Stopped at:    Step 3/7 (validate)
 #
-# ▶ To resume:  atlas resume fix-bug
+# ▶ To resume:  atlas resume fix-bug-issue
 
 # Resume later
-atlas resume fix-bug
+atlas resume fix-bug-issue
 ```
 
 When you press Ctrl+C:
@@ -857,7 +856,7 @@ atlas backlog promote item-ABC123 --dry-run
 # With AI-assisted analysis for optimal task configuration
 atlas backlog promote item-ABC123 --ai
 
-# Override template selection (bugfix, feature, task, hotfix)
+# Override template selection (bug, feature, task, patch)
 atlas backlog promote item-ABC123 --template feature
 
 # Override AI agent and model
@@ -892,9 +891,9 @@ Press `q` or `Esc` at any prompt to cancel.
 
 | Category | Severity | Template |
 |----------|----------|----------|
-| security | critical | hotfix |
-| bug | any | bugfix |
-| security | non-critical | bugfix |
+| security | critical | patch |
+| bug | any | bug |
+| security | non-critical | bug |
 | performance | any | task |
 | maintainability | any | task |
 | testing | any | task |
@@ -908,7 +907,7 @@ Dry-run: Promote discovery item-A1B2C3
   Severity:  high
 
 Would create task with:
-  Template:   bugfix
+  Template:   bug
   Workspace:  missing-error-handling-payment
   Branch:     fix/missing-error-handling-payment
   Description: Missing error handling in payment processor [HIGH]
@@ -920,12 +919,12 @@ Would create task with:
 **Output (Execute):**
 ```
 Promoted discovery item-A1B2C3
-  Template:   bugfix
+  Template:   bug
   Workspace:  missing-error-handling-payment
   Branch:     fix/missing-error-handling-payment
 
 To create and start the task, run:
-  atlas start -t bugfix -w missing-error-handling-payment --from-backlog item-A1B2C3 \
+  atlas start -t bug -w missing-error-handling-payment --from-backlog item-A1B2C3 \
     "Missing error handling in payment processor"
 
 Note: Discovery status will change to 'promoted' when you run the start command.
@@ -1314,20 +1313,28 @@ ATLAS provides pre-defined workflow templates:
 
 | Template | Description | Branch Prefix | Use Case |
 |----------|-------------|---------------|----------|
-| **bugfix** | Analyze → Implement → Validate → Commit → PR | `fix` | Bug fixes requiring analysis |
+| **bug** | Smart bug fixing with auto-detect or analyze mode → Implement → Validate → PR | `fix` | Bug fixes (auto-detects issues or analyzes description) |
 | **feature** | Speckit SDD: Specify → Plan → Tasks → Implement → Validate → PR | `feat` | New features with specifications |
 | **task** | Implement → (Verify) → Validate → Commit → PR | `task` | Simple, well-defined tasks |
-| **fix** | Scan → Fix → Validate → Commit → PR | `fix` | Automated issue discovery and fixing |
-| **hotfix** | Fix issues on existing branch → Validate → Commit → Push (no PR) | `hotfix` | Quick fixes on branches already in PRs |
+| **patch** | Fix issues on existing branch → Validate → Commit → Push (no PR) | `patch` | Quick fixes on branches already in PRs |
 | **commit** | Smart commits: Garbage detection, logical grouping, message generation | `chore` | Commit assistance |
+
+**Template Aliases (Backward Compatibility):**
+
+| Alias | Resolves To |
+|-------|-------------|
+| `fix` | `bug` |
+| `bugfix` | `bug` |
+| `hotfix` | `patch` |
 
 **Template Details:**
 
-- **bugfix**: Best for issues requiring investigation. Includes an `analyze` step to understand the problem before implementing.
+- **bug**: Smart bug fixing template that auto-selects mode based on description:
+  - *With description* (>20 chars): Analyzes the bug report first, then implements fix
+  - *Without description* (≤20 chars): Auto-detects validation issues (lint/format/test), then fixes them
 - **feature**: Full Speckit SDD workflow with specification, planning, and task breakdown. Ideal for complex features.
 - **task**: Fastest workflow for straightforward changes. Skips analysis and goes straight to implementation. Add `--verify` for optional AI cross-validation.
-- **fix**: Automated issue discovery. Runs validation commands to find lint/format/test issues, then fixes them. Best for codebase maintenance.
-- **hotfix**: Designed for fixing issues on branches that are already in PRs. Uses `--target` flag to checkout an existing branch, makes fixes, and pushes directly to that branch. No new branch or PR is created - the existing PR automatically receives the new commits.
+- **patch**: Designed for fixing issues on branches that are already in PRs. Uses `--target` flag to checkout an existing branch, makes fixes, and pushes directly to that branch. No new branch or PR is created - the existing PR automatically receives the new commits.
 - **commit**: Specialized template for creating intelligent commits from existing changes.
 
 **Utility Templates:**
@@ -1350,7 +1357,7 @@ templates:
   custom_templates:
     my-workflow: /path/to/my-workflow.yaml
     deploy: ./templates/deploy.json  # JSON also supported
-    hotfix: ./templates/hotfix.yml   # Relative paths supported
+    patch: ./templates/patch.yml   # Relative paths supported
 ```
 
 File format is auto-detected from extension (`.yaml`, `.yml`, or `.json`).
@@ -1664,7 +1671,7 @@ Custom templates with the same name as built-in templates will override them:
 # In config.yaml
 templates:
   custom_templates:
-    bugfix: ./templates/my-bugfix.yaml  # Overrides built-in bugfix
+    bug: ./templates/my-bug.yaml  # Overrides built-in bug
 ```
 
 <br>
@@ -1741,30 +1748,54 @@ templates:
 
 ## Workflows
 
-### Bugfix Workflow
+### Bug Workflow
+
+The **bug** template is a smart, consolidated workflow that auto-selects between two modes based on description length:
+
+**Mode 1: Analyze Mode** (description >20 chars)
+```bash
+# When you describe the bug, the AI analyzes it first
+atlas start "fix null pointer in parseConfig when options is nil" --template bug
+```
+
+**Mode 2: Detect Mode** (description ≤20 chars)
+```bash
+# With a short/no description, it auto-detects issues via validation
+atlas start "fix lint" --template bug
+atlas start "" --template bug
+```
 
 ```bash
-# 1. Start the task
-atlas start "fix null pointer in parseConfig when options is nil" --template bugfix
-
-# 2. Monitor progress
+# Monitor progress
 atlas status --watch
 
-# 3. Wait for awaiting_approval status...
+# Wait for awaiting_approval status...
 
-# 4. Review and approve
+# Review and approve
 atlas approve my-workspace
 ```
 
-**Steps:**
-1. `analyze` - AI analyzes the problem
+**Steps (Analyze Mode):**
+1. `analyze` - AI analyzes the problem (skipped in detect mode)
 2. `implement` - AI implements the fix
-3. `validate` - Run format, lint, test, pre-commit
-4. `git_commit` - Create branch and commit
-5. `git_push` - Push to remote
-6. `git_pr` - Create pull request
-7. `ci_wait` - Wait for CI to pass
-8. `review` - Human approval
+3. `verify` - Optional AI verification (enable with --verify)
+4. `validate` - Run format, lint, test, pre-commit
+5. `git_commit` - Create branch and commit
+6. `git_push` - Push to remote
+7. `git_pr` - Create pull request
+8. `ci_wait` - Wait for CI to pass
+9. `review` - Human approval
+
+**Steps (Detect Mode):**
+1. `detect` - Run validation to find issues (skipped in analyze mode)
+2. `implement` - AI fixes detected issues
+3. `verify` - Optional AI verification (enable with --verify)
+4. `validate` - Confirm fixes work
+5. `git_commit` - Create branch and commit
+6. `git_push` - Push to remote
+7. `git_pr` - Create pull request
+8. `ci_wait` - Wait for CI to pass
+9. `review` - Human approval
 
 ### Feature Workflow (Speckit SDD)
 
@@ -1815,45 +1846,18 @@ atlas start "refactor HTTP client" --template task --verify
 - **Default model**: Uses `sonnet` for speed
 - **Best for**: Documentation updates, simple refactors, adding straightforward features
 
-**When to use Task vs Bugfix vs Feature:**
+**When to use Task vs Bug vs Feature:**
 - **Task**: Simple, well-defined work with clear requirements (e.g., "add logging", "update dependencies", "rename function", "update documentation")
-- **Bugfix**: Problem analysis needed (e.g., "fix null pointer", "resolve race condition")
+- **Bug**: Problem analysis or auto-detection needed (e.g., "fix null pointer", "fix lint", "resolve race condition")
 - **Feature**: Complex changes requiring specification (e.g., "add authentication", "implement caching layer")
 
-### Fix Workflow
+### Patch Workflow
 
-The **fix** template discovers and fixes validation issues automatically:
-
-```bash
-# Scan and fix any issues in the codebase
-atlas start "Fix any issues" -t fix
-
-# With specific workspace and branch
-atlas start "Fix any issues" -t fix -w test-ws --branch master --verbose
-
-# Monitor progress
-atlas status --watch
-
-# Steps:
-# 1. scan - Run validations, identify all issues (lint errors, test failures, etc.)
-# 2. fix - AI fixes all identified issues
-# 3. validate - Confirm fixes work
-# 4. git_commit → git_push → git_pr → ci_wait → review
-
-# If no issues found, task completes quickly (no PR created)
-```
-
-**When to use Fix vs Bugfix:**
-- **Fix**: No known issue - discover problems via validation commands ("Fix any issues", "Clean up the codebase")
-- **Bugfix**: Known issue from user description ("fix null pointer in parseConfig")
-
-### Hotfix Workflow
-
-The **hotfix** template is designed for fixing issues on branches that are already in pull requests. Instead of creating a new branch, it checks out the existing branch, makes fixes, and pushes directly to that branch.
+The **patch** template is designed for fixing issues on branches that are already in pull requests. Instead of creating a new branch, it checks out the existing branch, makes fixes, and pushes directly to that branch.
 
 ```bash
 # Branch feat/my-feature has linter issues and already has a PR open
-atlas start "fix lint errors" --template hotfix --target feat/my-feature
+atlas start "fix lint errors" --template patch --target feat/my-feature
 
 # Monitor progress
 atlas status --watch
@@ -1877,14 +1881,14 @@ atlas status --watch
 - **Fast workflow**: Skips PR creation, CI wait, and review steps
 - **Best for**: Fixing lint errors, test failures, or other issues on branches already in PRs
 
-**When to use Hotfix:**
+**When to use Patch:**
 - Branch already has an open PR with failing CI
 - Need to quickly patch lint/format/test issues
 - Want commits to go to the same branch (not create a new one)
 
-**Hotfix vs Fix:**
-- **Hotfix**: Works on an EXISTING branch with `--target`, no new PR
-- **Fix**: Creates a NEW branch from base, opens a new PR
+**Patch vs Bug:**
+- **Patch**: Works on an EXISTING branch with `--target`, no new PR
+- **Bug**: Creates a NEW branch from base, opens a new PR
 
 ### Parallel Features
 
@@ -2013,7 +2017,7 @@ ai:
 # Priority: step.Config > operations.{type} > ai.{agent,model}
 operations:
   # Analysis: Deep reasoning for bug analysis, root cause identification.
-  # Used by: bugfix template "analyze" step, feature spec analysis.
+  # Used by: bug template "analyze" step, feature spec analysis.
   analyze:
     agent: claude           # Best reasoning capability
     model: opus
@@ -2101,7 +2105,7 @@ templates:
 
   # Optional: Override branch prefixes for templates
   # branch_prefixes:
-  #   bugfix: fix
+  #   bug: fix
   #   feature: feat
   #   commit: chore
 
@@ -2447,7 +2451,7 @@ Templates use Go's `text/template` package with helper functions:
 |-------|-------|----------|
 | `not in a git repository` | Running outside a git repo | `cd` to your git project root |
 | `workspace 'x' exists` | Workspace name conflict | Use `--workspace <new-name>` or `atlas workspace destroy x` |
-| `template required` | Non-interactive mode without template | Add `--template bugfix` (or `feature`, `commit`) |
+| `template required` | Non-interactive mode without template | Add `--template bug` (or `feature`, `task`, `commit`) |
 | `invalid model` | Unknown model name | Claude: `sonnet`, `opus`, `haiku`; Gemini: `flash`, `pro`; Codex: `codex`, `max`, `mini` |
 | `agent not found` | Unknown agent name | Use `claude`, `gemini`, or `codex` |
 | `agent CLI not installed` | AI CLI not available | Install Claude CLI, Gemini CLI, or Codex CLI |
@@ -2457,7 +2461,7 @@ Templates use Go's `text/template` package with helper functions:
 | Claude CLI not found | claude not installed | `npm install -g @anthropic-ai/claude-code` |
 | Gemini CLI not found | gemini not installed | `npm install -g @google/gemini-cli` |
 | Codex CLI not found | codex not installed | `npm install -g @openai/codex` |
-| No issues found (fix template) | Fix template found clean codebase | No action needed - task completes without PR |
+| No issues found (bug detect mode) | Bug template detect mode found clean codebase | No action needed - task completes without PR |
 | `hook not found` | No active hook for current task | Start a new task or resume existing with `atlas resume` |
 | `Hook is stale` | Hook not updated in 5+ minutes (crash) | Run `atlas resume` to enter recovery mode |
 | `Signature invalid` | Receipt tampered or key regenerated | Re-run validation to create new receipt |
@@ -2467,7 +2471,7 @@ Templates use Go's `text/template` package with helper functions:
 
 ```bash
 # Enable verbose logging
-atlas --verbose start "description" -t bugfix
+atlas --verbose start "description" -t bug
 
 # Check specific workspace logs
 atlas workspace logs my-workspace --follow
