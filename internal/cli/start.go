@@ -78,10 +78,10 @@ Examples:
   atlas start "add retry logic to HTTP client" --template feature
   atlas start "update dependencies" --workspace deps-update --template commit
   atlas start "add new feature" --template feature --verify
-  atlas start "quick fix" --template bugfix --no-verify
-  atlas start "fix from develop" --template bugfix --branch develop
-  atlas start "review changes" --template bugfix --dry-run
-  atlas start "fix lint errors" --template hotfix --target feat/my-feature`,
+  atlas start "quick fix" --template bug --no-verify
+  atlas start "fix from develop" --template bug --branch develop
+  atlas start "review changes" --template bug --dry-run
+  atlas start "fix lint errors" --template patch --target feat/my-feature`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runStart(cmd.Context(), cmd, cmd.OutOrStdout(), args[0], startOptions{
@@ -102,7 +102,7 @@ Examples:
 	}
 
 	cmd.Flags().StringVarP(&templateName, "template", "t", "",
-		"Template to use (bugfix, feature, commit, hotfix)")
+		"Template to use (bug, feature, task, patch, commit)")
 	cmd.Flags().StringVarP(&workspaceName, "workspace", "w", "",
 		"Custom workspace name")
 	cmd.Flags().StringVarP(&agent, "agent", "a", "",

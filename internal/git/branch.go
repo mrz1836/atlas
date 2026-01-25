@@ -49,11 +49,17 @@ type BranchInfo struct {
 //
 //nolint:gochecknoglobals // Package-level constant-like mapping for branch prefixes
 var DefaultBranchPrefixes = map[string]string{
-	"bugfix":  "fix",
+	// Primary templates
+	"bug":     "fix",
+	"patch":   "patch",
 	"feature": "feat",
+	"task":    "task",
 	"commit":  "chore",
-	// Common aliases
-	"fix":   "fix",
+	// Backward-compatible aliases
+	"fix":    "fix",
+	"bugfix": "fix",
+	"hotfix": "patch",
+	// Common prefixes (pass-through)
 	"feat":  "feat",
 	"chore": "chore",
 }

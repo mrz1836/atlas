@@ -7,6 +7,7 @@ package task
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"time"
 
@@ -201,7 +202,15 @@ func (e *Engine) getSkipReason(task *domain.Task, step *domain.StepDefinition) s
 // This skips:
 // - git push and PR steps when "skip_git_steps" flag is set (no changes to commit)
 // - AI and validation steps when "no_issues_detected" flag is set (detect_only found no issues)
+// - steps with skip_condition that evaluates to true
 func (e *Engine) shouldSkipStep(task *domain.Task, step *domain.StepDefinition) bool {
+	// Check skip_condition first (for smart conditional steps)
+	if skipCond, ok := step.Config["skip_condition"].(string); ok && skipCond != "" {
+		if e.evaluateSkipCondition(task, skipCond) {
+			return true
+		}
+	}
+
 	if !step.Required {
 		return true
 	}
@@ -251,4 +260,27 @@ func (e *Engine) isSkippableGitOperation(step *domain.StepDefinition) bool {
 	}
 	// These operation names match GitOpPush and GitOpCreatePR in steps/git.go
 	return op == "push" || op == "create_pr"
+}
+
+// evaluateSkipCondition evaluates a skip_condition string and returns true if the step should be skipped.
+// Supported conditions:
+// - "has_description": skip if task has a substantive description (>20 chars)
+// - "no_description": skip if task has no substantive description
+func (e *Engine) evaluateSkipCondition(task *domain.Task, condition string) bool {
+	switch condition {
+	case "has_description":
+		return e.hasSubstantiveDescription(task)
+	case "no_description":
+		return !e.hasSubstantiveDescription(task)
+	default:
+		// Unknown condition - don't skip
+		return false
+	}
+}
+
+// hasSubstantiveDescription returns true if the task has a description longer than 20 characters.
+// This threshold distinguishes between short commands like "fix lint" and actual bug descriptions.
+func (e *Engine) hasSubstantiveDescription(task *domain.Task) bool {
+	desc := strings.TrimSpace(task.Description)
+	return len(desc) > 20
 }

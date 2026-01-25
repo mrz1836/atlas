@@ -152,14 +152,14 @@ func TestCreateWorkspace_BranchModes(t *testing.T) {
 		existingBranchOpts := WorkspaceOptions{
 			Name:         "test-workspace",
 			RepoPath:     "/path/to/repo",
-			BranchPrefix: "",              // Empty for existing branch mode
-			BaseBranch:   "",              // Empty for existing branch mode
-			TargetBranch: "hotfix/urgent", // Set for existing branch mode
+			BranchPrefix: "",             // Empty for existing branch mode
+			BaseBranch:   "",             // Empty for existing branch mode
+			TargetBranch: "patch/urgent", // Set for existing branch mode
 			ErrorHandler: func(_ string, err error) error { return err },
 		}
 
 		assert.Empty(t, existingBranchOpts.BranchPrefix)
 		assert.Empty(t, existingBranchOpts.BaseBranch)
-		assert.Equal(t, "hotfix/urgent", existingBranchOpts.TargetBranch)
+		assert.Equal(t, "patch/urgent", existingBranchOpts.TargetBranch)
 	})
 }

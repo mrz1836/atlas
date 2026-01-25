@@ -163,9 +163,9 @@ func TestSelectTemplate_WithFlag(t *testing.T) {
 	registry := template.NewDefaultRegistry()
 	prompter := workflow.NewPrompter(tui.NewTTYOutput(os.Stdout))
 
-	tmpl, err := prompter.SelectTemplate(context.Background(), registry, "bugfix", false, "text")
+	tmpl, err := prompter.SelectTemplate(context.Background(), registry, "bug", false, "text")
 	require.NoError(t, err)
-	assert.Equal(t, "bugfix", tmpl.Name)
+	assert.Equal(t, "bug", tmpl.Name)
 }
 
 func TestSelectTemplate_InvalidTemplate(t *testing.T) {
@@ -203,7 +203,7 @@ func TestSelectTemplate_ContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately
 
-	_, err := prompter.SelectTemplate(ctx, registry, "bugfix", false, "text")
+	_, err := prompter.SelectTemplate(ctx, registry, "bug", false, "text")
 	require.Error(t, err)
 	assert.ErrorIs(t, err, context.Canceled)
 }
@@ -351,7 +351,7 @@ func TestStartResponse_JSONStructure(t *testing.T) {
 		},
 		Task: taskInfo{
 			ID:           "task-20240101-120000",
-			TemplateName: "bugfix",
+			TemplateName: "bug",
 			Description:  "fix login bug",
 			Status:       "running",
 			CurrentStep:  0,
@@ -376,7 +376,7 @@ func TestStartResponse_JSONStructure(t *testing.T) {
 
 	task := parsed["task"].(map[string]any)
 	assert.Equal(t, "task-20240101-120000", task["task_id"])
-	assert.Equal(t, "bugfix", task["template_name"])
+	assert.Equal(t, "bug", task["template_name"])
 }
 
 func TestStartResponse_ErrorCase(t *testing.T) {
@@ -552,7 +552,7 @@ func TestRunStart_ContextCancellation(t *testing.T) {
 
 	var buf bytes.Buffer
 	err := runStart(ctx, cmd, &buf, "test description", startOptions{
-		templateName: "bugfix",
+		templateName: "bug",
 	})
 
 	require.Error(t, err)
@@ -672,7 +672,7 @@ func TestDisplayTaskStatus_TTYOutput(t *testing.T) {
 
 	task := &domain.Task{
 		ID:          "task-123",
-		TemplateID:  "bugfix",
+		TemplateID:  "bug",
 		Description: "fix a bug",
 		Status:      constants.TaskStatusRunning,
 		CurrentStep: 1,
@@ -685,7 +685,7 @@ func TestDisplayTaskStatus_TTYOutput(t *testing.T) {
 	output := buf.String()
 	assert.Contains(t, output, "task-123")
 	assert.Contains(t, output, "test-ws")
-	assert.Contains(t, output, "bugfix")
+	assert.Contains(t, output, "bug")
 }
 
 func TestDisplayTaskStatus_JSONOutput(t *testing.T) {
@@ -701,7 +701,7 @@ func TestDisplayTaskStatus_JSONOutput(t *testing.T) {
 
 	task := &domain.Task{
 		ID:          "task-123",
-		TemplateID:  "bugfix",
+		TemplateID:  "bug",
 		Description: "fix a bug",
 		Status:      constants.TaskStatusRunning,
 		CurrentStep: 1,
@@ -770,29 +770,29 @@ steps:
 func TestSelectTemplate_CustomOverridesBuiltin(t *testing.T) {
 	tmpDir := t.TempDir()
 	// Custom template with same name as built-in
-	customBugfix := `
-name: bugfix
-description: Custom bugfix workflow
-branch_prefix: hotfix
+	customBug := `
+name: bug
+description: Custom bug workflow
+branch_prefix: custom-fix
 steps:
   - name: custom-step
     type: ai
     required: true
 `
-	tmpFile := filepath.Join(tmpDir, "bugfix.yaml")
-	require.NoError(t, os.WriteFile(tmpFile, []byte(customBugfix), 0o600))
+	tmpFile := filepath.Join(tmpDir, "bug.yaml")
+	require.NoError(t, os.WriteFile(tmpFile, []byte(customBug), 0o600))
 
 	registry, err := template.NewRegistryWithConfig(tmpDir, map[string]string{
-		"bugfix": "bugfix.yaml",
+		"bug": "bug.yaml",
 	})
 	require.NoError(t, err)
 
-	// Select bugfix - should get custom version
-	tmpl, err := workflow.SelectTemplate(context.Background(), registry, "bugfix", false, "text")
+	// Select bug - should get custom version
+	tmpl, err := workflow.SelectTemplate(context.Background(), registry, "bug", false, "text")
 	require.NoError(t, err)
-	assert.Equal(t, "bugfix", tmpl.Name)
-	assert.Equal(t, "hotfix", tmpl.BranchPrefix) // Custom uses "hotfix", built-in uses "fix"
-	assert.Equal(t, "Custom bugfix workflow", tmpl.Description)
+	assert.Equal(t, "bug", tmpl.Name)
+	assert.Equal(t, "custom-fix", tmpl.BranchPrefix) // Custom uses "custom-fix", built-in uses "fix"
+	assert.Equal(t, "Custom bug workflow", tmpl.Description)
 }
 
 func TestNewRegistryWithConfig_InvalidTemplateError(t *testing.T) {
@@ -981,7 +981,7 @@ func TestStartTaskExecution_ContextCanceled(t *testing.T) {
 	}
 
 	registry := template.NewDefaultRegistry()
-	tmpl, err := registry.Get("bugfix")
+	tmpl, err := registry.Get("bug")
 	require.NoError(t, err)
 
 	logger := Logger()
@@ -1330,7 +1330,7 @@ func TestRunStart_ConflictingVerifyFlags(t *testing.T) {
 
 	var buf bytes.Buffer
 	err := runStart(context.Background(), cmd, &buf, "test description", startOptions{
-		templateName: "bugfix",
+		templateName: "bug",
 		verify:       true,
 		noVerify:     true,
 	})
@@ -1350,7 +1350,7 @@ func TestRunStart_InvalidModel(t *testing.T) {
 
 	var buf bytes.Buffer
 	err := runStart(context.Background(), cmd, &buf, "test description", startOptions{
-		templateName: "bugfix",
+		templateName: "bug",
 		model:        "gpt-4", // Invalid model
 	})
 
@@ -1649,7 +1649,7 @@ func TestRunStart_ConflictingBranchAndTargetFlags(t *testing.T) {
 
 	var buf bytes.Buffer
 	err := runStart(context.Background(), cmd, &buf, "test description", startOptions{
-		templateName: "hotfix",
+		templateName: "patch",
 		baseBranch:   "develop",
 		targetBranch: "feat/existing",
 	})
@@ -1669,7 +1669,7 @@ func TestRunStart_TargetFlag_WithHotfixTemplate(t *testing.T) {
 
 	// Verify target flag can be set
 	require.NoError(t, cmd.Flags().Set("target", "feat/my-feature"))
-	require.NoError(t, cmd.Flags().Set("template", "hotfix"))
+	require.NoError(t, cmd.Flags().Set("template", "patch"))
 
 	// Get the flag value back
 	targetVal, err := cmd.Flags().GetString("target")
@@ -1678,7 +1678,7 @@ func TestRunStart_TargetFlag_WithHotfixTemplate(t *testing.T) {
 
 	templateVal, err := cmd.Flags().GetString("template")
 	require.NoError(t, err)
-	assert.Equal(t, "hotfix", templateVal)
+	assert.Equal(t, "patch", templateVal)
 }
 
 // TestStartOptions_TargetBranch tests the startOptions struct with targetBranch
@@ -1692,7 +1692,7 @@ func TestStartOptions_TargetBranch(t *testing.T) {
 		{
 			name: "valid target branch only",
 			opts: startOptions{
-				templateName: "hotfix",
+				templateName: "patch",
 				targetBranch: "feat/existing-branch",
 			},
 			expectError: false,
@@ -1700,7 +1700,7 @@ func TestStartOptions_TargetBranch(t *testing.T) {
 		{
 			name: "valid base branch only",
 			opts: startOptions{
-				templateName: "bugfix",
+				templateName: "bug",
 				baseBranch:   "develop",
 			},
 			expectError: false,
@@ -1708,7 +1708,7 @@ func TestStartOptions_TargetBranch(t *testing.T) {
 		{
 			name: "conflicting branch and target",
 			opts: startOptions{
-				templateName: "hotfix",
+				templateName: "patch",
 				baseBranch:   "develop",
 				targetBranch: "feat/existing",
 			},
@@ -1718,7 +1718,7 @@ func TestStartOptions_TargetBranch(t *testing.T) {
 		{
 			name: "target with verify flag",
 			opts: startOptions{
-				templateName: "hotfix",
+				templateName: "patch",
 				targetBranch: "feat/existing",
 				verify:       true,
 			},
@@ -1727,7 +1727,7 @@ func TestStartOptions_TargetBranch(t *testing.T) {
 		{
 			name: "target with no-verify flag",
 			opts: startOptions{
-				templateName: "hotfix",
+				templateName: "patch",
 				targetBranch: "feat/existing",
 				noVerify:     true,
 			},
@@ -1775,7 +1775,7 @@ func TestCreateWorkspace_WithTargetBranch(t *testing.T) {
 			context.Background(),
 			"hotfix-workspace",
 			repoPath,
-			"hotfix",             // branchPrefix (fallback, not used when targetBranch set)
+			"patch",              // branchPrefix (fallback, not used when targetBranch set)
 			"",                   // baseBranch (empty)
 			"feat/target-branch", // targetBranch (existing branch)
 			false,                // useLocal
@@ -1810,7 +1810,7 @@ func TestCreateWorkspace_WithTargetBranch(t *testing.T) {
 			context.Background(),
 			"hotfix-workspace",
 			repoPath,
-			"hotfix",
+			"patch",
 			"",
 			"feat/does-not-exist", // Non-existent branch
 			false,
@@ -1853,7 +1853,7 @@ func TestTargetFlag_Integration(t *testing.T) {
 
 		// Get hotfix template
 		registry := template.NewDefaultRegistry()
-		hotfixTmpl, err := registry.Get("hotfix")
+		hotfixTmpl, err := registry.Get("patch")
 		require.NoError(t, err)
 
 		// Verify hotfix template doesn't have git_pr step
@@ -1902,12 +1902,12 @@ func TestTargetFlag_Integration(t *testing.T) {
 // TestStartOptions_FromBacklogID tests the startOptions struct includes fromBacklogID
 func TestStartOptions_FromBacklogID(t *testing.T) {
 	opts := startOptions{
-		templateName:  "bugfix",
+		templateName:  "bug",
 		fromBacklogID: "disc-abc123",
 	}
 
 	assert.Equal(t, "disc-abc123", opts.fromBacklogID)
-	assert.Equal(t, "bugfix", opts.templateName)
+	assert.Equal(t, "bug", opts.templateName)
 }
 
 // TestBuildEnrichedDescription tests the buildEnrichedDescription function
@@ -2609,7 +2609,7 @@ func TestRunDryRun(t *testing.T) {
 		}
 
 		tmpl := &domain.Template{
-			Name:         "bugfix",
+			Name:         "bug",
 			BranchPrefix: "fix",
 			Steps: []domain.StepDefinition{
 				{
@@ -2629,7 +2629,7 @@ func TestRunDryRun(t *testing.T) {
 		output := buf.String()
 		assert.Contains(t, output, "DRY-RUN MODE")
 		assert.Contains(t, output, "test-ws")
-		assert.Contains(t, output, "bugfix")
+		assert.Contains(t, output, "bug")
 	})
 
 	t.Run("dry run with json output", func(t *testing.T) {
@@ -2679,7 +2679,7 @@ func TestRunDryRun(t *testing.T) {
 		}
 
 		tmpl := &domain.Template{
-			Name:         "bugfix",
+			Name:         "bug",
 			BranchPrefix: "fix",
 			Steps:        []domain.StepDefinition{},
 		}

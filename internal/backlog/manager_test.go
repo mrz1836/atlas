@@ -968,8 +968,8 @@ func TestManager_PromoteWithOptions(t *testing.T) {
 		result, err := mgr.PromoteWithOptions(ctx, d.ID, opts, nil)
 		require.NoError(t, err)
 
-		// Bug category should map to bugfix template
-		assert.Equal(t, "bugfix", result.TemplateName)
+		// Bug category should map to bug template
+		assert.Equal(t, "bug", result.TemplateName)
 		assert.Equal(t, "test-bug-discovery", result.WorkspaceName)
 		assert.Equal(t, "fix/test-bug-discovery", result.BranchName)
 		assert.Contains(t, result.Description, "Test Bug Discovery")
@@ -1002,9 +1002,9 @@ func TestManager_PromoteWithOptions(t *testing.T) {
 		result, err := mgr.PromoteWithOptions(ctx, d.ID, opts, nil)
 		require.NoError(t, err)
 
-		// Critical security should map to hotfix
-		assert.Equal(t, "hotfix", result.TemplateName)
-		assert.Equal(t, "hotfix/critical-security-vulnerability", result.BranchName)
+		// Critical security should map to patch
+		assert.Equal(t, "patch", result.TemplateName)
+		assert.Equal(t, "patch/critical-security-vulnerability", result.BranchName)
 	})
 
 	t.Run("template override takes precedence", func(t *testing.T) {
@@ -1114,12 +1114,17 @@ func TestGetBranchPrefixForTemplate(t *testing.T) {
 		template string
 		expected string
 	}{
-		{"bugfix", "fix"},
+		// Primary templates
+		{"bug", "fix"},
+		{"patch", "patch"},
 		{"feature", "feat"},
-		{"hotfix", "hotfix"},
 		{"task", "task"},
-		{"fix", "fix"},
 		{"commit", "chore"},
+		// Backward-compatible aliases
+		{"bugfix", "fix"},
+		{"fix", "fix"},
+		{"hotfix", "patch"},
+		// Unknown/empty
 		{"unknown", "task"},
 		{"", "task"},
 	}

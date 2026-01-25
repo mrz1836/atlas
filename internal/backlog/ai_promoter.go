@@ -246,7 +246,7 @@ func (p *AIPromoter) buildAnalysisPrompt(d *Discovery, cfg *AIPromoterConfig) st
 		GitBranch:          gitBranch,
 		GitCommit:          gitCommit,
 		AvailableAgents:    availableAgents,
-		AvailableTemplates: []string{"bugfix", "feature", "task", "fix", "hotfix", "commit"},
+		AvailableTemplates: []string{"bug", "feature", "task", "patch", "commit"},
 	}
 
 	return prompts.MustRender(prompts.DiscoveryAnalysis, data)

@@ -553,10 +553,10 @@ func TestGenerateBranchName(t *testing.T) {
 			expected:      "feat/add-user-auth",
 		},
 		{
-			name:          "hotfix branch",
-			prefix:        "hotfix",
+			name:          "patch branch",
+			prefix:        "patch",
 			workspaceName: "critical-security-fix",
-			expected:      "hotfix/critical-security-fix",
+			expected:      "patch/critical-security-fix",
 		},
 		{
 			name:          "empty prefix returns workspace name only",

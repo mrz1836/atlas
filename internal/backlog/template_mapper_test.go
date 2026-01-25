@@ -17,54 +17,54 @@ func TestMapCategoryToTemplate(t *testing.T) {
 	}{
 		// Bug category tests
 		{
-			name:     "bug with low severity maps to bugfix",
+			name:     "bug with low severity maps to bug",
 			category: CategoryBug,
 			severity: SeverityLow,
-			expected: "bugfix",
+			expected: "bug",
 		},
 		{
-			name:     "bug with medium severity maps to bugfix",
+			name:     "bug with medium severity maps to bug",
 			category: CategoryBug,
 			severity: SeverityMedium,
-			expected: "bugfix",
+			expected: "bug",
 		},
 		{
-			name:     "bug with high severity maps to bugfix",
+			name:     "bug with high severity maps to bug",
 			category: CategoryBug,
 			severity: SeverityHigh,
-			expected: "bugfix",
+			expected: "bug",
 		},
 		{
-			name:     "bug with critical severity maps to bugfix",
+			name:     "bug with critical severity maps to bug",
 			category: CategoryBug,
 			severity: SeverityCritical,
-			expected: "bugfix",
+			expected: "bug",
 		},
 
 		// Security category tests
 		{
-			name:     "security with low severity maps to bugfix",
+			name:     "security with low severity maps to bug",
 			category: CategorySecurity,
 			severity: SeverityLow,
-			expected: "bugfix",
+			expected: "bug",
 		},
 		{
-			name:     "security with medium severity maps to bugfix",
+			name:     "security with medium severity maps to bug",
 			category: CategorySecurity,
 			severity: SeverityMedium,
-			expected: "bugfix",
+			expected: "bug",
 		},
 		{
-			name:     "security with high severity maps to bugfix",
+			name:     "security with high severity maps to bug",
 			category: CategorySecurity,
 			severity: SeverityHigh,
-			expected: "bugfix",
+			expected: "bug",
 		},
 		{
-			name:     "critical security maps to hotfix",
+			name:     "critical security maps to patch",
 			category: CategorySecurity,
 			severity: SeverityCritical,
-			expected: "hotfix",
+			expected: "patch",
 		},
 
 		// Performance category tests
@@ -154,10 +154,10 @@ func TestMapCategoryToTemplateWithMapping_CustomMapping(t *testing.T) {
 		t.Parallel()
 		customMapping := &TemplateMapping{
 			CategoryMappings: map[Category]string{
-				CategoryBug:         "custom-bugfix",
+				CategoryBug:         "custom-bug",
 				CategoryPerformance: "custom-perf",
 			},
-			CriticalSecurityTemplate: "custom-hotfix",
+			CriticalSecurityTemplate: "custom-patch",
 			DefaultTemplate:          "custom-task",
 		}
 
@@ -166,9 +166,9 @@ func TestMapCategoryToTemplateWithMapping_CustomMapping(t *testing.T) {
 			severity Severity
 			expected string
 		}{
-			{CategoryBug, SeverityLow, "custom-bugfix"},
+			{CategoryBug, SeverityLow, "custom-bug"},
 			{CategoryPerformance, SeverityHigh, "custom-perf"},
-			{CategorySecurity, SeverityCritical, "custom-hotfix"},
+			{CategorySecurity, SeverityCritical, "custom-patch"},
 			{CategoryDocumentation, SeverityLow, "custom-task"},
 		}
 
@@ -181,7 +181,7 @@ func TestMapCategoryToTemplateWithMapping_CustomMapping(t *testing.T) {
 	t.Run("nil mapping uses defaults", func(t *testing.T) {
 		t.Parallel()
 		result := MapCategoryToTemplateWithMapping(CategoryBug, SeverityHigh, nil)
-		assert.Equal(t, "bugfix", result)
+		assert.Equal(t, "bug", result)
 	})
 
 	t.Run("empty critical security template falls back to category mapping", func(t *testing.T) {
@@ -228,7 +228,7 @@ func TestDefaultTemplateMapping(t *testing.T) {
 	t.Run("has critical security template set", func(t *testing.T) {
 		t.Parallel()
 		assert.NotEmpty(t, mapping.CriticalSecurityTemplate)
-		assert.Equal(t, "hotfix", mapping.CriticalSecurityTemplate)
+		assert.Equal(t, "patch", mapping.CriticalSecurityTemplate)
 	})
 
 	t.Run("has default template set", func(t *testing.T) {
@@ -245,7 +245,7 @@ func TestValidTemplateNames(t *testing.T) {
 
 	t.Run("contains expected templates", func(t *testing.T) {
 		t.Parallel()
-		expected := []string{"bugfix", "feature", "task", "fix", "hotfix", "commit"}
+		expected := []string{"bug", "patch", "feature", "task", "commit", "fix", "bugfix", "hotfix"}
 		assert.ElementsMatch(t, expected, names)
 	})
 
@@ -263,20 +263,24 @@ func TestIsValidTemplateName(t *testing.T) {
 		input    string
 		expected bool
 	}{
-		// Valid templates
-		{"bugfix is valid", "bugfix", true},
+		// Valid templates (primary)
+		{"bug is valid", "bug", true},
+		{"patch is valid", "patch", true},
 		{"feature is valid", "feature", true},
 		{"task is valid", "task", true},
-		{"fix is valid", "fix", true},
-		{"hotfix is valid", "hotfix", true},
 		{"commit is valid", "commit", true},
+
+		// Valid templates (aliases for backward compatibility)
+		{"fix is valid (alias)", "fix", true},
+		{"bugfix is valid (alias)", "bugfix", true},
+		{"hotfix is valid (alias)", "hotfix", true},
 
 		// Invalid templates
 		{"empty string is invalid", "", false},
 		{"unknown is invalid", "unknown", false},
 		{"typo is invalid", "bugfi", false},
-		{"case sensitive is invalid", "Bugfix", false},
-		{"uppercase is invalid", "BUGFIX", false},
+		{"case sensitive is invalid", "Bug", false},
+		{"uppercase is invalid", "BUG", false},
 		{"with spaces is invalid", "bug fix", false},
 		{"special chars is invalid", "bug-fix", false},
 	}

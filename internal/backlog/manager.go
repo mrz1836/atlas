@@ -575,18 +575,21 @@ func (m *Manager) PromoteWithOptions(ctx context.Context, id string, opts Promot
 // getBranchPrefixForTemplate returns the git branch prefix for a template name.
 func getBranchPrefixForTemplate(templateName string) string {
 	switch templateName {
-	case "bugfix":
+	case "bug":
 		return "fix"
 	case "feature":
 		return "feat"
-	case "hotfix":
-		return "hotfix"
+	case "patch":
+		return "patch"
 	case "task":
 		return "task"
-	case "fix":
-		return "fix"
 	case "commit":
 		return "chore"
+	// Backward-compatible aliases
+	case "bugfix", "fix":
+		return "fix"
+	case "hotfix":
+		return "patch"
 	default:
 		return "task"
 	}

@@ -529,9 +529,9 @@ func selectTemplateOverride() (string, error) {
 			Value:       "",
 		},
 		{
-			Label:       "bugfix",
+			Label:       "bug",
 			Description: "Fix bugs and regressions",
-			Value:       "bugfix",
+			Value:       "bug",
 		},
 		{
 			Label:       "feature",
@@ -539,9 +539,9 @@ func selectTemplateOverride() (string, error) {
 			Value:       "feature",
 		},
 		{
-			Label:       "hotfix",
+			Label:       "patch",
 			Description: "Critical production fixes",
-			Value:       "hotfix",
+			Value:       "patch",
 		},
 		{
 			Label:       "task",

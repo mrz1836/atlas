@@ -162,7 +162,7 @@ func TestResumeResponse_JSON(t *testing.T) {
 			},
 			Task: taskInfo{
 				ID:           "task-xyz",
-				TemplateName: "bugfix",
+				TemplateName: "bug",
 				Description:  "fix something",
 				Status:       "awaiting_approval",
 				CurrentStep:  2,
@@ -306,7 +306,7 @@ func TestDisplayResumeResult(t *testing.T) {
 
 	task := &domain.Task{
 		ID:          "task-resume-test",
-		TemplateID:  "bugfix",
+		TemplateID:  "bug",
 		Description: "resume test",
 		Status:      constants.TaskStatusAwaitingApproval,
 		CurrentStep: 2,
@@ -365,7 +365,7 @@ func TestResumeResponse_JSONMarshal(t *testing.T) {
 		},
 		Task: taskInfo{
 			ID:           "task-marshal-test",
-			TemplateName: "bugfix",
+			TemplateName: "bug",
 			Description:  "test marshal",
 			Status:       "awaiting_approval",
 			CurrentStep:  1,
@@ -390,7 +390,7 @@ func TestResumeResponse_JSONMarshal(t *testing.T) {
 
 	task := parsed["task"].(map[string]any)
 	assert.Equal(t, "task-marshal-test", task["task_id"])
-	assert.Equal(t, "bugfix", task["template_name"])
+	assert.Equal(t, "bug", task["template_name"])
 }
 
 func TestRunResume_AIFixNotImplemented(t *testing.T) {
@@ -453,7 +453,7 @@ func TestHandleResumeInterruption(t *testing.T) {
 
 	testTask := &domain.Task{
 		ID:          "task-interrupt-test",
-		TemplateID:  "bugfix",
+		TemplateID:  "bug",
 		Description: "test interruption handling",
 		Status:      constants.TaskStatusRunning,
 		CurrentStep: 1,
@@ -1349,7 +1349,7 @@ func TestOutputResumeSuccessJSON(t *testing.T) {
 
 	currentTask := &domain.Task{
 		ID:          "task-123",
-		TemplateID:  "bugfix",
+		TemplateID:  "bug",
 		Description: "fix something",
 		Status:      constants.TaskStatusCompleted,
 		CurrentStep: 2,
@@ -2374,7 +2374,7 @@ func TestOutputResumeErrorJSON_Coverage(t *testing.T) {
 func TestPrepareResumeTemplate_Success(t *testing.T) {
 	testTask := &domain.Task{
 		ID:         "task-123",
-		TemplateID: "bugfix",
+		TemplateID: "bug",
 		Status:     constants.TaskStatusValidationFailed,
 	}
 
@@ -2382,13 +2382,13 @@ func TestPrepareResumeTemplate_Success(t *testing.T) {
 	tmpl, err := prepareResumeTemplate(testTask, resumeOptions{aiFix: false}, "text", &buf, "test-ws")
 	require.NoError(t, err)
 	assert.NotNil(t, tmpl)
-	assert.Equal(t, "bugfix", tmpl.Name)
+	assert.Equal(t, "bug", tmpl.Name)
 }
 
 func TestPrepareResumeTemplate_AIFixNotImplemented(t *testing.T) {
 	testTask := &domain.Task{
 		ID:         "task-123",
-		TemplateID: "bugfix",
+		TemplateID: "bug",
 		Status:     constants.TaskStatusValidationFailed,
 	}
 

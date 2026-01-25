@@ -19,22 +19,22 @@ type TemplateMapping struct {
 func DefaultTemplateMapping() *TemplateMapping {
 	return &TemplateMapping{
 		CategoryMappings: map[Category]string{
-			CategoryBug:             "bugfix",
-			CategorySecurity:        "bugfix", // non-critical security
+			CategoryBug:             "bug",
+			CategorySecurity:        "bug", // non-critical security
 			CategoryPerformance:     "task",
 			CategoryMaintainability: "task",
 			CategoryTesting:         "task",
 			CategoryDocumentation:   "task",
 		},
-		CriticalSecurityTemplate: "hotfix",
+		CriticalSecurityTemplate: "patch",
 		DefaultTemplate:          "task",
 	}
 }
 
 // MapCategoryToTemplate returns the best template for a discovery based on its category and severity.
 // The mapping follows these rules:
-//  1. Critical security issues → hotfix (immediate attention required)
-//  2. Bug/Security → bugfix (code fixes)
+//  1. Critical security issues → patch (immediate attention required)
+//  2. Bug/Security → bug (code fixes)
 //  3. Other categories → task (general work)
 //
 // The mapping can be customized by providing a custom TemplateMapping.
@@ -67,8 +67,9 @@ func MapCategoryToTemplateWithMapping(category Category, severity Severity, mapp
 
 // ValidTemplateNames returns all valid template names that can be used.
 // This is useful for validation and help text.
+// Includes both primary templates and backward-compatible aliases.
 func ValidTemplateNames() []string {
-	return []string{"bugfix", "feature", "task", "fix", "hotfix", "commit"}
+	return []string{"bug", "feature", "task", "patch", "commit", "fix", "bugfix", "hotfix"}
 }
 
 // IsValidTemplateName checks if a template name is valid.

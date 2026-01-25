@@ -83,7 +83,7 @@ func TestRunBacklogPromote_DryRun(t *testing.T) {
 
 	output := buf.String()
 	assert.Contains(t, output, "Dry-run")
-	assert.Contains(t, output, "bugfix") // Bug category maps to bugfix
+	assert.Contains(t, output, "bug") // Bug category maps to bugfix
 
 	// Verify discovery was not modified
 	got, err := mgr.Get(ctx, d.ID)
@@ -136,7 +136,7 @@ func TestRunBacklogPromote_JSONOutput(t *testing.T) {
 
 	assert.True(t, result["success"].(bool))
 	assert.Equal(t, d.ID, result["id"])
-	assert.Equal(t, "hotfix", result["template"]) // Critical security -> hotfix
+	assert.Equal(t, "patch", result["template"]) // Critical security -> hotfix
 	assert.True(t, result["dry_run"].(bool))
 }
 
@@ -413,7 +413,7 @@ func TestRunBacklogPromote_WithLocation(t *testing.T) {
 
 	output := buf.String()
 	assert.Contains(t, output, "Bug in payment processor")
-	assert.Contains(t, output, "bugfix")
+	assert.Contains(t, output, "bug")
 }
 
 func TestRunBacklogPromote_WithTags(t *testing.T) {
@@ -561,12 +561,12 @@ func TestRunBacklogPromote_AIWithTemplateOverride(t *testing.T) {
 	err = mgr.Add(ctx, d)
 	require.NoError(t, err)
 
-	// Create mock AI runner that returns "bugfix" template
+	// Create mock AI runner that returns "bug" template
 	aiRunner := &mockCLIAIRunner{
 		result: &domain.AIResult{
 			Success: true,
 			Output: `{
-				"template": "bugfix",
+				"template": "bug",
 				"description": "AI generated description",
 				"reasoning": "AI reasoning",
 				"workspace_name": "ai-workspace",
@@ -591,7 +591,7 @@ func TestRunBacklogPromote_AIWithTemplateOverride(t *testing.T) {
 	assert.Equal(t, "feature", result.TemplateName)
 	// But AI analysis should still be captured
 	assert.NotNil(t, result.AIAnalysis)
-	assert.Equal(t, "bugfix", result.AIAnalysis.Template) // AI suggested bugfix
+	assert.Equal(t, "bug", result.AIAnalysis.Template) // AI suggested bugfix
 }
 
 func TestRunBacklogPromote_DismissedDiscovery(t *testing.T) {
@@ -645,7 +645,7 @@ func TestPromoteResult_BranchNames(t *testing.T) {
 	}{
 		{
 			name:           "bugfix template",
-			template:       "bugfix",
+			template:       "bug",
 			title:          "Fix Login Bug",
 			expectedPrefix: "fix/",
 		},
@@ -656,10 +656,10 @@ func TestPromoteResult_BranchNames(t *testing.T) {
 			expectedPrefix: "feat/",
 		},
 		{
-			name:           "hotfix template",
-			template:       "hotfix",
+			name:           "patch template",
+			template:       "patch",
 			title:          "Critical Security Patch",
-			expectedPrefix: "hotfix/",
+			expectedPrefix: "patch/",
 		},
 		{
 			name:           "task template",
@@ -740,7 +740,7 @@ func TestRunBacklogPromote_JSONOutput_WithAIAnalysis(t *testing.T) {
 		result: &domain.AIResult{
 			Success: true,
 			Output: `{
-				"template": "bugfix",
+				"template": "bug",
 				"description": "AI optimized description for the bug fix",
 				"reasoning": "High severity bug requires immediate attention",
 				"workspace_name": "json-ai-test",
@@ -761,7 +761,7 @@ func TestRunBacklogPromote_JSONOutput_WithAIAnalysis(t *testing.T) {
 
 	// Verify AI analysis is captured
 	require.NotNil(t, result.AIAnalysis)
-	assert.Equal(t, "bugfix", result.AIAnalysis.Template)
+	assert.Equal(t, "bug", result.AIAnalysis.Template)
 	assert.Equal(t, "AI optimized description for the bug fix", result.AIAnalysis.Description)
 	assert.Equal(t, "High severity bug requires immediate attention", result.AIAnalysis.Reasoning)
 	assert.Equal(t, "json-ai-test", result.AIAnalysis.WorkspaceName)
@@ -807,7 +807,7 @@ func TestRunBacklogPromote_AIMode_Fallback(t *testing.T) {
 
 	// Should fall back to deterministic mapping
 	// Critical security -> hotfix
-	assert.Equal(t, "hotfix", result.TemplateName)
+	assert.Equal(t, "patch", result.TemplateName)
 	// AI analysis should still be present with fallback values
 	require.NotNil(t, result.AIAnalysis)
 	assert.Contains(t, result.AIAnalysis.Reasoning, "Deterministic")
@@ -841,7 +841,7 @@ func TestRunBacklogPromote_AIMode_ConfigOverrides(t *testing.T) {
 		result: &domain.AIResult{
 			Success: true,
 			Output: `{
-				"template": "bugfix",
+				"template": "bug",
 				"description": "Test",
 				"reasoning": "Test"
 			}`,
@@ -907,7 +907,7 @@ func TestRunBacklogPromote_AIProgress_TTYOutput(t *testing.T) {
 			result: &domain.AIResult{
 				Success: true,
 				Output: `{
-					"template": "bugfix",
+					"template": "bug",
 					"description": "AI generated description",
 					"reasoning": "Test reasoning"
 				}`,
@@ -966,7 +966,7 @@ func TestRunBacklogPromote_AIProgress_WithAgentOverride(t *testing.T) {
 			result: &domain.AIResult{
 				Success: true,
 				Output: `{
-					"template": "bugfix",
+					"template": "bug",
 					"description": "AI generated description",
 					"reasoning": "Test reasoning"
 				}`,
@@ -1025,7 +1025,7 @@ func TestRunBacklogPromote_AIProgress_JSONOutput_NoProgress(t *testing.T) {
 			result: &domain.AIResult{
 				Success: true,
 				Output: `{
-					"template": "bugfix",
+					"template": "bug",
 					"description": "AI generated description",
 					"reasoning": "Test reasoning"
 				}`,
@@ -1070,7 +1070,7 @@ func TestBuildStartCommand(t *testing.T) {
 	t.Run("includes branch flag", func(t *testing.T) {
 		t.Parallel()
 		result := &backlog.PromoteResult{
-			TemplateName:  "bugfix",
+			TemplateName:  "bug",
 			WorkspaceName: "fix-bug",
 			BranchName:    "fix/fix-bug",
 			Discovery: &backlog.Discovery{
@@ -1087,7 +1087,7 @@ func TestBuildStartCommand(t *testing.T) {
 		cmd := buildStartCommand(result)
 
 		assert.Contains(t, cmd, "-b develop")
-		assert.Contains(t, cmd, "-t bugfix")
+		assert.Contains(t, cmd, "-t bug")
 		assert.Contains(t, cmd, "-w fix-bug")
 		assert.Contains(t, cmd, "--from-backlog disc-abc123")
 	})
@@ -1096,9 +1096,9 @@ func TestBuildStartCommand(t *testing.T) {
 		t.Parallel()
 		useVerify := true
 		result := &backlog.PromoteResult{
-			TemplateName:  "hotfix",
+			TemplateName:  "patch",
 			WorkspaceName: "security-fix",
-			BranchName:    "hotfix/security-fix",
+			BranchName:    "patch/security-fix",
 			Discovery: &backlog.Discovery{
 				ID: "disc-sec123",
 			},
@@ -1137,7 +1137,7 @@ func TestBuildStartCommand(t *testing.T) {
 	t.Run("omits verify flags when UseVerify is nil", func(t *testing.T) {
 		t.Parallel()
 		result := &backlog.PromoteResult{
-			TemplateName:  "bugfix",
+			TemplateName:  "bug",
 			WorkspaceName: "some-bug",
 			BranchName:    "fix/some-bug",
 			Discovery: &backlog.Discovery{
@@ -1157,7 +1157,7 @@ func TestBuildStartCommand(t *testing.T) {
 	t.Run("works without AIAnalysis", func(t *testing.T) {
 		t.Parallel()
 		result := &backlog.PromoteResult{
-			TemplateName:  "bugfix",
+			TemplateName:  "bug",
 			WorkspaceName: "another-bug",
 			BranchName:    "fix/another-bug",
 			Discovery: &backlog.Discovery{

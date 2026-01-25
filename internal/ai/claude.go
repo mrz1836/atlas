@@ -119,8 +119,8 @@ func (e *DefaultExecutor) TerminateProcess() error {
 
 		// Also try to check if process is still alive by sending signal 0
 		if err := proc.Signal(syscall.Signal(0)); err != nil {
-			// Process no longer exists
-			return err
+			// Process no longer exists - this is success for termination
+			return nil //nolint:nilerr // Process already finished is success for termination
 		}
 
 		time.Sleep(100 * time.Millisecond)

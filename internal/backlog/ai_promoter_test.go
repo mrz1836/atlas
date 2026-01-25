@@ -92,7 +92,7 @@ func TestAIPromoter_Analyze(t *testing.T) {
 			response: &domain.AIResult{
 				Success: true,
 				Output: `{
-					"template": "bugfix",
+					"template": "bug",
 					"description": "Fix missing error handling in payment processor API endpoint",
 					"reasoning": "Bug category with high severity warrants bugfix template",
 					"workspace_name": "fix-payment-error-handling",
@@ -107,7 +107,7 @@ func TestAIPromoter_Analyze(t *testing.T) {
 		analysis, err := promoter.Analyze(ctx, d, nil)
 
 		require.NoError(t, err)
-		assert.Equal(t, "bugfix", analysis.Template)
+		assert.Equal(t, "bug", analysis.Template)
 		assert.Contains(t, analysis.Description, "error handling")
 		assert.NotEmpty(t, analysis.Reasoning)
 		assert.Equal(t, "fix-payment-error-handling", analysis.WorkspaceName)
@@ -120,7 +120,7 @@ func TestAIPromoter_Analyze(t *testing.T) {
 			response: &domain.AIResult{
 				Success: true,
 				Output: "```json\n" + `{
-					"template": "bugfix",
+					"template": "bug",
 					"description": "Test description",
 					"reasoning": "Test reasoning"
 				}` + "\n```",
@@ -133,7 +133,7 @@ func TestAIPromoter_Analyze(t *testing.T) {
 		analysis, err := promoter.Analyze(ctx, d, nil)
 
 		require.NoError(t, err)
-		assert.Equal(t, "bugfix", analysis.Template)
+		assert.Equal(t, "bug", analysis.Template)
 	})
 
 	t.Run("falls back on AI error", func(t *testing.T) {
@@ -149,7 +149,7 @@ func TestAIPromoter_Analyze(t *testing.T) {
 
 		require.NoError(t, err)
 		// Should fall back to deterministic mapping
-		assert.Equal(t, "bugfix", analysis.Template) // CategoryBug -> bugfix
+		assert.Equal(t, "bug", analysis.Template) // CategoryBug -> bugfix
 		assert.Contains(t, analysis.Reasoning, "Deterministic")
 	})
 
@@ -168,7 +168,7 @@ func TestAIPromoter_Analyze(t *testing.T) {
 		analysis, err := promoter.Analyze(ctx, d, nil)
 
 		require.NoError(t, err)
-		assert.Equal(t, "bugfix", analysis.Template)
+		assert.Equal(t, "bug", analysis.Template)
 		assert.Contains(t, analysis.Reasoning, "Deterministic")
 	})
 
@@ -187,7 +187,7 @@ func TestAIPromoter_Analyze(t *testing.T) {
 		analysis, err := promoter.Analyze(ctx, d, nil)
 
 		require.NoError(t, err)
-		assert.Equal(t, "bugfix", analysis.Template)
+		assert.Equal(t, "bug", analysis.Template)
 	})
 
 	t.Run("falls back on invalid JSON response", func(t *testing.T) {
@@ -205,7 +205,7 @@ func TestAIPromoter_Analyze(t *testing.T) {
 		analysis, err := promoter.Analyze(ctx, d, nil)
 
 		require.NoError(t, err)
-		assert.Equal(t, "bugfix", analysis.Template)
+		assert.Equal(t, "bug", analysis.Template)
 		assert.Contains(t, analysis.Reasoning, "Deterministic")
 	})
 
@@ -229,7 +229,7 @@ func TestAIPromoter_Analyze(t *testing.T) {
 
 		require.NoError(t, err)
 		// Should fall back to deterministic
-		assert.Equal(t, "bugfix", analysis.Template)
+		assert.Equal(t, "bug", analysis.Template)
 	})
 
 	t.Run("uses nil runner falls back immediately", func(t *testing.T) {
@@ -240,7 +240,7 @@ func TestAIPromoter_Analyze(t *testing.T) {
 		analysis, err := promoter.Analyze(ctx, d, nil)
 
 		require.NoError(t, err)
-		assert.Equal(t, "bugfix", analysis.Template)
+		assert.Equal(t, "bug", analysis.Template)
 		assert.Contains(t, analysis.Reasoning, "Deterministic")
 	})
 }
@@ -255,7 +255,7 @@ func TestAIPromoter_Analyze_ConfigOverrides(t *testing.T) {
 			response: &domain.AIResult{
 				Success: true,
 				Output: `{
-					"template": "bugfix",
+					"template": "bug",
 					"description": "Test",
 					"reasoning": "Test"
 				}`,
@@ -284,7 +284,7 @@ func TestAIPromoter_Analyze_ConfigOverrides(t *testing.T) {
 			response: &domain.AIResult{
 				Success: true,
 				Output: `{
-					"template": "bugfix",
+					"template": "bug",
 					"description": "Test",
 					"reasoning": "Test"
 				}`,
@@ -320,7 +320,7 @@ func TestAIPromoter_Analyze_ConfigOverrides(t *testing.T) {
 			response: &domain.AIResult{
 				Success: true,
 				Output: `{
-					"template": "bugfix",
+					"template": "bug",
 					"description": "Test",
 					"reasoning": "Test"
 				}`,
@@ -459,10 +459,10 @@ func TestAIPromoter_buildAnalysisPrompt(t *testing.T) {
 
 		prompt := promoter.buildAnalysisPrompt(d, nil)
 
-		assert.Contains(t, prompt, "bugfix")
+		assert.Contains(t, prompt, "bug")
 		assert.Contains(t, prompt, "feature")
 		assert.Contains(t, prompt, "task")
-		assert.Contains(t, prompt, "hotfix")
+		assert.Contains(t, prompt, "patch")
 	})
 
 	t.Run("handles missing optional fields", func(t *testing.T) {
@@ -515,7 +515,7 @@ func TestAIPromoter_fallbackAnalysis(t *testing.T) {
 
 		analysis := promoter.fallbackAnalysis(d)
 
-		assert.Equal(t, "bugfix", analysis.Template)
+		assert.Equal(t, "bug", analysis.Template)
 	})
 
 	t.Run("maps critical security to hotfix template", func(t *testing.T) {
@@ -530,7 +530,7 @@ func TestAIPromoter_fallbackAnalysis(t *testing.T) {
 
 		analysis := promoter.fallbackAnalysis(d)
 
-		assert.Equal(t, "hotfix", analysis.Template)
+		assert.Equal(t, "patch", analysis.Template)
 	})
 
 	t.Run("generates workspace name from title", func(t *testing.T) {
@@ -619,7 +619,7 @@ func TestAIPromoter_AnalyzeWithFallback(t *testing.T) {
 		analysis := promoter.AnalyzeWithFallback(ctx, d, nil)
 
 		// Should still return valid analysis
-		assert.Equal(t, "bugfix", analysis.Template)
+		assert.Equal(t, "bug", analysis.Template)
 		assert.NotEmpty(t, analysis.Description)
 	})
 
@@ -711,7 +711,7 @@ func TestAIPromoter_Analyze_ExtraFieldsInResponse(t *testing.T) {
 		response: &domain.AIResult{
 			Success: true,
 			Output: `{
-				"template": "bugfix",
+				"template": "bug",
 				"description": "With extra fields",
 				"reasoning": "Test reasoning",
 				"workspace_name": "test-workspace",
@@ -730,7 +730,7 @@ func TestAIPromoter_Analyze_ExtraFieldsInResponse(t *testing.T) {
 
 	require.NoError(t, err)
 	// Should successfully parse known fields
-	assert.Equal(t, "bugfix", analysis.Template)
+	assert.Equal(t, "bug", analysis.Template)
 	assert.Equal(t, "With extra fields", analysis.Description)
 	assert.Equal(t, "Test reasoning", analysis.Reasoning)
 	assert.Equal(t, "test-workspace", analysis.WorkspaceName)
@@ -749,7 +749,7 @@ func TestAIPromoter_Analyze_WhitespaceHandling(t *testing.T) {
 			name: "leading and trailing whitespace",
 			output: `
 			{
-				"template": "bugfix",
+				"template": "bug",
 				"description": "Whitespace test",
 				"reasoning": "Test"
 			}
@@ -761,7 +761,7 @@ func TestAIPromoter_Analyze_WhitespaceHandling(t *testing.T) {
 
 
 {
-	"template": "bugfix",
+	"template": "bug",
 	"description": "Newlines test",
 	"reasoning": "Test"
 }
@@ -774,7 +774,7 @@ func TestAIPromoter_Analyze_WhitespaceHandling(t *testing.T) {
 			output: `
 ` + "```json" + `
 {
-	"template": "bugfix",
+	"template": "bug",
 	"description": "Code block whitespace",
 	"reasoning": "Test"
 }
@@ -784,7 +784,7 @@ func TestAIPromoter_Analyze_WhitespaceHandling(t *testing.T) {
 		{
 			name: "just backticks no json label",
 			output: "```\n" + `{
-				"template": "bugfix",
+				"template": "bug",
 				"description": "Plain backticks",
 				"reasoning": "Test"
 			}` + "\n```",
@@ -808,7 +808,7 @@ func TestAIPromoter_Analyze_WhitespaceHandling(t *testing.T) {
 			analysis, err := promoter.Analyze(ctx, d, nil)
 
 			require.NoError(t, err)
-			assert.Equal(t, "bugfix", analysis.Template)
+			assert.Equal(t, "bug", analysis.Template)
 			assert.NotEmpty(t, analysis.Description)
 		})
 	}
@@ -904,7 +904,7 @@ func TestAIPromoter_Analyze_NewFields(t *testing.T) {
 			response: &domain.AIResult{
 				Success: true,
 				Output: `{
-					"template": "bugfix",
+					"template": "bug",
 					"description": "Fix issue",
 					"reasoning": "Test reasoning",
 					"base_branch": "develop"
@@ -927,7 +927,7 @@ func TestAIPromoter_Analyze_NewFields(t *testing.T) {
 			response: &domain.AIResult{
 				Success: true,
 				Output: `{
-					"template": "hotfix",
+					"template": "patch",
 					"description": "Critical fix",
 					"reasoning": "Security issue",
 					"use_verify": true
@@ -975,7 +975,7 @@ func TestAIPromoter_Analyze_NewFields(t *testing.T) {
 			response: &domain.AIResult{
 				Success: true,
 				Output: `{
-					"template": "bugfix",
+					"template": "bug",
 					"description": "Fix issue",
 					"reasoning": "Test reasoning"
 				}`,
@@ -998,7 +998,7 @@ func TestAIPromoter_Analyze_NewFields(t *testing.T) {
 			response: &domain.AIResult{
 				Success: true,
 				Output: `{
-					"template": "bugfix",
+					"template": "bug",
 					"description": "Fix issue",
 					"reasoning": "Test reasoning",
 					"file": "internal/api/handler.go"
@@ -1021,7 +1021,7 @@ func TestAIPromoter_Analyze_NewFields(t *testing.T) {
 			response: &domain.AIResult{
 				Success: true,
 				Output: `{
-					"template": "bugfix",
+					"template": "bug",
 					"description": "Fix issue",
 					"reasoning": "Test reasoning",
 					"file": "internal/api/handler.go",

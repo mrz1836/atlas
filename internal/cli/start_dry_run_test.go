@@ -68,7 +68,7 @@ func TestDryRun_NoWorkspaceCreated(t *testing.T) {
 	var buf bytes.Buffer
 	cmd := newStartCmd()
 	cmd.SetOut(&buf)
-	cmd.SetArgs([]string{"test description", "--template", "bugfix", "--dry-run"})
+	cmd.SetArgs([]string{"test description", "--template", "bug", "--dry-run"})
 
 	// Mock the output flag with JSON (easier to capture and parse)
 	cmd.PersistentFlags().String("output", "json", "")
@@ -102,7 +102,7 @@ func TestDryRun_OutputFormat_TTY(t *testing.T) {
 	var buf bytes.Buffer
 	cmd := newStartCmd()
 	cmd.SetOut(&buf)
-	cmd.SetArgs([]string{"fix null pointer bug", "--template", "bugfix", "--dry-run"})
+	cmd.SetArgs([]string{"fix null pointer bug", "--template", "bug", "--dry-run"})
 	cmd.PersistentFlags().String("output", "text", "")
 
 	err = cmd.ExecuteContext(context.Background())
@@ -121,7 +121,7 @@ func TestDryRun_OutputFormat_JSON(t *testing.T) {
 	var buf bytes.Buffer
 	cmd := newStartCmd()
 	cmd.SetOut(&buf)
-	cmd.SetArgs([]string{"fix null pointer bug", "--template", "bugfix", "--dry-run"})
+	cmd.SetArgs([]string{"fix null pointer bug", "--template", "bug", "--dry-run"})
 	cmd.PersistentFlags().String("output", "json", "")
 
 	err = cmd.ExecuteContext(context.Background())
@@ -134,7 +134,7 @@ func TestDryRun_OutputFormat_JSON(t *testing.T) {
 
 	// Verify JSON structure
 	assert.True(t, response.DryRun)
-	assert.Equal(t, "bugfix", response.Template)
+	assert.Equal(t, "bug", response.Template)
 	assert.True(t, response.Workspace.WouldCreate)
 	assert.Equal(t, "fix-null-pointer-bug", response.Workspace.Name)
 	assert.NotEmpty(t, response.Steps)
@@ -202,7 +202,7 @@ func TestDryRun_InvalidModelFlag_StillCaught(t *testing.T) {
 	var buf bytes.Buffer
 	cmd := newStartCmd()
 	cmd.SetOut(&buf)
-	cmd.SetArgs([]string{"test", "--template", "bugfix", "--model", "invalid-model", "--dry-run"})
+	cmd.SetArgs([]string{"test", "--template", "bug", "--model", "invalid-model", "--dry-run"})
 	cmd.PersistentFlags().String("output", "text", "")
 
 	err = cmd.ExecuteContext(context.Background())
@@ -220,7 +220,7 @@ func TestDryRun_WorkspaceName_Custom(t *testing.T) {
 	var buf bytes.Buffer
 	cmd := newStartCmd()
 	cmd.SetOut(&buf)
-	cmd.SetArgs([]string{"test", "--template", "bugfix", "--workspace", "my-custom-ws", "--dry-run"})
+	cmd.SetArgs([]string{"test", "--template", "bug", "--workspace", "my-custom-ws", "--dry-run"})
 	cmd.PersistentFlags().String("output", "json", "")
 
 	err = cmd.ExecuteContext(context.Background())
@@ -245,7 +245,7 @@ func TestDryRun_VerifyFlag(t *testing.T) {
 	var buf bytes.Buffer
 	cmd := newStartCmd()
 	cmd.SetOut(&buf)
-	cmd.SetArgs([]string{"test", "--template", "bugfix", "--verify", "--dry-run"})
+	cmd.SetArgs([]string{"test", "--template", "bug", "--verify", "--dry-run"})
 	cmd.PersistentFlags().String("output", "json", "")
 
 	err = cmd.ExecuteContext(context.Background())
@@ -277,7 +277,7 @@ func TestDryRun_NoVerifyFlag(t *testing.T) {
 	var buf bytes.Buffer
 	cmd := newStartCmd()
 	cmd.SetOut(&buf)
-	cmd.SetArgs([]string{"test", "--template", "bugfix", "--no-verify", "--dry-run"})
+	cmd.SetArgs([]string{"test", "--template", "bug", "--no-verify", "--dry-run"})
 	cmd.PersistentFlags().String("output", "json", "")
 
 	err = cmd.ExecuteContext(context.Background())
@@ -306,7 +306,7 @@ func TestDryRun_ConflictingVerifyFlags_StillCaught(t *testing.T) {
 	var buf bytes.Buffer
 	cmd := newStartCmd()
 	cmd.SetOut(&buf)
-	cmd.SetArgs([]string{"test", "--template", "bugfix", "--verify", "--no-verify", "--dry-run"})
+	cmd.SetArgs([]string{"test", "--template", "bug", "--verify", "--no-verify", "--dry-run"})
 	cmd.PersistentFlags().String("output", "text", "")
 
 	err = cmd.ExecuteContext(context.Background())
@@ -326,7 +326,7 @@ func TestDryRun_NotInGitRepo_StillErrors(t *testing.T) {
 	var buf bytes.Buffer
 	cmd := newStartCmd()
 	cmd.SetOut(&buf)
-	cmd.SetArgs([]string{"test", "--template", "bugfix", "--dry-run"})
+	cmd.SetArgs([]string{"test", "--template", "bug", "--dry-run"})
 	cmd.PersistentFlags().String("output", "text", "")
 
 	err = cmd.ExecuteContext(context.Background())
@@ -347,7 +347,7 @@ func TestDryRun_BranchPrefix(t *testing.T) {
 		template       string
 		expectedPrefix string
 	}{
-		{"bugfix", "fix"},
+		{"bug", "fix"},
 		{"feature", "feat"},
 	}
 
@@ -385,7 +385,7 @@ func TestDryRunResponse_Types(t *testing.T) {
 	// Test the response type structures are correct
 	response := dryRunResponse{
 		DryRun:   true,
-		Template: "bugfix",
+		Template: "bug",
 		Workspace: dryRunWorkspaceInfo{
 			Name:        "test",
 			Branch:      "fix/test",
@@ -438,7 +438,7 @@ func TestDryRun_ContextCancellation(t *testing.T) {
 	var buf bytes.Buffer
 	cmd := newStartCmd()
 	cmd.SetOut(&buf)
-	cmd.SetArgs([]string{"test", "--template", "bugfix", "--dry-run"})
+	cmd.SetArgs([]string{"test", "--template", "bug", "--dry-run"})
 	cmd.PersistentFlags().String("output", "text", "")
 
 	err = cmd.ExecuteContext(ctx)

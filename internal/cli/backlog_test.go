@@ -330,7 +330,7 @@ func TestBacklogPromoteCommand(t *testing.T) {
 		output := buf.String()
 		assert.Contains(t, output, "Dry-run")
 		assert.Contains(t, output, d.ID)
-		assert.Contains(t, output, "bugfix") // Bug category maps to bugfix
+		assert.Contains(t, output, "bug") // Bug category maps to bugfix
 	})
 
 	t.Run("returns ExitCode2Error for already promoted discovery", func(t *testing.T) {
@@ -381,7 +381,7 @@ func TestBacklogPromoteCommand(t *testing.T) {
 		output := buf.String()
 		// Should show dry-run output with auto-generated config
 		assert.Contains(t, output, "Dry-run")
-		assert.Contains(t, output, "bugfix") // Bug category maps to bugfix template
+		assert.Contains(t, output, "bug") // Bug category maps to bugfix template
 	})
 }
 
