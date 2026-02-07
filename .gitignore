@@ -51,8 +51,7 @@ node_modules/
 .env
 .env.*
 !.env.example
-!.github/.env.base
-!.github/.env.custom
+!.github/env/*.env
 
 # Local tooling binaries
 bin/
