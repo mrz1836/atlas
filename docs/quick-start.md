@@ -2515,9 +2515,5 @@ atlas config --help
 
 ---
 
-*This document was generated for ATLAS MVP. For detailed architecture information, see [docs/external/vision.md](../external/vision.md).*
-
----
-
 **Version:** 1.2.13
 **Last Updated:** 2026-01-21

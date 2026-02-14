@@ -188,7 +188,7 @@ magex format:fix && magex lint && magex test:race && go-pre-commit run --all-fil
 ### Documentation Updates
 
 When changing CLI commands or features:
-1. Update `docs/internal/quick-start.md` with new/changed commands
+1. Update `docs/quick-start.md` with new/changed commands
 2. Update `.atlas/config.yaml` schema if configuration changed
 3. Update relevant `internal/` package docs if architecture changed
 
@@ -213,6 +213,6 @@ For runtime development guidance, see:
 - `.github/AGENTS.md` — Technical conventions index
 - `.github/CLAUDE.md` — ATLAS-specific patterns and architecture
 - `.github/tech-conventions/` — Detailed standards by topic (for this project and other projects)
-- `docs/internal/quick-start.md` — User-facing documentation (Keep this updated!)
+- `docs/quick-start.md` — User-facing documentation (Keep this updated!)
 
 **Version**: 1.0.0 | **Ratified**: 2026-01-17 | **Last Amended**: 2026-01-17

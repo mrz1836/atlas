@@ -9,7 +9,7 @@ For generic Go conventions, see `AGENTS.md` and `tech-conventions/`. This file c
 
 ## IMPORTANT
 - **This project is MVP and unreleased. Make breaking changes freely. Do not add backwards compatibility layers.**
-- When adding features or changing CLI commands, update `docs/internal/quick-start.md`.
+- When adding features or changing CLI commands, update `docs/quick-start.md`.
 - When adding features or changing config, update `.atlas/config.yaml` schema and defaults.
 
 ---
@@ -221,8 +221,7 @@ log.Info().Str("config", logging.SafeValue("config", value)).Msg("loaded")
 
 ## Related Documentation
 
-- Original Architecture: `docs/external/vision.md`
-- CLI reference: `docs/internal/quick-start.md`
+- CLI reference: `docs/quick-start.md`
 - Project Config: `.atlas/config.yaml`
 - Go conventions: `.github/tech-conventions/go-essentials.md`
 - Testing: `.github/tech-conventions/testing-standards.md`

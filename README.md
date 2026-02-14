@@ -181,7 +181,7 @@ ATLAS merges the changes back to your main branch and cleans up the worktree.
 
 <br/>
 
-> 📖 **For complete command reference and workflow details, see the [Quick Start Guide →](docs/internal/quick-start.md)**
+> 📖 **For complete command reference and workflow details, see the [Quick Start Guide →](docs/quick-start.md)**
 
 <br/>
 
@@ -229,9 +229,8 @@ View the comprehensive documentation for ATLAS:
 
 | Document | Description |
 |----------|-------------|
-| **[vision.md](docs/external/vision.md)** | Full project vision and design philosophy |
-| **[templates.md](docs/external/templates.md)** | Template system reference and step types |
-| **[quick-start.md](docs/internal/quick-start.md)** | Complete CLI reference (internal) |
+| **[templates.md](docs/templates.md)** | Template system reference and step types |
+| **[quick-start.md](docs/quick-start.md)** | Complete CLI reference and workflow guide |
 
 <br>
 
