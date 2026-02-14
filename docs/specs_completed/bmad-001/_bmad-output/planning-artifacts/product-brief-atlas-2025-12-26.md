@@ -87,7 +87,7 @@ The developer stays in "planning mode" — creating specifications and reviewing
 
 **Context:**
 - Personal: 30+ open source Go repos at `github.com/mrz1836`
-- Professional: Skyetel (REACH - serverless rating system)
+- Professional: Enterprise SaaS platforms and microservices
 - Contract: BSV Association, managing 20+ repos at `github.com/bsv-blockchain`
 
 **Current Reality:**

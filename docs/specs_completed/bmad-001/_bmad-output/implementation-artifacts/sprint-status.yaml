@@ -2,7 +2,7 @@
 # project: atlas
 # project_key: atlas
 # tracking_system: file-system
-# story_location: /Users/mrz/projects/atlas/_bmad-output/implementation-artifacts
+# story_location: /Users/user/projects/atlas/_bmad-output/implementation-artifacts
 
 # STATUS DEFINITIONS:
 # ==================
@@ -54,7 +54,7 @@ generated: 2025-12-27
 project: atlas
 project_key: atlas
 tracking_system: file-system
-story_location: /Users/mrz/projects/atlas/_bmad-output/implementation-artifacts
+story_location: /Users/user/projects/atlas/_bmad-output/implementation-artifacts
 
 development_status:
   # Epic 1: Project Foundation

@@ -309,9 +309,9 @@ fmt.Fprintf(w, "  To enter: cd %s\n", workspace.WorktreePath)
 ```
 ✓ Workspace 'auth' created
   Branch: feat/auth
-  Path:   /Users/mrz/.atlas/worktrees/auth
+  Path:   /Users/user/.atlas/worktrees/auth
 
-  To enter: cd /Users/mrz/.atlas/worktrees/auth
+  To enter: cd /Users/user/.atlas/worktrees/auth
 ```
 
 ---
@@ -365,7 +365,7 @@ func runWorkspacePath(ctx context.Context, cmd *cobra.Command, w io.Writer, name
 
 ```bash
 atlas workspace path auth
-# Output: /Users/mrz/.atlas/worktrees/auth
+# Output: /Users/user/.atlas/worktrees/auth
 
 # Shell integration
 cd $(atlas workspace path auth)
