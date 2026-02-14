@@ -245,7 +245,8 @@ View the comprehensive documentation for ATLAS:
 | Document | Description |
 |----------|-------------|
 | **[vision.md](docs/external/vision.md)** | Full project vision and design philosophy |
-| **[quick-start.md](docs/internal/quick-start.md)** | Complete workflow guide and command reference |
+| **[templates.md](docs/external/templates.md)** | Template system reference and step types |
+| **[quick-start.md](docs/internal/quick-start.md)** | Complete CLI reference (internal) |
 
 <br>
 
