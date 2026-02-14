@@ -51,11 +51,7 @@
 <br/>
 <br/>
 
-<div align="center">
-
 ### <code>Project Navigation</code>
-
-</div>
 
 <table align="center">
   <tr>
@@ -100,23 +96,8 @@
 
 <br/>
 
----
+</div>
 
-_You know the drill._
-
-Fix the bug. Run the linter. Run the tests. Fix what the linter found. Run them again. Write the commit message. Push. Open the PR. Fill out the description. Wait.
-
-Repeat forever.
-
-**A CLI tool that orchestrates AI-assisted SDD workflows for Go projects.** You describe what needs doing. ATLAS analyzes, implements, validates, and delivers—pausing at every decision point for your approval.
-
-Work on multiple features in parallel. Let CI finish before you review. Stay in control.
-
-At every checkpoint that matters, ATLAS stops and waits.
-
-**You keep the wheel. ATLAS carries the weight.**
-
----
 
 <br/>
 
