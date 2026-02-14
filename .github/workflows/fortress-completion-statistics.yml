@@ -538,7 +538,7 @@ jobs:
           LOC_OUTPUT=$(magex metrics:loc json 2>&1 || true)
           LOC_FOUND=false
 
-          # Save raw JSON for loc-stats artifact (consumed by atlas analytics)
+          # Save raw JSON for loc-stats artifact (consumed by go-broadcast analytics)
           if [[ -n "$LOC_OUTPUT" ]] && echo "$LOC_OUTPUT" | jq empty 2>/dev/null; then
             echo "$LOC_OUTPUT" > loc-stats.json
             echo "📦 Saved loc-stats.json for artifact upload"
