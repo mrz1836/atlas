@@ -8,7 +8,7 @@
 
 <a href="https://github.com/mrz1836/atlas/releases"><img src="https://img.shields.io/github/release-pre/mrz1836/atlas?include_prereleases&style=flat-square&logo=github&color=black" alt="Release"></a>
 <a href="https://golang.org/"><img src="https://img.shields.io/github/go-mod/go-version/mrz1836/atlas?style=flat-square&logo=go&color=00ADD8" alt="Go Version"></a>
-<a href="https://github.com/mrz1836/atlas/blob/master/LICENSE"><img src="https://img.shields.io/github/license/mrz1836/atlas?style=flat-square&color=blue&v=1" alt="License"></a>
+<a href="https://github.com/mrz1836/atlas/blob/master/LICENSE"><img src="https://img.shields.io/github/license/mrz1836/atlas?style=flat-square&color=blue&v=2" alt="License"></a>
 
 <br/>
 
@@ -25,7 +25,7 @@
        &nbsp;&nbsp;&nbsp;&nbsp; <code>Quality</code> &nbsp;&nbsp;
     </td>
     <td align="left">
-       <a href="https://goreportcard.com/report/github.com/mrz1836/atlas"><img src="https://goreportcard.com/badge/github.com/mrz1836/atlas?style=flat-square&v=1" alt="Go Report"></a>
+       <a href="https://goreportcard.com/report/github.com/mrz1836/atlas"><img src="https://goreportcard.com/badge/github.com/mrz1836/atlas?style=flat-square&v=2" alt="Go Report"></a>
        <a href="https://codecov.io/gh/mrz1836/atlas"><img src="https://codecov.io/gh/mrz1836/atlas/branch/master/graph/badge.svg?style=flat-square" alt="Coverage"></a>
     </td>
   </tr>
@@ -358,4 +358,4 @@ or by making a [**bitcoin donation**](https://mrz1818.com/?tab=tips&utm_source=g
 
 ## 📝 License
 
-[![License](https://img.shields.io/github/license/mrz1836/atlas.svg?style=flat)](LICENSE)
+[![License](https://img.shields.io/github/license/mrz1836/atlas.svg?style=flat&v=2)](LICENSE)
