@@ -582,9 +582,11 @@ func TestStreamingExecutor_GeminiStreamJSON(t *testing.T) {
 	cmd := exec.CommandContext(ctx, "sh", "-c", `
 		echo '{"type":"init","timestamp":"2026-01-21T14:44:36.452Z","session_id":"test-gemini-123","model":"auto-gemini-3"}'
 		echo '{"type":"message","timestamp":"2026-01-21T14:44:36.517Z","role":"user","content":"What version?"}'
+		echo '{"type":"message","timestamp":"2026-01-21T14:44:38.000Z","role":"assistant","content":"Let me check the go.mod file.","delta":true}'
 		echo '{"type":"tool_use","timestamp":"2026-01-21T14:44:55.963Z","tool_name":"read_file","tool_id":"read_file-1","parameters":{"file_path":"go.mod"}}'
 		echo '{"type":"tool_result","timestamp":"2026-01-21T14:44:56.123Z","tool_id":"read_file-1","status":"success","output":"module example\n\ngo 1.24"}'
 		echo '{"type":"tool_use","timestamp":"2026-01-21T14:44:57.000Z","tool_name":"edit_file","tool_id":"edit_file-1","parameters":{"file_path":"main.go"}}'
+		echo '{"type":"message","timestamp":"2026-01-21T14:44:57.100Z","role":"assistant","content":"The project uses Go 1.24.","delta":true}'
 		echo '{"type":"result","timestamp":"2026-01-21T14:44:57.289Z","status":"success","stats":{"total_tokens":16166,"input_tokens":15783,"output_tokens":124,"duration_ms":5419,"tool_calls":2}}'
 	`)
 
@@ -645,6 +647,10 @@ func TestStreamingExecutor_GeminiStreamJSON(t *testing.T) {
 	}
 	if lastResult.ToolCalls != 2 {
 		t.Errorf("LastGeminiResult.ToolCalls = %d, want %d", lastResult.ToolCalls, 2)
+	}
+	expectedResponse := "Let me check the go.mod file.The project uses Go 1.24."
+	if lastResult.ResponseText != expectedResponse {
+		t.Errorf("LastGeminiResult.ResponseText = %q, want %q", lastResult.ResponseText, expectedResponse)
 	}
 
 	// Claude result should be nil since we're using Gemini provider

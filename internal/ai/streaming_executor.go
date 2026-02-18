@@ -372,7 +372,7 @@ func (e *StreamingExecutor) startSyntheticProgress(ctx context.Context) {
 
 				// If no real activity for 5+ seconds, emit synthetic event
 				if sinceLastEmit >= 5*time.Second {
-					phase := syntheticPhases[phaseIdx%len(syntheticPhases)] //nolint:gosec // Index is safely bounded by modulo
+					phase := syntheticPhases[phaseIdx%len(syntheticPhases)]
 					e.emitEvent(ActivityEvent{
 						Timestamp: time.Now(),
 						Type:      phase.actType,

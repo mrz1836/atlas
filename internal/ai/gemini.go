@@ -151,6 +151,7 @@ func (r *GeminiRunner) parseResponse(stdout []byte) (*GeminiResponse, error) {
 func (r *GeminiRunner) streamResultToGeminiResponse(result *GeminiStreamResult) *GeminiResponse {
 	return &GeminiResponse{
 		Success:    result.Success,
+		Response:   result.ResponseText,
 		SessionID:  result.SessionID,
 		DurationMs: result.DurationMs,
 		// NumTurns and TotalCostUSD are not available in stream-json result
@@ -207,16 +208,15 @@ func (r *GeminiRunner) buildCommand(ctx context.Context, req *domain.AIRequest) 
 		"--output-format", outputFormat,
 	}
 
-	// For verification (plan mode), use --sandbox without --yolo
-	// This ensures no actions can be auto-approved during read-only verification
+	// For verification (plan mode), use --sandbox --yolo
+	// --sandbox restricts to read-only/safe operations
+	// --yolo auto-approves tool use for non-interactive execution
 	// For implementation, use --yolo for non-interactive execution (auto-approve allowed actions)
 	if req.PermissionMode == "plan" {
-		args = append(args, "--sandbox")
-		// Deliberately NOT adding --yolo: any action will require approval (which fails non-interactively)
-		// This is the safest mode for verification - effectively read-only
+		args = append(args, "--sandbox", "--yolo")
 		r.logger.Debug().
 			Str("permission_mode", req.PermissionMode).
-			Msg("gemini running in sandbox mode without --yolo (read-only verification)")
+			Msg("gemini running in sandbox mode with --yolo (read-only verification)")
 	} else {
 		args = append(args, "--yolo")
 	}

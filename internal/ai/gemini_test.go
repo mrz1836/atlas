@@ -207,7 +207,7 @@ func TestGeminiRunner_BuildCommand(t *testing.T) {
 		assert.Contains(t, cmd.Args, "test prompt here")
 	})
 
-	t.Run("uses sandbox WITHOUT yolo mode when permission_mode is plan", func(t *testing.T) {
+	t.Run("uses sandbox with yolo mode when permission_mode is plan", func(t *testing.T) {
 		cfg := &config.AIConfig{
 			Model:   "flash",
 			Timeout: 30 * time.Minute,
@@ -222,10 +222,9 @@ func TestGeminiRunner_BuildCommand(t *testing.T) {
 
 		cmd := runner.buildCommand(context.Background(), req)
 
-		// Should use --sandbox (restrict actions) WITHOUT --yolo (no auto-approve)
-		// This ensures verification cannot auto-approve any actions
+		// Should use --sandbox (restrict to read-only) with --yolo (auto-approve for non-interactive)
 		assert.Contains(t, cmd.Args, "--sandbox")
-		assert.NotContains(t, cmd.Args, "--yolo")
+		assert.Contains(t, cmd.Args, "--yolo")
 	})
 
 	t.Run("uses only yolo mode when permission_mode is empty", func(t *testing.T) {
@@ -1059,7 +1058,7 @@ func TestGeminiRunner_StreamResultToGeminiResponse(t *testing.T) {
 	}
 	runner := NewGeminiRunner(cfg, nil)
 
-	t.Run("converts success result", func(t *testing.T) {
+	t.Run("converts success result with response text", func(t *testing.T) {
 		result := &GeminiStreamResult{
 			Success:      true,
 			SessionID:    "test-session-123",
@@ -1068,6 +1067,7 @@ func TestGeminiRunner_StreamResultToGeminiResponse(t *testing.T) {
 			InputTokens:  15783,
 			OutputTokens: 124,
 			ToolCalls:    3,
+			ResponseText: "The project uses Go 1.24.",
 		}
 
 		resp := runner.streamResultToGeminiResponse(result)
@@ -1075,18 +1075,25 @@ func TestGeminiRunner_StreamResultToGeminiResponse(t *testing.T) {
 		assert.True(t, resp.Success)
 		assert.Equal(t, "test-session-123", resp.SessionID)
 		assert.Equal(t, 5419, resp.DurationMs)
+		assert.Equal(t, "The project uses Go 1.24.", resp.Response)
+
+		// Verify toAIResult maps Response to Output
+		aiResult := resp.toAIResult("")
+		assert.Equal(t, "The project uses Go 1.24.", aiResult.Output)
 	})
 
 	t.Run("converts error result", func(t *testing.T) {
 		result := &GeminiStreamResult{
-			Success:   false,
-			SessionID: "error-session",
+			Success:      false,
+			SessionID:    "error-session",
+			ResponseText: "An error occurred during processing.",
 		}
 
 		resp := runner.streamResultToGeminiResponse(result)
 
 		assert.False(t, resp.Success)
 		assert.Equal(t, "error-session", resp.SessionID)
+		assert.Equal(t, "An error occurred during processing.", resp.Response)
 	})
 }
 

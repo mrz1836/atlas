@@ -575,6 +575,102 @@ func TestGeminiStreamEventParser_RealisticOutput(t *testing.T) {
 		assert.Equal(t, "b5c2d098-0c15-476f-a9ba-c006c099c266", result.SessionID)
 		assert.Equal(t, 5000, result.DurationMs)
 		assert.Equal(t, 1, result.ToolCalls)
+		// Should have accumulated assistant messages
+		assert.Equal(t, "Let me check.Go 1.24", result.ResponseText)
+	})
+}
+
+// TestGeminiStreamEventParser_ResponseAccumulation tests that assistant message content
+// is accumulated and included in the final result.
+func TestGeminiStreamEventParser_ResponseAccumulation(t *testing.T) {
+	t.Parallel()
+
+	t.Run("accumulates assistant message content", func(t *testing.T) {
+		t.Parallel()
+		parser := NewGeminiStreamEventParser()
+
+		parser.ParseLine(`{"type":"init","session_id":"test-session"}`)
+		parser.ParseLine(`{"type":"message","role":"assistant","content":"Hello, "}`)
+		parser.ParseLine(`{"type":"message","role":"assistant","content":"I can help."}`)
+
+		event := parser.ParseLine(`{"type":"result","status":"success","stats":{"duration_ms":100}}`)
+		result := parser.ToGeminiResult(event)
+
+		require.NotNil(t, result)
+		assert.Equal(t, "Hello, I can help.", result.ResponseText)
+	})
+
+	t.Run("does not accumulate user messages", func(t *testing.T) {
+		t.Parallel()
+		parser := NewGeminiStreamEventParser()
+
+		parser.ParseLine(`{"type":"message","role":"user","content":"What version of Go?"}`)
+		parser.ParseLine(`{"type":"message","role":"assistant","content":"Go 1.24"}`)
+
+		event := parser.ParseLine(`{"type":"result","status":"success"}`)
+		result := parser.ToGeminiResult(event)
+
+		require.NotNil(t, result)
+		assert.Equal(t, "Go 1.24", result.ResponseText)
+	})
+
+	t.Run("accumulates delta messages", func(t *testing.T) {
+		t.Parallel()
+		parser := NewGeminiStreamEventParser()
+
+		parser.ParseLine(`{"type":"message","role":"assistant","content":"Let me ","delta":true}`)
+		parser.ParseLine(`{"type":"message","role":"assistant","content":"check that.","delta":true}`)
+
+		event := parser.ParseLine(`{"type":"result","status":"success"}`)
+		result := parser.ToGeminiResult(event)
+
+		require.NotNil(t, result)
+		assert.Equal(t, "Let me check that.", result.ResponseText)
+	})
+
+	t.Run("resets builder after ToGeminiResult", func(t *testing.T) {
+		t.Parallel()
+		parser := NewGeminiStreamEventParser()
+
+		// First invocation
+		parser.ParseLine(`{"type":"message","role":"assistant","content":"First response"}`)
+		event1 := parser.ParseLine(`{"type":"result","status":"success"}`)
+		result1 := parser.ToGeminiResult(event1)
+		assert.Equal(t, "First response", result1.ResponseText)
+
+		// Second invocation - should not contain first response
+		parser.ParseLine(`{"type":"message","role":"assistant","content":"Second response"}`)
+		event2 := parser.ParseLine(`{"type":"result","status":"success"}`)
+		result2 := parser.ToGeminiResult(event2)
+		assert.Equal(t, "Second response", result2.ResponseText)
+	})
+
+	t.Run("empty response text when no assistant messages", func(t *testing.T) {
+		t.Parallel()
+		parser := NewGeminiStreamEventParser()
+
+		parser.ParseLine(`{"type":"init","session_id":"test"}`)
+		parser.ParseLine(`{"type":"message","role":"user","content":"Hello"}`)
+
+		event := parser.ParseLine(`{"type":"result","status":"success"}`)
+		result := parser.ToGeminiResult(event)
+
+		require.NotNil(t, result)
+		assert.Empty(t, result.ResponseText)
+	})
+
+	t.Run("ignores assistant messages with empty content", func(t *testing.T) {
+		t.Parallel()
+		parser := NewGeminiStreamEventParser()
+
+		parser.ParseLine(`{"type":"message","role":"assistant","content":""}`)
+		parser.ParseLine(`{"type":"message","role":"assistant","content":"Real content"}`)
+
+		event := parser.ParseLine(`{"type":"result","status":"success"}`)
+		result := parser.ToGeminiResult(event)
+
+		require.NotNil(t, result)
+		assert.Equal(t, "Real content", result.ResponseText)
 	})
 }
 

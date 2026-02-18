@@ -69,6 +69,7 @@ type GeminiStreamResult struct {
 	InputTokens  int
 	OutputTokens int
 	ToolCalls    int
+	ResponseText string // Accumulated assistant response text from message events
 }
 
 // GeminiToolParameters represents common tool parameter fields.
@@ -98,6 +99,9 @@ type GeminiStreamEventParser struct {
 
 	// sessionID captured from init event
 	sessionID string
+
+	// responseBuilder accumulates assistant message content for response text
+	responseBuilder strings.Builder
 }
 
 // NewGeminiStreamEventParser creates a new GeminiStreamEventParser.
@@ -148,6 +152,11 @@ func (p *GeminiStreamEventParser) ParseLine(line string) *GeminiStreamEvent {
 		p.sessionID = event.SessionID
 	}
 
+	// Accumulate assistant message content for response text
+	if event.Type == "message" && event.Role == "assistant" && event.Content != "" {
+		p.responseBuilder.WriteString(event.Content)
+	}
+
 	return &event
 }
 
@@ -178,9 +187,11 @@ func (p *GeminiStreamEventParser) ToGeminiResult(event *GeminiStreamEvent) *Gemi
 	}
 
 	result := &GeminiStreamResult{
-		Success:   event.Status == "success",
-		SessionID: p.sessionID,
+		Success:      event.Status == "success",
+		SessionID:    p.sessionID,
+		ResponseText: p.responseBuilder.String(),
 	}
+	p.responseBuilder.Reset()
 
 	if event.Stats != nil {
 		result.DurationMs = event.Stats.DurationMs
