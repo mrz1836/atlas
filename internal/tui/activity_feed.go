@@ -178,16 +178,16 @@ func (f *ActivityFeed) renderBox() string {
 		iconStyle := f.getIconStyle(event.Type)
 		coloredIcon := iconStyle.Render(icon)
 
-		sb.WriteString(fmt.Sprintf("│ %s %s │\n", coloredIcon, padRight(line, innerWidth-2)))
+		fmt.Fprintf(&sb, "│ %s %s │\n", coloredIcon, padRight(line, innerWidth-2))
 	}
 
 	// Fill empty lines if we have fewer than MaxLines
 	for i := len(f.activities); i < f.config.MaxLines; i++ {
-		sb.WriteString(fmt.Sprintf("│ %s │\n", strings.Repeat(" ", innerWidth)))
+		fmt.Fprintf(&sb, "│ %s │\n", strings.Repeat(" ", innerWidth))
 	}
 
 	// Bottom border
-	sb.WriteString(fmt.Sprintf("└%s┘\n", strings.Repeat("─", f.config.Width-2)))
+	fmt.Fprintf(&sb, "└%s┘\n", strings.Repeat("─", f.config.Width-2))
 
 	return sb.String()
 }

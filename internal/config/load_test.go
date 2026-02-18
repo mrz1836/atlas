@@ -24,6 +24,9 @@ func TestLoad_ReturnsDefaultsWhenNoConfigFile(t *testing.T) {
 		_ = os.Chdir(oldWd)
 	}()
 
+	// Isolate from global config (~/.atlas/config.yaml) by redirecting HOME
+	t.Setenv("HOME", tempDir)
+
 	// Clear any ATLAS_ env vars that might interfere
 	for _, env := range os.Environ() {
 		if len(env) > 6 && env[:6] == "ATLAS_" {
@@ -232,6 +235,9 @@ func TestLoadWithOverrides_AppliesCLIOverrides(t *testing.T) {
 	defer func() {
 		_ = os.Chdir(oldWd)
 	}()
+
+	// Isolate from global config (~/.atlas/config.yaml) by redirecting HOME
+	t.Setenv("HOME", tempDir)
 
 	overrides := &Config{
 		AI: AIConfig{
@@ -671,6 +677,9 @@ func TestConfig_Precedence_Documentation(t *testing.T) {
 		_ = os.Chdir(oldWd)
 	}()
 
+	// Isolate from global config (~/.atlas/config.yaml) by redirecting HOME
+	t.Setenv("HOME", tempDir)
+
 	// Load with defaults only
 	cfg, err := Load(ctx)
 	require.NoError(t, err)
@@ -792,6 +801,9 @@ func TestApplyOverrides_PartialOverrides(t *testing.T) {
 	defer func() {
 		_ = os.Chdir(oldWd)
 	}()
+
+	// Isolate from global config (~/.atlas/config.yaml) by redirecting HOME
+	t.Setenv("HOME", tempDir)
 
 	// Only override AI.Model, leave everything else as zero values
 	overrides := &Config{

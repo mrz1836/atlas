@@ -36,14 +36,14 @@ func DisplayAbandonmentSuccess(output Output, task *domain.Task, workspace *doma
 	sb.WriteString("✗ Task Abandoned\n")
 	sb.WriteString("───────────────────────────────────────────\n\n")
 
-	sb.WriteString(fmt.Sprintf("📋 Task ID: %s\n", info.TaskID))
-	sb.WriteString(fmt.Sprintf("🌿 Branch: %s (preserved)\n", info.BranchName))
-	sb.WriteString(fmt.Sprintf("📁 Worktree: %s (preserved)\n\n", info.WorktreePath))
+	fmt.Fprintf(&sb, "📋 Task ID: %s\n", info.TaskID)
+	fmt.Fprintf(&sb, "🌿 Branch: %s (preserved)\n", info.BranchName)
+	fmt.Fprintf(&sb, "📁 Worktree: %s (preserved)\n\n", info.WorktreePath)
 
 	sb.WriteString("📝 Next Steps:\n")
 	sb.WriteString("   • Navigate to the worktree path to continue work manually\n")
 	sb.WriteString("   • Run 'atlas start' in the same workspace for a new task\n")
-	sb.WriteString(fmt.Sprintf("   • Run 'atlas workspace destroy %s' to clean up later\n", info.WorkspaceName))
+	fmt.Fprintf(&sb, "   • Run 'atlas workspace destroy %s' to clean up later\n", info.WorkspaceName)
 
 	output.Info(sb.String())
 }

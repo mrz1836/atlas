@@ -11,11 +11,10 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/spf13/cobra"
-
 	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/errors"
+	"github.com/spf13/cobra"
 )
 
 // ConfigShowFlags holds flags specific to the config show command.

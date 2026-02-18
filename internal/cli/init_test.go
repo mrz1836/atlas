@@ -10,13 +10,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"gopkg.in/yaml.v3"
-
 	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/constants"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 )
 
 func TestNewInitCmd(t *testing.T) {
@@ -324,7 +323,7 @@ func TestSaveConfig(t *testing.T) {
 	t.Setenv("HOME", tmpDir)
 
 	cfg := AtlasConfig{
-		AI: AIConfig{
+		AI: AIConfig{ //nolint:gosec // G101: APIKeyEnvVar stores env var name, not a hardcoded credential
 			Model:        "sonnet",
 			APIKeyEnvVar: "ANTHROPIC_API_KEY",
 			Timeout:      "30m",
@@ -804,7 +803,7 @@ func TestSaveProjectConfig(t *testing.T) {
 	require.NoError(t, err)
 
 	cfg := AtlasConfig{
-		AI: AIConfig{
+		AI: AIConfig{ //nolint:gosec // G101: APIKeyEnvVar stores env var name, not a hardcoded credential
 			Model:        "opus",
 			APIKeyEnvVar: "ANTHROPIC_API_KEY",
 			Timeout:      "30m",

@@ -259,20 +259,20 @@ func (e *Engine) buildRetryContext(task *domain.Task, lastResult *domain.StepRes
 	var sb strings.Builder
 
 	sb.WriteString("## Retry Context\n\n")
-	sb.WriteString(fmt.Sprintf("**Task ID:** %s\n", task.ID))
-	sb.WriteString(fmt.Sprintf("**Current Step:** %d\n", task.CurrentStep))
+	fmt.Fprintf(&sb, "**Task ID:** %s\n", task.ID)
+	fmt.Fprintf(&sb, "**Current Step:** %d\n", task.CurrentStep)
 
 	if lastResult != nil {
-		sb.WriteString(fmt.Sprintf("**Failed Step:** %s\n", lastResult.StepName))
+		fmt.Fprintf(&sb, "**Failed Step:** %s\n", lastResult.StepName)
 		if lastResult.Error != "" {
-			sb.WriteString(fmt.Sprintf("**Error:** %s\n", lastResult.Error))
+			fmt.Fprintf(&sb, "**Error:** %s\n", lastResult.Error)
 		}
 	}
 
 	sb.WriteString("\n### Previous Attempts\n\n")
 	for i, result := range task.StepResults {
 		if result.Status == "failed" {
-			sb.WriteString(fmt.Sprintf("- Step %d (%s): %s\n", i, result.StepName, result.Error))
+			fmt.Fprintf(&sb, "- Step %d (%s): %s\n", i, result.StepName, result.Error)
 		}
 	}
 

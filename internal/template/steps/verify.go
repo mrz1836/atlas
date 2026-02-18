@@ -887,28 +887,28 @@ func formatReportAsMarkdown(report *VerificationReport) string {
 	var sb strings.Builder
 
 	sb.WriteString("# Verification Report\n\n")
-	sb.WriteString(fmt.Sprintf("**Task ID:** %s\n", report.TaskID))
-	sb.WriteString(fmt.Sprintf("**Task Description:** %s\n", report.TaskDesc))
-	sb.WriteString(fmt.Sprintf("**Generated:** %s\n", report.Timestamp.Format(time.RFC3339)))
-	sb.WriteString(fmt.Sprintf("**Duration:** %s\n\n", report.Duration.Round(time.Millisecond)))
+	fmt.Fprintf(&sb, "**Task ID:** %s\n", report.TaskID)
+	fmt.Fprintf(&sb, "**Task Description:** %s\n", report.TaskDesc)
+	fmt.Fprintf(&sb, "**Generated:** %s\n", report.Timestamp.Format(time.RFC3339))
+	fmt.Fprintf(&sb, "**Duration:** %s\n\n", report.Duration.Round(time.Millisecond))
 
 	// Summary section
 	sb.WriteString("## Summary\n\n")
-	sb.WriteString(fmt.Sprintf("%s\n\n", report.Summary))
+	fmt.Fprintf(&sb, "%s\n\n", report.Summary)
 
 	// Statistics
 	sb.WriteString("### Statistics\n\n")
 	sb.WriteString("| Severity | Count |\n")
 	sb.WriteString("|----------|-------|\n")
-	sb.WriteString(fmt.Sprintf("| Errors   | %d    |\n", report.ErrorCount))
-	sb.WriteString(fmt.Sprintf("| Warnings | %d    |\n", report.WarningCount))
-	sb.WriteString(fmt.Sprintf("| Info     | %d    |\n\n", report.InfoCount))
+	fmt.Fprintf(&sb, "| Errors   | %d    |\n", report.ErrorCount)
+	fmt.Fprintf(&sb, "| Warnings | %d    |\n", report.WarningCount)
+	fmt.Fprintf(&sb, "| Info     | %d    |\n\n", report.InfoCount)
 
 	// Passed checks
 	if len(report.PassedChecks) > 0 {
 		sb.WriteString("### Passed Checks\n\n")
 		for _, check := range report.PassedChecks {
-			sb.WriteString(fmt.Sprintf("- ✅ %s\n", check))
+			fmt.Fprintf(&sb, "- ✅ %s\n", check)
 		}
 		sb.WriteString("\n")
 	}
@@ -917,7 +917,7 @@ func formatReportAsMarkdown(report *VerificationReport) string {
 	if len(report.FailedChecks) > 0 {
 		sb.WriteString("### Failed Checks\n\n")
 		for _, check := range report.FailedChecks {
-			sb.WriteString(fmt.Sprintf("- ❌ %s\n", check))
+			fmt.Fprintf(&sb, "- ❌ %s\n", check)
 		}
 		sb.WriteString("\n")
 	}
@@ -966,12 +966,12 @@ func formatIssueMarkdown(issue VerificationIssue) string {
 		location = fmt.Sprintf("%s:%d", issue.File, issue.Line)
 	}
 
-	sb.WriteString(fmt.Sprintf("#### %s\n\n", location))
-	sb.WriteString(fmt.Sprintf("**Category:** %s\n\n", issue.Category))
-	sb.WriteString(fmt.Sprintf("**Message:** %s\n\n", issue.Message))
+	fmt.Fprintf(&sb, "#### %s\n\n", location)
+	fmt.Fprintf(&sb, "**Category:** %s\n\n", issue.Category)
+	fmt.Fprintf(&sb, "**Message:** %s\n\n", issue.Message)
 
 	if issue.Suggestion != "" {
-		sb.WriteString(fmt.Sprintf("**Suggestion:** %s\n\n", issue.Suggestion))
+		fmt.Fprintf(&sb, "**Suggestion:** %s\n\n", issue.Suggestion)
 	}
 
 	sb.WriteString("---\n\n")

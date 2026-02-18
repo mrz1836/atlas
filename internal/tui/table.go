@@ -231,7 +231,7 @@ func NewStatusTable(rows []StatusRow, opts ...StatusTableOption) *StatusTable {
 // detectTerminalWidth returns the current terminal width.
 // Returns 80 if detection fails (assume standard terminal).
 func detectTerminalWidth() int {
-	width, _, err := term.GetSize(int(os.Stdout.Fd()))
+	width, _, err := term.GetSize(int(os.Stdout.Fd())) //nolint:gosec // G115: uintptr->int for term.GetSize, file descriptors fit in int on all supported platforms
 	if err != nil {
 		return 80 // Assume standard terminal if detection fails
 	}

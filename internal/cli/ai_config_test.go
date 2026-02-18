@@ -98,7 +98,7 @@ func TestValidateAIConfig(t *testing.T) {
 	}{
 		{
 			name: "valid config with sonnet",
-			cfg: AIProviderConfig{
+			cfg: AIProviderConfig{ //nolint:gosec // G101: APIKeyEnvVar stores env var name, not a hardcoded credential
 				Model:        "sonnet",
 				APIKeyEnvVar: "ANTHROPIC_API_KEY",
 				Timeout:      "30m",
@@ -128,7 +128,7 @@ func TestValidateAIConfig(t *testing.T) {
 		},
 		{
 			name: "empty model",
-			cfg: AIProviderConfig{
+			cfg: AIProviderConfig{ //nolint:gosec // G101: APIKeyEnvVar stores env var name, not a hardcoded credential
 				Model:        "",
 				APIKeyEnvVar: "ANTHROPIC_API_KEY",
 				Timeout:      "30m",
@@ -139,7 +139,7 @@ func TestValidateAIConfig(t *testing.T) {
 		},
 		{
 			name: "invalid model",
-			cfg: AIProviderConfig{
+			cfg: AIProviderConfig{ //nolint:gosec // G101: APIKeyEnvVar stores env var name, not a hardcoded credential
 				Model:        "gpt4",
 				APIKeyEnvVar: "ANTHROPIC_API_KEY",
 				Timeout:      "30m",
@@ -172,7 +172,7 @@ func TestValidateAIConfig(t *testing.T) {
 		},
 		{
 			name: "invalid timeout format",
-			cfg: AIProviderConfig{
+			cfg: AIProviderConfig{ //nolint:gosec // G101: APIKeyEnvVar stores env var name, not a hardcoded credential
 				Model:        "sonnet",
 				APIKeyEnvVar: "ANTHROPIC_API_KEY",
 				Timeout:      "invalid",
@@ -183,7 +183,7 @@ func TestValidateAIConfig(t *testing.T) {
 		},
 		{
 			name: "empty timeout",
-			cfg: AIProviderConfig{
+			cfg: AIProviderConfig{ //nolint:gosec // G101: APIKeyEnvVar stores env var name, not a hardcoded credential
 				Model:        "sonnet",
 				APIKeyEnvVar: "ANTHROPIC_API_KEY",
 				Timeout:      "",
@@ -194,7 +194,7 @@ func TestValidateAIConfig(t *testing.T) {
 		},
 		{
 			name: "max turns too low",
-			cfg: AIProviderConfig{
+			cfg: AIProviderConfig{ //nolint:gosec // G101: APIKeyEnvVar stores env var name, not a hardcoded credential
 				Model:        "sonnet",
 				APIKeyEnvVar: "ANTHROPIC_API_KEY",
 				Timeout:      "30m",
@@ -205,7 +205,7 @@ func TestValidateAIConfig(t *testing.T) {
 		},
 		{
 			name: "max turns too high",
-			cfg: AIProviderConfig{
+			cfg: AIProviderConfig{ //nolint:gosec // G101: APIKeyEnvVar stores env var name, not a hardcoded credential
 				Model:        "sonnet",
 				APIKeyEnvVar: "ANTHROPIC_API_KEY",
 				Timeout:      "30m",
@@ -304,7 +304,7 @@ func TestNewAIConfigForm(t *testing.T) {
 	})
 
 	t.Run("maxTurnsStr pointer is used for form binding", func(t *testing.T) {
-		cfg := &AIProviderConfig{
+		cfg := &AIProviderConfig{ //nolint:gosec // G101: APIKeyEnvVar stores env var name, not a hardcoded credential
 			Model:        "sonnet",
 			APIKeyEnvVar: "ANTHROPIC_API_KEY",
 			Timeout:      "30m",
@@ -578,7 +578,7 @@ func TestCollectAIConfigInteractive_PreservesExistingValues(t *testing.T) {
 	}
 
 	// Start with pre-populated config
-	cfg := &AIProviderConfig{
+	cfg := &AIProviderConfig{ //nolint:gosec // G101: APIKeyEnvVar stores env var name, not a hardcoded credential
 		Model:        "sonnet",
 		APIKeyEnvVar: "ANTHROPIC_API_KEY",
 		Timeout:      "5m",

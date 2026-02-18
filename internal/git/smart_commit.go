@@ -985,26 +985,26 @@ func formatArtifactMarkdown(artifact *CommitArtifact) string {
 	var sb strings.Builder
 
 	sb.WriteString("# Commit Summary\n\n")
-	sb.WriteString(fmt.Sprintf("**Timestamp:** %s\n", artifact.Timestamp))
+	fmt.Fprintf(&sb, "**Timestamp:** %s\n", artifact.Timestamp)
 	if artifact.TaskID != "" {
-		sb.WriteString(fmt.Sprintf("**Task:** %s\n", artifact.TaskID))
+		fmt.Fprintf(&sb, "**Task:** %s\n", artifact.TaskID)
 	}
 	if artifact.Template != "" {
-		sb.WriteString(fmt.Sprintf("**Template:** %s\n", artifact.Template))
+		fmt.Fprintf(&sb, "**Template:** %s\n", artifact.Template)
 	}
 	sb.WriteString("\n## Commits\n\n")
 
 	for i, commit := range artifact.Commits {
-		sb.WriteString(fmt.Sprintf("### %d. %s\n\n", i+1, commit.Hash))
+		fmt.Fprintf(&sb, "### %d. %s\n\n", i+1, commit.Hash)
 		// Show full message (subject + body) in a code block
 		sb.WriteString("**Message:**\n```\n")
 		sb.WriteString(commit.Message)
 		sb.WriteString("\n```\n\n")
-		sb.WriteString(fmt.Sprintf("**Package:** %s\n\n", commit.Package))
-		sb.WriteString(fmt.Sprintf("**Type:** %s\n\n", commit.CommitType))
+		fmt.Fprintf(&sb, "**Package:** %s\n\n", commit.Package)
+		fmt.Fprintf(&sb, "**Type:** %s\n\n", commit.CommitType)
 		sb.WriteString("**Files:**\n")
 		for _, f := range commit.FilesChanged {
-			sb.WriteString(fmt.Sprintf("- %s\n", f))
+			fmt.Fprintf(&sb, "- %s\n", f)
 		}
 		sb.WriteString("\n")
 	}

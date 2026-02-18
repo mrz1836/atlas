@@ -153,7 +153,7 @@ func (c *MenuConfig) WithKeyHints(show bool) *MenuConfig {
 // It respects the maxWidth constraint while adapting to narrower terminals.
 func adaptWidth(maxWidth int) int {
 	// Try to get terminal width
-	width, _, err := term.GetSize(int(os.Stdout.Fd()))
+	width, _, err := term.GetSize(int(os.Stdout.Fd())) //nolint:gosec // G115: uintptr->int for term.GetSize, file descriptors fit in int on all supported platforms
 	if err != nil || width <= 0 {
 		// Fallback to provided max width
 		if maxWidth <= 0 {
@@ -184,7 +184,7 @@ func adaptWidth(maxWidth int) int {
 func runFormWithConfig(field huh.Field, cfg *MenuConfig, errorContext string) error {
 	// Check if we're running in a terminal environment
 	// This prevents tests from hanging when TUI code is called without a terminal
-	if !term.IsTerminal(int(os.Stdin.Fd())) {
+	if !term.IsTerminal(int(os.Stdin.Fd())) { //nolint:gosec // G115: uintptr->int for term.IsTerminal, file descriptors fit in int on all supported platforms
 		return ErrMenuCanceled
 	}
 

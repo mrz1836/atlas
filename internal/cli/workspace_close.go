@@ -12,14 +12,13 @@ import (
 
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/rs/zerolog"
-	"github.com/spf13/cobra"
-
 	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/errors"
 	"github.com/mrz1836/atlas/internal/task"
 	"github.com/mrz1836/atlas/internal/tui"
 	"github.com/mrz1836/atlas/internal/workspace"
+	"github.com/rs/zerolog"
+	"github.com/spf13/cobra"
 )
 
 // addWorkspaceCloseCmd adds the close subcommand to the workspace command.
@@ -298,14 +297,14 @@ func outputCloseWarning(w io.Writer, warning, output string) {
 			"message": warning,
 		}); err != nil {
 			// Best effort - if JSON encoding fails, fall back to stderr
-			_, _ = fmt.Fprintf(os.Stderr, "Warning: %s\n", warning)
+			_, _ = fmt.Fprintf(os.Stderr, "Warning: %s\n", warning) //nolint:gosec // G705: writing to stderr, not an HTTP response writer
 		}
 		return
 	}
 
 	// Use lipgloss for styled warning message
 	warningIcon := lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Render("⚠")
-	_, _ = fmt.Fprintf(w, "%s Warning: %s\n", warningIcon, warning)
+	_, _ = fmt.Fprintf(w, "%s Warning: %s\n", warningIcon, warning) //nolint:gosec // G705: writing to local output writer, not an HTTP response writer
 }
 
 // confirmClose prompts the user for confirmation before closing a workspace.

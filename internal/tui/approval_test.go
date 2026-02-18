@@ -660,7 +660,7 @@ func TestGetDisplayMode(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		t.Run("width_"+string(rune('0'+tt.width/10))+string(rune('0'+tt.width%10)), func(t *testing.T) {
+		t.Run("width_"+string(rune('0'+tt.width/10))+string(rune('0'+tt.width%10)), func(t *testing.T) { //nolint:gosec // G115: width values are test-bounded, fit in rune
 			result := getDisplayMode(tt.width)
 			assert.Equal(t, tt.expected, result)
 		})

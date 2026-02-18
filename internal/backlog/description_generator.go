@@ -57,12 +57,12 @@ func GenerateTaskDescriptionWithConfig(d *Discovery, cfg *DescriptionConfig) str
 	// Title with optional severity badge
 	sb.WriteString(d.Title)
 	if cfg.IncludeSeverityBadge && d.Content.Severity != "" {
-		sb.WriteString(fmt.Sprintf(" [%s]", strings.ToUpper(string(d.Content.Severity))))
+		fmt.Fprintf(&sb, " [%s]", strings.ToUpper(string(d.Content.Severity)))
 	}
 
 	// Category
 	if cfg.IncludeCategory && d.Content.Category != "" {
-		sb.WriteString(fmt.Sprintf("\n\nCategory: %s", d.Content.Category))
+		fmt.Fprintf(&sb, "\n\nCategory: %s", d.Content.Category)
 	}
 
 	// Description if available
@@ -77,15 +77,15 @@ func GenerateTaskDescriptionWithConfig(d *Discovery, cfg *DescriptionConfig) str
 
 	// Location context
 	if cfg.IncludeLocation && d.Location != nil && d.Location.File != "" {
-		sb.WriteString(fmt.Sprintf("\n\nLocation: %s", d.Location.File))
+		fmt.Fprintf(&sb, "\n\nLocation: %s", d.Location.File)
 		if d.Location.Line > 0 {
-			sb.WriteString(fmt.Sprintf(":%d", d.Location.Line))
+			fmt.Fprintf(&sb, ":%d", d.Location.Line)
 		}
 	}
 
 	// Tags
 	if cfg.IncludeTags && len(d.Content.Tags) > 0 {
-		sb.WriteString(fmt.Sprintf("\n\nTags: %s", strings.Join(d.Content.Tags, ", ")))
+		fmt.Fprintf(&sb, "\n\nTags: %s", strings.Join(d.Content.Tags, ", "))
 	}
 
 	return sb.String()

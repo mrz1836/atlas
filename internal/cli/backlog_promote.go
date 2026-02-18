@@ -8,9 +8,6 @@ import (
 	"os"
 	"strings"
 
-	"github.com/spf13/cobra"
-	"golang.org/x/term"
-
 	"github.com/mrz1836/atlas/internal/backlog"
 	"github.com/mrz1836/atlas/internal/cli/workflow"
 	"github.com/mrz1836/atlas/internal/config"
@@ -18,6 +15,8 @@ import (
 	"github.com/mrz1836/atlas/internal/contracts"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 	"github.com/mrz1836/atlas/internal/tui"
+	"github.com/spf13/cobra"
+	"golang.org/x/term"
 )
 
 // aiRunnerFactory allows tests to inject mock AI runners.
@@ -122,7 +121,7 @@ func isPromoteInteractiveMode(id string, opts promoteOptions) bool {
 	if opts.jsonOutput {
 		return false // JSON = non-interactive
 	}
-	return term.IsTerminal(int(os.Stdin.Fd()))
+	return term.IsTerminal(int(os.Stdin.Fd())) //nolint:gosec // G115: uintptr->int for term.IsTerminal, file descriptors fit in int on all supported platforms
 }
 
 // runBacklogPromote executes the backlog promote command.

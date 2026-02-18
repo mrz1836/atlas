@@ -429,9 +429,9 @@ func (e *CIExecutor) formatCIFailureMessage(result *git.CIWatchResult) string {
 	for _, check := range result.CheckResults {
 		bucket := strings.ToLower(check.Bucket)
 		if bucket == "fail" || bucket == "cancel" {
-			sb.WriteString(fmt.Sprintf("  - %s: %s\n", check.Name, check.Bucket))
+			fmt.Fprintf(&sb, "  - %s: %s\n", check.Name, check.Bucket)
 			if check.URL != "" {
-				sb.WriteString(fmt.Sprintf("    Logs: %s\n", check.URL))
+				fmt.Fprintf(&sb, "    Logs: %s\n", check.URL)
 			}
 		}
 	}

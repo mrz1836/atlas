@@ -178,7 +178,7 @@ func (m *WatchModel) View() string {
 
 	// Error display
 	if m.err != nil {
-		b.WriteString(fmt.Sprintf("Error: %v\n", m.err))
+		fmt.Fprintf(&b, "Error: %v\n", m.err)
 	}
 
 	// Table or empty message
@@ -206,7 +206,7 @@ func (m *WatchModel) View() string {
 
 	// Timestamp and quit hint
 	if !m.lastUpdate.IsZero() {
-		b.WriteString(fmt.Sprintf("\nLast updated: %s", m.lastUpdate.Format("15:04:05")))
+		fmt.Fprintf(&b, "\nLast updated: %s", m.lastUpdate.Format("15:04:05"))
 	}
 	b.WriteString("\nPress 'q' to quit")
 

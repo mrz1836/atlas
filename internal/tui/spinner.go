@@ -308,7 +308,7 @@ func formatElapsedTime(d time.Duration) string {
 // Uses stderr since spinners typically write there.
 // Returns 80 as fallback if width cannot be determined.
 func getTerminalWidth() int {
-	width, _, err := term.GetSize(int(os.Stderr.Fd()))
+	width, _, err := term.GetSize(int(os.Stderr.Fd())) //nolint:gosec // G115: uintptr->int for term.GetSize, file descriptors fit in int on all supported platforms
 	if err != nil || width <= 0 {
 		return 80 // Fallback to standard terminal width
 	}

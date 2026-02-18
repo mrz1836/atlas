@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/charmbracelet/huh"
-
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 	"github.com/mrz1836/atlas/internal/tui"
 )
@@ -31,7 +30,7 @@ type AIProviderConfig struct {
 
 // AIConfigDefaults returns the default values for AI configuration.
 func AIConfigDefaults() AIProviderConfig {
-	return AIProviderConfig{
+	return AIProviderConfig{ //nolint:gosec // G101: APIKeyEnvVar stores env var name, not a hardcoded credential
 		Model:        "sonnet",
 		APIKeyEnvVar: "ANTHROPIC_API_KEY",
 		Timeout:      "30m",

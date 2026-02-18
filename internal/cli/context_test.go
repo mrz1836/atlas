@@ -7,11 +7,10 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/mrz1836/atlas/internal/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
-
-	"github.com/mrz1836/atlas/internal/config"
 )
 
 // setupTestRepo creates a temporary git repository for testing.
@@ -62,7 +61,7 @@ func setupMainRepoWithWorktree(t *testing.T, worktreeName string) (mainPath, wor
 	worktreeParent := t.TempDir()
 	worktreePath = filepath.Join(worktreeParent, worktreeName)
 
-	cmd = exec.CommandContext(context.Background(), "git", "worktree", "add", worktreePath)
+	cmd = exec.CommandContext(context.Background(), "git", "worktree", "add", worktreePath) //nolint:gosec // G204: git args are controlled test inputs
 	cmd.Dir = mainPath
 	require.NoError(t, cmd.Run(), "failed to create worktree")
 

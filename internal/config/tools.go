@@ -170,7 +170,7 @@ func (e *DefaultCommandExecutor) LookPath(file string) (string, error) {
 
 // Run executes a command and returns its output.
 func (e *DefaultCommandExecutor) Run(ctx context.Context, name string, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, name, args...)
+	cmd := exec.CommandContext(ctx, name, args...) //nolint:gosec // G204: command name is from trusted config, not user input
 	// Ensure output is captured and not printed to terminal
 	cmd.Stdout = nil
 	cmd.Stderr = nil
@@ -598,8 +598,8 @@ func FormatMissingToolsError(missing []Tool) string {
 		if tool.Status == ToolStatusOutdated {
 			status = fmt.Sprintf("outdated (have %s, need %s)", tool.CurrentVersion, tool.MinVersion)
 		}
-		sb.WriteString(fmt.Sprintf("  • %s: %s\n", tool.Name, status))
-		sb.WriteString(fmt.Sprintf("    Install: %s\n\n", tool.InstallHint))
+		fmt.Fprintf(&sb, "  • %s: %s\n", tool.Name, status)
+		fmt.Fprintf(&sb, "    Install: %s\n\n", tool.InstallHint)
 	}
 
 	return sb.String()

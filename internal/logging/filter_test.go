@@ -172,7 +172,7 @@ func TestContainsSensitiveData_GenericPatterns(t *testing.T) {
 			input:    `credential = "` + fakeCredential() + `"`,
 			expected: true,
 		},
-		{
+		{ //nolint:gosec // G101: test data for filter verification, not a real credential
 			name:     "ssh private key header",
 			input:    `-----BEGIN RSA PRIVATE KEY-----`,
 			expected: true,

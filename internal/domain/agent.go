@@ -36,7 +36,7 @@ type agentConfig struct {
 // agentConfigs is the central configuration for all supported agents.
 // Adding a new agent only requires adding an entry here - all methods use this lookup.
 var agentConfigs = map[Agent]agentConfig{ //nolint:gochecknoglobals // Central config lookup
-	AgentClaude: {
+	AgentClaude: { //nolint:gosec // G101: apiKeyEnv stores env var names, not hardcoded credentials
 		model:     "sonnet",
 		apiKeyEnv: "ANTHROPIC_API_KEY",
 		hint:      "Install Claude CLI: npm install -g @anthropic-ai/claude-code",
@@ -48,7 +48,7 @@ var agentConfigs = map[Agent]agentConfig{ //nolint:gochecknoglobals // Central c
 			"haiku":  "claude-haiku-3-20250514",
 		},
 	},
-	AgentGemini: {
+	AgentGemini: { //nolint:gosec // G101: apiKeyEnv stores env var names, not hardcoded credentials
 		model:     "flash",
 		apiKeyEnv: "GEMINI_API_KEY",
 		hint:      "Install Gemini CLI: npm install -g @google/gemini-cli",
@@ -59,7 +59,7 @@ var agentConfigs = map[Agent]agentConfig{ //nolint:gochecknoglobals // Central c
 			"pro":   "gemini-3-pro-preview",
 		},
 	},
-	AgentCodex: {
+	AgentCodex: { //nolint:gosec // G101: apiKeyEnv stores env var names, not hardcoded credentials
 		model:     "codex",
 		apiKeyEnv: "OPENAI_API_KEY",
 		hint:      "Install Codex CLI: npm install -g @openai/codex",

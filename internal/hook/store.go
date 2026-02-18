@@ -567,7 +567,7 @@ func (fs *FileStore) atomicWrite(path string, data []byte) error {
 	}
 
 	// Atomic rename
-	if err := os.Rename(tmpPath, path); err != nil {
+	if err := os.Rename(tmpPath, path); err != nil { //nolint:gosec // G703: path is from internal store, not user input
 		return fmt.Errorf("failed to rename temp file: %w", err)
 	}
 

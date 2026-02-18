@@ -50,7 +50,7 @@ func (r *DefaultCommandRunner) RunWithLiveOutput(ctx context.Context, workDir, c
 // runCommand executes a shell command with optional live output streaming.
 // If liveOut is non-nil, output is streamed to it while also being captured.
 func (r *DefaultCommandRunner) runCommand(ctx context.Context, workDir, command string, liveOut io.Writer) (stdout, stderr string, exitCode int, err error) {
-	cmd := exec.CommandContext(ctx, "sh", "-c", command)
+	cmd := exec.CommandContext(ctx, "sh", "-c", command) //nolint:gosec // G204: command is from project config, not user input
 	cmd.Dir = workDir
 
 	var outBuf, errBuf bytes.Buffer

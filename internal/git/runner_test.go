@@ -773,12 +773,12 @@ func setupRepoForRebase(t *testing.T, baseBranch, featureBranch string) string {
 	commitInitial(t, repoPath)
 
 	// Rename default branch to baseBranch
-	cmd := exec.CommandContext(context.Background(), "git", "branch", "-m", baseBranch)
+	cmd := exec.CommandContext(context.Background(), "git", "branch", "-m", baseBranch) //nolint:gosec // G204: git args are controlled test inputs
 	cmd.Dir = repoPath
 	require.NoError(t, cmd.Run(), "failed to rename branch")
 
 	// Create feature branch
-	cmd = exec.CommandContext(context.Background(), "git", "checkout", "-b", featureBranch)
+	cmd = exec.CommandContext(context.Background(), "git", "checkout", "-b", featureBranch) //nolint:gosec // G204: git args are controlled test inputs
 	cmd.Dir = repoPath
 	require.NoError(t, cmd.Run(), "failed to create feature branch")
 
@@ -799,7 +799,7 @@ func createRebaseConflict(t *testing.T, repoPath, baseBranch, featureBranch stri
 	t.Helper()
 
 	// Go to base branch and modify the same file
-	cmd := exec.CommandContext(context.Background(), "git", "checkout", baseBranch)
+	cmd := exec.CommandContext(context.Background(), "git", "checkout", baseBranch) //nolint:gosec // G204: git args are controlled test inputs
 	cmd.Dir = repoPath
 	require.NoError(t, cmd.Run())
 
@@ -812,7 +812,7 @@ func createRebaseConflict(t *testing.T, repoPath, baseBranch, featureBranch stri
 	require.NoError(t, cmd.Run())
 
 	// Go to feature branch and modify the same file differently
-	cmd = exec.CommandContext(context.Background(), "git", "checkout", featureBranch)
+	cmd = exec.CommandContext(context.Background(), "git", "checkout", featureBranch) //nolint:gosec // G204: git args are controlled test inputs
 	cmd.Dir = repoPath
 	require.NoError(t, cmd.Run())
 

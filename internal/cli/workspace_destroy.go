@@ -12,15 +12,14 @@ import (
 
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/rs/zerolog"
-	"github.com/spf13/cobra"
-	"golang.org/x/term"
-
 	"github.com/mrz1836/atlas/internal/backlog"
 	"github.com/mrz1836/atlas/internal/errors"
 	"github.com/mrz1836/atlas/internal/task"
 	"github.com/mrz1836/atlas/internal/tui"
 	"github.com/mrz1836/atlas/internal/workspace"
+	"github.com/rs/zerolog"
+	"github.com/spf13/cobra"
+	"golang.org/x/term"
 )
 
 // addWorkspaceDestroyCmd adds the destroy subcommand to the workspace command.
@@ -243,10 +242,10 @@ func showManualCleanupWarning(w io.Writer, output, worktreePath, branch string, 
 
 	_, _ = fmt.Fprintf(w, "\n⚠️  Manual cleanup may be required:\n")
 	if worktreePath != "" {
-		_, _ = fmt.Fprintf(w, "   git worktree remove --force %s\n", worktreePath)
+		_, _ = fmt.Fprintf(w, "   git worktree remove --force %s\n", worktreePath) //nolint:gosec // G705: writing to local output writer, not an HTTP response writer
 	}
 	if branch != "" {
-		_, _ = fmt.Fprintf(w, "   git branch -D %s\n", branch)
+		_, _ = fmt.Fprintf(w, "   git branch -D %s\n", branch) //nolint:gosec // G705: writing to local output writer, not an HTTP response writer
 	}
 	_, _ = fmt.Fprintf(w, "\n")
 }
@@ -280,7 +279,7 @@ var terminalCheck = isTerminal
 
 // isTerminal returns true if stdin is a terminal.
 func isTerminal() bool {
-	return term.IsTerminal(int(os.Stdin.Fd()))
+	return term.IsTerminal(int(os.Stdin.Fd())) //nolint:gosec // G115: uintptr->int for term.IsTerminal, file descriptors fit in int on all supported platforms
 }
 
 // detectRepoPath finds the git repository root from the current working directory.

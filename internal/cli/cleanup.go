@@ -9,13 +9,12 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/spf13/cobra"
-
 	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/domain"
 	"github.com/mrz1836/atlas/internal/hook"
 	"github.com/mrz1836/atlas/internal/tui"
+	"github.com/spf13/cobra"
 )
 
 // Cleanup retention defaults (overridden by config).

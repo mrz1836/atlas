@@ -892,7 +892,7 @@ func TestFileStore_ConcurrentAccess(t *testing.T) {
 				}
 
 				// Update with goroutine-specific data
-				current.Branch = "branch-" + string(rune('A'+goroutineID))
+				current.Branch = "branch-" + string(rune('A'+goroutineID)) //nolint:gosec // G115: goroutineID is bounded by test, fits in rune
 				updateErr := store.Update(context.Background(), current)
 				if updateErr != nil {
 					errChan <- updateErr
@@ -1096,7 +1096,7 @@ func TestFileStore_StressConcurrentCreateDelete(t *testing.T) {
 		go func(id int) {
 			defer wg.Done()
 			for j := 0; j < opsPerGoroutine; j++ {
-				name := "stress-ws-" + string(rune('A'+id)) + "-" + string(rune('0'+j))
+				name := "stress-ws-" + string(rune('A'+id)) + "-" + string(rune('0'+j)) //nolint:gosec // G115: id and j are bounded by test iterations, fit in rune
 				ws := &domain.Workspace{
 					Name:      name,
 					Status:    constants.WorkspaceStatusActive,

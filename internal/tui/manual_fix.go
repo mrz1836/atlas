@@ -71,10 +71,10 @@ func DisplayManualFixInstructions(output Output, task *domain.Task, workspace *d
 	sb.WriteString("⚠ Validation Failed - Manual Fix Required\n")
 	sb.WriteString("─────────────────────────────────────────\n")
 
-	sb.WriteString(fmt.Sprintf("📁 Worktree Path:\n   %s\n", info.WorktreePath))
+	fmt.Fprintf(&sb, "📁 Worktree Path:\n   %s\n", info.WorktreePath)
 
 	if info.FailedStep != "" {
-		sb.WriteString(fmt.Sprintf("❌ Failed Step: %s\n", info.FailedStep))
+		fmt.Fprintf(&sb, "❌ Failed Step: %s\n", info.FailedStep)
 	}
 
 	// Show validation output if available, otherwise fall back to error summary
@@ -88,14 +88,14 @@ func DisplayManualFixInstructions(output Output, task *domain.Task, workspace *d
 		sb.WriteString("📋 Error Details:\n")
 		// Indent error output
 		for _, line := range strings.Split(info.ErrorSummary, "\n") {
-			sb.WriteString(fmt.Sprintf("   %s\n", line))
+			fmt.Fprintf(&sb, "   %s\n", line)
 		}
 		sb.WriteString("\n")
 	}
 
 	// Show artifact path prominently if available
 	if info.ArtifactPath != "" {
-		sb.WriteString(fmt.Sprintf("📄 Full Validation Log:\n   %s\n\n", info.ArtifactPath))
+		fmt.Fprintf(&sb, "📄 Full Validation Log:\n   %s\n\n", info.ArtifactPath)
 	}
 
 	sb.WriteString("📝 Next Steps:\n")
@@ -103,9 +103,9 @@ func DisplayManualFixInstructions(output Output, task *domain.Task, workspace *d
 	sb.WriteString("   2. Fix the validation errors shown\n")
 	sb.WriteString("   3. Run the resume command below\n\n")
 
-	sb.WriteString(fmt.Sprintf("▶ Resume Command:\n   %s\n\n", info.ResumeCommand))
+	fmt.Fprintf(&sb, "▶ Resume Command:\n   %s\n\n", info.ResumeCommand)
 
-	sb.WriteString(fmt.Sprintf("💡 Alternatively, to abandon the task and preserve the worktree for manual work:\n   atlas abandon %s", info.WorkspaceName))
+	fmt.Fprintf(&sb, "💡 Alternatively, to abandon the task and preserve the worktree for manual work:\n   atlas abandon %s", info.WorkspaceName)
 
 	output.Info(sb.String())
 }

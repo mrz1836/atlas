@@ -411,7 +411,7 @@ func (d *DefaultReleaseDownloader) downloadFileViaHTTP(ctx context.Context, url 
 
 	// Copy content
 	if _, err := io.Copy(tmpFile, resp.Body); err != nil {
-		_ = os.Remove(tmpFile.Name())
+		_ = os.Remove(tmpFile.Name()) //nolint:gosec // G703: path from os.CreateTemp, not user input
 		return "", fmt.Errorf("failed to write file: %w", err)
 	}
 
@@ -545,14 +545,14 @@ func extractFromTarGz(archivePath string) (string, error) { //nolint:gocognit //
 			// Use limited copy to prevent decompression bomb
 			if _, copyErr := io.CopyN(tmpFile, tr, header.Size); copyErr != nil && !errors.Is(copyErr, io.EOF) {
 				_ = tmpFile.Close()
-				_ = os.Remove(tmpFile.Name())
+				_ = os.Remove(tmpFile.Name()) //nolint:gosec // G703: path from os.CreateTemp, not user input
 				return "", copyErr
 			}
 			_ = tmpFile.Close()
 
 			// Make executable
 			if chmodErr := os.Chmod(tmpFile.Name(), 0o755); chmodErr != nil { //nolint:gosec // executable needed
-				_ = os.Remove(tmpFile.Name())
+				_ = os.Remove(tmpFile.Name()) //nolint:gosec // G703: path from os.CreateTemp, not user input
 				return "", chmodErr
 			}
 
@@ -601,14 +601,14 @@ func extractZipFile(f *zip.File) (string, error) {
 	// Use limited copy to prevent decompression bomb
 	if _, copyErr := io.CopyN(tmpFile, rc, int64(f.UncompressedSize64)); copyErr != nil && !errors.Is(copyErr, io.EOF) { //nolint:gosec // size from zip header
 		_ = tmpFile.Close()
-		_ = os.Remove(tmpFile.Name())
+		_ = os.Remove(tmpFile.Name()) //nolint:gosec // G703: path from os.CreateTemp, not user input
 		return "", copyErr
 	}
 	_ = tmpFile.Close()
 
 	// Make executable
 	if err := os.Chmod(tmpFile.Name(), 0o755); err != nil { //nolint:gosec // executable needed
-		_ = os.Remove(tmpFile.Name())
+		_ = os.Remove(tmpFile.Name()) //nolint:gosec // G703: path from os.CreateTemp, not user input
 		return "", err
 	}
 

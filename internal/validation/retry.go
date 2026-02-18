@@ -59,18 +59,18 @@ func ExtractErrorContext(result *PipelineResult, attemptNum, maxAttempts int) *R
 
 			// Build error detail for this command
 			var errDetail strings.Builder
-			errDetail.WriteString(fmt.Sprintf("Command: %s\n", r.Command))
-			errDetail.WriteString(fmt.Sprintf("Exit code: %d\n", r.ExitCode))
+			fmt.Fprintf(&errDetail, "Command: %s\n", r.Command)
+			fmt.Fprintf(&errDetail, "Exit code: %d\n", r.ExitCode)
 
 			if r.Stderr != "" {
-				errDetail.WriteString(fmt.Sprintf("Error output:\n%s", r.Stderr))
+				fmt.Fprintf(&errDetail, "Error output:\n%s", r.Stderr)
 			} else if r.Stdout != "" {
 				// Some tools output errors to stdout
-				errDetail.WriteString(fmt.Sprintf("Output:\n%s", r.Stdout))
+				fmt.Fprintf(&errDetail, "Output:\n%s", r.Stdout)
 			}
 
 			if r.Error != "" {
-				errDetail.WriteString(fmt.Sprintf("\nError: %s", r.Error))
+				fmt.Fprintf(&errDetail, "\nError: %s", r.Error)
 			}
 
 			errorParts = append(errorParts, errDetail.String())

@@ -510,7 +510,6 @@ func (m *Manager) signReceiptIfAvailable(ctx context.Context, receipt *domain.Va
 	if receiptCount > math.MaxUint32 {
 		receiptCount = math.MaxUint32
 	}
-	//nolint:gosec // G115: Bounds check above ensures safe conversion
 	taskIndex := uint32(receiptCount)
 
 	signErr := m.signer.SignReceipt(ctx, receipt, taskIndex)

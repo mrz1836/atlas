@@ -12,9 +12,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/spf13/cobra"
-	"golang.org/x/term"
-
 	"github.com/mrz1836/atlas/internal/backlog"
 	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/constants"
@@ -24,6 +21,8 @@ import (
 	"github.com/mrz1836/atlas/internal/task"
 	"github.com/mrz1836/atlas/internal/tui"
 	"github.com/mrz1836/atlas/internal/workspace"
+	"github.com/spf13/cobra"
+	"golang.org/x/term"
 )
 
 // AddApproveCommand adds the approve command to the root command.
@@ -181,7 +180,7 @@ func runApprove(ctx context.Context, cmd *cobra.Command, w io.Writer, opts appro
 	out := tui.NewOutput(w, outputFormat)
 
 	// Detect non-interactive mode
-	isNonInteractive := outputFormat == OutputJSON || !term.IsTerminal(int(os.Stdin.Fd()))
+	isNonInteractive := outputFormat == OutputJSON || !term.IsTerminal(int(os.Stdin.Fd())) //nolint:gosec // G115: uintptr->int for term.IsTerminal, file descriptors fit in int on all supported platforms
 
 	// JSON mode requires workspace argument (no interactive selection)
 	if outputFormat == OutputJSON && opts.workspace == "" {

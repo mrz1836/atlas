@@ -5,12 +5,11 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/mrz1836/atlas/internal/errors"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/mrz1836/atlas/internal/errors"
 )
 
 func TestExitCodes(t *testing.T) {

@@ -48,7 +48,7 @@ func createTestRepo(t *testing.T) string {
 func runGit(t *testing.T, dir string, args ...string) {
 	t.Helper()
 	ctx := context.Background()
-	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd := exec.CommandContext(ctx, "git", args...) //nolint:gosec // G204: git args are controlled test inputs
 	cmd.Dir = dir
 	out, err := cmd.CombinedOutput()
 	if err != nil {

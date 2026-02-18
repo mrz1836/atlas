@@ -95,7 +95,7 @@ func RenderCIFailureMenu(opts CIFailureMenuOptions) string {
 		sb.WriteString(styles.Warning.Render("Failed Checks:"))
 		sb.WriteString("\n")
 		for _, check := range opts.FailedChecks {
-			sb.WriteString(fmt.Sprintf("  • %s\n", check))
+			fmt.Fprintf(&sb, "  • %s\n", check)
 		}
 		sb.WriteString("\n")
 	}

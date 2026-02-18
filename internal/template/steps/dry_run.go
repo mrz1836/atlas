@@ -26,14 +26,14 @@ type DryRunPlan struct {
 func (p *DryRunPlan) String() string {
 	var sb strings.Builder
 	caser := cases.Title(language.English)
-	sb.WriteString(fmt.Sprintf("[DRY-RUN] %s Step: '%s'\n", caser.String(p.StepType), p.StepName))
+	fmt.Fprintf(&sb, "[DRY-RUN] %s Step: '%s'\n", caser.String(p.StepType), p.StepName)
 	if p.Description != "" {
-		sb.WriteString(fmt.Sprintf("  Description: %s\n", p.Description))
+		fmt.Fprintf(&sb, "  Description: %s\n", p.Description)
 	}
 	if len(p.WouldDo) > 0 {
 		sb.WriteString("  Would:\n")
 		for _, action := range p.WouldDo {
-			sb.WriteString(fmt.Sprintf("    - %s\n", action))
+			fmt.Fprintf(&sb, "    - %s\n", action)
 		}
 	}
 	return sb.String()

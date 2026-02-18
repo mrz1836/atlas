@@ -46,9 +46,9 @@ func TestFileStore_LockTimeout(t *testing.T) {
 	defer func() { _ = lockFile.Close() }()
 
 	// Acquire exclusive lock (blocking)
-	err = syscall.Flock(int(lockFile.Fd()), syscall.LOCK_EX)
+	err = syscall.Flock(int(lockFile.Fd()), syscall.LOCK_EX) //nolint:gosec // G115: uintptr->int for syscall, file descriptors fit in int on all supported platforms
 	require.NoError(t, err)
-	defer func() { _ = syscall.Flock(int(lockFile.Fd()), syscall.LOCK_UN) }()
+	defer func() { _ = syscall.Flock(int(lockFile.Fd()), syscall.LOCK_UN) }() //nolint:gosec // G115: uintptr->int for syscall, file descriptors fit in int on all supported platforms
 
 	// Now try to update the workspace - should timeout
 	// Use a shorter timeout context to speed up the test
@@ -90,9 +90,9 @@ func TestFileStore_ContextCancellationDuringLock(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = lockFile.Close() }()
 
-	err = syscall.Flock(int(lockFile.Fd()), syscall.LOCK_EX)
+	err = syscall.Flock(int(lockFile.Fd()), syscall.LOCK_EX) //nolint:gosec // G115: uintptr->int for syscall, file descriptors fit in int on all supported platforms
 	require.NoError(t, err)
-	defer func() { _ = syscall.Flock(int(lockFile.Fd()), syscall.LOCK_UN) }()
+	defer func() { _ = syscall.Flock(int(lockFile.Fd()), syscall.LOCK_UN) }() //nolint:gosec // G115: uintptr->int for syscall, file descriptors fit in int on all supported platforms
 
 	// Create a context that will be canceled quickly
 	ctx, cancel := context.WithCancel(context.Background())

@@ -189,7 +189,7 @@ func TestResultHandler_HandleResult_PreservesHistory(t *testing.T) {
 			callCount++
 			assert.Equal(t, "validation.json", baseName)
 			// Simulate versioned save
-			return "validation." + string(rune('0'+callCount)) + ".json", nil
+			return "validation." + string(rune('0'+callCount)) + ".json", nil //nolint:gosec // G115: callCount is bounded by test iterations, fits in rune
 		},
 	}
 	logger := zerolog.Nop()

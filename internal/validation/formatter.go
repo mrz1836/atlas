@@ -28,11 +28,11 @@ func FormatResultWithArtifact(result *PipelineResult, artifactPath string) strin
 
 	if result.Success {
 		sb.WriteString("✓ All validations passed\n")
-		sb.WriteString(fmt.Sprintf("  Duration: %dms\n", result.DurationMs))
+		fmt.Fprintf(&sb, "  Duration: %dms\n", result.DurationMs)
 		return sb.String()
 	}
 
-	sb.WriteString(fmt.Sprintf("✗ Validation failed at: %s\n\n", result.FailedStepName))
+	fmt.Fprintf(&sb, "✗ Validation failed at: %s\n\n", result.FailedStepName)
 
 	// Format each failed result
 	for _, r := range result.AllResults() {
@@ -50,14 +50,14 @@ func FormatResultWithArtifact(result *PipelineResult, artifactPath string) strin
 func formatFailedCommand(r Result, artifactPath string) string {
 	var sb strings.Builder
 
-	sb.WriteString(fmt.Sprintf("Command: %s\n", r.Command))
-	sb.WriteString(fmt.Sprintf("Exit code: %d\n", r.ExitCode))
+	fmt.Fprintf(&sb, "Command: %s\n", r.Command)
+	fmt.Fprintf(&sb, "Exit code: %d\n", r.ExitCode)
 
 	if r.Stderr != "" {
 		sb.WriteString("Error output:\n")
 		// Indent stderr for readability
 		for _, line := range strings.Split(r.Stderr, "\n") {
-			sb.WriteString(fmt.Sprintf("  %s\n", line))
+			fmt.Fprintf(&sb, "  %s\n", line)
 		}
 	}
 
@@ -81,7 +81,7 @@ func formatStdout(stdout, artifactPath string) string {
 		sb.WriteString("\nStandard output:\n")
 		// Indent stdout for readability
 		for _, line := range strings.Split(stdout, "\n") {
-			sb.WriteString(fmt.Sprintf("  %s\n", line))
+			fmt.Fprintf(&sb, "  %s\n", line)
 		}
 		return sb.String()
 	}
@@ -94,11 +94,11 @@ func formatStdout(stdout, artifactPath string) string {
 
 	sb.WriteString("\nStandard output (truncated):\n")
 	for _, line := range strings.Split(truncated, "\n") {
-		sb.WriteString(fmt.Sprintf("  %s\n", line))
+		fmt.Fprintf(&sb, "  %s\n", line)
 	}
 	sb.WriteString("  ...[truncated]\n")
 	if artifactPath != "" {
-		sb.WriteString(fmt.Sprintf("📄 Full output saved to: %s\n", artifactPath))
+		fmt.Fprintf(&sb, "📄 Full output saved to: %s\n", artifactPath)
 	}
 	return sb.String()
 }

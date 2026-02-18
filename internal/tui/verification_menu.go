@@ -89,15 +89,15 @@ func RenderVerificationMenu(opts VerificationMenuOptions) string {
 	sb.WriteString("\n")
 	if opts.ErrorCount > 0 {
 		errorStyle := lipgloss.NewStyle().Foreground(ColorError)
-		sb.WriteString(fmt.Sprintf("  • %s\n", errorStyle.Render(fmt.Sprintf("%d error(s)", opts.ErrorCount))))
+		fmt.Fprintf(&sb, "  • %s\n", errorStyle.Render(fmt.Sprintf("%d error(s)", opts.ErrorCount)))
 	}
 	if opts.WarningCount > 0 {
 		warningStyle := lipgloss.NewStyle().Foreground(ColorWarning)
-		sb.WriteString(fmt.Sprintf("  • %s\n", warningStyle.Render(fmt.Sprintf("%d warning(s)", opts.WarningCount))))
+		fmt.Fprintf(&sb, "  • %s\n", warningStyle.Render(fmt.Sprintf("%d warning(s)", opts.WarningCount)))
 	}
 	if opts.InfoCount > 0 {
 		infoStyle := lipgloss.NewStyle().Foreground(ColorPrimary)
-		sb.WriteString(fmt.Sprintf("  • %s\n", infoStyle.Render(fmt.Sprintf("%d info", opts.InfoCount))))
+		fmt.Fprintf(&sb, "  • %s\n", infoStyle.Render(fmt.Sprintf("%d info", opts.InfoCount)))
 	}
 	sb.WriteString("\n")
 

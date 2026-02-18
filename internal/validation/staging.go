@@ -81,7 +81,7 @@ type DefaultGitRunner struct{}
 
 // Run executes a git command and returns its combined output.
 func (r *DefaultGitRunner) Run(ctx context.Context, workDir string, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd := exec.CommandContext(ctx, "git", args...) //nolint:gosec // G204: git args are from internal logic, not user input
 	cmd.Dir = workDir
 	output, err := cmd.CombinedOutput()
 	return string(output), err

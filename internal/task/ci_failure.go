@@ -481,7 +481,7 @@ func FormatManualFixInstructions(worktreePath, workspaceName string, result *git
 	sb.WriteString("CI has failed. Please fix the issues manually.\n\n")
 
 	sb.WriteString("### Worktree Location\n")
-	sb.WriteString(fmt.Sprintf("```\ncd %s\n```\n\n", worktreePath))
+	fmt.Fprintf(&sb, "```\ncd %s\n```\n\n", worktreePath)
 
 	// List failed checks
 	if result != nil && len(result.CheckResults) > 0 {
@@ -489,9 +489,9 @@ func FormatManualFixInstructions(worktreePath, workspaceName string, result *git
 		for _, check := range result.CheckResults {
 			bucket := strings.ToLower(check.Bucket)
 			if bucket == "fail" || bucket == "cancel" {
-				sb.WriteString(fmt.Sprintf("- **%s** (%s)\n", check.Name, check.Bucket))
+				fmt.Fprintf(&sb, "- **%s** (%s)\n", check.Name, check.Bucket)
 				if check.URL != "" {
-					sb.WriteString(fmt.Sprintf("  - Logs: %s\n", check.URL))
+					fmt.Fprintf(&sb, "  - Logs: %s\n", check.URL)
 				}
 			}
 		}
@@ -510,7 +510,7 @@ func FormatManualFixInstructions(worktreePath, workspaceName string, result *git
 	sb.WriteString("   ```\n")
 	sb.WriteString("5. Wait for CI to re-run in GitHub\n")
 	sb.WriteString("6. Once CI passes, resume with:\n")
-	sb.WriteString(fmt.Sprintf("   ```bash\n   atlas resume %s\n   ```\n\n", workspaceName))
+	fmt.Fprintf(&sb, "   ```bash\n   atlas resume %s\n   ```\n\n", workspaceName)
 
 	return sb.String()
 }

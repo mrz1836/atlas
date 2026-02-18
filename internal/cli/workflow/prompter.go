@@ -10,13 +10,12 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/huh"
-	"golang.org/x/term"
-
 	"github.com/mrz1836/atlas/internal/domain"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 	"github.com/mrz1836/atlas/internal/template"
 	"github.com/mrz1836/atlas/internal/tui"
 	"github.com/mrz1836/atlas/internal/workspace"
+	"golang.org/x/term"
 )
 
 // Prompter handles interactive user prompts.
@@ -48,7 +47,7 @@ func (p *Prompter) SelectTemplate(ctx context.Context, registry *template.Regist
 	}
 
 	// Non-interactive mode or JSON output requires template flag
-	if noInteractive || outputFormat == "json" || !term.IsTerminal(int(os.Stdin.Fd())) {
+	if noInteractive || outputFormat == "json" || !term.IsTerminal(int(os.Stdin.Fd())) { //nolint:gosec // G115: uintptr->int for term.IsTerminal, file descriptors fit in int on all supported platforms
 		return nil, atlaserrors.NewExitCode2Error(
 			fmt.Errorf("use --template to specify template: %w", atlaserrors.ErrTemplateRequired))
 	}
@@ -84,7 +83,7 @@ func (p *Prompter) ResolveWorkspaceConflict(ctx context.Context, mgr *workspace.
 	}
 
 	// Check if we're in a terminal
-	if !term.IsTerminal(int(os.Stdin.Fd())) {
+	if !term.IsTerminal(int(os.Stdin.Fd())) { //nolint:gosec // G115: uintptr->int for term.IsTerminal, file descriptors fit in int on all supported platforms
 		return "", fmt.Errorf("workspace '%s': %w (use --workspace to specify a different name)", wsName, atlaserrors.ErrWorkspaceExists)
 	}
 

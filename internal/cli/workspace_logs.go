@@ -15,13 +15,12 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/spf13/cobra"
-
 	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/domain"
 	"github.com/mrz1836/atlas/internal/errors"
 	"github.com/mrz1836/atlas/internal/tui"
 	"github.com/mrz1836/atlas/internal/workspace"
+	"github.com/spf13/cobra"
 )
 
 // logsOptions holds the options for the logs command.
@@ -421,7 +420,7 @@ func outputLogsFormatted(w io.Writer, lines [][]byte) error {
 
 	for _, line := range lines {
 		formatted := formatLogLine(line, styles)
-		_, _ = fmt.Fprintln(w, formatted)
+		_, _ = fmt.Fprintln(w, formatted) //nolint:gosec // G705: writing to local output writer, not an HTTP response writer
 	}
 
 	return nil
@@ -529,7 +528,7 @@ func readNewLines(reader *bufio.Reader, w io.Writer, styles *logStyles, output, 
 		if output == OutputJSON {
 			_, _ = w.Write(line)
 		} else {
-			_, _ = fmt.Fprintln(w, formatLogLine(line, styles))
+			_, _ = fmt.Fprintln(w, formatLogLine(line, styles)) //nolint:gosec // G705: writing to local output writer, not an HTTP response writer
 		}
 	}
 }

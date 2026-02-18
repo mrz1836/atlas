@@ -121,8 +121,6 @@ func TestPowershellCompletionCmd(t *testing.T) {
 
 // TestDetectShell tests shell detection from environment variable.
 func TestDetectShell(t *testing.T) {
-	t.Parallel()
-
 	tests := []struct {
 		name      string
 		shellPath string
@@ -168,21 +166,8 @@ func TestDetectShell(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Save and restore original SHELL environment variable
-			originalShell := os.Getenv("SHELL")
-			defer func() {
-				if originalShell != "" {
-					_ = os.Setenv("SHELL", originalShell)
-				} else {
-					_ = os.Unsetenv("SHELL")
-				}
-			}()
-
-			if tt.setEnv {
-				_ = os.Setenv("SHELL", tt.shellPath)
-			} else {
-				_ = os.Unsetenv("SHELL")
-			}
+			// Use t.Setenv for safe environment variable manipulation with the race detector
+			t.Setenv("SHELL", tt.shellPath) // shellPath is "" for unset cases; os.Getenv returns "" for both unset and empty
 
 			got := detectShell()
 			assert.Equal(t, tt.wantShell, got)
@@ -241,8 +226,6 @@ func TestGetShellRCFile(t *testing.T) {
 
 // TestRunCompletionInstall_Errors tests error cases in runCompletionInstall.
 func TestRunCompletionInstall_Errors(t *testing.T) {
-	t.Parallel()
-
 	tests := []struct {
 		name        string
 		shellFlag   string
@@ -270,21 +253,8 @@ func TestRunCompletionInstall_Errors(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Save and restore original SHELL environment variable
-			originalShell := os.Getenv("SHELL")
-			defer func() {
-				if originalShell != "" {
-					_ = os.Setenv("SHELL", originalShell)
-				} else {
-					_ = os.Unsetenv("SHELL")
-				}
-			}()
-
-			if tt.setShellEnv {
-				_ = os.Setenv("SHELL", tt.shellEnv)
-			} else {
-				_ = os.Unsetenv("SHELL")
-			}
+			// Use t.Setenv for safe environment variable manipulation with the race detector
+			t.Setenv("SHELL", tt.shellEnv) // shellEnv is "" for unset cases; os.Getenv returns "" for both unset and empty
 
 			rootCmd := &cobra.Command{Use: "atlas"}
 			AddCompletionCommand(rootCmd)

@@ -89,7 +89,7 @@ func runeWidth(s string) int {
 // TerminalWidth returns the current terminal width.
 // Returns 0 if width cannot be determined (triggers narrow mode fallback).
 func TerminalWidth() int {
-	width, _, err := term.GetSize(int(os.Stdout.Fd()))
+	width, _, err := term.GetSize(int(os.Stdout.Fd())) //nolint:gosec // G115: uintptr->int for term.GetSize, file descriptors fit in int on all supported platforms
 	if err != nil {
 		return 0 // Fallback to narrow mode
 	}

@@ -90,7 +90,7 @@ func GenerateLegacyID() (string, error) {
 		}
 		// Rejection sampling: only accept values that map uniformly
 		if buf[0] < maxValid {
-			result[i] = legacyChars[buf[0]%byte(len(legacyChars))] //nolint:gosec // index is guaranteed safe by maxValid check
+			result[i] = legacyChars[buf[0]%byte(len(legacyChars))]
 			i++
 		}
 	}
