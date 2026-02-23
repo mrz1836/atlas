@@ -10,7 +10,7 @@ require (
 	github.com/charmbracelet/lipgloss v1.1.1-0.20250404203927-76690c660834
 	github.com/go-viper/mapstructure/v2 v2.5.0
 	github.com/google/uuid v1.6.0
-	github.com/mattn/go-runewidth v0.0.19
+	github.com/mattn/go-runewidth v0.0.20
 	github.com/muesli/termenv v0.16.0
 	github.com/rs/zerolog v1.34.0
 	github.com/spf13/cobra v1.10.2
