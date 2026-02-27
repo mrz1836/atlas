@@ -6,6 +6,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
+	"charm.land/lipgloss/v2"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/mrz1836/atlas/internal/constants"
@@ -15,34 +16,34 @@ import (
 // are exported as constants per UX-4 specification (AC: #1).
 func TestSemanticColors_AllColorsExported(t *testing.T) {
 	// Verify Primary (Blue) is exported
-	assert.NotEmpty(t, ColorPrimary.Light, "ColorPrimary.Light should be defined")
-	assert.NotEmpty(t, ColorPrimary.Dark, "ColorPrimary.Dark should be defined")
-	assert.Equal(t, "#0087AF", ColorPrimary.Light)
-	assert.Equal(t, "#00D7FF", ColorPrimary.Dark)
+	assert.NotNil(t, ColorPrimary.Light, "ColorPrimary.Light should be defined")
+	assert.NotNil(t, ColorPrimary.Dark, "ColorPrimary.Dark should be defined")
+	assert.Equal(t, lipgloss.Color("#0087AF"), ColorPrimary.Light)
+	assert.Equal(t, lipgloss.Color("#00D7FF"), ColorPrimary.Dark)
 
 	// Verify Success (Green) is exported
-	assert.NotEmpty(t, ColorSuccess.Light, "ColorSuccess.Light should be defined")
-	assert.NotEmpty(t, ColorSuccess.Dark, "ColorSuccess.Dark should be defined")
-	assert.Equal(t, "#008700", ColorSuccess.Light)
-	assert.Equal(t, "#00FF87", ColorSuccess.Dark)
+	assert.NotNil(t, ColorSuccess.Light, "ColorSuccess.Light should be defined")
+	assert.NotNil(t, ColorSuccess.Dark, "ColorSuccess.Dark should be defined")
+	assert.Equal(t, lipgloss.Color("#008700"), ColorSuccess.Light)
+	assert.Equal(t, lipgloss.Color("#00FF87"), ColorSuccess.Dark)
 
 	// Verify Warning (Yellow) is exported
-	assert.NotEmpty(t, ColorWarning.Light, "ColorWarning.Light should be defined")
-	assert.NotEmpty(t, ColorWarning.Dark, "ColorWarning.Dark should be defined")
-	assert.Equal(t, "#AF8700", ColorWarning.Light)
-	assert.Equal(t, "#FFD700", ColorWarning.Dark)
+	assert.NotNil(t, ColorWarning.Light, "ColorWarning.Light should be defined")
+	assert.NotNil(t, ColorWarning.Dark, "ColorWarning.Dark should be defined")
+	assert.Equal(t, lipgloss.Color("#AF8700"), ColorWarning.Light)
+	assert.Equal(t, lipgloss.Color("#FFD700"), ColorWarning.Dark)
 
 	// Verify Error (Red) is exported
-	assert.NotEmpty(t, ColorError.Light, "ColorError.Light should be defined")
-	assert.NotEmpty(t, ColorError.Dark, "ColorError.Dark should be defined")
-	assert.Equal(t, "#AF0000", ColorError.Light)
-	assert.Equal(t, "#FF5F5F", ColorError.Dark)
+	assert.NotNil(t, ColorError.Light, "ColorError.Light should be defined")
+	assert.NotNil(t, ColorError.Dark, "ColorError.Dark should be defined")
+	assert.Equal(t, lipgloss.Color("#AF0000"), ColorError.Light)
+	assert.Equal(t, lipgloss.Color("#FF5F5F"), ColorError.Dark)
 
 	// Verify Muted (Gray) is exported
-	assert.NotEmpty(t, ColorMuted.Light, "ColorMuted.Light should be defined")
-	assert.NotEmpty(t, ColorMuted.Dark, "ColorMuted.Dark should be defined")
-	assert.Equal(t, "#585858", ColorMuted.Light)
-	assert.Equal(t, "#6C6C6C", ColorMuted.Dark)
+	assert.NotNil(t, ColorMuted.Light, "ColorMuted.Light should be defined")
+	assert.NotNil(t, ColorMuted.Dark, "ColorMuted.Dark should be defined")
+	assert.Equal(t, lipgloss.Color("#585858"), ColorMuted.Light)
+	assert.Equal(t, lipgloss.Color("#6C6C6C"), ColorMuted.Dark)
 }
 
 func TestStatusColors(t *testing.T) {
@@ -57,10 +58,10 @@ func TestStatusColors(t *testing.T) {
 
 	for _, status := range statuses {
 		t.Run(string(status), func(t *testing.T) {
-			color, ok := colors[status]
+			c, ok := colors[status]
 			assert.True(t, ok, "color should be defined for status %s", status)
-			assert.NotEmpty(t, color.Light, "light color should be defined")
-			assert.NotEmpty(t, color.Dark, "dark color should be defined")
+			assert.NotNil(t, c.Light, "light color should be defined")
+			assert.NotNil(t, c.Dark, "dark color should be defined")
 		})
 	}
 }
@@ -107,10 +108,10 @@ func TestTaskStatusColors(t *testing.T) {
 
 	for _, status := range statuses {
 		t.Run(string(status), func(t *testing.T) {
-			color, ok := colors[status]
+			c, ok := colors[status]
 			assert.True(t, ok, "color should be defined for status %s", status)
-			assert.NotEmpty(t, color.Light, "light color should be defined")
-			assert.NotEmpty(t, color.Dark, "dark color should be defined")
+			assert.NotNil(t, c.Light, "light color should be defined")
+			assert.NotNil(t, c.Dark, "dark color should be defined")
 		})
 	}
 }
@@ -345,12 +346,12 @@ func TestStyleSystem_NewStyleSystem(t *testing.T) {
 	assert.NotNil(t, sys)
 
 	// Verify colors are initialized
-	assert.NotEmpty(t, sys.Colors.Primary.Light)
-	assert.NotEmpty(t, sys.Colors.Primary.Dark)
-	assert.NotEmpty(t, sys.Colors.Success.Light)
-	assert.NotEmpty(t, sys.Colors.Warning.Light)
-	assert.NotEmpty(t, sys.Colors.Error.Light)
-	assert.NotEmpty(t, sys.Colors.Muted.Light)
+	assert.NotNil(t, sys.Colors.Primary.Light)
+	assert.NotNil(t, sys.Colors.Primary.Dark)
+	assert.NotNil(t, sys.Colors.Success.Light)
+	assert.NotNil(t, sys.Colors.Warning.Light)
+	assert.NotNil(t, sys.Colors.Error.Light)
+	assert.NotNil(t, sys.Colors.Muted.Light)
 
 	// Verify typography is initialized
 	assert.NotNil(t, sys.Typography.Bold)

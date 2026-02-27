@@ -8,6 +8,8 @@ import (
 	"io"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/charmbracelet/colorprofile"
 )
 
 // TTYOutput provides styled terminal output using Lip Gloss (AC: #3).
@@ -20,9 +22,17 @@ type TTYOutput struct {
 
 // NewTTYOutput creates a new TTYOutput with styled output (AC: #3, #7).
 // Respects NO_COLOR environment variable via CheckNoColor().
+// In lipgloss v2, Style.Render() always produces ANSI codes, so when colors
+// are disabled we wrap the writer with a colorprofile.Writer to strip them.
 func NewTTYOutput(w io.Writer) *TTYOutput {
 	// Respect NO_COLOR environment variable (AC: #7)
 	CheckNoColor()
+
+	// In lipgloss v2, Style.Render() is pure (always emits ANSI).
+	// Wrap the writer to strip ANSI codes when colors are disabled.
+	if !HasColorSupport() {
+		w = &colorprofile.Writer{Forward: w, Profile: colorprofile.Ascii}
+	}
 
 	return &TTYOutput{
 		w:      w,

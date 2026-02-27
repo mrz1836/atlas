@@ -6,8 +6,8 @@ import (
 	"io"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/progress"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/progress"
+	"charm.land/lipgloss/v2"
 
 	"github.com/mrz1836/atlas/internal/constants"
 )
@@ -26,7 +26,7 @@ type ProgressOption func(*ProgressBar)
 func WithWidth(w int) ProgressOption {
 	return func(pb *ProgressBar) {
 		pb.width = w
-		pb.bar.Width = w
+		pb.bar.SetWidth(w)
 	}
 }
 
@@ -39,13 +39,14 @@ func NewProgressBar(width int, opts ...ProgressOption) *ProgressBar {
 		// Use ATLAS branding gradient (ColorPrimary light → dark)
 		bar = progress.New(
 			progress.WithWidth(width),
-			progress.WithScaledGradient("#0087AF", "#00D7FF"), // Match ColorPrimary
+			progress.WithColors(lipgloss.Color("#0087AF"), lipgloss.Color("#00D7FF")), // Match ColorPrimary
+			progress.WithScaled(true),
 		)
 	} else {
-		// NO_COLOR mode: use solid fill
+		// NO_COLOR mode: use single color fill
 		bar = progress.New(
 			progress.WithWidth(width),
-			progress.WithSolidFill("#808080"),
+			progress.WithColors(lipgloss.Color("#808080")),
 		)
 	}
 
@@ -83,7 +84,7 @@ func (pb *ProgressBar) Width() int {
 // SetWidth updates the progress bar width.
 func (pb *ProgressBar) SetWidth(w int) {
 	pb.width = w
-	pb.bar.Width = w
+	pb.bar.SetWidth(w)
 }
 
 // StepProgress holds step progress information for display.

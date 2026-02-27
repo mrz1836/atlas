@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/domain"
@@ -125,7 +125,7 @@ func (m *WatchModel) Init() tea.Cmd {
 // Update handles messages and returns the updated model and any commands.
 func (m *WatchModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		switch msg.String() {
 		case "q", "ctrl+c":
 			m.quitting = true
@@ -162,10 +162,10 @@ func (m *WatchModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// View renders the current state to a string.
-func (m *WatchModel) View() string {
+// View renders the current state as a tea.View.
+func (m *WatchModel) View() tea.View {
 	if m.quitting {
-		return ""
+		return tea.NewView("")
 	}
 
 	var b strings.Builder
@@ -210,7 +210,9 @@ func (m *WatchModel) View() string {
 	}
 	b.WriteString("\nPress 'q' to quit")
 
-	return b.String()
+	v := tea.NewView(b.String())
+	v.AltScreen = true
+	return v
 }
 
 // Rows returns the current status rows (useful for testing).

@@ -711,14 +711,17 @@ func TestRenderPRLine(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			result := renderPRLine(tt.prURL, tt.mode)
 
-			// Verify label is present
-			assert.Contains(t, result, tt.expectLabel)
+			// Strip ANSI since lipgloss v2 Render() always emits escape codes
+			visible := stripANSI(result)
 
-			// Verify PR number/URL is present (may be wrapped in ANSI codes)
-			assert.Contains(t, result, tt.expectPR)
+			// Verify label is present
+			assert.Contains(t, visible, tt.expectLabel)
+
+			// Verify PR number/URL is present
+			assert.Contains(t, visible, tt.expectPR)
 
 			// Verify not truncated to "..."
-			assert.NotContains(t, result, "...")
+			assert.NotContains(t, visible, "...")
 
 			// Verify line ends with newline
 			assert.True(t, len(result) > 0 && result[len(result)-1] == '\n')
@@ -746,11 +749,14 @@ func TestRenderPRLine_NoTruncation(t *testing.T) {
 		t.Run(m.name, func(t *testing.T) {
 			result := renderPRLine(longURL, m.mode)
 
+			// Strip ANSI since lipgloss v2 Render() always emits escape codes
+			visible := stripANSI(result)
+
 			// Should contain the PR number
-			assert.Contains(t, result, "#12345")
+			assert.Contains(t, visible, "#12345")
 
 			// Should never be truncated
-			assert.NotContains(t, result, "...")
+			assert.NotContains(t, visible, "...")
 		})
 	}
 }

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -107,7 +107,7 @@ func TestWatchModel_Update_KeyQuit(t *testing.T) {
 	model := NewWatchModel(context.Background(), mockWs, mockTask, cfg)
 
 	// Simulate 'q' key press
-	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}}
+	msg := tea.KeyPressMsg{Code: 'q', Text: "q"}
 	updatedModel, cmd := model.Update(msg)
 
 	watchModel := updatedModel.(*WatchModel)
@@ -126,7 +126,7 @@ func TestWatchModel_Update_KeyCtrlC(t *testing.T) {
 	model := NewWatchModel(context.Background(), mockWs, mockTask, cfg)
 
 	// Simulate Ctrl+C key press
-	msg := tea.KeyMsg{Type: tea.KeyCtrlC}
+	msg := tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl}
 	updatedModel, cmd := model.Update(msg)
 
 	watchModel := updatedModel.(*WatchModel)
@@ -226,7 +226,7 @@ func TestWatchModel_View_Empty(t *testing.T) {
 	cfg := DefaultWatchConfig()
 	model := NewWatchModel(context.Background(), mockWs, mockTask, cfg)
 
-	view := model.View()
+	view := model.View().Content
 
 	// Header uses ASCII art (█████╗) in wide mode or "ATLAS" text in narrow mode
 	assert.True(t, strings.Contains(view, "█████╗") || strings.Contains(view, "ATLAS"),
@@ -247,7 +247,7 @@ func TestWatchModel_View_Quitting(t *testing.T) {
 	model := NewWatchModel(context.Background(), mockWs, mockTask, cfg)
 	model.quitting = true
 
-	view := model.View()
+	view := model.View().Content
 
 	assert.Empty(t, view)
 }
@@ -279,7 +279,7 @@ func TestWatchModel_View_WithData(t *testing.T) {
 	}
 	model.lastUpdate = time.Now()
 
-	view := model.View()
+	view := model.View().Content
 
 	// Header uses ASCII art (█████╗) in wide mode or "ATLAS" text in narrow mode
 	assert.True(t, strings.Contains(view, "█████╗") || strings.Contains(view, "ATLAS"),
@@ -316,7 +316,7 @@ func TestWatchModel_View_Quiet(t *testing.T) {
 	}
 	model.lastUpdate = time.Now()
 
-	view := model.View()
+	view := model.View().Content
 
 	// Quiet mode should NOT show header or footer
 	assert.NotContains(t, view, "ATLAS")
@@ -338,7 +338,7 @@ func TestWatchModel_View_WithError(t *testing.T) {
 	model := NewWatchModel(context.Background(), mockWs, mockTask, cfg)
 	model.err = assert.AnError
 
-	view := model.View()
+	view := model.View().Content
 
 	assert.Contains(t, view, "Error:")
 }
@@ -850,7 +850,7 @@ func TestWatchModel_ViewContainsTimestamp(t *testing.T) {
 	testTime := time.Date(2025, 12, 31, 14, 30, 45, 0, time.UTC)
 	model.lastUpdate = testTime
 
-	view := model.View()
+	view := model.View().Content
 
 	assert.Contains(t, view, "Last updated: 14:30:45")
 }
@@ -865,7 +865,7 @@ func TestWatchModel_NoTimestampBeforeFirstRefresh(t *testing.T) {
 	cfg := DefaultWatchConfig()
 	model := NewWatchModel(context.Background(), mockWs, mockTask, cfg)
 
-	view := model.View()
+	view := model.View().Content
 
 	// Before first refresh, lastUpdate is zero, so no timestamp
 	assert.NotContains(t, view, "Last updated:")
@@ -1030,7 +1030,7 @@ func TestWatchModel_TableRendering(t *testing.T) {
 	model.lastUpdate = time.Now()
 	model.width = 120 // Set a wide terminal
 
-	view := model.View()
+	view := model.View().Content
 
 	// Verify table content is present
 	assert.True(t, strings.Contains(view, "auth") && strings.Contains(view, "feat/auth"),

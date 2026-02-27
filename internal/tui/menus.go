@@ -34,7 +34,7 @@ import (
 	"os"
 
 	"github.com/charmbracelet/huh"
-	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/lipgloss" // v1 - required for huh v0.8.0 Theme type compatibility
 	"golang.org/x/term"
 
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
@@ -208,25 +208,33 @@ func runFormWithConfig(field huh.Field, cfg *MenuConfig, errorContext string) er
 	return nil
 }
 
-// AtlasTheme returns a custom Huh theme using ATLAS colors from styles.go (AC: #2, #9).
-// Uses AdaptiveColor for proper light/dark terminal support.
+// AtlasTheme returns a custom Huh theme using ATLAS colors (AC: #2, #9).
+// Uses lipgloss v1 AdaptiveColor because huh v0.8.0 depends on lipgloss v1 types.
+// Color values are duplicated from styles.go constants to bridge the v1/v2 gap.
 func AtlasTheme() *huh.Theme {
 	// Check color support (NO_COLOR handling)
 	CheckNoColor()
+
+	// Lipgloss v1 color literals matching the v2 constants in styles.go.
+	// Required because huh v0.8.0 uses lipgloss v1 types.
+	colorPrimary := lipgloss.AdaptiveColor{Light: "#0087AF", Dark: "#00D7FF"}
+	colorSuccess := lipgloss.AdaptiveColor{Light: "#008700", Dark: "#00FF87"}
+	colorError := lipgloss.AdaptiveColor{Light: "#AF0000", Dark: "#FF5F5F"}
+	colorMuted := lipgloss.AdaptiveColor{Light: "#585858", Dark: "#6C6C6C"}
 
 	// Start with base theme and customize
 	t := huh.ThemeBase()
 
 	// Map ColorPrimary to focused state (uses AdaptiveColor for light/dark support)
-	t.Focused.Base = t.Focused.Base.BorderForeground(ColorPrimary)
-	t.Focused.Title = t.Focused.Title.Foreground(ColorPrimary)
-	t.Focused.SelectSelector = t.Focused.SelectSelector.Foreground(ColorPrimary)
-	t.Focused.SelectedOption = t.Focused.SelectedOption.Foreground(ColorPrimary)
-	t.Focused.TextInput.Cursor = t.Focused.TextInput.Cursor.Foreground(ColorPrimary)
+	t.Focused.Base = t.Focused.Base.BorderForeground(colorPrimary)
+	t.Focused.Title = t.Focused.Title.Foreground(colorPrimary)
+	t.Focused.SelectSelector = t.Focused.SelectSelector.Foreground(colorPrimary)
+	t.Focused.SelectedOption = t.Focused.SelectedOption.Foreground(colorPrimary)
+	t.Focused.TextInput.Cursor = t.Focused.TextInput.Cursor.Foreground(colorPrimary)
 
 	// Button styling - use ColorPrimary for focused (active) button
 	t.Focused.FocusedButton = lipgloss.NewStyle().
-		Background(ColorPrimary).
+		Background(colorPrimary).
 		Foreground(lipgloss.AdaptiveColor{Light: "#FFFFFF", Dark: "#000000"}).
 		Bold(true).
 		Padding(0, 2).
@@ -234,23 +242,23 @@ func AtlasTheme() *huh.Theme {
 
 	// Use ColorMuted for blurred (inactive) button
 	t.Focused.BlurredButton = lipgloss.NewStyle().
-		Background(ColorMuted).
+		Background(colorMuted).
 		Foreground(lipgloss.AdaptiveColor{Light: "#FFFFFF", Dark: "#EEEEEE"}).
 		Padding(0, 2).
 		MarginRight(1)
 
 	// Map ColorSuccess to selected/completed state
-	t.Focused.SelectedPrefix = t.Focused.SelectedPrefix.Foreground(ColorSuccess)
+	t.Focused.SelectedPrefix = t.Focused.SelectedPrefix.Foreground(colorSuccess)
 
 	// Map ColorError to error/validation failed state
-	t.Focused.ErrorMessage = t.Focused.ErrorMessage.Foreground(ColorError)
-	t.Focused.ErrorIndicator = t.Focused.ErrorIndicator.Foreground(ColorError)
+	t.Focused.ErrorMessage = t.Focused.ErrorMessage.Foreground(colorError)
+	t.Focused.ErrorIndicator = t.Focused.ErrorIndicator.Foreground(colorError)
 
 	// Map ColorMuted to unfocused/help text state
-	t.Blurred.Base = t.Blurred.Base.BorderForeground(ColorMuted)
-	t.Blurred.Title = t.Blurred.Title.Foreground(ColorMuted)
-	t.Focused.Description = t.Focused.Description.Foreground(ColorMuted)
-	t.Help.Ellipsis = t.Help.Ellipsis.Foreground(ColorMuted)
+	t.Blurred.Base = t.Blurred.Base.BorderForeground(colorMuted)
+	t.Blurred.Title = t.Blurred.Title.Foreground(colorMuted)
+	t.Focused.Description = t.Focused.Description.Foreground(colorMuted)
+	t.Help.Ellipsis = t.Help.Ellipsis.Foreground(colorMuted)
 
 	return t
 }

@@ -25,13 +25,15 @@ package tui
 
 import (
 	"fmt"
+	"image/color"
 	"os"
 	"strings"
 	"sync"
 
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
+	"charm.land/lipgloss/v2/compat"
+	"github.com/charmbracelet/colorprofile"
 	"github.com/mattn/go-runewidth"
-	"github.com/muesli/termenv"
 
 	"github.com/mrz1836/atlas/internal/constants"
 )
@@ -66,29 +68,29 @@ const (
 //nolint:gochecknoglobals // Intentional package-level constants for TUI styling API
 var (
 	// ColorPrimary is blue, used for active states, links, and primary actions (UX-4).
-	ColorPrimary = lipgloss.AdaptiveColor{Light: "#0087AF", Dark: "#00D7FF"}
+	ColorPrimary = compat.AdaptiveColor{Light: lipgloss.Color("#0087AF"), Dark: lipgloss.Color("#00D7FF")}
 
 	// ColorSuccess is green, used for success states and completed items (UX-4).
-	ColorSuccess = lipgloss.AdaptiveColor{Light: "#008700", Dark: "#00FF87"}
+	ColorSuccess = compat.AdaptiveColor{Light: lipgloss.Color("#008700"), Dark: lipgloss.Color("#00FF87")}
 
 	// ColorWarning is yellow, used for warning states and attention-required items (UX-4).
-	ColorWarning = lipgloss.AdaptiveColor{Light: "#AF8700", Dark: "#FFD700"}
+	ColorWarning = compat.AdaptiveColor{Light: lipgloss.Color("#AF8700"), Dark: lipgloss.Color("#FFD700")}
 
 	// ColorError is red, used for error states and failed items (UX-4).
-	ColorError = lipgloss.AdaptiveColor{Light: "#AF0000", Dark: "#FF5F5F"}
+	ColorError = compat.AdaptiveColor{Light: lipgloss.Color("#AF0000"), Dark: lipgloss.Color("#FF5F5F")}
 
 	// ColorMuted is gray, used for dim/inactive states and secondary text (UX-4).
-	ColorMuted = lipgloss.AdaptiveColor{Light: "#585858", Dark: "#6C6C6C"}
+	ColorMuted = compat.AdaptiveColor{Light: lipgloss.Color("#585858"), Dark: lipgloss.Color("#6C6C6C")}
 
 	// LogoGradientColors defines the gradient colors for the ASCII logo (top to bottom).
 	// Creates a 3D depth effect: bright cyan at top fading to deep blue at bottom.
-	LogoGradientColors = []lipgloss.AdaptiveColor{
-		{Light: "#00D7FF", Dark: "#00FFFF"}, // Brightest cyan (top)
-		{Light: "#00AFFF", Dark: "#00D7FF"},
-		{Light: "#0087FF", Dark: "#00AFFF"},
-		{Light: "#005FD7", Dark: "#0087FF"},
-		{Light: "#005FAF", Dark: "#005FD7"},
-		{Light: "#00438B", Dark: "#005FAF"}, // Deepest blue (bottom)
+	LogoGradientColors = []compat.AdaptiveColor{
+		{Light: lipgloss.Color("#00D7FF"), Dark: lipgloss.Color("#00FFFF")}, // Brightest cyan (top)
+		{Light: lipgloss.Color("#00AFFF"), Dark: lipgloss.Color("#00D7FF")},
+		{Light: lipgloss.Color("#0087FF"), Dark: lipgloss.Color("#00AFFF")},
+		{Light: lipgloss.Color("#005FD7"), Dark: lipgloss.Color("#0087FF")},
+		{Light: lipgloss.Color("#005FAF"), Dark: lipgloss.Color("#005FD7")},
+		{Light: lipgloss.Color("#00438B"), Dark: lipgloss.Color("#005FAF")}, // Deepest blue (bottom)
 	}
 
 	// StyleBold applies bold formatting to text (AC: #3).
@@ -107,8 +109,8 @@ var (
 // StatusColors returns the semantic color definitions for workspace statuses.
 // Uses AdaptiveColor for light/dark terminal support (UX-6).
 // References the package-level color constants for consistency.
-func StatusColors() map[constants.WorkspaceStatus]lipgloss.AdaptiveColor {
-	return map[constants.WorkspaceStatus]lipgloss.AdaptiveColor{
+func StatusColors() map[constants.WorkspaceStatus]compat.AdaptiveColor {
+	return map[constants.WorkspaceStatus]compat.AdaptiveColor{
 		constants.WorkspaceStatusActive: ColorPrimary, // Blue - active state
 		constants.WorkspaceStatusPaused: ColorMuted,   // Gray - paused state
 		constants.WorkspaceStatusClosed: ColorMuted,   // Gray - closed state
@@ -120,7 +122,7 @@ type TableStyles struct {
 	Header       lipgloss.Style
 	Cell         lipgloss.Style
 	Dim          lipgloss.Style
-	StatusColors map[constants.WorkspaceStatus]lipgloss.AdaptiveColor
+	StatusColors map[constants.WorkspaceStatus]compat.AdaptiveColor
 }
 
 // NewTableStyles creates styles for table rendering.
@@ -128,10 +130,10 @@ func NewTableStyles() *TableStyles {
 	return &TableStyles{
 		Header: lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.AdaptiveColor{Light: "#333333", Dark: "#DDDDDD"}),
+			Foreground(compat.AdaptiveColor{Light: lipgloss.Color("#333333"), Dark: lipgloss.Color("#DDDDDD")}),
 		Cell: lipgloss.NewStyle(),
 		Dim: lipgloss.NewStyle().
-			Foreground(lipgloss.AdaptiveColor{Light: "#666666", Dark: "#888888"}),
+			Foreground(compat.AdaptiveColor{Light: lipgloss.Color("#666666"), Dark: lipgloss.Color("#888888")}),
 		StatusColors: StatusColors(),
 	}
 }
@@ -185,7 +187,7 @@ func NewOutputStyles() *OutputStyles {
 // Call this at the start of commands that output styled text.
 func CheckNoColor() {
 	if !HasColorSupport() {
-		lipgloss.SetColorProfile(termenv.Ascii)
+		lipgloss.Writer.Profile = colorprofile.Ascii
 	}
 }
 
@@ -210,8 +212,8 @@ func HasColorSupport() bool {
 // TaskStatusColors returns the semantic color definitions for task statuses.
 // Uses AdaptiveColor for light/dark terminal support (UX-6).
 // References the package-level color constants for consistency.
-func TaskStatusColors() map[constants.TaskStatus]lipgloss.AdaptiveColor {
-	return map[constants.TaskStatus]lipgloss.AdaptiveColor{
+func TaskStatusColors() map[constants.TaskStatus]compat.AdaptiveColor {
+	return map[constants.TaskStatus]compat.AdaptiveColor{
 		// Active states - Blue
 		constants.TaskStatusPending:    ColorPrimary,
 		constants.TaskStatusRunning:    ColorPrimary,
@@ -364,11 +366,11 @@ type StyleSystem struct {
 
 // ColorPalette holds all semantic colors.
 type ColorPalette struct {
-	Primary lipgloss.AdaptiveColor
-	Success lipgloss.AdaptiveColor
-	Warning lipgloss.AdaptiveColor
-	Error   lipgloss.AdaptiveColor
-	Muted   lipgloss.AdaptiveColor
+	Primary compat.AdaptiveColor
+	Success compat.AdaptiveColor
+	Warning compat.AdaptiveColor
+	Error   compat.AdaptiveColor
+	Muted   compat.AdaptiveColor
 }
 
 // TypographyStyles holds all text formatting styles.
@@ -613,17 +615,17 @@ func padRight(s string, width int) string {
 
 // HeaderStyle creates a styled header with the given color.
 // Used for consistent menu headers across TUI components.
-func HeaderStyle(color lipgloss.TerminalColor) lipgloss.Style {
+func HeaderStyle(c color.Color) lipgloss.Style {
 	return lipgloss.NewStyle().
 		Bold(true).
-		Foreground(color).
+		Foreground(c).
 		MarginBottom(1)
 }
 
 // RenderStyledHeader renders a styled header with icon and text.
 // This provides consistent header styling across menu components.
-func RenderStyledHeader(icon, text string, color lipgloss.TerminalColor) string {
-	style := HeaderStyle(color)
+func RenderStyledHeader(icon, text string, c color.Color) string {
+	style := HeaderStyle(c)
 	return style.Render(icon + " " + text)
 }
 
