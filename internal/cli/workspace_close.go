@@ -10,8 +10,8 @@ import (
 	"os"
 	"strings"
 
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/huh"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
 

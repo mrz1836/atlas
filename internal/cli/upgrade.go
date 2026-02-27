@@ -11,8 +11,8 @@ import (
 	"strings"
 	"sync"
 
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/huh"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 	"golang.org/x/sync/errgroup"
 

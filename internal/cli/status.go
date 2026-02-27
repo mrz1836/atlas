@@ -11,7 +11,7 @@ import (
 	"sort"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/spf13/cobra"
 
 	"github.com/mrz1836/atlas/internal/config"
@@ -567,8 +567,8 @@ func runWatchMode(ctx context.Context, wsMgr tui.WorkspaceLister, taskStore tui.
 	// Create the watch model with context for proper cancellation propagation
 	model := tui.NewWatchModel(ctx, wsMgr, taskStore, watchCfg)
 
-	// Create and run the Bubble Tea program with alternate screen and context
-	p := tea.NewProgram(model, tea.WithAltScreen(), tea.WithContext(ctx))
+	// Create and run the Bubble Tea program with context (AltScreen is now set declaratively in View())
+	p := tea.NewProgram(model, tea.WithContext(ctx))
 
 	_, err = p.Run()
 	if err != nil {

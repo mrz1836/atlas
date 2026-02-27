@@ -10,8 +10,8 @@ import (
 	"os"
 	"path/filepath"
 
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/huh"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"

@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/huh"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 

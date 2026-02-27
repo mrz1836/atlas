@@ -8,7 +8,8 @@ import (
 	"io"
 	"os"
 
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
+	"charm.land/lipgloss/v2/compat"
 	"github.com/spf13/cobra"
 
 	"github.com/mrz1836/atlas/internal/constants"
@@ -23,7 +24,7 @@ type tableStyles struct {
 	header       lipgloss.Style
 	cell         lipgloss.Style
 	dim          lipgloss.Style
-	statusColors map[constants.WorkspaceStatus]lipgloss.AdaptiveColor
+	statusColors map[constants.WorkspaceStatus]compat.AdaptiveColor
 }
 
 // newTableStyles creates styles for the workspace list table.
@@ -31,15 +32,15 @@ func newTableStyles() *tableStyles {
 	return &tableStyles{
 		header: lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.AdaptiveColor{Light: "#333333", Dark: "#DDDDDD"}),
+			Foreground(compat.AdaptiveColor{Light: lipgloss.Color("#333333"), Dark: lipgloss.Color("#DDDDDD")}),
 		cell: lipgloss.NewStyle(),
 		dim: lipgloss.NewStyle().
-			Foreground(lipgloss.AdaptiveColor{Light: "#666666", Dark: "#888888"}),
+			Foreground(compat.AdaptiveColor{Light: lipgloss.Color("#666666"), Dark: lipgloss.Color("#888888")}),
 		// Semantic colors for workspace statuses (UX-6)
-		statusColors: map[constants.WorkspaceStatus]lipgloss.AdaptiveColor{
-			constants.WorkspaceStatusActive: {Light: "#0087AF", Dark: "#00D7FF"}, // Blue
-			constants.WorkspaceStatusPaused: {Light: "#585858", Dark: "#6C6C6C"}, // Gray
-			constants.WorkspaceStatusClosed: {Light: "#585858", Dark: "#6C6C6C"}, // Dim
+		statusColors: map[constants.WorkspaceStatus]compat.AdaptiveColor{
+			constants.WorkspaceStatusActive: {Light: lipgloss.Color("#0087AF"), Dark: lipgloss.Color("#00D7FF")}, // Blue
+			constants.WorkspaceStatusPaused: {Light: lipgloss.Color("#585858"), Dark: lipgloss.Color("#6C6C6C")}, // Gray
+			constants.WorkspaceStatusClosed: {Light: lipgloss.Color("#585858"), Dark: lipgloss.Color("#6C6C6C")}, // Dim
 		},
 	}
 }
@@ -218,6 +219,6 @@ func outputWorkspacesTable(w io.Writer, workspaces []*domain.Workspace) error {
 
 // getStatusColors returns the semantic color definitions for workspace statuses.
 // Exported for testing purposes. Delegates to tui package.
-func getStatusColors() map[constants.WorkspaceStatus]lipgloss.AdaptiveColor {
+func getStatusColors() map[constants.WorkspaceStatus]compat.AdaptiveColor {
 	return tui.StatusColors()
 }
