@@ -4,9 +4,10 @@ import (
 	"io"
 	"testing"
 
-	"github.com/mrz1836/atlas/internal/tui"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/mrz1836/atlas/internal/tui"
 )
 
 func TestNewOrchestrator(t *testing.T) {

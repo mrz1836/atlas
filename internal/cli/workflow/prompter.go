@@ -10,12 +10,13 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/huh"
+	"golang.org/x/term"
+
 	"github.com/mrz1836/atlas/internal/domain"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 	"github.com/mrz1836/atlas/internal/template"
 	"github.com/mrz1836/atlas/internal/tui"
 	"github.com/mrz1836/atlas/internal/workspace"
-	"golang.org/x/term"
 )
 
 // Prompter handles interactive user prompts.

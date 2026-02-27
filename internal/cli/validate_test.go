@@ -8,12 +8,13 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/mrz1836/atlas/internal/errors"
-	"github.com/mrz1836/atlas/internal/tui"
-	"github.com/mrz1836/atlas/internal/validation"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/mrz1836/atlas/internal/errors"
+	"github.com/mrz1836/atlas/internal/tui"
+	"github.com/mrz1836/atlas/internal/validation"
 )
 
 // mockValidationRunner implements ValidationRunner for fast testing.

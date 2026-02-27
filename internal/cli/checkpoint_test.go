@@ -7,11 +7,12 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/mrz1836/atlas/internal/domain"
-	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/mrz1836/atlas/internal/domain"
+	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 )
 
 // createCheckpointTestCmd creates a test command for checkpoint tests.

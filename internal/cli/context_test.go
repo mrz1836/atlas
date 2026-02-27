@@ -7,10 +7,11 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/mrz1836/atlas/internal/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
+
+	"github.com/mrz1836/atlas/internal/config"
 )
 
 // setupTestRepo creates a temporary git repository for testing.

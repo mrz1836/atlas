@@ -6,12 +6,13 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/rs/zerolog"
+
 	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/domain"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 	"github.com/mrz1836/atlas/internal/git"
 	"github.com/mrz1836/atlas/internal/workspace"
-	"github.com/rs/zerolog"
 )
 
 // Initializer handles workspace and task initialization.

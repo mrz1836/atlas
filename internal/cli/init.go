@@ -14,13 +14,14 @@ import (
 
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
+
 	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/constants"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 	"github.com/mrz1836/atlas/internal/git"
 	"github.com/mrz1836/atlas/internal/tui"
-	"github.com/spf13/cobra"
-	"gopkg.in/yaml.v3"
 )
 
 // InitFlags holds flags specific to the init command.
