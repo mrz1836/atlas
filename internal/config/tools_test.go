@@ -132,15 +132,15 @@ func TestToolDetector_DetectGo(t *testing.T) {
 	}{
 		{
 			name:            "installed and current",
-			versionOutput:   "go version go1.24.2 darwin/arm64",
+			versionOutput:   "go version go1.25.2 darwin/arm64",
 			expectedStatus:  ToolStatusInstalled,
-			expectedVersion: "1.24.2",
+			expectedVersion: "1.25.2",
 		},
 		{
 			name:            "installed exact minimum",
-			versionOutput:   "go version go1.24.0 linux/amd64",
+			versionOutput:   "go version go1.25.0 linux/amd64",
 			expectedStatus:  ToolStatusInstalled,
-			expectedVersion: "1.24.0",
+			expectedVersion: "1.25.0",
 		},
 		{
 			name:            "outdated version",
@@ -355,8 +355,8 @@ func TestCompareVersions(t *testing.T) {
 		// Equal versions
 		{
 			name:     "equal versions",
-			current:  "1.24.0",
-			required: "1.24.0",
+			current:  "1.25.0",
+			required: "1.25.0",
 			expected: 0,
 		},
 		{
@@ -369,34 +369,34 @@ func TestCompareVersions(t *testing.T) {
 		// Current greater than required
 		{
 			name:     "current patch greater",
-			current:  "1.24.2",
-			required: "1.24.0",
+			current:  "1.25.2",
+			required: "1.25.0",
 			expected: 1,
 		},
 		{
 			name:     "current minor greater",
-			current:  "1.25.0",
-			required: "1.24.0",
+			current:  "1.26.0",
+			required: "1.25.0",
 			expected: 1,
 		},
 		{
 			name:     "current major greater",
 			current:  "2.0.0",
-			required: "1.24.0",
+			required: "1.25.0",
 			expected: 1,
 		},
 
 		// Current less than required
 		{
 			name:     "current patch less",
-			current:  "1.24.0",
-			required: "1.24.2",
+			current:  "1.25.0",
+			required: "1.25.2",
 			expected: -1,
 		},
 		{
 			name:     "current minor less",
-			current:  "1.23.0",
-			required: "1.24.0",
+			current:  "1.24.0",
+			required: "1.25.0",
 			expected: -1,
 		},
 		{
@@ -409,14 +409,14 @@ func TestCompareVersions(t *testing.T) {
 		// Partial versions
 		{
 			name:     "partial current version",
-			current:  "1.24",
-			required: "1.24.0",
+			current:  "1.25",
+			required: "1.25.0",
 			expected: 0,
 		},
 		{
 			name:     "partial required version",
-			current:  "1.24.5",
-			required: "1.24",
+			current:  "1.25.5",
+			required: "1.25",
 			expected: 1,
 		},
 
@@ -482,7 +482,7 @@ func TestFormatMissingToolsError(t *testing.T) {
 				Name:           "go",
 				Status:         ToolStatusOutdated,
 				CurrentVersion: "1.21.0",
-				MinVersion:     "1.24.0",
+				MinVersion:     "1.25.0",
 				InstallHint:    "Install Go from https://go.dev",
 			},
 		}
@@ -490,7 +490,7 @@ func TestFormatMissingToolsError(t *testing.T) {
 		assert.Contains(t, result, "go")
 		assert.Contains(t, result, "outdated")
 		assert.Contains(t, result, "1.21.0")
-		assert.Contains(t, result, "1.24.0")
+		assert.Contains(t, result, "1.25.0")
 	})
 }
 
@@ -518,7 +518,7 @@ func TestToolDetector_ParallelDetection(t *testing.T) {
 	}
 
 	// Set up version outputs
-	mock.SetRun("go version", "go version go1.24.2 darwin/arm64", nil)
+	mock.SetRun("go version", "go version go1.25.2 darwin/arm64", nil)
 	mock.SetRun("git --version", "git version 2.39.0", nil)
 	mock.SetRun("gh --version", "gh version 2.62.0", nil)
 	mock.SetRun("uv --version", "uv 0.5.14", nil)
@@ -549,10 +549,10 @@ func TestParseVersionParts(t *testing.T) {
 		version  string
 		expected [3]int
 	}{
-		{"1.24.2", [3]int{1, 24, 2}},
+		{"1.25.2", [3]int{1, 25, 2}},
 		{"2.0.0", [3]int{2, 0, 0}},
 		{"0.5.14", [3]int{0, 5, 14}},
-		{"1.24", [3]int{1, 24, 0}},
+		{"1.25", [3]int{1, 25, 0}},
 		{"2", [3]int{2, 0, 0}},
 		{"", [3]int{0, 0, 0}},
 		{"v1.2.3", [3]int{0, 2, 3}}, // v prefix causes first segment to fail parsing, but 1.2 and 3 parse correctly
@@ -572,8 +572,8 @@ func TestParseGoVersion(t *testing.T) {
 		output   string
 		expected string
 	}{
-		{"go version go1.24.2 darwin/arm64", "1.24.2"},
-		{"go version go1.24 linux/amd64", "1.24"},
+		{"go version go1.25.2 darwin/arm64", "1.25.2"},
+		{"go version go1.25 linux/amd64", "1.25"},
 		{"go version go1.21.0 windows/amd64", "1.21.0"},
 		{"invalid output", ""},
 	}
@@ -627,7 +627,7 @@ func TestToolDetector_AllToolsPresent(t *testing.T) {
 
 	// Configure all tools as present with valid versions
 	mock.SetLookPath(constants.ToolGo, "/usr/local/go/bin/go", nil)
-	mock.SetRun("go version", "go version go1.24.2 darwin/arm64", nil)
+	mock.SetRun("go version", "go version go1.25.2 darwin/arm64", nil)
 
 	mock.SetLookPath(constants.ToolGit, "/usr/bin/git", nil)
 	mock.SetRun("git --version", "git version 2.39.0", nil)

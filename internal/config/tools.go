@@ -226,7 +226,7 @@ func getToolConfigs() []toolConfig {
 			minVersion:  constants.MinVersionGo,
 			required:    true,
 			managed:     false,
-			installHint: "Install Go from https://go.dev/dl/ (version 1.24+)",
+			installHint: "Install Go from https://go.dev/dl/ (version 1.25+)",
 			parseFunc:   parseGoVersion,
 		},
 		{
@@ -441,7 +441,7 @@ func extractVersionWithPatterns(output string, patterns []*regexp.Regexp) string
 	return ""
 }
 
-// parseGoVersion parses "go version go1.24.2 darwin/arm64" → "1.24.2"
+// parseGoVersion parses "go version go1.25.2 darwin/arm64" → "1.25.2"
 func parseGoVersion(output string) string {
 	return extractVersionWithRegex(output, goVersionRe)
 }

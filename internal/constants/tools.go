@@ -48,7 +48,7 @@ const (
 // Minimum version requirements for required tools.
 const (
 	// MinVersionGo is the minimum required Go version.
-	MinVersionGo = "1.24.0"
+	MinVersionGo = "1.25.0"
 
 	// MinVersionGit is the minimum required Git version.
 	MinVersionGit = "2.20.0"
