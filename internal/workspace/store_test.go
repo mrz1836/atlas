@@ -1193,3 +1193,153 @@ func TestFileStore_StressConcurrentReads(t *testing.T) {
 
 	assert.Empty(t, errs, "concurrent reads should not produce errors: %v", errs)
 }
+
+// TestRepoScopedFileStore_LegacyFallback_List tests that List finds workspaces in legacy path.
+func TestRepoScopedFileStore_LegacyFallback_List(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+
+	// Create a workspace in the legacy path
+	legacyWsDir := filepath.Join(tmpDir, constants.AtlasHome, constants.WorkspacesDir, "legacy-ws")
+	require.NoError(t, os.MkdirAll(legacyWsDir, 0o750))
+
+	ws := domain.Workspace{
+		Name:   "legacy-ws",
+		Path:   legacyWsDir,
+		Status: constants.WorkspaceStatusActive,
+		Branch: "test-branch",
+	}
+	data, err := json.Marshal(ws)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(legacyWsDir, constants.WorkspaceFileName), data, 0o600))
+
+	// Create a repo-scoped store (using a path that exists for EvalSymlinks)
+	store, err := NewRepoScopedFileStore(tmpDir)
+	require.NoError(t, err)
+
+	// List should find the legacy workspace via fallback
+	workspaces, err := store.List(context.Background())
+	require.NoError(t, err)
+	require.Len(t, workspaces, 1)
+	assert.Equal(t, "legacy-ws", workspaces[0].Name)
+}
+
+// TestRepoScopedFileStore_LegacyFallback_Get tests that Get finds a workspace in legacy path.
+func TestRepoScopedFileStore_LegacyFallback_Get(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+
+	// Create a workspace in the legacy path
+	legacyWsDir := filepath.Join(tmpDir, constants.AtlasHome, constants.WorkspacesDir, "legacy-ws")
+	require.NoError(t, os.MkdirAll(legacyWsDir, 0o750))
+
+	ws := domain.Workspace{
+		Name:   "legacy-ws",
+		Path:   legacyWsDir,
+		Status: constants.WorkspaceStatusActive,
+		Branch: "test-branch",
+	}
+	data, err := json.Marshal(ws)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(legacyWsDir, constants.WorkspaceFileName), data, 0o600))
+
+	// Create a repo-scoped store
+	store, err := NewRepoScopedFileStore(tmpDir)
+	require.NoError(t, err)
+
+	// Get should find the legacy workspace via fallback
+	got, err := store.Get(context.Background(), "legacy-ws")
+	require.NoError(t, err)
+	assert.Equal(t, "legacy-ws", got.Name)
+}
+
+// TestRepoHash tests deterministic hash generation.
+func TestRepoHash(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	hash1, err := RepoHash(tmpDir)
+	require.NoError(t, err)
+	assert.Len(t, hash1, 12)
+
+	// Same path should produce same hash
+	hash2, err := RepoHash(tmpDir)
+	require.NoError(t, err)
+	assert.Equal(t, hash1, hash2)
+}
+
+// TestRepoHash_SymlinkResolution tests that symlinks resolve to the same hash.
+func TestRepoHash_SymlinkResolution(t *testing.T) {
+	tmpDir := t.TempDir()
+	targetDir := filepath.Join(tmpDir, "target")
+	require.NoError(t, os.Mkdir(targetDir, 0o750))
+
+	linkDir := filepath.Join(tmpDir, "link")
+	require.NoError(t, os.Symlink(targetDir, linkDir))
+
+	hash1, err := RepoHash(targetDir)
+	require.NoError(t, err)
+
+	hash2, err := RepoHash(linkDir)
+	require.NoError(t, err)
+
+	assert.Equal(t, hash1, hash2, "symlink should resolve to same hash as target")
+}
+
+// TestNewRepoScopedFileStore tests creating a repo-scoped store.
+func TestNewRepoScopedFileStore(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+
+	store, err := NewRepoScopedFileStore(tmpDir)
+	require.NoError(t, err)
+	require.NotNil(t, store)
+	assert.Contains(t, store.baseDir, constants.ReposDir)
+}
+
+// TestNewRepoScopedFileStore_EmptyPath tests that empty path returns error.
+func TestNewRepoScopedFileStore_EmptyPath(t *testing.T) {
+	_, err := NewRepoScopedFileStore("")
+	require.Error(t, err)
+}
+
+// TestRepoScopedIsolation tests that two repos with same workspace name don't collide.
+func TestRepoScopedIsolation(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+
+	repoA := filepath.Join(tmpDir, "repo-a")
+	repoB := filepath.Join(tmpDir, "repo-b")
+	require.NoError(t, os.Mkdir(repoA, 0o750))
+	require.NoError(t, os.Mkdir(repoB, 0o750))
+
+	storeA, err := NewRepoScopedFileStore(repoA)
+	require.NoError(t, err)
+	storeB, err := NewRepoScopedFileStore(repoB)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+
+	// Create workspace with same name in both
+	wsA := &domain.Workspace{
+		Name:   "my-workspace",
+		Status: constants.WorkspaceStatusActive,
+		Branch: "branch-a",
+	}
+	wsB := &domain.Workspace{
+		Name:   "my-workspace",
+		Status: constants.WorkspaceStatusActive,
+		Branch: "branch-b",
+	}
+
+	require.NoError(t, storeA.Create(ctx, wsA))
+	require.NoError(t, storeB.Create(ctx, wsB))
+
+	// Each store should see only its own workspace
+	gotA, err := storeA.Get(ctx, "my-workspace")
+	require.NoError(t, err)
+	assert.Equal(t, "branch-a", gotA.Branch)
+
+	gotB, err := storeB.Get(ctx, "my-workspace")
+	require.NoError(t, err)
+	assert.Equal(t, "branch-b", gotB.Branch)
+}

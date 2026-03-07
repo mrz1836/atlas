@@ -1461,3 +1461,57 @@ func TestValidationHelpers(t *testing.T) {
 		assert.NoError(t, err)
 	})
 }
+
+// TestNewRepoScopedFileStore tests creating a repo-scoped task store.
+func TestNewRepoScopedFileStore(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+
+	store, err := NewRepoScopedFileStore(tmpDir)
+	require.NoError(t, err)
+	require.NotNil(t, store)
+	assert.Contains(t, store.atlasHome, constants.ReposDir)
+}
+
+// TestNewRepoScopedFileStore_EmptyPath tests that empty path returns error.
+func TestNewRepoScopedFileStore_EmptyPath(t *testing.T) {
+	_, err := NewRepoScopedFileStore("")
+	require.Error(t, err)
+}
+
+// TestRepoScopedFileStore_Isolation tests that two repos don't share tasks.
+func TestRepoScopedFileStore_Isolation(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+
+	repoA := filepath.Join(tmpDir, "repo-a")
+	repoB := filepath.Join(tmpDir, "repo-b")
+	require.NoError(t, os.Mkdir(repoA, 0o750))
+	require.NoError(t, os.Mkdir(repoB, 0o750))
+
+	storeA, err := NewRepoScopedFileStore(repoA)
+	require.NoError(t, err)
+	storeB, err := NewRepoScopedFileStore(repoB)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	wsName := "shared-ws"
+
+	// Create tasks in both stores under the same workspace name
+	taskA := createTestTask("task-00000000-0000-0000-0000-000000000001")
+	taskB := createTestTask("task-00000000-0000-0000-0000-000000000002")
+
+	require.NoError(t, storeA.Create(ctx, wsName, taskA))
+	require.NoError(t, storeB.Create(ctx, wsName, taskB))
+
+	// Each store should only see its own task
+	tasksA, err := storeA.List(ctx, wsName)
+	require.NoError(t, err)
+	require.Len(t, tasksA, 1)
+	assert.Equal(t, taskA.ID, tasksA[0].ID)
+
+	tasksB, err := storeB.List(ctx, wsName)
+	require.NoError(t, err)
+	require.Len(t, tasksB, 1)
+	assert.Equal(t, taskB.ID, tasksB[0].ID)
+}

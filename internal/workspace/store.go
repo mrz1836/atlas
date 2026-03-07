@@ -5,6 +5,8 @@ package workspace
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -67,6 +69,36 @@ func NewFileStore(baseDir string) (*FileStore, error) {
 		}
 		baseDir = filepath.Join(home, constants.AtlasHome)
 	}
+	return &FileStore{baseDir: baseDir}, nil
+}
+
+// RepoHash computes a deterministic short hash of a repository path.
+// It resolves symlinks, computes SHA-256, and returns the first 12 hex characters.
+func RepoHash(repoPath string) (string, error) {
+	resolved, err := filepath.EvalSymlinks(repoPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve repo path: %w", err)
+	}
+	h := sha256.Sum256([]byte(resolved))
+	return hex.EncodeToString(h[:])[:12], nil
+}
+
+// NewRepoScopedFileStore creates a FileStore scoped to a specific repository.
+// Storage path: ~/.atlas/repos/{repo-hash}/
+// This prevents workspace name collisions across different repositories.
+func NewRepoScopedFileStore(repoPath string) (*FileStore, error) {
+	if repoPath == "" {
+		return nil, fmt.Errorf("repo path cannot be empty: %w", atlaserrors.ErrEmptyValue)
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user home directory: %w", err)
+	}
+	hash, err := RepoHash(repoPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to compute repo hash: %w", err)
+	}
+	baseDir := filepath.Join(home, constants.AtlasHome, constants.ReposDir, hash)
 	return &FileStore{baseDir: baseDir}, nil
 }
 
@@ -138,43 +170,23 @@ func (s *FileStore) Get(ctx context.Context, name string) (*domain.Workspace, er
 		return nil, fmt.Errorf("failed to read workspace '%s': %w", name, err)
 	}
 
-	wsPath := s.workspacePath(name)
-
-	// Check if workspace directory exists
-	if _, err := os.Stat(wsPath); os.IsNotExist(err) {
-		return nil, fmt.Errorf("failed to read workspace '%s': %w", name, atlaserrors.ErrWorkspaceNotFound)
+	ws, err := s.getFromDir(ctx, name, s.workspacePath(name))
+	if err == nil {
+		return ws, nil
 	}
 
-	// Acquire lock for read operation
-	lockFile, err := s.acquireLock(ctx, name)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read workspace '%s': %w", name, err)
-	}
-	defer func() { _ = s.releaseLock(lockFile) }()
-
-	// Read workspace file
-	wsFile := s.workspaceFilePath(name)
-	data, err := os.ReadFile(wsFile) //#nosec G304 -- path is validated and constructed from trusted base
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, fmt.Errorf("failed to read workspace '%s': %w", name, atlaserrors.ErrWorkspaceNotFound)
+	// Legacy fallback: if not found in repo-scoped path, check legacy ~/.atlas/workspaces/
+	if isRepoScoped(s.baseDir) {
+		legacyBase, legacyErr := legacyBaseDir()
+		if legacyErr == nil {
+			legacyPath := filepath.Join(legacyBase, constants.WorkspacesDir, name)
+			if legacyWs, legacyGetErr := s.getFromDir(ctx, name, legacyPath); legacyGetErr == nil {
+				return legacyWs, nil
+			}
 		}
-		return nil, fmt.Errorf("failed to read workspace '%s': %w", name, err)
 	}
 
-	// Parse JSON
-	var ws domain.Workspace
-	if err := json.Unmarshal(data, &ws); err != nil {
-		return nil, fmt.Errorf("workspace '%s' has corrupted state file: %w. Consider deleting %s/", name, atlaserrors.ErrWorkspaceCorrupted, wsPath)
-	}
-
-	// Schema version tracking for forward compatibility.
-	// Currently all versions (including 0 from pre-versioning) are compatible.
-	// When breaking schema changes occur, add migration logic here.
-	// If SchemaVersion > CurrentSchemaVersion, the data is from a newer
-	// version of atlas - we accept it as-is for forward compatibility.
-
-	return &ws, nil
+	return nil, err
 }
 
 // Update persists changes to an existing workspace.
@@ -230,18 +242,17 @@ func (s *FileStore) List(ctx context.Context) ([]*domain.Workspace, error) {
 
 	wsDir := s.workspacesDir()
 
-	// Return empty slice if workspaces directory doesn't exist
-	if _, err := os.Stat(wsDir); os.IsNotExist(err) {
-		return []*domain.Workspace{}, nil
-	}
-
-	// Read directory entries
-	entries, err := os.ReadDir(wsDir)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list workspaces: %w", err)
+	var entries []os.DirEntry
+	if _, err := os.Stat(wsDir); !os.IsNotExist(err) {
+		var readErr error
+		entries, readErr = os.ReadDir(wsDir)
+		if readErr != nil {
+			return nil, fmt.Errorf("failed to list workspaces: %w", readErr)
+		}
 	}
 
 	workspaces := make([]*domain.Workspace, 0, len(entries))
+	seen := make(map[string]bool, len(entries))
 
 	for _, entry := range entries {
 		// Skip non-directories
@@ -262,6 +273,16 @@ func (s *FileStore) List(ctx context.Context) ([]*domain.Workspace, error) {
 		}
 
 		workspaces = append(workspaces, ws)
+		seen[ws.Name] = true
+	}
+
+	// Legacy fallback: also list workspaces from legacy ~/.atlas/workspaces/
+	if isRepoScoped(s.baseDir) {
+		legacyWs, legacyErr := s.listLegacyWorkspaces(ctx, seen)
+		if legacyErr != nil {
+			return nil, legacyErr
+		}
+		workspaces = append(workspaces, legacyWs...)
 	}
 
 	return workspaces, nil
@@ -347,6 +368,37 @@ func (s *FileStore) Exists(ctx context.Context, name string) (bool, error) {
 	}
 
 	return true, nil
+}
+
+// listLegacyWorkspaces lists workspaces from the legacy ~/.atlas/workspaces/ path.
+func (s *FileStore) listLegacyWorkspaces(ctx context.Context, seen map[string]bool) ([]*domain.Workspace, error) {
+	legacyBase, err := legacyBaseDir()
+	if err != nil {
+		return nil, nil //nolint:nilerr // legacy fallback is best-effort
+	}
+
+	legacyDir := filepath.Join(legacyBase, constants.WorkspacesDir)
+	legacyEntries, readErr := os.ReadDir(legacyDir)
+	if readErr != nil {
+		return nil, nil //nolint:nilerr // legacy dir may not exist
+	}
+
+	var workspaces []*domain.Workspace
+	for _, entry := range legacyEntries {
+		if !entry.IsDir() || seen[entry.Name()] {
+			continue
+		}
+		if err := ctxutil.Canceled(ctx); err != nil {
+			return nil, err
+		}
+		legacyPath := filepath.Join(legacyDir, entry.Name())
+		ws, getErr := s.getFromDir(ctx, entry.Name(), legacyPath)
+		if getErr != nil {
+			continue
+		}
+		workspaces = append(workspaces, ws)
+	}
+	return workspaces, nil
 }
 
 // workspacesDir returns the path to the workspaces directory.
@@ -444,6 +496,46 @@ func (s *FileStore) releaseLock(f *os.File) error {
 	}
 
 	return f.Close()
+}
+
+// getFromDir reads a workspace from a specific directory path.
+func (s *FileStore) getFromDir(_ context.Context, name, wsPath string) (*domain.Workspace, error) {
+	// Check if workspace directory exists
+	if _, err := os.Stat(wsPath); os.IsNotExist(err) {
+		return nil, fmt.Errorf("failed to read workspace '%s': %w", name, atlaserrors.ErrWorkspaceNotFound)
+	}
+
+	// Read workspace file (no lock needed for reads — atomic writes guarantee consistency)
+	wsFile := filepath.Join(wsPath, constants.WorkspaceFileName)
+	data, err := os.ReadFile(wsFile) //#nosec G304 -- path is validated and constructed from trusted base
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, fmt.Errorf("failed to read workspace '%s': %w", name, atlaserrors.ErrWorkspaceNotFound)
+		}
+		return nil, fmt.Errorf("failed to read workspace '%s': %w", name, err)
+	}
+
+	// Parse JSON
+	var ws domain.Workspace
+	if err := json.Unmarshal(data, &ws); err != nil {
+		return nil, fmt.Errorf("workspace '%s' has corrupted state file: %w. Consider deleting %s/", name, atlaserrors.ErrWorkspaceCorrupted, wsPath)
+	}
+
+	return &ws, nil
+}
+
+// isRepoScoped returns true if the baseDir is under the repos/ directory structure.
+func isRepoScoped(baseDir string) bool {
+	return strings.Contains(baseDir, string(filepath.Separator)+constants.ReposDir+string(filepath.Separator))
+}
+
+// legacyBaseDir returns the legacy ~/.atlas base directory.
+func legacyBaseDir() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, constants.AtlasHome), nil
 }
 
 // atomicWrite writes data to a file atomically using write-then-rename.

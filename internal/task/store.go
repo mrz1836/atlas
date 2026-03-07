@@ -5,6 +5,8 @@ package task
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -96,6 +98,39 @@ func NewFileStore(atlasHome string) (*FileStore, error) {
 	return &FileStore{
 		atlasHome: atlasHome,
 		logger:    zerolog.Nop(), // Default to no-op logger
+	}, nil
+}
+
+// repoHash computes a deterministic short hash of a repository path.
+// It resolves symlinks, computes SHA-256, and returns the first 12 hex characters.
+func repoHash(repoPath string) (string, error) {
+	resolved, err := filepath.EvalSymlinks(repoPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve repo path: %w", err)
+	}
+	h := sha256.Sum256([]byte(resolved))
+	return hex.EncodeToString(h[:])[:12], nil
+}
+
+// NewRepoScopedFileStore creates a FileStore scoped to a specific repository.
+// Storage path: ~/.atlas/repos/{repo-hash}/
+// This prevents workspace name collisions across different repositories.
+func NewRepoScopedFileStore(repoPath string) (*FileStore, error) {
+	if repoPath == "" {
+		return nil, fmt.Errorf("repo path cannot be empty: %w", atlaserrors.ErrEmptyValue)
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user home directory: %w", err)
+	}
+	hash, err := repoHash(repoPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to compute repo hash: %w", err)
+	}
+	atlasHome := filepath.Join(home, constants.AtlasHome, constants.ReposDir, hash)
+	return &FileStore{
+		atlasHome: atlasHome,
+		logger:    zerolog.Nop(),
 	}, nil
 }
 

@@ -52,6 +52,9 @@ type Workspace struct {
 	// UpdatedAt is when the workspace was last modified.
 	UpdatedAt time.Time `json:"updated_at"`
 
+	// RepoPath is the absolute path to the git repository this workspace belongs to.
+	RepoPath string `json:"repo_path,omitempty"`
+
 	// Metadata stores arbitrary key-value data associated with the workspace.
 	Metadata map[string]any `json:"metadata,omitempty"`
 

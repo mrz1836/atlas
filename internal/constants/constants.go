@@ -20,6 +20,10 @@ const (
 	// This directory is created in the user's home directory.
 	AtlasHome = ".atlas"
 
+	// ReposDir is the directory name where per-repository data is stored.
+	// Each repository gets a subdirectory named by a hash of its path.
+	ReposDir = "repos"
+
 	// WorkspacesDir is the directory name where workspace data is stored.
 	WorkspacesDir = "workspaces"
 

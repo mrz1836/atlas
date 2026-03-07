@@ -278,6 +278,7 @@ func (m *DefaultManager) Create(ctx context.Context, opts CreateOptions) (*domai
 		Name:         opts.Name,
 		WorktreePath: wtInfo.Path,
 		Branch:       wtInfo.Branch,
+		RepoPath:     opts.RepoPath,
 		Status:       constants.WorkspaceStatusActive,
 		Tasks:        []domain.TaskRef{},
 		CreatedAt:    now,
