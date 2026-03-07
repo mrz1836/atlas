@@ -1273,6 +1273,10 @@ func (m *mockRunner) DiffUnstaged(_ context.Context) (string, error) {
 	return "", nil
 }
 
+func (m *mockRunner) DiffStagedNames(_ context.Context) ([]string, error) {
+	return nil, nil
+}
+
 // Tests for new git operations: merge_pr, add_pr_review, add_pr_comment
 
 func TestGitExecutor_ExecuteMergePR_NoHubRunner(t *testing.T) {

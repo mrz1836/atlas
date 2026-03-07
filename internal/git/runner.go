@@ -54,4 +54,8 @@ type Runner interface {
 	// ResetFiles unstages specific files (git reset -- path1 path2 ...).
 	// This is used to remove garbage files from staging before commit.
 	ResetFiles(ctx context.Context, paths []string) error
+
+	// DiffStagedNames returns the file names of staged (cached) changes.
+	// Returns nil if no files are staged.
+	DiffStagedNames(ctx context.Context) ([]string, error)
 }

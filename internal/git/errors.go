@@ -3,12 +3,17 @@
 package git
 
 import (
+	"errors"
+
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 )
 
 // ErrGitOperation is re-exported from internal/errors for convenience.
 // Use errors.Is(err, ErrGitOperation) to check for git operation failures.
 var ErrGitOperation = atlaserrors.ErrGitOperation
+
+// ErrNoFilesStaged is returned when no files are staged after git add.
+var ErrNoFilesStaged = errors.New("no files staged")
 
 // ErrBranchExists is re-exported from internal/errors for convenience.
 // Returned when attempting to create a branch that already exists.

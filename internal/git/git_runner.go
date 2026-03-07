@@ -92,8 +92,10 @@ func (r *CLIRunner) Commit(ctx context.Context, message string) error {
 	// Proactively clean up stale lock files
 	r.cleanupStaleLocks(ctx)
 
-	// Use --cleanup=strip to handle formatting (removes trailing whitespace, leading/trailing blank lines)
-	_, err := r.runGitCommand(ctx, "commit", "-m", message, "--cleanup=strip")
+	// Use --no-verify to skip git hooks. Atlas runs its own validation pipeline
+	// (pre-commit, format, lint, test) before committing, so hooks are redundant
+	// and cause failures when committing deleted files.
+	_, err := r.runGitCommand(ctx, "commit", "--no-verify", "-m", message, "--cleanup=strip")
 	if err != nil {
 		return fmt.Errorf("failed to commit: %w", err)
 	}
@@ -311,6 +313,21 @@ func (r *CLIRunner) ResetFiles(ctx context.Context, paths []string) error {
 	}
 
 	return nil
+}
+
+// DiffStagedNames returns the file names of staged (cached) changes.
+func (r *CLIRunner) DiffStagedNames(ctx context.Context) ([]string, error) {
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return nil, err
+	}
+	output, err := r.runGitCommand(ctx, "diff", "--cached", "--name-only")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get staged file names: %w", err)
+	}
+	if output == "" {
+		return nil, nil
+	}
+	return strings.Split(output, "\n"), nil
 }
 
 // diff is the internal implementation for diff operations.

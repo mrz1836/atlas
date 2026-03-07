@@ -326,6 +326,37 @@ func TestCLIRunner_Commit(t *testing.T) {
 		assert.ErrorIs(t, err, atlaserrors.ErrGitOperation)
 	})
 
+	t.Run("commit succeeds despite failing pre-commit hook", func(t *testing.T) {
+		repoPath := setupTestRepo(t)
+		createFile(t, repoPath, "file.txt", "content")
+		commitInitial(t, repoPath)
+
+		// Install a failing pre-commit hook
+		hooksDir := filepath.Join(repoPath, ".git", "hooks")
+		err := os.MkdirAll(hooksDir, 0o750)
+		require.NoError(t, err)
+		hookPath := filepath.Join(hooksDir, "pre-commit")
+		err = os.WriteFile(hookPath, []byte("#!/bin/sh\nexit 1\n"), 0o750) //nolint:gosec // hook must be executable
+		require.NoError(t, err)
+
+		runner, err := NewRunner(context.Background(), repoPath)
+		require.NoError(t, err)
+
+		// Stage a change
+		createFile(t, repoPath, "file.txt", "updated content")
+		err = runner.Add(context.Background(), nil)
+		require.NoError(t, err)
+
+		// Commit should succeed because --no-verify skips the hook
+		err = runner.Commit(context.Background(), "commit bypassing hook")
+		require.NoError(t, err)
+
+		// Verify commit was made
+		status, err := runner.Status(context.Background())
+		require.NoError(t, err)
+		assert.True(t, status.IsClean())
+	})
+
 	t.Run("context cancellation", func(t *testing.T) {
 		repoPath := setupTestRepo(t)
 		runner, err := NewRunner(context.Background(), repoPath)
@@ -1368,5 +1399,54 @@ func TestCLIRunner_ResetFiles(t *testing.T) {
 		// This is expected behavior - it's a no-op for files not in the index
 		err = runner.ResetFiles(context.Background(), []string{"nonexistent.txt"})
 		require.NoError(t, err)
+	})
+}
+
+func TestCLIRunner_DiffStagedNames(t *testing.T) {
+	t.Run("no staged files", func(t *testing.T) {
+		repoPath := setupTestRepo(t)
+		createFile(t, repoPath, "file.txt", "content")
+		commitInitial(t, repoPath)
+
+		runner, err := NewRunner(context.Background(), repoPath)
+		require.NoError(t, err)
+
+		names, err := runner.DiffStagedNames(context.Background())
+		require.NoError(t, err)
+		assert.Nil(t, names)
+	})
+
+	t.Run("with staged files", func(t *testing.T) {
+		repoPath := setupTestRepo(t)
+		createFile(t, repoPath, "file.txt", "content")
+		commitInitial(t, repoPath)
+
+		// Modify and stage a file
+		createFile(t, repoPath, "file.txt", "updated content")
+		createFile(t, repoPath, "newfile.txt", "new")
+
+		runner, err := NewRunner(context.Background(), repoPath)
+		require.NoError(t, err)
+
+		err = runner.Add(context.Background(), []string{"file.txt", "newfile.txt"})
+		require.NoError(t, err)
+
+		names, err := runner.DiffStagedNames(context.Background())
+		require.NoError(t, err)
+		assert.Len(t, names, 2)
+		assert.Contains(t, names, "file.txt")
+		assert.Contains(t, names, "newfile.txt")
+	})
+
+	t.Run("context canceled", func(t *testing.T) {
+		repoPath := setupTestRepo(t)
+		runner, err := NewRunner(context.Background(), repoPath)
+		require.NoError(t, err)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		_, err = runner.DiffStagedNames(ctx)
+		assert.ErrorIs(t, err, context.Canceled)
 	})
 }

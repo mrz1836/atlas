@@ -40,19 +40,20 @@ var (
 
 // MockRunner implements Runner interface for testing.
 type MockRunner struct {
-	PushFunc          func(ctx context.Context, remote, branch string, setUpstream bool) error
-	StatusFunc        func(ctx context.Context) (*Status, error)
-	AddFunc           func(ctx context.Context, paths []string) error
-	CommitFunc        func(ctx context.Context, message string) error
-	CurrentBranchFunc func(ctx context.Context) (string, error)
-	CreateBranchFunc  func(ctx context.Context, name, baseBranch string) error
-	DiffFunc          func(ctx context.Context, cached bool) (string, error)
-	BranchExistsFunc  func(ctx context.Context, name string) (bool, error)
-	FetchFunc         func(ctx context.Context, remote string) error
-	RebaseFunc        func(ctx context.Context, onto string) error
-	RebaseAbortFunc   func(ctx context.Context) error
-	ResetFunc         func(ctx context.Context) error
-	ResetFilesFunc    func(ctx context.Context, paths []string) error
+	PushFunc            func(ctx context.Context, remote, branch string, setUpstream bool) error
+	StatusFunc          func(ctx context.Context) (*Status, error)
+	AddFunc             func(ctx context.Context, paths []string) error
+	CommitFunc          func(ctx context.Context, message string) error
+	CurrentBranchFunc   func(ctx context.Context) (string, error)
+	CreateBranchFunc    func(ctx context.Context, name, baseBranch string) error
+	DiffFunc            func(ctx context.Context, cached bool) (string, error)
+	BranchExistsFunc    func(ctx context.Context, name string) (bool, error)
+	FetchFunc           func(ctx context.Context, remote string) error
+	RebaseFunc          func(ctx context.Context, onto string) error
+	RebaseAbortFunc     func(ctx context.Context) error
+	ResetFunc           func(ctx context.Context) error
+	ResetFilesFunc      func(ctx context.Context, paths []string) error
+	DiffStagedNamesFunc func(ctx context.Context) ([]string, error)
 }
 
 func (m *MockRunner) Push(ctx context.Context, remote, branch string, setUpstream bool) error {
@@ -144,6 +145,13 @@ func (m *MockRunner) ResetFiles(ctx context.Context, paths []string) error {
 		return m.ResetFilesFunc(ctx, paths)
 	}
 	return nil
+}
+
+func (m *MockRunner) DiffStagedNames(ctx context.Context) ([]string, error) {
+	if m.DiffStagedNamesFunc != nil {
+		return m.DiffStagedNamesFunc(ctx)
+	}
+	return nil, nil
 }
 
 func (m *MockRunner) DiffStaged(ctx context.Context) (string, error) {
