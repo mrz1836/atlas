@@ -440,6 +440,77 @@ func TestIsValidConventionalCommit(t *testing.T) {
 	}
 }
 
+func TestSanitizeAICommitResponse(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "clean input unchanged",
+			input:    "feat(git): add smart commit functionality",
+			expected: "feat(git): add smart commit functionality",
+		},
+		{
+			name:     "code blocks stripped",
+			input:    "```feat(git): add smart commit functionality```",
+			expected: "feat(git): add smart commit functionality",
+		},
+		{
+			name:     "code blocks with lang tag",
+			input:    "```text\nfeat(git): add smart commit functionality\n```",
+			expected: "feat(git): add smart commit functionality",
+		},
+		{
+			name:     "preamble text stripped",
+			input:    "Here's the commit message:\nfeat(git): add smart commit functionality",
+			expected: "feat(git): add smart commit functionality",
+		},
+		{
+			name:     "double quotes stripped",
+			input:    `"feat(git): add smart commit functionality"`,
+			expected: "feat(git): add smart commit functionality",
+		},
+		{
+			name:     "single quotes stripped",
+			input:    `'feat(git): add smart commit functionality'`,
+			expected: "feat(git): add smart commit functionality",
+		},
+		{
+			name:     "combined code block and preamble",
+			input:    "Here is your commit message:\n```\nfeat(git): add smart commit functionality\n```",
+			expected: "feat(git): add smart commit functionality",
+		},
+		{
+			name:     "body preserved after subject",
+			input:    "feat(git): add smart commit\n\nAdded intelligent commit grouping.",
+			expected: "feat(git): add smart commit\n\nAdded intelligent commit grouping.",
+		},
+		{
+			name:     "body preserved after preamble stripping",
+			input:    "Sure! Here you go:\nfeat(git): add smart commit\n\nAdded intelligent commit grouping.",
+			expected: "feat(git): add smart commit\n\nAdded intelligent commit grouping.",
+		},
+		{
+			name:     "empty input",
+			input:    "",
+			expected: "",
+		},
+		{
+			name:     "invalid input passes through",
+			input:    "This is not a conventional commit",
+			expected: "This is not a conventional commit",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := sanitizeAICommitResponse(tt.input)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
 func TestWithModel(t *testing.T) {
 	gitRunner := &MockRunner{}
 	runner := NewSmartCommitRunner(gitRunner, "/tmp", nil,
@@ -691,6 +762,60 @@ func TestSmartCommitRunner_GenerateAIMessage_ReturnsFullMessageWithBody(t *testi
 	// Full message including body is now returned
 	assert.Contains(t, message, "feat(git): add runner")
 	assert.Contains(t, message, "This commit adds the runner implementation.")
+}
+
+func TestSmartCommitRunner_GenerateAIMessage_StripsCodeBlocks(t *testing.T) {
+	tmpDir := t.TempDir()
+	initGitRepo(t, tmpDir)
+
+	gitRunner, err := NewRunner(context.Background(), tmpDir)
+	require.NoError(t, err)
+
+	// AI wraps output in markdown code blocks (common with haiku)
+	mockAI := &mockAIRunner{
+		response: &domain.AIResult{
+			Success: true,
+			Output:  "```\nfeat(git): add smart commit functionality\n\nImplements intelligent commit grouping.\n```",
+		},
+	}
+
+	runner := NewSmartCommitRunner(gitRunner, tmpDir, mockAI)
+
+	group := FileGroup{
+		Package: "internal/git",
+		Files:   []FileChange{{Path: "smart_commit.go", Status: ChangeAdded}},
+	}
+
+	message, err := runner.generateAIMessage(context.Background(), group, 30*time.Second, "")
+	require.NoError(t, err)
+	assert.Equal(t, "feat(git): add smart commit functionality\n\nImplements intelligent commit grouping.", message)
+}
+
+func TestSmartCommitRunner_GenerateAIMessage_StripsPreamble(t *testing.T) {
+	tmpDir := t.TempDir()
+	initGitRepo(t, tmpDir)
+
+	gitRunner, err := NewRunner(context.Background(), tmpDir)
+	require.NoError(t, err)
+
+	// AI prepends preamble text (common with haiku)
+	mockAI := &mockAIRunner{
+		response: &domain.AIResult{
+			Success: true,
+			Output:  "Here's the commit message:\nfeat(git): add smart commit functionality",
+		},
+	}
+
+	runner := NewSmartCommitRunner(gitRunner, tmpDir, mockAI)
+
+	group := FileGroup{
+		Package: "internal/git",
+		Files:   []FileChange{{Path: "smart_commit.go", Status: ChangeAdded}},
+	}
+
+	message, err := runner.generateAIMessage(context.Background(), group, 30*time.Second, "")
+	require.NoError(t, err)
+	assert.Equal(t, "feat(git): add smart commit functionality", message)
 }
 
 // Test for IncludeGarbage option

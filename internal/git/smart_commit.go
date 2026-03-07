@@ -654,9 +654,16 @@ func (r *SmartCommitRunner) generateAIMessageWithModel(ctx context.Context, grou
 	}
 
 	// Parse and validate the message
-	message := strings.TrimSpace(result.Output)
-	if message == "" {
+	raw := strings.TrimSpace(result.Output)
+	if raw == "" {
 		return "", atlaserrors.ErrAIEmptyResponse
+	}
+
+	// Sanitize AI artifacts (code blocks, preamble, quotes)
+	message := sanitizeAICommitResponse(raw)
+	if message != raw {
+		logger := zerolog.Ctx(ctx)
+		logger.Debug().Str("raw", raw).Str("sanitized", message).Msg("sanitized AI commit response")
 	}
 
 	// Extract first line for validation
@@ -939,6 +946,44 @@ func isValidConventionalCommit(message string) bool {
 		}
 	}
 	return false
+}
+
+// sanitizeAICommitResponse cleans common AI output artifacts from commit messages.
+// Models sometimes wrap output in markdown code blocks or prepend preamble text.
+func sanitizeAICommitResponse(raw string) string {
+	if raw == "" {
+		return raw
+	}
+
+	// Strip markdown code blocks (reuses codeBlockPattern from pr_description.go)
+	cleaned := stripMarkdownCodeBlocks(raw)
+
+	// Strip surrounding quotes
+	if len(cleaned) >= 2 {
+		if (cleaned[0] == '"' && cleaned[len(cleaned)-1] == '"') ||
+			(cleaned[0] == '\'' && cleaned[len(cleaned)-1] == '\'') {
+			cleaned = cleaned[1 : len(cleaned)-1]
+		}
+	}
+
+	cleaned = strings.TrimSpace(cleaned)
+
+	// If the first line is already a valid conventional commit, return as-is
+	lines := strings.Split(cleaned, "\n")
+	if isValidConventionalCommit(strings.TrimSpace(lines[0])) {
+		return cleaned
+	}
+
+	// Scan for the first line that looks like a conventional commit (skip preamble)
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if isValidConventionalCommit(trimmed) {
+			return strings.TrimSpace(strings.Join(lines[i:], "\n"))
+		}
+	}
+
+	// No valid line found; return cleaned text for downstream validation to reject
+	return cleaned
 }
 
 // getHeadShortHash returns the short hash of HEAD.
