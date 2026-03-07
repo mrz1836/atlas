@@ -433,7 +433,7 @@ func (sc *startContext) handleTaskStartError(ctx context.Context, ws *domain.Wor
 // updateWorkspaceStatusToPaused updates the workspace status to paused to preserve it for resume.
 func (sc *startContext) updateWorkspaceStatusToPaused(ctx context.Context, ws *domain.Workspace, logger zerolog.Logger) {
 	ws.Status = constants.WorkspaceStatusPaused
-	wsStore, err := workspace.NewFileStore("")
+	wsStore, err := workspace.NewRepoScopedFileStore(ws.RepoPath)
 	if err != nil {
 		logger.Error().Err(err).
 			Str("workspace_name", ws.Name).
@@ -593,7 +593,7 @@ func saveInterruptedTaskState(ctx context.Context, ws *domain.Workspace, t *doma
 	}
 
 	// Save task state
-	taskStore, err := task.NewFileStore("")
+	taskStore, err := task.NewRepoScopedFileStore(ws.RepoPath)
 	if err != nil {
 		logger.Error().Err(err).Msg("failed to create task store for interrupted state save")
 		return
@@ -646,8 +646,8 @@ func safeTaskID(t *domain.Task) string {
 // Returns the task, task store (for subsequent updates), progress state, and any error.
 // The progress state contains the AI runner for process termination on interrupt.
 func startTaskExecution(ctx context.Context, ws *domain.Workspace, tmpl *domain.Template, description, agent, model, fromBacklogID string, logger zerolog.Logger, out tui.Output) (*domain.Task, *task.FileStore, *progressState, error) {
-	// Create service factory
-	services := workflow.NewServiceFactory(logger)
+	// Create service factory (repo-scoped)
+	services := workflow.NewServiceFactory(logger).WithRepoPath(ws.RepoPath)
 
 	// Create task store and load config
 	taskStore, cfg, err := services.SetupTaskStoreAndConfig(ctx)
@@ -1140,7 +1140,7 @@ func cleanupWorkspace(ctx context.Context, wsName, repoPath string) error {
 		Str("repo_path", repoPath).
 		Msg("cleanupWorkspace called - will call Destroy() (not Close())")
 
-	wsStore, err := workspace.NewFileStore("")
+	wsStore, err := workspace.NewRepoScopedFileStore(repoPath)
 	if err != nil {
 		return fmt.Errorf("failed to create workspace store: %w", err)
 	}

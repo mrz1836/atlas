@@ -82,8 +82,14 @@ func runWorkspaceList(ctx context.Context, cmd *cobra.Command, w io.Writer) erro
 	// Respect NO_COLOR environment variable (UX-7)
 	tui.CheckNoColor()
 
-	// Create store and manager
-	store, err := workspace.NewFileStore("")
+	// Detect repo for scoped storage
+	repoPath, err := detectRepoPath()
+	if err != nil {
+		return fmt.Errorf("not in a git repository: %w", err)
+	}
+
+	// Create store and manager (repo-scoped)
+	store, err := workspace.NewRepoScopedFileStore(repoPath)
 	if err != nil {
 		logger.Debug().Err(err).Msg("failed to create workspace store")
 		return fmt.Errorf("failed to create workspace store: %w", err)

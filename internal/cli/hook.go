@@ -13,7 +13,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/crypto/native"
 	"github.com/mrz1836/atlas/internal/domain"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
@@ -421,15 +420,19 @@ func getActiveHook(ctx context.Context) (*domain.Hook, error) {
 
 // getActiveHookPath finds the path to the active hook.json file.
 func getActiveHookPath(ctx context.Context) (string, error) {
-	// Get base path
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("failed to get home directory: %w", err)
-	}
-	baseDir := filepath.Join(homeDir, constants.AtlasHome)
+	// Detect repo for scoped storage
+	repoPath, repoErr := detectRepoPath()
 
-	// Get workspace store
-	wsStore, err := workspace.NewFileStore("")
+	// Get workspace store (repo-scoped if possible)
+	var (
+		wsStore *workspace.FileStore
+		err     error
+	)
+	if repoErr == nil && repoPath != "" {
+		wsStore, err = workspace.NewRepoScopedFileStore(repoPath)
+	} else {
+		wsStore, err = workspace.NewFileStore("")
+	}
 	if err != nil {
 		return "", fmt.Errorf("failed to create workspace store: %w", err)
 	}
@@ -447,7 +450,7 @@ func getActiveHookPath(ctx context.Context) (string, error) {
 		}
 
 		// Check for hook.json in this workspace's tasks
-		tasksDir := filepath.Join(baseDir, "workspaces", ws.Name, "tasks")
+		tasksDir := filepath.Join(ws.Path, "tasks")
 		entries, err := os.ReadDir(tasksDir)
 		if err != nil {
 			continue

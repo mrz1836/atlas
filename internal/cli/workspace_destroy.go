@@ -100,7 +100,7 @@ func runWorkspaceDestroyWithOutput(ctx context.Context, w io.Writer, name string
 func checkWorkspaceExists(ctx context.Context, name, storeBaseDir, output string, w io.Writer) (*workspace.FileStore, bool, error) {
 	logger := Logger()
 
-	store, err := workspace.NewFileStore(storeBaseDir)
+	store, err := newWorkspaceStore(storeBaseDir)
 	if err != nil {
 		logger.Debug().Err(err).Msg("failed to create workspace store")
 		if output == OutputJSON {
@@ -311,6 +311,32 @@ func detectRepoPath() (string, error) {
 	return "", errors.ErrNotGitRepo
 }
 
+// newWorkspaceStore creates a workspace store, using repo-scoped storage when storeBaseDir is empty.
+// When storeBaseDir is provided (typically in tests), it is used directly.
+func newWorkspaceStore(storeBaseDir string) (*workspace.FileStore, error) {
+	if storeBaseDir != "" {
+		return workspace.NewFileStore(storeBaseDir)
+	}
+	repoPath, err := detectRepoPath()
+	if err != nil {
+		return workspace.NewFileStore("")
+	}
+	return workspace.NewRepoScopedFileStore(repoPath)
+}
+
+// newTaskStore creates a task store, using repo-scoped storage when storeBaseDir is empty.
+// When storeBaseDir is provided (typically in tests), it is used directly.
+func newTaskStore(storeBaseDir string) (*task.FileStore, error) {
+	if storeBaseDir != "" {
+		return task.NewFileStore(storeBaseDir)
+	}
+	repoPath, err := detectRepoPath()
+	if err != nil {
+		return task.NewFileStore("")
+	}
+	return task.NewRepoScopedFileStore(repoPath)
+}
+
 // destroyResult represents the JSON output for destroy operations.
 type destroyResult struct {
 	Status    string `json:"status"`
@@ -353,7 +379,7 @@ func outputDestroyErrorJSON(w io.Writer, name, errMsg string) error {
 // Git history provides the audit trail for deleted discoveries.
 func deleteLinkedDiscoveries(ctx context.Context, workspaceName string, logger zerolog.Logger) {
 	// Create task store to list tasks for the workspace
-	taskStore, err := task.NewFileStore("")
+	taskStore, err := newTaskStore("")
 	if err != nil {
 		logger.Debug().Err(err).Msg("could not create task store for discovery cleanup")
 		return

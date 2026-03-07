@@ -17,7 +17,6 @@ import (
 
 	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/errors"
-	"github.com/mrz1836/atlas/internal/task"
 	"github.com/mrz1836/atlas/internal/tui"
 	"github.com/mrz1836/atlas/internal/workspace"
 )
@@ -119,7 +118,7 @@ func runWorkspaceCloseWithOutput(ctx context.Context, w io.Writer, name string, 
 func checkWorkspaceExistsForClose(ctx context.Context, name, storeBaseDir, output string, w io.Writer) (*workspace.FileStore, bool, error) {
 	logger := Logger()
 
-	store, err := workspace.NewFileStore(storeBaseDir)
+	store, err := newWorkspaceStore(storeBaseDir)
 	if err != nil {
 		logger.Debug().Err(err).Msg("failed to create workspace store")
 		if output == OutputJSON {
@@ -211,7 +210,7 @@ func executeClose(ctx context.Context, store *workspace.FileStore, name, storeBa
 	// Create task store to check for running tasks before closing
 	// This prevents closing a workspace while tasks are actively running
 	var taskLister workspace.TaskLister
-	taskStore, taskErr := task.NewFileStore(storeBaseDir)
+	taskStore, taskErr := newTaskStore(storeBaseDir)
 	if taskErr != nil {
 		logger.Debug().Err(taskErr).Msg("could not create task store, running task check will be skipped")
 	} else {

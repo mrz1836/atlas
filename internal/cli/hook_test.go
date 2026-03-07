@@ -45,6 +45,7 @@ func setupHookTestEnv(t *testing.T, h *domain.Hook) {
 	// Create workspace.json so the workspace store can find it
 	ws := domain.Workspace{
 		Name:   h.WorkspaceID,
+		Path:   wsDir,
 		Status: "active",
 		Branch: "test-branch",
 	}

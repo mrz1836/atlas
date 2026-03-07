@@ -22,7 +22,6 @@ import (
 	"github.com/mrz1836/atlas/internal/domain"
 	"github.com/mrz1836/atlas/internal/errors"
 	"github.com/mrz1836/atlas/internal/tui"
-	"github.com/mrz1836/atlas/internal/workspace"
 )
 
 // logsOptions holds the options for the logs command.
@@ -160,8 +159,8 @@ func runWorkspaceLogsWithOutput(ctx context.Context, w io.Writer, name string, o
 	// Respect NO_COLOR environment variable (UX-7)
 	tui.CheckNoColor()
 
-	// Create store
-	store, err := workspace.NewFileStore(storeBaseDir)
+	// Create store (repo-scoped when possible)
+	store, err := newWorkspaceStore(storeBaseDir)
 	if err != nil {
 		logger.Debug().Err(err).Msg("failed to create workspace store")
 		if output == OutputJSON {
@@ -209,8 +208,8 @@ func runWorkspaceLogsWithOutput(ctx context.Context, w io.Writer, name string, o
 		return err
 	}
 
-	// Construct log file path
-	logPath, err := getTaskLogPath(storeBaseDir, name, taskRef.ID)
+	// Construct log file path using workspace path from store
+	logPath, err := getTaskLogPath(ws.Path, taskRef.ID)
 	if err != nil {
 		if output == OutputJSON {
 			_ = outputLogsErrorJSON(w, name, taskRef.ID, err.Error())
@@ -307,15 +306,11 @@ func findMostRecentTask(tasks []domain.TaskRef) *domain.TaskRef {
 }
 
 // getTaskLogPath constructs the path to a task's log file.
-func getTaskLogPath(storeBaseDir, wsName, taskID string) (string, error) {
-	if storeBaseDir == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", fmt.Errorf("failed to get user home directory: %w", err)
-		}
-		storeBaseDir = filepath.Join(home, constants.AtlasHome)
+func getTaskLogPath(wsPath, taskID string) (string, error) {
+	if wsPath == "" {
+		return "", fmt.Errorf("workspace path: %w", errors.ErrEmptyValue)
 	}
-	return filepath.Join(storeBaseDir, constants.WorkspacesDir, wsName, constants.TasksDir, taskID, constants.TaskLogFileName), nil
+	return filepath.Join(wsPath, constants.TasksDir, taskID, constants.TaskLogFileName), nil
 }
 
 // displayLogs reads and displays log content.

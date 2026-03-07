@@ -109,7 +109,7 @@ func runAbandonWithOutput(ctx context.Context, w io.Writer, workspaceName string
 
 // setupWorkspace creates workspace manager and retrieves workspace.
 func setupWorkspace(ctx context.Context, workspaceName, storeBaseDir, outputFormat string, w io.Writer, logger zerolog.Logger) (workspace.Manager, *domain.Workspace, error) {
-	wsStore, err := workspace.NewFileStore(storeBaseDir)
+	wsStore, err := newWorkspaceStore(storeBaseDir)
 	if err != nil {
 		return nil, nil, handleAbandonError(outputFormat, w, workspaceName, "", fmt.Errorf("failed to create workspace store: %w", err))
 	}
@@ -135,7 +135,7 @@ func setupWorkspace(ctx context.Context, workspaceName, storeBaseDir, outputForm
 
 // getLatestTask retrieves the latest task for the workspace.
 func getLatestTask(ctx context.Context, workspaceName, storeBaseDir, outputFormat string, w io.Writer, logger zerolog.Logger) (*task.FileStore, *domain.Task, error) {
-	taskStore, err := task.NewFileStore(storeBaseDir)
+	taskStore, err := newTaskStore(storeBaseDir)
 	if err != nil {
 		return nil, nil, handleAbandonError(outputFormat, w, workspaceName, "", fmt.Errorf("failed to create task store: %w", err))
 	}

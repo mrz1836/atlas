@@ -45,8 +45,8 @@ type WorkspaceOptions struct {
 //   - New branch mode (BranchPrefix set): Creates a new branch from BaseBranch
 //   - Existing branch mode (TargetBranch set): Checks out an existing branch
 func (i *Initializer) CreateWorkspace(ctx context.Context, opts WorkspaceOptions) (*domain.Workspace, error) {
-	// Create workspace store
-	wsStore, err := workspace.NewFileStore("")
+	// Create workspace store (repo-scoped)
+	wsStore, err := workspace.NewRepoScopedFileStore(opts.RepoPath)
 	if err != nil {
 		return nil, opts.ErrorHandler(opts.Name, fmt.Errorf("failed to create workspace store: %w", err))
 	}
@@ -133,7 +133,7 @@ func (i *Initializer) CleanupWorkspace(ctx context.Context, wsName, repoPath str
 		Str("repo_path", repoPath).
 		Msg("cleanupWorkspace called - will call Destroy() (not Close())")
 
-	wsStore, err := workspace.NewFileStore("")
+	wsStore, err := workspace.NewRepoScopedFileStore(repoPath)
 	if err != nil {
 		return fmt.Errorf("failed to create workspace store: %w", err)
 	}

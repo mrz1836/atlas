@@ -229,10 +229,15 @@ func setupResumeWorkspaceAndTask(ctx context.Context, workspaceName, outputForma
 			fmt.Errorf("failed to ensure worktree exists: %w", err))
 	}
 
-	// Create workspace store and update status
-	wsStore, wsStoreErr := workspace.NewFileStore("")
-	if wsStoreErr != nil {
-		logger.Warn().Err(wsStoreErr).Msg("failed to create workspace store for status updates")
+	// Create workspace store and update status (repo-scoped)
+	var wsStore *workspace.FileStore
+	if ws.RepoPath != "" {
+		wsStore, _ = workspace.NewRepoScopedFileStore(ws.RepoPath)
+	} else {
+		wsStore, _ = workspace.NewFileStore("")
+	}
+	if wsStore == nil {
+		logger.Warn().Msg("failed to create workspace store for status updates")
 	}
 
 	ws.Status = constants.WorkspaceStatusActive
@@ -620,12 +625,17 @@ func ensureWorktreeExists(ctx context.Context, ws *domain.Workspace, out tui.Out
 	ws.WorktreePath = worktreePath
 	ws.Status = constants.WorkspaceStatusActive
 
-	// Save updated workspace
-	wsStore, err := workspace.NewFileStore("")
-	if err != nil {
-		logger.Warn().Err(err).Msg("failed to create workspace store for update")
-	} else if updateErr := wsStore.Update(ctx, ws); updateErr != nil {
-		logger.Warn().Err(updateErr).Msg("failed to update workspace with new worktree path")
+	// Save updated workspace (repo-scoped)
+	var wsStore *workspace.FileStore
+	if ws.RepoPath != "" {
+		wsStore, _ = workspace.NewRepoScopedFileStore(ws.RepoPath)
+	} else {
+		wsStore, _ = workspace.NewFileStore("")
+	}
+	if wsStore != nil {
+		if updateErr := wsStore.Update(ctx, ws); updateErr != nil {
+			logger.Warn().Err(updateErr).Msg("failed to update workspace with new worktree path")
+		}
 	}
 
 	out.Success(fmt.Sprintf("Worktree recreated at '%s'", worktreePath))

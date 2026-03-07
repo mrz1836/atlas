@@ -134,15 +134,21 @@ func runStatus(ctx context.Context, cmd *cobra.Command, w io.Writer, opts status
 
 	logger := Logger()
 
+	// Detect repo for scoped storage
+	repoPath, err := detectRepoPath()
+	if err != nil {
+		return fmt.Errorf("not in a git repository: %w", err)
+	}
+
 	// Create production dependencies
-	wsStore, err := workspace.NewFileStore("")
+	wsStore, err := workspace.NewRepoScopedFileStore(repoPath)
 	if err != nil {
 		return fmt.Errorf("failed to create workspace store: %w", err)
 	}
 
 	wsMgr := workspace.NewManager(wsStore, nil, logger)
 
-	taskStore, err := task.NewFileStore("")
+	taskStore, err := task.NewRepoScopedFileStore(repoPath)
 	if err != nil {
 		return fmt.Errorf("failed to create task store: %w", err)
 	}

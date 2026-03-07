@@ -709,20 +709,18 @@ func TestFindMostRecentTask(t *testing.T) {
 }
 
 func TestGetTaskLogPath(t *testing.T) {
-	tmpDir := "/tmp/test-atlas"
+	wsPath := "/tmp/test-atlas/workspaces/my-workspace"
 
-	path, err := getTaskLogPath(tmpDir, "my-workspace", "task-123")
+	path, err := getTaskLogPath(wsPath, "task-123")
 	require.NoError(t, err)
-	expected := filepath.Join(tmpDir, constants.WorkspacesDir, "my-workspace", constants.TasksDir, "task-123", constants.TaskLogFileName)
+	expected := filepath.Join(wsPath, constants.TasksDir, "task-123", constants.TaskLogFileName)
 	assert.Equal(t, expected, path)
 }
 
-func TestGetTaskLogPath_DefaultBaseDir(t *testing.T) {
-	// When storeBaseDir is empty, should use home directory
-	path, err := getTaskLogPath("", "my-workspace", "task-123")
-	require.NoError(t, err)
-	assert.Contains(t, path, "my-workspace")
-	assert.Contains(t, path, "task-123")
+func TestGetTaskLogPath_EmptyPath(t *testing.T) {
+	// When workspace path is empty, should return error
+	_, err := getTaskLogPath("", "task-123")
+	require.Error(t, err)
 }
 
 func TestFollowLogs_Basic(t *testing.T) {

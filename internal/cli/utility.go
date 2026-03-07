@@ -298,13 +298,14 @@ func SelectWorkspaceTask[T WorkspaceTaskSelector](prompt string, items []T) (int
 
 // CreateStores creates workspace and task stores with unified error handling.
 // Returns workspace store, task store, and error.
+// Uses repo-scoped storage when baseDir is empty.
 func CreateStores(baseDir string) (workspace.Store, task.Store, error) {
-	wsStore, err := workspace.NewFileStore(baseDir)
+	wsStore, err := newWorkspaceStore(baseDir)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create workspace store: %w", err)
 	}
 
-	taskStore, err := task.NewFileStore(baseDir)
+	taskStore, err := newTaskStore(baseDir)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create task store: %w", err)
 	}

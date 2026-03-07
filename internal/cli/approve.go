@@ -210,8 +210,12 @@ func runApprove(ctx context.Context, cmd *cobra.Command, w io.Writer, opts appro
 		Str("status", string(selectedTask.Status)).
 		Msg("selected task for approval")
 
-	// Create task store for updates
-	taskStore, err := task.NewFileStore("")
+	// Create task store for updates (repo-scoped)
+	approveRepoPath, err := detectRepoPath()
+	if err != nil {
+		return handleApproveError(outputFormat, w, "", fmt.Errorf("not in a git repository: %w", err))
+	}
+	taskStore, err := task.NewRepoScopedFileStore(approveRepoPath)
 	if err != nil {
 		return handleApproveError(outputFormat, w, "", fmt.Errorf("failed to create task store: %w", err))
 	}
@@ -1166,8 +1170,20 @@ func executeCloseWorkspaceStep(ctx context.Context, stepCtx *approveStepContext)
 // closeWorkspace closes the workspace, removing the worktree but preserving history.
 // Returns a warning string if worktree removal failed (workspace is still closed).
 func closeWorkspace(ctx context.Context, workspaceName string) (warning string, err error) {
-	// Create workspace store
-	wsStore, err := workspace.NewFileStore("")
+	// Get repo path for scoped storage and worktree runner
+	repoPath, err := detectRepoPath()
+	if err != nil {
+		// If we can't detect repo, worktree operations will fail gracefully
+		repoPath = ""
+	}
+
+	// Create workspace store (repo-scoped if possible, legacy fallback)
+	var wsStore *workspace.FileStore
+	if repoPath != "" {
+		wsStore, err = workspace.NewRepoScopedFileStore(repoPath)
+	} else {
+		wsStore, err = workspace.NewFileStore("")
+	}
 	if err != nil {
 		return "", fmt.Errorf("failed to create workspace store: %w", err)
 	}
@@ -1180,13 +1196,6 @@ func closeWorkspace(ctx context.Context, workspaceName string) (warning string, 
 			return "workspace already closed or not found", nil
 		}
 		return "", fmt.Errorf("failed to get workspace: %w", err)
-	}
-
-	// Get repo path for worktree runner
-	repoPath, err := detectRepoPath()
-	if err != nil {
-		// If we can't detect repo, worktree operations will fail gracefully
-		repoPath = ""
 	}
 
 	// Create worktree runner (may be nil if no repo path)
@@ -1202,8 +1211,13 @@ func closeWorkspace(ctx context.Context, workspaceName string) (warning string, 
 	// Create task store to check for running tasks before closing
 	// This prevents closing a workspace while tasks are actively running
 	var taskLister workspace.TaskLister
-	taskStore, taskErr := task.NewFileStore("")
-	if taskErr == nil {
+	var taskStore *task.FileStore
+	if repoPath != "" {
+		taskStore, _ = task.NewRepoScopedFileStore(repoPath)
+	} else {
+		taskStore, _ = task.NewFileStore("")
+	}
+	if taskStore != nil {
 		taskLister = taskStore
 	}
 

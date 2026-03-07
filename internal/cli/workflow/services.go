@@ -52,7 +52,8 @@ type RegistryDeps struct {
 
 // ServiceFactory creates all services needed for task execution.
 type ServiceFactory struct {
-	logger zerolog.Logger
+	logger   zerolog.Logger
+	repoPath string
 }
 
 // NewServiceFactory creates a new ServiceFactory.
@@ -60,8 +61,22 @@ func NewServiceFactory(logger zerolog.Logger) *ServiceFactory {
 	return &ServiceFactory{logger: logger}
 }
 
+// WithRepoPath sets the repository path for repo-scoped storage.
+func (f *ServiceFactory) WithRepoPath(repoPath string) *ServiceFactory {
+	f.repoPath = repoPath
+	return f
+}
+
 // CreateTaskStore creates a new task file store.
+// Uses repo-scoped storage if repoPath was set via WithRepoPath.
 func (f *ServiceFactory) CreateTaskStore() (*task.FileStore, error) {
+	if f.repoPath != "" {
+		taskStore, err := task.NewRepoScopedFileStore(f.repoPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create task store: %w", err)
+		}
+		return taskStore, nil
+	}
 	taskStore, err := task.NewFileStore("")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create task store: %w", err)

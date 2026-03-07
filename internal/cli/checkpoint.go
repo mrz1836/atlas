@@ -181,9 +181,17 @@ func runCheckpoint(ctx context.Context, cmd *cobra.Command, w io.Writer, descrip
 }
 
 // findActiveHookPath finds the path to an active hook and returns relevant IDs.
-func findActiveHookPath(ctx context.Context, baseDir string) (hookPath, taskID, workspaceID string, err error) {
-	// Get workspace store
-	wsStore, err := workspace.NewFileStore("")
+func findActiveHookPath(ctx context.Context, _ string) (hookPath, taskID, workspaceID string, err error) {
+	// Detect repo for scoped storage
+	repoPath, repoErr := detectRepoPath()
+
+	// Get workspace store (repo-scoped if possible)
+	var wsStore *workspace.FileStore
+	if repoErr == nil && repoPath != "" {
+		wsStore, err = workspace.NewRepoScopedFileStore(repoPath)
+	} else {
+		wsStore, err = workspace.NewFileStore("")
+	}
 	if err != nil {
 		return "", "", "", fmt.Errorf("failed to create workspace store: %w", err)
 	}
@@ -201,7 +209,7 @@ func findActiveHookPath(ctx context.Context, baseDir string) (hookPath, taskID, 
 		}
 
 		// Check for hook.json in this workspace's tasks
-		tasksDir := filepath.Join(baseDir, "workspaces", ws.Name, "tasks")
+		tasksDir := filepath.Join(ws.Path, "tasks")
 		entries, err := os.ReadDir(tasksDir)
 		if err != nil {
 			continue
