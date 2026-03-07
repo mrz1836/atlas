@@ -294,8 +294,9 @@ func setupConfigAndTemplate(ctx context.Context, sc *startContext, logger zerolo
 		wsName = workflow.SanitizeWorkspaceName(wsName)
 	}
 
-	// Apply verify flag overrides to template (needed for dry-run too)
+	// Apply flag overrides to template (needed for dry-run too)
 	workflow.ApplyVerifyOverrides(tmpl, opts.verify, opts.noVerify)
+	workflow.ApplyDetectOverrides(tmpl, opts.fromPRNumber > 0)
 
 	return cfg, tmpl, wsName, nil
 }
@@ -772,6 +773,7 @@ type progressState struct {
 	baseMessage      string             // e.g., "Step 1/8: implement (claude/sonnet)"
 	gitStatsProvider *git.StatsProvider // Provider for live git stats display
 	aiRunner         ai.Runner          // AI runner for process termination on interrupt
+	showGitStats     bool               // Only true during AI implementation steps (steps with Agent set)
 }
 
 // createProgressCallback creates the progress callback for UI feedback.
@@ -814,6 +816,9 @@ func handleProgressStart(ctx context.Context, out tui.Output, event task.StepPro
 	// Store base message for activity updates
 	state.baseMessage = msg
 
+	// Only show git stats during AI implementation steps (those with an Agent set)
+	state.showGitStats = event.Agent != ""
+
 	// Show spinner for ALL step types during execution
 	state.activeSpinner = out.Spinner(ctx, msg)
 }
@@ -834,6 +839,7 @@ func handleProgressComplete(out tui.Output, event task.StepProgressEvent, state 
 		state.activeSpinner = nil
 	}
 	state.baseMessage = ""
+	state.showGitStats = false
 
 	// Check if step is awaiting approval vs completed
 	if event.Status == constants.StepStatusAwaitingApproval {
@@ -1588,7 +1594,10 @@ func createActivityUICallback(state *progressState, verbosity ai.VerbosityLevel)
 
 		icon := event.Type.Icon()
 		msg := event.FormatMessage()
-		statsStr := getGitStatsString(state.gitStatsProvider)
+		statsStr := ""
+		if state.showGitStats {
+			statsStr = getGitStatsString(state.gitStatsProvider)
+		}
 
 		// Integrate activity into spinner with optional stats
 		// Format: "Step 1/8: implement (claude/sonnet) 3M +120/-45 | 🔍 Analyzing..."

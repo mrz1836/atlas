@@ -898,6 +898,148 @@ func TestShouldPropagateVerifyModel(t *testing.T) {
 	}
 }
 
+func TestApplyDetectOverrides(t *testing.T) {
+	tests := []struct {
+		name         string
+		fromPR       bool
+		steps        []domain.StepDefinition
+		wantRequired []bool
+	}{
+		{
+			name:   "enables detect step when fromPR is true",
+			fromPR: true,
+			steps: []domain.StepDefinition{
+				{
+					Name:     "detect",
+					Type:     domain.StepTypeValidation,
+					Required: false,
+					Config:   map[string]any{"detect_only": true},
+				},
+				{
+					Name:     "implement",
+					Type:     domain.StepTypeAI,
+					Required: true,
+				},
+			},
+			wantRequired: []bool{true, true},
+		},
+		{
+			name:   "no change when fromPR is false",
+			fromPR: false,
+			steps: []domain.StepDefinition{
+				{
+					Name:     "detect",
+					Type:     domain.StepTypeValidation,
+					Required: false,
+					Config:   map[string]any{"detect_only": true},
+				},
+			},
+			wantRequired: []bool{false},
+		},
+		{
+			name:   "does not enable validation step without detect_only config",
+			fromPR: true,
+			steps: []domain.StepDefinition{
+				{
+					Name:     "validate",
+					Type:     domain.StepTypeValidation,
+					Required: false,
+					Config:   map[string]any{},
+				},
+			},
+			wantRequired: []bool{false},
+		},
+		{
+			name:   "does not enable validation step with detect_only=false",
+			fromPR: true,
+			steps: []domain.StepDefinition{
+				{
+					Name:     "validate",
+					Type:     domain.StepTypeValidation,
+					Required: false,
+					Config:   map[string]any{"detect_only": false},
+				},
+			},
+			wantRequired: []bool{false},
+		},
+		{
+			name:   "does not affect non-validation steps",
+			fromPR: true,
+			steps: []domain.StepDefinition{
+				{
+					Name:     "implement",
+					Type:     domain.StepTypeAI,
+					Required: false,
+				},
+			},
+			wantRequired: []bool{false},
+		},
+		{
+			name:   "handles nil config gracefully",
+			fromPR: true,
+			steps: []domain.StepDefinition{
+				{
+					Name:     "detect",
+					Type:     domain.StepTypeValidation,
+					Required: false,
+					Config:   nil,
+				},
+			},
+			wantRequired: []bool{false},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmpl := &domain.Template{
+				Name:  "test-template",
+				Steps: tt.steps,
+			}
+
+			ApplyDetectOverrides(tmpl, tt.fromPR)
+
+			for i, want := range tt.wantRequired {
+				if tmpl.Steps[i].Required != want {
+					t.Errorf("step[%d] %q Required = %v, want %v",
+						i, tmpl.Steps[i].Name, tmpl.Steps[i].Required, want)
+				}
+			}
+		})
+	}
+}
+
+func TestApplyCLIOverridesFromTask_DetectOverride(t *testing.T) {
+	task := &domain.Task{
+		ID: "test-task",
+		Metadata: map[string]any{
+			"from_pr_number": 127,
+		},
+	}
+
+	tmpl := &domain.Template{
+		Name: "test-template",
+		Steps: []domain.StepDefinition{
+			{
+				Name:     "detect",
+				Type:     domain.StepTypeValidation,
+				Required: false,
+				Config:   map[string]any{"detect_only": true},
+			},
+			{
+				Name:     "implement",
+				Type:     domain.StepTypeAI,
+				Required: true,
+			},
+		},
+	}
+
+	ApplyCLIOverridesFromTask(task, tmpl)
+
+	if !tmpl.Steps[0].Required {
+		t.Error("expected detect step to be required after applying from_pr override")
+	}
+}
+
 func TestPropagateVerifyModel(t *testing.T) {
 	t.Run("initializes config if nil", func(t *testing.T) {
 		step := &domain.StepDefinition{

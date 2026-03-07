@@ -123,6 +123,22 @@ func ApplyAgentModelOverrides(tmpl *domain.Template, agent, model string) {
 	}
 }
 
+// ApplyDetectOverrides auto-enables detect steps when --from-pr is used.
+// When working from a PR, the detect step is essential to capture validation
+// errors and CI failures that inform the fix step.
+func ApplyDetectOverrides(tmpl *domain.Template, fromPR bool) {
+	if !fromPR {
+		return
+	}
+	for i := range tmpl.Steps {
+		if tmpl.Steps[i].Type == domain.StepTypeValidation {
+			if detectOnly, ok := tmpl.Steps[i].Config["detect_only"].(bool); ok && detectOnly {
+				tmpl.Steps[i].Required = true
+			}
+		}
+	}
+}
+
 // ApplyVerifyOverrides applies --verify or --no-verify flag overrides to the template.
 // If neither flag is set, the template's default Verify setting is used.
 // Also propagates VerifyModel from template to the verify step config, but only if
@@ -225,4 +241,8 @@ func ApplyCLIOverridesFromTask(task *domain.Task, tmpl *domain.Template) {
 
 	ApplyVerifyOverrides(tmpl, verify, noVerify)
 	ApplyAgentModelOverrides(tmpl, agent, model)
+
+	// Re-apply detect overrides if task was started with --from-pr
+	fromPRNumber, _ := task.Metadata["from_pr_number"].(int)
+	ApplyDetectOverrides(tmpl, fromPRNumber > 0)
 }
