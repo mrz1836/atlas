@@ -1064,6 +1064,9 @@ func (m *LockRetryMockRunner) Fetch(_ context.Context, _ string) error        { 
 func (m *LockRetryMockRunner) Rebase(_ context.Context, _ string) error       { return nil }
 func (m *LockRetryMockRunner) RebaseAbort(_ context.Context) error            { return nil }
 func (m *LockRetryMockRunner) ResetFiles(_ context.Context, _ []string) error { return nil }
+func (m *LockRetryMockRunner) DiffStagedNames(_ context.Context) ([]string, error) {
+	return []string{"test.go"}, nil
+}
 
 // Compile-time interface check
 var _ Runner = (*LockRetryMockRunner)(nil)
@@ -1279,4 +1282,54 @@ func TestSmartCommitRunner_CommitGroup_MixedLockErrors(t *testing.T) {
 	assert.Equal(t, 2, mockRunner.resetCallCount, "expected 2 reset calls")
 	assert.Equal(t, 3, mockRunner.addCallCount, "expected 3 add calls")
 	assert.Equal(t, 1, mockRunner.commitCallCount, "expected 1 commit call")
+}
+
+func TestSmartCommitRunner_CommitGroup_SkipsWhenNothingStaged(t *testing.T) {
+	mockRunner := &MockRunner{
+		ResetFunc: func(_ context.Context) error { return nil },
+		AddFunc:   func(_ context.Context, _ []string) error { return nil },
+		DiffStagedNamesFunc: func(_ context.Context) ([]string, error) {
+			return nil, nil // No files staged
+		},
+		CommitFunc: func(_ context.Context, _ string) error {
+			t.Fatal("commit should not be called when nothing is staged")
+			return nil
+		},
+	}
+
+	runner := NewSmartCommitRunner(mockRunner, "/tmp", nil,
+		WithLockRetryConfig(fastLockRetryConfig()))
+
+	group := FileGroup{
+		Package:    "test",
+		Files:      []FileChange{{Path: "test.go", Status: ChangeModified}},
+		CommitType: CommitTypeFeat,
+	}
+
+	commit, err := runner.commitGroup(context.Background(), group)
+	require.ErrorIs(t, err, ErrNoFilesStaged)
+	assert.Nil(t, commit, "commitGroup should return nil when nothing is staged")
+}
+
+func TestSmartCommitRunner_Commit_AllGroupsSkipped(t *testing.T) {
+	mockRunner := &MockRunner{
+		StatusFunc: func(_ context.Context) (*Status, error) {
+			return &Status{
+				Unstaged: []FileChange{{Path: "test.go", Status: ChangeModified}},
+			}, nil
+		},
+		ResetFunc: func(_ context.Context) error { return nil },
+		AddFunc:   func(_ context.Context, _ []string) error { return nil },
+		DiffStagedNamesFunc: func(_ context.Context) ([]string, error) {
+			return nil, nil // No files staged
+		},
+	}
+
+	runner := NewSmartCommitRunner(mockRunner, "/tmp", nil,
+		WithLockRetryConfig(fastLockRetryConfig()))
+
+	_, err := runner.Commit(context.Background(), CommitOptions{SkipGarbageCheck: true})
+	require.Error(t, err)
+	require.ErrorIs(t, err, atlaserrors.ErrGitOperation)
+	assert.Contains(t, err.Error(), "no changes were staged")
 }

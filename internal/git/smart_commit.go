@@ -4,6 +4,7 @@ package git
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -293,6 +294,10 @@ func (r *SmartCommitRunner) Commit(ctx context.Context, opts CommitOptions) (*Co
 		return nil, err
 	}
 
+	if len(commits) == 0 {
+		return nil, fmt.Errorf("no changes were staged for any commit group: %w", atlaserrors.ErrGitOperation)
+	}
+
 	return r.buildCommitResult(commits)
 }
 
@@ -336,6 +341,9 @@ func (r *SmartCommitRunner) performCommits(ctx context.Context, groups []FileGro
 
 	for _, group := range groups {
 		commit, err := r.commitGroup(ctx, group)
+		if errors.Is(err, ErrNoFilesStaged) {
+			continue
+		}
 		if err != nil {
 			return nil, fmt.Errorf("failed to commit group '%s': %w", group.Package, err)
 		}
@@ -403,6 +411,18 @@ func (r *SmartCommitRunner) commitGroup(ctx context.Context, group FileGroup) (*
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to stage files: %w", err)
+	}
+
+	// Verify files were staged before generating AI message
+	stagedNames, err := r.runner.DiffStagedNames(ctx)
+	if err != nil {
+		r.logger.Warn().Err(err).Str("package", group.Package).
+			Msg("failed to check staged files, proceeding with commit attempt")
+	} else if len(stagedNames) == 0 {
+		r.logger.Warn().Str("package", group.Package).
+			Int("expected_files", len(paths)).
+			Msg("no files staged after git add, skipping group")
+		return nil, ErrNoFilesStaged
 	}
 
 	// Generate commit message
