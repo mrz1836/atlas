@@ -22,6 +22,15 @@ const (
 
 	// Task-related prompts
 	CIFailure PromptID = "task/ci_failure"
+
+	// Quality analysis prompts
+	Deduplication  PromptID = "quality/dedup"
+	GoroutineLeak  PromptID = "quality/goroutine_leak"
+	JrToSr         PromptID = "quality/jr_to_sr"
+	ConstantHunter PromptID = "quality/constant_hunter"
+	ConfigHunter   PromptID = "quality/config_hunter"
+	GoOptimize     PromptID = "quality/go_optimize"
+	TestCreator    PromptID = "quality/test_creator"
 )
 
 // FileChange represents a changed file for commit/PR prompts.
