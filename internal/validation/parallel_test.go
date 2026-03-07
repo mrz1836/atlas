@@ -262,7 +262,7 @@ func TestRunner_Run_ContextCancellationDuringExecution(t *testing.T) {
 	}
 	runner := validation.NewRunner(executor, config)
 
-	ctx, cancel := context.WithCancel(testContext())
+	ctx, cancel := context.WithCancel(testContext()) //nolint:gosec // G118: cancel is called in goroutine below
 	go func() {
 		time.Sleep(50 * time.Millisecond)
 		cancel()

@@ -78,6 +78,10 @@ func (m *mockHubRunner) GetPRStatus(ctx context.Context, prNumber int) (*git.PRS
 	return &git.PRStatus{}, nil
 }
 
+func (m *mockHubRunner) GetPRHeadBranch(_ context.Context, _ int) (string, error) {
+	return "", nil
+}
+
 func (m *mockHubRunner) WatchPRChecks(ctx context.Context, opts git.CIWatchOptions) (*git.CIWatchResult, error) {
 	if m.watchPRFunc != nil {
 		return m.watchPRFunc(ctx, opts)

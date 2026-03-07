@@ -298,14 +298,14 @@ func outputCloseWarning(w io.Writer, warning, output string) {
 			"message": warning,
 		}); err != nil {
 			// Best effort - if JSON encoding fails, fall back to stderr
-			_, _ = fmt.Fprintf(os.Stderr, "Warning: %s\n", warning) //nolint:gosec // G705: writing to stderr, not an HTTP response writer
+			_, _ = fmt.Fprintf(os.Stderr, "Warning: %s\n", warning)
 		}
 		return
 	}
 
 	// Use lipgloss for styled warning message
 	warningIcon := lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Render("⚠")
-	_, _ = fmt.Fprintf(w, "%s Warning: %s\n", warningIcon, warning) //nolint:gosec // G705: writing to local output writer, not an HTTP response writer
+	_, _ = fmt.Fprintf(w, "%s Warning: %s\n", warningIcon, warning)
 }
 
 // confirmClose prompts the user for confirmation before closing a workspace.

@@ -209,7 +209,7 @@ func TestStreamingExecutor_Execute_ContextCancellation(t *testing.T) {
 		Verbosity: VerbosityHigh,
 	})
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(context.Background()) //nolint:gosec // G118: cancel is called in goroutine below
 
 	// Start a long-running command
 	cmd := exec.CommandContext(ctx, "sleep", "10")

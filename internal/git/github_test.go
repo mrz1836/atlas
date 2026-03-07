@@ -328,7 +328,7 @@ func TestCLIGitHubRunner_CreatePR_ContextCancelledDuringRetry(t *testing.T) {
 		},
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(context.Background()) //nolint:gosec // G118: cancel is called via goroutine or defer
 
 	runner := NewCLIGitHubRunner("/test/dir",
 		WithGHCommandExecutor(mock),
@@ -444,6 +444,112 @@ func TestCLIGitHubRunner_GetPRStatus_InvalidJSON(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to parse PR status JSON")
+}
+
+func TestCLIGitHubRunner_GetPRHeadBranch_Success(t *testing.T) {
+	mock := &mockCommandExecutor{
+		executeFunc: func(_ context.Context, _, _ string, args ...string) ([]byte, error) {
+			// Verify the correct JSON field is requested
+			found := false
+			for _, arg := range args {
+				if arg == "headRefName" {
+					found = true
+					break
+				}
+			}
+			assert.True(t, found, "expected headRefName in args")
+			return []byte(`{"headRefName":"feat/my-feature"}`), nil
+		},
+	}
+
+	runner := NewCLIGitHubRunner("/test/dir", WithGHCommandExecutor(mock))
+
+	branch, err := runner.GetPRHeadBranch(context.Background(), 42)
+
+	require.NoError(t, err)
+	assert.Equal(t, "feat/my-feature", branch)
+}
+
+func TestCLIGitHubRunner_GetPRHeadBranch_InvalidPRNumber(t *testing.T) {
+	runner := NewCLIGitHubRunner("/test/dir")
+
+	for _, n := range []int{0, -1, -100} {
+		t.Run(fmt.Sprintf("pr_number_%d", n), func(t *testing.T) {
+			_, err := runner.GetPRHeadBranch(context.Background(), n)
+			require.Error(t, err)
+			assert.ErrorIs(t, err, atlaserrors.ErrEmptyValue)
+		})
+	}
+}
+
+func TestCLIGitHubRunner_GetPRHeadBranch_ContextCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	runner := NewCLIGitHubRunner("/test/dir")
+
+	_, err := runner.GetPRHeadBranch(ctx, 42)
+	assert.ErrorIs(t, err, context.Canceled)
+}
+
+func TestCLIGitHubRunner_GetPRHeadBranch_NotFound(t *testing.T) {
+	mock := &mockCommandExecutor{
+		executeFunc: func(_ context.Context, _, _ string, _ ...string) ([]byte, error) {
+			return nil, fmt.Errorf("pull request not found: %w", atlaserrors.ErrGitHubOperation)
+		},
+	}
+
+	runner := NewCLIGitHubRunner("/test/dir", WithGHCommandExecutor(mock))
+
+	_, err := runner.GetPRHeadBranch(context.Background(), 999)
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, atlaserrors.ErrPRNotFound)
+}
+
+func TestCLIGitHubRunner_GetPRHeadBranch_OtherError(t *testing.T) {
+	mock := &mockCommandExecutor{
+		executeFunc: func(_ context.Context, _, _ string, _ ...string) ([]byte, error) {
+			return nil, fmt.Errorf("network error: %w", atlaserrors.ErrGitHubOperation)
+		},
+	}
+
+	runner := NewCLIGitHubRunner("/test/dir", WithGHCommandExecutor(mock))
+
+	_, err := runner.GetPRHeadBranch(context.Background(), 42)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to get PR #42")
+}
+
+func TestCLIGitHubRunner_GetPRHeadBranch_InvalidJSON(t *testing.T) {
+	mock := &mockCommandExecutor{
+		executeFunc: func(_ context.Context, _, _ string, _ ...string) ([]byte, error) {
+			return []byte(`{invalid json`), nil
+		},
+	}
+
+	runner := NewCLIGitHubRunner("/test/dir", WithGHCommandExecutor(mock))
+
+	_, err := runner.GetPRHeadBranch(context.Background(), 42)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to parse PR info")
+}
+
+func TestCLIGitHubRunner_GetPRHeadBranch_EmptyBranch(t *testing.T) {
+	mock := &mockCommandExecutor{
+		executeFunc: func(_ context.Context, _, _ string, _ ...string) ([]byte, error) {
+			return []byte(`{"headRefName":""}`), nil
+		},
+	}
+
+	runner := NewCLIGitHubRunner("/test/dir", WithGHCommandExecutor(mock))
+
+	_, err := runner.GetPRHeadBranch(context.Background(), 42)
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, atlaserrors.ErrEmptyValue)
 }
 
 //nolint:err113 // test table uses dynamic errors to test error message pattern matching
@@ -991,7 +1097,7 @@ func TestCLIGitHubRunner_WatchPRChecks_ContextCancellation(t *testing.T) {
 
 	runner := NewCLIGitHubRunner("/test/dir", WithGHCommandExecutor(mock))
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(context.Background()) //nolint:gosec // G118: cancel is called in goroutine below
 
 	go func() {
 		time.Sleep(30 * time.Millisecond)

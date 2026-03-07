@@ -235,6 +235,9 @@ atlas start "continue work" -t task --branch develop --use-local
 # Fix issues on an existing branch (e.g., a branch already in a PR)
 atlas start "fix lint errors" --template patch --target feat/my-feature
 
+# Fix CI failures on an existing PR (resolves head branch automatically)
+atlas start "fix CI failures" --template patch --from-pr 123
+
 # Enable/disable AI verification
 atlas start "simple edit" -t task --verify
 atlas start "simple edit" -t task --no-verify
@@ -262,6 +265,7 @@ atlas start "fix null pointer" --template bug --dry-run --output json
 | `--model` | `-m` | AI model to use | Claude: `sonnet`, `opus`, `haiku`; Gemini: `flash`, `pro`; Codex: `codex`, `max`, `mini` |
 | `--branch` | `-b` | Base branch to create workspace from (fetches from remote by default) | Branch name |
 | `--target` | | Existing branch to checkout and work on (skips new branch creation, mutually exclusive with `--branch`) | Branch name |
+| `--from-pr` | | GitHub PR number to checkout and fix (resolves head branch automatically, mutually exclusive with `--branch` and `--target`) | PR number |
 | `--use-local` | | Prefer local branch over remote when both exist | |
 | `--verify` | | Enable AI verification step | |
 | `--no-verify` | | Disable AI verification step | |
@@ -1859,6 +1863,9 @@ The **patch** template is designed for fixing issues on branches that are alread
 # Branch feat/my-feature has linter issues and already has a PR open
 atlas start "fix lint errors" --template patch --target feat/my-feature
 
+# Provide a PR number directly (head branch is resolved automatically)
+atlas start "fix CI failures" --template patch --from-pr 123
+
 # Monitor progress
 atlas status --watch
 
@@ -1875,7 +1882,7 @@ atlas status --watch
 ```
 
 **Key Features:**
-- **Uses existing branch**: Requires `--target` flag to specify the branch to checkout
+- **Uses existing branch**: Use `--target <branch>` to specify the branch, or `--from-pr <N>` to resolve it from a PR number automatically
 - **No new PR**: Pushes directly to the target branch
 - **Isolated worktree**: Still uses worktree isolation for safe development
 - **Fast workflow**: Skips PR creation, CI wait, and review steps
@@ -2462,6 +2469,7 @@ Templates use Go's `text/template` package with helper functions:
 | Gemini CLI not found | gemini not installed | `npm install -g @google/gemini-cli` |
 | Codex CLI not found | codex not installed | `npm install -g @openai/codex` |
 | No issues found (bug detect mode) | Bug template detect mode found clean codebase | No action needed - task completes without PR |
+| `--from-pr: PR #N not found` | Invalid or inaccessible PR number | Verify PR exists with `gh pr view <N>` |
 | `hook not found` | No active hook for current task | Start a new task or resume existing with `atlas resume` |
 | `Hook is stale` | Hook not updated in 5+ minutes (crash) | Run `atlas resume` to enter recovery mode |
 | `Signature invalid` | Receipt tampered or key regenerated | Re-run validation to create new receipt |

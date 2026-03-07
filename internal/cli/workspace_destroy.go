@@ -243,10 +243,10 @@ func showManualCleanupWarning(w io.Writer, output, worktreePath, branch string, 
 
 	_, _ = fmt.Fprintf(w, "\n⚠️  Manual cleanup may be required:\n")
 	if worktreePath != "" {
-		_, _ = fmt.Fprintf(w, "   git worktree remove --force %s\n", worktreePath) //nolint:gosec // G705: writing to local output writer, not an HTTP response writer
+		_, _ = fmt.Fprintf(w, "   git worktree remove --force %s\n", worktreePath)
 	}
 	if branch != "" {
-		_, _ = fmt.Fprintf(w, "   git branch -D %s\n", branch) //nolint:gosec // G705: writing to local output writer, not an HTTP response writer
+		_, _ = fmt.Fprintf(w, "   git branch -D %s\n", branch)
 	}
 	_, _ = fmt.Fprintf(w, "\n")
 }

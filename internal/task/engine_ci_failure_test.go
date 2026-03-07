@@ -34,6 +34,10 @@ func (m *mockHubRunner) WatchPRChecks(_ context.Context, _ git.CIWatchOptions) (
 	return &git.CIWatchResult{}, nil
 }
 
+func (m *mockHubRunner) GetPRHeadBranch(_ context.Context, _ int) (string, error) {
+	return "", nil
+}
+
 func (m *mockHubRunner) ConvertToDraft(_ context.Context, prNumber int) error {
 	m.convertToDraftCalled = true
 	m.convertToDraftPR = prNumber

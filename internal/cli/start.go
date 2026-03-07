@@ -48,6 +48,7 @@ type startOptions struct {
 	noVerify      bool
 	dryRun        bool
 	fromBacklogID string // Discovery ID to link and promote after task creation
+	fromPRNumber  int    // GitHub PR number to resolve to head branch (mutually exclusive with baseBranch/targetBranch)
 }
 
 // newStartCmd creates the start command.
@@ -65,6 +66,7 @@ func newStartCmd() *cobra.Command {
 		noVerify      bool
 		dryRun        bool
 		fromBacklogID string
+		fromPRNumber  int
 	)
 
 	cmd := &cobra.Command{
@@ -81,7 +83,8 @@ Examples:
   atlas start "quick fix" --template bug --no-verify
   atlas start "fix from develop" --template bug --branch develop
   atlas start "review changes" --template bug --dry-run
-  atlas start "fix lint errors" --template patch --target feat/my-feature`,
+  atlas start "fix lint errors" --template patch --target feat/my-feature
+  atlas start "fix CI failures" --template patch --from-pr 123`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runStart(cmd.Context(), cmd, cmd.OutOrStdout(), args[0], startOptions{
@@ -97,6 +100,7 @@ Examples:
 				noVerify:      noVerify,
 				dryRun:        dryRun,
 				fromBacklogID: fromBacklogID,
+				fromPRNumber:  fromPRNumber,
 			})
 		},
 	}
@@ -125,6 +129,8 @@ Examples:
 		"Show what would happen without making changes")
 	cmd.Flags().StringVar(&fromBacklogID, "from-backlog", "",
 		"Link this task to a backlog discovery (auto-promotes the discovery)")
+	cmd.Flags().IntVar(&fromPRNumber, "from-pr", 0,
+		"GitHub PR number to checkout and fix (resolves head branch, mutually exclusive with --branch and --target)")
 
 	return cmd
 }
@@ -178,6 +184,20 @@ func runStart(ctx context.Context, cmd *cobra.Command, w io.Writer, description 
 	}
 	logger.Debug().Str("repo_path", repoPath).Msg("found git repository")
 
+	// Resolve --from-pr to a branch name using the GitHub CLI
+	if opts.fromPRNumber > 0 {
+		ghRunner := git.NewCLIGitHubRunner(repoPath)
+		branch, branchErr := ghRunner.GetPRHeadBranch(ctx, opts.fromPRNumber) //nolint:contextcheck // context is properly checked and used
+		if branchErr != nil {
+			return sc.handleError("", fmt.Errorf("--from-pr: %w", branchErr))
+		}
+		logger.Info().
+			Int("pr_number", opts.fromPRNumber).
+			Str("branch", branch).
+			Msg("resolved PR to branch")
+		opts.targetBranch = branch
+	}
+
 	// Load config and template
 	cfg, tmpl, wsName, err := setupConfigAndTemplate(ctx, sc, logger, orchestrator, repoPath, description, opts) //nolint:contextcheck // context is properly checked and used
 	if err != nil {
@@ -211,10 +231,24 @@ func validateStartOptions(opts startOptions, sc *startContext) error {
 			fmt.Errorf("%w: cannot use both --verify and --no-verify", atlaserrors.ErrConflictingFlags)))
 	}
 
-	// Validate branch flags - cannot use both --branch and --target
-	if opts.baseBranch != "" && opts.targetBranch != "" {
+	// Validate branch flags - --branch, --target, and --from-pr are mutually exclusive
+	exclusiveCount := 0
+	if opts.baseBranch != "" {
+		exclusiveCount++
+	}
+	if opts.targetBranch != "" {
+		exclusiveCount++
+	}
+	if opts.fromPRNumber > 0 {
+		exclusiveCount++
+	}
+	if exclusiveCount > 1 {
 		return sc.handleError("", atlaserrors.NewExitCode2Error(
-			fmt.Errorf("%w: cannot use both --branch and --target", atlaserrors.ErrConflictingFlags)))
+			fmt.Errorf("%w: --branch, --target, and --from-pr are mutually exclusive", atlaserrors.ErrConflictingFlags)))
+	}
+	if opts.fromPRNumber < 0 {
+		return sc.handleError("", atlaserrors.NewExitCode2Error(
+			fmt.Errorf("%w: --from-pr must be a positive integer", atlaserrors.ErrInvalidArgument)))
 	}
 
 	return nil

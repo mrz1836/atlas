@@ -582,7 +582,7 @@ func createResumeValidationRetryHandler(aiRunner ai.Runner, cfg *config.Config, 
 func ensureWorktreeExists(ctx context.Context, ws *domain.Workspace, out tui.Output, logger zerolog.Logger) (*domain.Workspace, error) {
 	// Check if worktree path is set and exists
 	if ws.WorktreePath != "" {
-		if _, err := os.Stat(ws.WorktreePath); err == nil { //nolint:gosec // G703: path is from trusted domain object, not user input
+		if _, err := os.Stat(ws.WorktreePath); err == nil {
 			// Worktree exists, nothing to do
 			return ws, nil
 		}
@@ -678,8 +678,8 @@ func calculateWorktreePath(repoPath, workspaceName string) string {
 // createWorktreeForBranch creates a worktree for an existing branch.
 func createWorktreeForBranch(ctx context.Context, repoPath, worktreePath, branchName string) error {
 	// Remove any existing directory at the worktree path
-	if _, err := os.Stat(worktreePath); err == nil { //nolint:gosec // G703: path is from trusted workspace store, not user input
-		if removeErr := os.RemoveAll(worktreePath); removeErr != nil { //nolint:gosec // G703: path is from trusted workspace store, not user input
+	if _, err := os.Stat(worktreePath); err == nil {
+		if removeErr := os.RemoveAll(worktreePath); removeErr != nil {
 			return fmt.Errorf("failed to remove existing directory at worktree path: %w", removeErr)
 		}
 	}
