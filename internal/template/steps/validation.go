@@ -275,10 +275,14 @@ func (e *ValidationExecutor) buildDetectOnlyResult(task *domain.Task, step *doma
 		Bool("validation_passed", pipelineResult.Success).
 		Msg("validation step completed in detect_only mode")
 
-	metadata := e.buildMetadataWithArtifact(validationChecks, pipelineResult, artifactPath, map[string]any{
+	extra := map[string]any{
 		"validation_failed": !pipelineResult.Success,
 		"detect_only":       true,
-	})
+	}
+	if pipelineResult.VacuousTests {
+		extra["vacuous_tests"] = true
+	}
+	metadata := e.buildMetadataWithArtifact(validationChecks, pipelineResult, artifactPath, extra)
 
 	return &domain.StepResult{
 		StepIndex:   task.CurrentStep,

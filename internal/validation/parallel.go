@@ -208,9 +208,31 @@ func (r *Runner) runTestPhase(ctx context.Context, result *PipelineResult, workD
 		log.Error().Err(err).Msg("test step failed")
 		return err
 	}
+
+	// Detect vacuous test results: all tests succeeded but produced no output
+	// (e.g., test runner found no tests in a non-Go project)
+	if allResultsVacuous(testResults) {
+		result.VacuousTests = true
+		log.Warn().Msg("all test commands produced empty output (vacuous success) — tests may not have actually run")
+	}
+
 	r.reportProgress("test", "completed")
 
 	return nil
+}
+
+// allResultsVacuous returns true if all results are vacuous (empty output, fast completion).
+// Returns false if there are no results.
+func allResultsVacuous(results []Result) bool {
+	if len(results) == 0 {
+		return false
+	}
+	for i := range results {
+		if !results[i].IsVacuous() {
+			return false
+		}
+	}
+	return true
 }
 
 // handlePreCommitSkipped records that pre-commit was skipped due to missing tool.

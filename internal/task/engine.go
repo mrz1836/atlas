@@ -601,12 +601,19 @@ func (e *Engine) handleSuccessResult(ctx context.Context, task *domain.Task, ste
 	if result.Metadata != nil {
 		detectOnly, hasDetectOnly := result.Metadata["detect_only"].(bool)
 		validationFailed, _ := result.Metadata["validation_failed"].(bool) // defaults to false if missing
-		if hasDetectOnly && detectOnly && !validationFailed {
+		vacuousTests, _ := result.Metadata["vacuous_tests"].(bool)         // defaults to false if missing
+		if hasDetectOnly && detectOnly && !validationFailed && !vacuousTests {
 			e.setMetadata(task, "no_issues_detected", true)
 			e.logger.Info().
 				Str("task_id", task.ID).
 				Str("step_name", step.Name).
 				Msg("no issues detected in validation, will skip fix steps")
+		}
+		if vacuousTests {
+			e.logger.Warn().
+				Str("task_id", task.ID).
+				Str("step_name", step.Name).
+				Msg("tests were vacuous (empty output), not marking as no issues detected")
 		}
 	}
 

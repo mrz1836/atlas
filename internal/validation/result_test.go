@@ -158,6 +158,64 @@ func TestPipelineResult_BuildChecksAsMap(t *testing.T) {
 	})
 }
 
+func TestResult_IsVacuous(t *testing.T) {
+	t.Parallel()
+
+	t.Run("vacuous when success with empty output", func(t *testing.T) {
+		t.Parallel()
+		r := &Result{Success: true, EmptyOutput: true}
+		assert.True(t, r.IsVacuous())
+	})
+
+	t.Run("not vacuous when failed with empty output", func(t *testing.T) {
+		t.Parallel()
+		r := &Result{Success: false, EmptyOutput: true}
+		assert.False(t, r.IsVacuous())
+	})
+
+	t.Run("not vacuous when success with real output", func(t *testing.T) {
+		t.Parallel()
+		r := &Result{Success: true, EmptyOutput: false, Stdout: "PASS"}
+		assert.False(t, r.IsVacuous())
+	})
+}
+
+func TestAllResultsVacuous(t *testing.T) {
+	t.Parallel()
+
+	t.Run("empty slice returns false", func(t *testing.T) {
+		t.Parallel()
+		assert.False(t, allResultsVacuous(nil))
+		assert.False(t, allResultsVacuous([]Result{}))
+	})
+
+	t.Run("all vacuous returns true", func(t *testing.T) {
+		t.Parallel()
+		results := []Result{
+			{Success: true, EmptyOutput: true},
+			{Success: true, EmptyOutput: true},
+		}
+		assert.True(t, allResultsVacuous(results))
+	})
+
+	t.Run("mixed results returns false", func(t *testing.T) {
+		t.Parallel()
+		results := []Result{
+			{Success: true, EmptyOutput: true},
+			{Success: true, EmptyOutput: false, Stdout: "ok  pkg 0.5s"},
+		}
+		assert.False(t, allResultsVacuous(results))
+	})
+
+	t.Run("non-vacuous success returns false", func(t *testing.T) {
+		t.Parallel()
+		results := []Result{
+			{Success: true, EmptyOutput: false, Stdout: "PASS\nok  pkg 1.2s"},
+		}
+		assert.False(t, allResultsVacuous(results))
+	})
+}
+
 func TestHasFailedResult(t *testing.T) {
 	t.Parallel()
 

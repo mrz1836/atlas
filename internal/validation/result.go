@@ -8,6 +8,11 @@ import (
 	"time"
 )
 
+// VacuousThresholdMs is the duration threshold (in milliseconds) below which
+// a command with empty output is considered vacuous (i.e., it didn't actually
+// find anything to run, like a test runner in a non-Go project).
+const VacuousThresholdMs = 1000
+
 // Result captures the outcome of a single validation command.
 type Result struct {
 	Command     string    `json:"command"`
@@ -19,6 +24,14 @@ type Result struct {
 	Error       string    `json:"error,omitempty"`
 	StartedAt   time.Time `json:"started_at"`
 	CompletedAt time.Time `json:"completed_at"`
+	EmptyOutput bool      `json:"empty_output,omitempty"` // True when stdout is empty and command completed quickly
+}
+
+// IsVacuous returns true if this result represents a vacuous success —
+// the command succeeded but produced no output and ran very quickly,
+// suggesting it found nothing to do (e.g., test runner with no tests).
+func (r *Result) IsVacuous() bool {
+	return r.Success && r.EmptyOutput
 }
 
 // PipelineResult aggregates results from all validation pipeline steps.
@@ -32,6 +45,7 @@ type PipelineResult struct {
 	FailedStepName   string            `json:"failed_step,omitempty"`
 	SkippedSteps     []string          `json:"skipped_steps,omitempty"`
 	SkipReasons      map[string]string `json:"skip_reasons,omitempty"`
+	VacuousTests     bool              `json:"vacuous_tests,omitempty"` // True when all test commands produced empty output quickly
 }
 
 // AllResults returns a flat list of all results from all steps.

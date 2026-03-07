@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -166,7 +167,7 @@ func (e *Executor) executeCommand(ctx context.Context, command, workDir string) 
 
 // buildResult constructs a Result struct from command execution data.
 func (e *Executor) buildResult(command, stdout, stderr string, exitCode int, startTime, completedAt time.Time, duration time.Duration) *Result {
-	return &Result{
+	r := &Result{
 		Command:     command,
 		ExitCode:    exitCode,
 		Stdout:      stdout,
@@ -175,6 +176,12 @@ func (e *Executor) buildResult(command, stdout, stderr string, exitCode int, sta
 		StartedAt:   startTime,
 		CompletedAt: completedAt,
 	}
+	// Mark as empty output when stdout is empty/whitespace-only and ran quickly.
+	// This detects vacuous commands (e.g., test runner finding no tests).
+	if strings.TrimSpace(stdout) == "" && duration.Milliseconds() < VacuousThresholdMs {
+		r.EmptyOutput = true
+	}
+	return r
 }
 
 // handleCommandOutcome processes the result and determines success/failure.

@@ -4097,6 +4097,15 @@ func TestEngine_HandleStepResult_SetsNoIssuesDetected(t *testing.T) {
 			resultMetadata:         nil,
 			expectNoIssuesDetected: false,
 		},
+		{
+			name: "detect_only with vacuous tests does NOT set flag",
+			resultMetadata: map[string]any{
+				"detect_only":       true,
+				"validation_failed": false,
+				"vacuous_tests":     true,
+			},
+			expectNoIssuesDetected: false,
+		},
 	}
 
 	for _, tt := range tests {
