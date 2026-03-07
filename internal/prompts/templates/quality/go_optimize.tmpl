@@ -1,0 +1,44 @@
+Analyze the following code for opportunities to use newer Go features.
+
+## Target Go Version
+{{.GoVersion}}
+
+## Files to Analyze
+{{range .Files -}}
+### {{.Path}}
+```{{.Language}}
+{{.Content}}
+```
+
+{{end}}
+## Instructions
+Find opportunities to modernize code for Go {{.GoVersion}}:
+
+**Go 1.21+:**
+- Use `maps.Clone()` and `slices.Clone()` instead of manual loops
+- Use `clear()` builtin for maps and slices
+- Use `min()` and `max()` builtins
+
+**Go 1.22+:**
+- Use `for i := range N` instead of `for i := 0; i < N; i++`
+- Use loop variable scoping (no more `i := i` in closures)
+
+**Go 1.23+:**
+- Use iterators (iter.Seq) for custom iteration
+- Use range over functions
+
+**Go 1.24+:**
+- Use generic type aliases
+- Use `testing.B.Loop()` for benchmarks
+
+For each opportunity:
+- Show the old pattern
+- Show the new pattern
+- Note any performance implications
+
+{{template "common/json_format" .}}
+
+Respond with JSON array:
+[{"severity": "suggestion", "file": "path", "line": 0, "message": "can use Go X.Y feature", "suggestion": "modernized code", "category": "optimize"}]
+
+If no opportunities found, respond with: []

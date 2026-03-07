@@ -217,7 +217,7 @@ type SourceFile struct {
 // QualityIssue represents a detected quality issue (output schema documentation).
 // This documents the expected JSON output format from quality prompts.
 type QualityIssue struct {
-	Severity   string `json:"severity"`   // "critical", "warning", "suggestion"
+	Severity   string `json:"severity"` // "critical", "warning", "suggestion"
 	File       string `json:"file"`
 	Line       int    `json:"line"`
 	Message    string `json:"message"`

@@ -1,0 +1,33 @@
+Analyze the following code and suggest intelligent tests for uncovered scenarios.
+
+## Files to Analyze
+{{range .Files -}}
+### {{.Path}}
+```{{.Language}}
+{{.Content}}
+```
+
+{{end}}
+## Instructions
+Generate test suggestions for:
+1. Functions without any test coverage
+2. Error paths not exercised by existing tests
+3. Edge cases (nil input, empty slices, zero values)
+4. Boundary conditions (off-by-one, max values)
+5. Concurrent access scenarios (if applicable)
+6. Table-driven test opportunities
+
+For each suggestion:
+- Provide the test function signature
+- List test cases as table entries
+- Include edge cases with expected behavior
+- Note any mocking requirements
+
+Format test suggestions as executable Go code snippets.
+
+{{template "common/json_format" .}}
+
+Respond with JSON array:
+[{"severity": "suggestion", "file": "path_test.go", "line": 0, "message": "test needed for FunctionName", "suggestion": "func TestFunctionName(t *testing.T) {...}", "category": "test"}]
+
+If no test suggestions, respond with: []
