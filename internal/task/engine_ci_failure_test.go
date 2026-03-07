@@ -38,6 +38,10 @@ func (m *mockHubRunner) GetPRHeadBranch(_ context.Context, _ int) (string, error
 	return "", nil
 }
 
+func (m *mockHubRunner) FetchPRChecks(_ context.Context, _ int) ([]git.CheckResult, error) {
+	return nil, nil
+}
+
 func (m *mockHubRunner) ConvertToDraft(_ context.Context, prNumber int) error {
 	m.convertToDraftCalled = true
 	m.convertToDraftPR = prNumber

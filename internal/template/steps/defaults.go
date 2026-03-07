@@ -162,6 +162,9 @@ func registerValidationExecutor(r *ExecutorRegistry, deps ExecutorDeps) {
 	if deps.ValidationProgressCallback != nil {
 		validationOpts = append(validationOpts, WithValidationProgressCallback(deps.ValidationProgressCallback))
 	}
+	if deps.HubRunner != nil {
+		validationOpts = append(validationOpts, WithValidationHubRunner(deps.HubRunner))
+	}
 	r.Register(NewValidationExecutorWithOptions(deps.WorkDir, validationOpts...))
 }
 

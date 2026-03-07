@@ -637,4 +637,46 @@ func TestAIExecutor_OperationsConfigPriority(t *testing.T) {
 		// Should use gemini's default model
 		assert.Equal(t, domain.Agent("gemini").DefaultModel(), runner.request.Model)
 	})
+
+	t.Run("injects CI failure context from detect step", func(t *testing.T) {
+		ctx := context.Background()
+		runner := &mockAIRunner{
+			result: &domain.AIResult{Output: "fixed"},
+		}
+		executor := NewAIExecutor(runner, nil, zerolog.Nop())
+
+		task := &domain.Task{
+			ID:          "task-ci-inject",
+			Description: "Fix CI linter issues",
+			Config:      domain.TaskConfig{Model: "sonnet"},
+			StepResults: []domain.StepResult{
+				{
+					StepName: "detect",
+					Status:   "success",
+					Metadata: map[string]any{
+						"validation_failed":  true,
+						"ci_failure_context": "CI checks failed on PR #23:\n- CI / lint (https://github.com/runs/1)",
+						"detect_only":        true,
+						"pipeline_result":    (*validation.PipelineResult)(nil),
+					},
+				},
+			},
+		}
+		step := &domain.StepDefinition{
+			Name: "fix",
+			Type: domain.StepTypeAI,
+			Config: map[string]any{
+				"include_previous_errors": true,
+			},
+		}
+
+		result, err := executor.Execute(ctx, task, step)
+
+		require.NoError(t, err)
+		assert.Equal(t, "success", result.Status)
+		require.NotNil(t, runner.request)
+		assert.Contains(t, runner.request.Prompt, "CI Failure Context")
+		assert.Contains(t, runner.request.Prompt, "CI / lint")
+		assert.Contains(t, runner.request.Prompt, "PR #23")
+	})
 }

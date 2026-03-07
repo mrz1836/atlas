@@ -2644,6 +2644,37 @@ func TestStoreCLIOverridesIfNeeded(t *testing.T) {
 		// Verify metadata was set
 		assert.Equal(t, "disc-abc123", testTask.Metadata["from_backlog_id"])
 	})
+
+	t.Run("stores from_pr_number in metadata", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		taskStore, err := task.NewFileStore(tmpDir)
+		require.NoError(t, err)
+
+		wsStore, err := workspace.NewFileStore(tmpDir)
+		require.NoError(t, err)
+		ws := &domain.Workspace{
+			Name:      "test-ws-pr",
+			Status:    constants.WorkspaceStatusActive,
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+		}
+		require.NoError(t, wsStore.Create(context.Background(), ws))
+
+		testTask := &domain.Task{
+			ID:          "task-pr",
+			WorkspaceID: "test-ws-pr",
+			Status:      constants.TaskStatusPending,
+		}
+		require.NoError(t, taskStore.Create(context.Background(), "test-ws-pr", testTask))
+
+		opts := &startOptions{
+			fromPRNumber: 42,
+		}
+
+		storeCLIOverridesIfNeeded(context.Background(), testTask, taskStore, "test-ws-pr", opts, zerolog.Nop())
+
+		assert.Equal(t, 42, testTask.Metadata["from_pr_number"])
+	})
 }
 
 // TestTerminateAIProcess tests the terminateAIProcess function

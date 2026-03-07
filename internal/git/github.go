@@ -43,6 +43,10 @@ type PRStatusReader interface {
 
 	// GetPRHeadBranch returns the head branch name for a given PR number.
 	GetPRHeadBranch(ctx context.Context, prNumber int) (string, error)
+
+	// FetchPRChecks fetches the current CI check results for a PR without polling.
+	// Returns individual check names, statuses, and URLs.
+	FetchPRChecks(ctx context.Context, prNumber int) ([]CheckResult, error)
 }
 
 // PRModifier handles PR state modifications.

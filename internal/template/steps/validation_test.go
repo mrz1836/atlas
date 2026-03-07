@@ -10,6 +10,7 @@ import (
 
 	"github.com/mrz1836/atlas/internal/domain"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
+	"github.com/mrz1836/atlas/internal/git"
 	"github.com/mrz1836/atlas/internal/validation"
 )
 
@@ -1047,4 +1048,127 @@ func TestValidationExecutor_Execute_DetectOnlyMode(t *testing.T) {
 		require.Error(t, err)
 		assert.Equal(t, "failed", result.Status)
 	})
+}
+
+// validationMockHubRunner implements git.PRStatusReader for validation testing.
+type validationMockHubRunner struct {
+	fetchChecksResult []git.CheckResult
+	fetchChecksErr    error
+}
+
+func (m *validationMockHubRunner) GetPRStatus(_ context.Context, _ int) (*git.PRStatus, error) {
+	return &git.PRStatus{}, nil
+}
+
+func (m *validationMockHubRunner) WatchPRChecks(_ context.Context, _ git.CIWatchOptions) (*git.CIWatchResult, error) {
+	return &git.CIWatchResult{}, nil
+}
+
+func (m *validationMockHubRunner) GetPRHeadBranch(_ context.Context, _ int) (string, error) {
+	return "", nil
+}
+
+func (m *validationMockHubRunner) FetchPRChecks(_ context.Context, _ int) ([]git.CheckResult, error) {
+	return m.fetchChecksResult, m.fetchChecksErr
+}
+
+func TestValidationExecutor_DetectOnly_EnrichesWithCIFailures(t *testing.T) {
+	ctx := context.Background()
+	runner := newMockCommandRunner()
+	runner.SetDefaultSuccess()
+	toolChecker := &mockToolChecker{installed: false}
+	tmpDir := t.TempDir()
+
+	mockHub := &validationMockHubRunner{
+		fetchChecksResult: []git.CheckResult{
+			{Name: "CI / lint", Bucket: "fail", URL: "https://github.com/runs/1"},
+			{Name: "CI / test", Bucket: "pass"},
+			{Name: "CI / build", Bucket: "cancel", URL: "https://github.com/runs/2"},
+		},
+	}
+
+	executor := &ValidationExecutor{
+		workDir:        tmpDir,
+		runner:         runner,
+		toolChecker:    toolChecker,
+		formatCommands: []string{"echo ok"},
+		hubRunner:      mockHub,
+	}
+
+	task := &domain.Task{
+		ID:          "task-ci-enrich",
+		WorkspaceID: "ws-ci-enrich",
+		CurrentStep: 0,
+		Metadata:    map[string]any{"from_pr_number": 23},
+	}
+
+	step := &domain.StepDefinition{
+		Name: "detect",
+		Type: domain.StepTypeValidation,
+		Config: map[string]any{
+			"detect_only": true,
+		},
+	}
+
+	result, err := executor.Execute(ctx, task, step)
+
+	require.NoError(t, err)
+	assert.Equal(t, "success", result.Status)
+
+	// CI failure context should be stored in metadata
+	ciCtx, ok := result.Metadata["ci_failure_context"].(string)
+	require.True(t, ok, "metadata should contain ci_failure_context")
+	assert.Contains(t, ciCtx, "CI / lint")
+	assert.Contains(t, ciCtx, "CI / build")
+	assert.NotContains(t, ciCtx, "CI / test") // Passed, should not appear
+
+	// validation_failed should be true due to CI failures
+	validationFailed, ok := result.Metadata["validation_failed"].(bool)
+	require.True(t, ok)
+	assert.True(t, validationFailed)
+}
+
+func TestValidationExecutor_DetectOnly_NoCIEnrichmentWithoutPR(t *testing.T) {
+	ctx := context.Background()
+	runner := newMockCommandRunner()
+	runner.SetDefaultSuccess()
+	toolChecker := &mockToolChecker{installed: false}
+	tmpDir := t.TempDir()
+
+	mockHub := &validationMockHubRunner{
+		fetchChecksResult: []git.CheckResult{
+			{Name: "CI / lint", Bucket: "fail"},
+		},
+	}
+
+	executor := &ValidationExecutor{
+		workDir:        tmpDir,
+		runner:         runner,
+		toolChecker:    toolChecker,
+		formatCommands: []string{"echo ok"},
+		hubRunner:      mockHub,
+	}
+
+	// No from_pr_number in metadata
+	task := &domain.Task{
+		ID:          "task-no-pr",
+		WorkspaceID: "ws-no-pr",
+		CurrentStep: 0,
+	}
+
+	step := &domain.StepDefinition{
+		Name: "detect",
+		Type: domain.StepTypeValidation,
+		Config: map[string]any{
+			"detect_only": true,
+		},
+	}
+
+	result, err := executor.Execute(ctx, task, step)
+
+	require.NoError(t, err)
+
+	// Should NOT have CI failure context
+	_, hasCICtx := result.Metadata["ci_failure_context"]
+	assert.False(t, hasCICtx, "should not have ci_failure_context without from_pr_number")
 }

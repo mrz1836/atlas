@@ -4,6 +4,8 @@ package steps
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -11,6 +13,7 @@ import (
 	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/domain"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
+	"github.com/mrz1836/atlas/internal/git"
 	"github.com/mrz1836/atlas/internal/validation"
 )
 
@@ -28,6 +31,9 @@ type ValidationExecutor struct {
 
 	// Progress callback for sub-step progress reporting (e.g., format, lint, test)
 	progressCallback func(step, status string, info *validation.ProgressInfo)
+
+	// HubRunner for fetching CI check status when --from-pr is used
+	hubRunner git.PRStatusReader
 
 	// Validation commands from project config (ordered by execution)
 	preCommitCommands []string
@@ -118,6 +124,13 @@ func WithValidationProgressCallback(cb func(step, status string, info *validatio
 	}
 }
 
+// WithValidationHubRunner sets the hub runner for fetching CI check status.
+func WithValidationHubRunner(runner git.PRStatusReader) ValidationExecutorOption {
+	return func(e *ValidationExecutor) {
+		e.hubRunner = runner
+	}
+}
+
 // Execute runs validation commands using the parallel pipeline runner.
 // Commands are retrieved from task.Config.ValidationCommands.
 // If no commands are configured, default commands are used.
@@ -153,7 +166,9 @@ func (e *ValidationExecutor) Execute(ctx context.Context, task *domain.Task, ste
 
 	// Early return: detect_only mode always succeeds
 	if e.isDetectOnlyMode(step) {
-		return e.buildDetectOnlyResult(task, step, startTime, elapsed, output, validationChecks, pipelineResult, artifactPath, log), nil
+		result := e.buildDetectOnlyResult(task, step, startTime, elapsed, output, validationChecks, pipelineResult, artifactPath, log)
+		e.enrichWithCIFailures(ctx, task, result, log)
+		return result, nil
 	}
 
 	// Early return: pipeline error
@@ -274,6 +289,73 @@ func (e *ValidationExecutor) buildDetectOnlyResult(task *domain.Task, step *doma
 		DurationMs:  elapsed.Milliseconds(),
 		Output:      output,
 		Metadata:    metadata,
+	}
+}
+
+// enrichWithCIFailures checks CI status for the PR (if --from-pr was used)
+// and stores any failure context in the result metadata for the AI fix step.
+func (e *ValidationExecutor) enrichWithCIFailures(ctx context.Context, task *domain.Task, result *domain.StepResult, log *zerolog.Logger) {
+	if e.hubRunner == nil || task.Metadata == nil {
+		return
+	}
+
+	// Extract PR number from task metadata (stored by --from-pr flag)
+	prNumRaw, ok := task.Metadata["from_pr_number"]
+	if !ok {
+		return
+	}
+	prNumber, ok := toInt(prNumRaw)
+	if !ok || prNumber <= 0 {
+		return
+	}
+
+	checks, err := e.hubRunner.FetchPRChecks(ctx, prNumber)
+	if err != nil {
+		log.Warn().Err(err).Int("pr_number", prNumber).Msg("failed to fetch CI checks for PR")
+		return
+	}
+
+	// Collect failed checks
+	var failed []string
+	for _, check := range checks {
+		bucket := strings.ToLower(check.Bucket)
+		if bucket == "fail" || bucket == "cancel" {
+			entry := check.Name
+			if check.URL != "" {
+				entry = fmt.Sprintf("%s (%s)", check.Name, check.URL)
+			}
+			failed = append(failed, entry)
+		}
+	}
+
+	if len(failed) == 0 {
+		return
+	}
+
+	ciContext := fmt.Sprintf("CI checks failed on PR #%d:\n- %s", prNumber, strings.Join(failed, "\n- "))
+	if result.Metadata == nil {
+		result.Metadata = make(map[string]any)
+	}
+	result.Metadata["ci_failure_context"] = ciContext
+	result.Metadata["validation_failed"] = true
+
+	log.Info().
+		Int("pr_number", prNumber).
+		Int("failed_checks", len(failed)).
+		Msg("enriched detect result with CI failure context")
+}
+
+// toInt converts a metadata value to int (handles int, float64 from JSON).
+func toInt(v any) (int, bool) {
+	switch n := v.(type) {
+	case int:
+		return n, true
+	case float64:
+		return int(n), true
+	case int64:
+		return int(n), true
+	default:
+		return 0, false
 	}
 }
 

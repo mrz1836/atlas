@@ -40,6 +40,10 @@ func (m *ciMockHubRunner) GetPRHeadBranch(_ context.Context, _ int) (string, err
 	return "", nil
 }
 
+func (m *ciMockHubRunner) FetchPRChecks(_ context.Context, _ int) ([]git.CheckResult, error) {
+	return nil, nil
+}
+
 func (m *ciMockHubRunner) WatchPRChecks(ctx context.Context, opts git.CIWatchOptions) (*git.CIWatchResult, error) {
 	m.callCount++
 	if m.watchFn != nil {

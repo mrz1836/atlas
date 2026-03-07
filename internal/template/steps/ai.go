@@ -239,16 +239,18 @@ func (e *AIExecutor) injectPreviousValidationErrors(req *domain.AIRequest, task 
 
 		// Check if this step has validation failed flag (from detect_only mode)
 		if validationFailed, ok := result.Metadata["validation_failed"].(bool); ok && validationFailed {
-			// Try to get the pipeline result for error context
+			// Try to get the pipeline result for local validation error context
 			if pipelineResult, ok := result.Metadata["pipeline_result"].(*validation.PipelineResult); ok {
-				// Extract error context and build AI prompt
 				errorCtx := validation.ExtractErrorContext(pipelineResult, 1, 1)
 				errorPrompt := validation.BuildAIPrompt(errorCtx)
-
-				// Append validation errors to the prompt
 				req.Prompt = fmt.Sprintf("%s\n\n--- Validation Errors to Fix ---\n%s", req.Prompt, errorPrompt)
-				return
 			}
+
+			// Also check for CI failure context (from --from-pr detect step)
+			if ciCtx, ok := result.Metadata["ci_failure_context"].(string); ok && ciCtx != "" {
+				req.Prompt = fmt.Sprintf("%s\n\n--- CI Failure Context ---\n%s", req.Prompt, ciCtx)
+			}
+			return
 		}
 	}
 }

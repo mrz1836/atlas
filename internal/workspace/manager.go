@@ -231,6 +231,13 @@ func (m *DefaultManager) Create(ctx context.Context, opts CreateOptions) (*domai
 		}
 	}
 
+	// Clean up stale worktree if the target branch is already checked out
+	if opts.ExistingBranch != "" {
+		if cleanupErr := m.cleanupStaleWorktreeForBranch(ctx, opts.ExistingBranch); cleanupErr != nil {
+			return nil, cleanupErr
+		}
+	}
+
 	// Build worktree options based on mode
 	wtOpts := WorktreeCreateOptions{
 		RepoPath:      opts.RepoPath,
@@ -456,6 +463,54 @@ func (m *DefaultManager) Exists(ctx context.Context, name string) (bool, error) 
 		return false, err
 	}
 	return m.store.Exists(ctx, name)
+}
+
+// cleanupStaleWorktreeForBranch checks if the given branch is already checked out
+// in another worktree and cleans it up if it belongs to a closed or unknown workspace.
+// Returns an error only if the branch is in use by an active workspace.
+func (m *DefaultManager) cleanupStaleWorktreeForBranch(ctx context.Context, branch string) error {
+	existingPath := m.worktreeRunner.FindByBranch(ctx, branch)
+	if existingPath == "" {
+		return nil // Branch not checked out anywhere
+	}
+
+	// Find which workspace owns this worktree
+	workspaces, err := m.store.List(ctx)
+	if err != nil {
+		m.logger.Warn().Err(err).Msg("could not list workspaces to check stale worktree ownership")
+		// Fall through — treat as orphaned
+		workspaces = nil
+	}
+
+	for _, ws := range workspaces {
+		if ws.WorktreePath != existingPath {
+			continue
+		}
+		// Found the owning workspace
+		if ws.Status != constants.WorkspaceStatusClosed {
+			return fmt.Errorf("branch '%s' is in use by active workspace '%s' — "+
+				"destroy it first with 'atlas workspace destroy %s': %w",
+				branch, ws.Name, ws.Name, atlaserrors.ErrBranchExists)
+		}
+		// Closed workspace — fall through to cleanup
+		m.logger.Info().
+			Str("branch", branch).
+			Str("workspace", ws.Name).
+			Str("worktree_path", existingPath).
+			Msg("cleaning up stale worktree from closed workspace")
+		break
+	}
+
+	// Remove the stale worktree (force in case of dirty files)
+	if removeErr := m.worktreeRunner.Remove(ctx, existingPath, true); removeErr != nil {
+		m.logger.Warn().Err(removeErr).Str("path", existingPath).
+			Msg("failed to remove stale worktree, attempting prune")
+	}
+	if pruneErr := m.worktreeRunner.Prune(ctx); pruneErr != nil {
+		m.logger.Warn().Err(pruneErr).Msg("failed to prune worktrees after stale cleanup")
+	}
+
+	return nil
 }
 
 // checkForRunningTasks verifies no tasks are in running or validating state.

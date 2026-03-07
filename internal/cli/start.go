@@ -480,6 +480,14 @@ func storeCLIOverridesIfNeeded(ctx context.Context, t *domain.Task, taskStore *t
 		t.Metadata["from_backlog_id"] = opts.fromBacklogID
 	}
 
+	// Store PR number in metadata so detect step can fetch CI status
+	if opts.fromPRNumber > 0 {
+		if t.Metadata == nil {
+			t.Metadata = make(map[string]any)
+		}
+		t.Metadata["from_pr_number"] = opts.fromPRNumber
+	}
+
 	if updateErr := taskStore.Update(ctx, workspaceName, t); updateErr != nil {
 		logger.Warn().Err(updateErr).Msg("failed to persist CLI overrides")
 	}

@@ -553,6 +553,12 @@ func (r *CLIGitHubRunner) fetchPRChecksWithRetry(ctx context.Context, prNumber i
 	return nil, fmt.Errorf("failed to fetch PR checks after %d attempts: %w", r.config.MaxAttempts, lastErr)
 }
 
+// FetchPRChecks fetches the current CI check results for a PR without polling.
+// Unlike WatchPRChecks, this is a one-shot fetch that returns immediately.
+func (r *CLIGitHubRunner) FetchPRChecks(ctx context.Context, prNumber int) ([]CheckResult, error) {
+	return r.fetchPRChecks(ctx, prNumber)
+}
+
 // fetchPRChecks fetches the current CI check status for a PR.
 func (r *CLIGitHubRunner) fetchPRChecks(ctx context.Context, prNumber int) ([]CheckResult, error) {
 	args := []string{

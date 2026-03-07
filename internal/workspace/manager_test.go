@@ -2069,3 +2069,93 @@ func TestDefaultManager_Create_ExistingBranch_PreservesWorkspaceMetadata(t *test
 	require.NoError(t, err)
 	assert.Equal(t, ws.Name, saved.Name)
 }
+
+// ============================================================================
+// Tests: cleanupStaleWorktreeForBranch
+// ============================================================================
+
+func TestDefaultManager_Create_ExistingBranch_CleansUpClosedWorkspaceWorktree(t *testing.T) {
+	store := newMockStore()
+	// A closed workspace still has its worktree path set (cleanup failed previously)
+	store.workspaces["old-ws"] = &domain.Workspace{
+		Name:         "old-ws",
+		WorktreePath: "/tmp/repo-old-ws",
+		Branch:       "feat/target-branch",
+		Status:       constants.WorkspaceStatusClosed,
+	}
+	runner := newMockWorktreeRunner()
+	// Branch is still checked out in the old worktree
+	runner.findByBranchResult = "/tmp/repo-old-ws"
+	runner.createResult = &WorktreeInfo{
+		Path:   "/tmp/repo-new-ws",
+		Branch: "feat/target-branch",
+	}
+
+	mgr := NewManager(store, runner, zerolog.Nop())
+	ws, err := mgr.Create(context.Background(), CreateOptions{
+		Name:           "new-ws",
+		RepoPath:       "/tmp/repo",
+		ExistingBranch: "feat/target-branch",
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, ws)
+	assert.Equal(t, "new-ws", ws.Name)
+	assert.Equal(t, "feat/target-branch", ws.Branch)
+	// Verify worktree was cleaned up: remove + prune called
+	assert.Equal(t, 1, runner.removeCallCount)
+	assert.Equal(t, 1, runner.pruneCallCount)
+}
+
+func TestDefaultManager_Create_ExistingBranch_BlocksActiveWorkspaceWorktree(t *testing.T) {
+	store := newMockStore()
+	// An active workspace owns the worktree
+	store.workspaces["active-ws"] = &domain.Workspace{
+		Name:         "active-ws",
+		WorktreePath: "/tmp/repo-active-ws",
+		Branch:       "feat/in-use",
+		Status:       constants.WorkspaceStatusActive,
+	}
+	runner := newMockWorktreeRunner()
+	runner.findByBranchResult = "/tmp/repo-active-ws"
+
+	mgr := NewManager(store, runner, zerolog.Nop())
+	ws, err := mgr.Create(context.Background(), CreateOptions{
+		Name:           "new-ws",
+		RepoPath:       "/tmp/repo",
+		ExistingBranch: "feat/in-use",
+	})
+
+	require.Error(t, err)
+	assert.Nil(t, ws)
+	require.ErrorIs(t, err, atlaserrors.ErrBranchExists)
+	assert.Contains(t, err.Error(), "active-ws")
+	assert.Contains(t, err.Error(), "atlas workspace destroy")
+	// Worktree should NOT have been removed
+	assert.Equal(t, 0, runner.removeCallCount)
+}
+
+func TestDefaultManager_Create_ExistingBranch_CleansUpOrphanedWorktree(t *testing.T) {
+	store := newMockStore()
+	// No workspace in store owns this worktree — it's orphaned
+	runner := newMockWorktreeRunner()
+	runner.findByBranchResult = "/tmp/repo-orphaned"
+	runner.createResult = &WorktreeInfo{
+		Path:   "/tmp/repo-new-ws",
+		Branch: "feat/orphaned-branch",
+	}
+
+	mgr := NewManager(store, runner, zerolog.Nop())
+	ws, err := mgr.Create(context.Background(), CreateOptions{
+		Name:           "new-ws",
+		RepoPath:       "/tmp/repo",
+		ExistingBranch: "feat/orphaned-branch",
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, ws)
+	assert.Equal(t, "new-ws", ws.Name)
+	// Verify orphaned worktree was cleaned up
+	assert.Equal(t, 1, runner.removeCallCount)
+	assert.Equal(t, 1, runner.pruneCallCount)
+}
