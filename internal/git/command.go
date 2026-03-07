@@ -5,6 +5,7 @@ package git
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -24,17 +25,38 @@ func RunCommand(ctx context.Context, workDir string, args ...string) (string, er
 	cmd.Stderr = &stderr
 
 	err := cmd.Run()
-	if err != nil {
-		// Check for context cancellation
-		if ctx.Err() != nil {
-			return "", ctx.Err()
-		}
-		// Include stderr in error for debugging, wrap with ErrGitOperation
-		if stderr.Len() > 0 {
-			return "", fmt.Errorf("git %s failed: %s: %w", args[0], strings.TrimSpace(stderr.String()), atlaserrors.ErrGitOperation)
-		}
-		return "", fmt.Errorf("git %s failed: %w", args[0], atlaserrors.ErrGitOperation)
+	if err == nil {
+		return strings.TrimSpace(stdout.String()), nil
 	}
 
-	return strings.TrimSpace(stdout.String()), nil
+	// Check for context cancellation
+	if ctx.Err() != nil {
+		return "", ctx.Err()
+	}
+
+	return "", formatGitError(err, &stderr, &stdout, args[0])
+}
+
+func formatGitError(err error, stderr, stdout *bytes.Buffer, subcommand string) error {
+	var exitErr *exec.ExitError
+	exitCode := -1
+	if errors.As(err, &exitErr) {
+		exitCode = exitErr.ExitCode()
+	}
+
+	detail := strings.TrimSpace(stderr.String())
+	if detail == "" {
+		detail = strings.TrimSpace(stdout.String())
+	}
+
+	switch {
+	case detail != "" && exitCode >= 0:
+		return fmt.Errorf("git %s failed (exit %d): %s: %w", subcommand, exitCode, detail, atlaserrors.ErrGitOperation)
+	case detail != "":
+		return fmt.Errorf("git %s failed: %s: %w", subcommand, detail, atlaserrors.ErrGitOperation)
+	case exitCode >= 0:
+		return fmt.Errorf("git %s failed (exit %d): %w", subcommand, exitCode, atlaserrors.ErrGitOperation)
+	default:
+		return fmt.Errorf("git %s failed: %w", subcommand, atlaserrors.ErrGitOperation)
+	}
 }

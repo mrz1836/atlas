@@ -196,3 +196,31 @@ func TestRunCommand_EmptyOutput(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, output)
 }
+
+func TestRunCommand_StdoutFallback(t *testing.T) {
+	t.Parallel()
+	dir := createTestGitRepo(t)
+	ctx := context.Background()
+
+	// "git commit" with nothing staged outputs "nothing to commit" to stdout, not stderr
+	_, err := RunCommand(ctx, dir, "commit", "--allow-empty-message", "-m", "")
+
+	require.Error(t, err)
+	require.ErrorIs(t, err, atlaserrors.ErrGitOperation)
+	// The error should include stdout content as fallback (e.g., "nothing to commit")
+	assert.Contains(t, err.Error(), "git commit failed")
+}
+
+func TestRunCommand_ExitCode(t *testing.T) {
+	t.Parallel()
+	dir := createTestGitRepo(t)
+	ctx := context.Background()
+
+	// Use a command that fails with a known exit code
+	_, err := RunCommand(ctx, dir, "show", "nonexistent-ref-12345")
+
+	require.Error(t, err)
+	require.ErrorIs(t, err, atlaserrors.ErrGitOperation)
+	// Error should include exit code
+	assert.Contains(t, err.Error(), "exit 128")
+}
