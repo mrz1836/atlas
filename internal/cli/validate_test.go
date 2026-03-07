@@ -18,6 +18,10 @@ import (
 )
 
 // mockValidationRunner implements ValidationRunner for fast testing.
+// IMPORTANT: Always use this mock (via runValidateWithOptions) instead of calling
+// runValidate() directly in tests. Calling runValidate() executes real shell commands
+// (magex format:fix, magex lint, go-pre-commit, etc.) against the project root,
+// which modifies source files and causes import reordering across the codebase.
 type mockValidationRunner struct {
 	result   *validation.PipelineResult
 	err      error
@@ -858,8 +862,12 @@ func TestRunValidate_OutputFormats(t *testing.T) {
 
 			var buf bytes.Buffer
 			ctx := context.Background()
+			opts := &ValidateOptions{
+				Runner:  newSuccessMockRunner(),
+				WorkDir: "/mock/workdir",
+			}
 
-			err := runValidate(ctx, cmd, &buf)
+			err := runValidateWithOptions(ctx, cmd, &buf, opts)
 			// May succeed or fail, we're just verifying the output format path is exercised
 			_ = err
 		})
@@ -919,8 +927,16 @@ func TestRunValidate_FlagParsing(t *testing.T) {
 			var buf bytes.Buffer
 			ctx := context.Background()
 
-			err := runValidate(ctx, cmd, &buf)
-			// May succeed or fail depending on environment
+			// IMPORTANT: Always use runValidateWithOptions with a mock runner.
+			// Using runValidate() directly executes real commands (magex format:fix, magex lint,
+			// go-pre-commit, etc.) against the project root, modifying source files.
+			opts := &ValidateOptions{
+				Runner:  newSuccessMockRunner(),
+				WorkDir: "/mock/workdir",
+			}
+
+			err := runValidateWithOptions(ctx, cmd, &buf, opts)
+			// May succeed or fail depending on flags
 			_ = err
 		})
 	}
@@ -1119,8 +1135,12 @@ func TestRunValidate_AllOutputModes(t *testing.T) {
 
 			var buf bytes.Buffer
 			ctx := context.Background()
+			opts := &ValidateOptions{
+				Runner:  newSuccessMockRunner(),
+				WorkDir: "/mock/workdir",
+			}
 
-			err := runValidate(ctx, cmd, &buf)
+			err := runValidateWithOptions(ctx, cmd, &buf, opts)
 			// May succeed or fail, we're exercising all code paths
 			_ = err
 		})
@@ -1191,8 +1211,11 @@ func TestHandlePipelineFailure_PreCommitFailure(t *testing.T) {
 }
 
 func TestNewValidateCmd_Execute(t *testing.T) {
-	t.Parallel()
-	// Test executing the command through the RunE function
+	// Cannot use t.Parallel() because t.Chdir affects the test process working directory.
+	// t.Chdir isolates this test from the project root so that cmd.Execute() doesn't
+	// run real validation commands (magex format:fix, go-pre-commit, etc.) against source files.
+	t.Chdir(t.TempDir())
+
 	cmd := newValidateCmd()
 	root := &cobra.Command{Use: "atlas"}
 	AddGlobalFlags(root, &GlobalFlags{})
@@ -1206,7 +1229,7 @@ func TestNewValidateCmd_Execute(t *testing.T) {
 	cmd.SetOut(&buf)
 	cmd.SetErr(&buf)
 
-	// Execute the command (may fail, but should not panic)
+	// Execute the command (may fail in tmpDir, but should not panic)
 	err := cmd.Execute()
 	_ = err // May succeed or fail depending on environment
 }
