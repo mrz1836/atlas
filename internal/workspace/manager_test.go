@@ -156,15 +156,20 @@ type MockWorktreeRunner struct {
 	remoteBranchExists    bool
 	remoteBranchExistsErr error
 	findByBranchResult    string
+	repoPathResult        string
+	detachBranchErr       error
 
 	// Track calls for verification
-	removeCallCount       int
-	removeForceCallCount  int
-	deleteBranchCallCount int
-	pruneCallCount        int
-	fetchCallCount        int
-	findByBranchCallCount int
-	findByBranchLastArg   string
+	removeCallCount          int
+	removeForceCallCount     int
+	deleteBranchCallCount    int
+	pruneCallCount           int
+	fetchCallCount           int
+	findByBranchCallCount    int
+	findByBranchLastArg      string
+	detachBranchCallCount    int
+	detachBranchLastBranch   string
+	detachBranchLastFallback string
 
 	// Track operation order for sequencing tests
 	operationOrder []string
@@ -177,7 +182,8 @@ func newMockWorktreeRunner() *MockWorktreeRunner {
 			Branch:    "feat/test",
 			CreatedAt: time.Now(),
 		},
-		branchExists: true, // Default to true for existing tests
+		branchExists:   true,        // Default to true for existing tests
+		repoPathResult: "/tmp/repo", // Default main repo path
 	}
 }
 
@@ -240,6 +246,18 @@ func (m *MockWorktreeRunner) FindByBranch(_ context.Context, branch string) stri
 	m.findByBranchLastArg = branch
 	m.operationOrder = append(m.operationOrder, "findByBranch")
 	return m.findByBranchResult
+}
+
+func (m *MockWorktreeRunner) RepoPath() string {
+	return m.repoPathResult
+}
+
+func (m *MockWorktreeRunner) DetachBranch(_ context.Context, branch, fallbackBranch string) error {
+	m.detachBranchCallCount++
+	m.detachBranchLastBranch = branch
+	m.detachBranchLastFallback = fallbackBranch
+	m.operationOrder = append(m.operationOrder, "detachBranch")
+	return m.detachBranchErr
 }
 
 // ============================================================================
@@ -2158,4 +2176,106 @@ func TestDefaultManager_Create_ExistingBranch_CleansUpOrphanedWorktree(t *testin
 	// Verify orphaned worktree was cleaned up
 	assert.Equal(t, 1, runner.removeCallCount)
 	assert.Equal(t, 1, runner.pruneCallCount)
+}
+
+func TestDefaultManager_Create_ExistingBranch_DetachesBranchFromMainRepo(t *testing.T) {
+	store := newMockStore()
+	runner := newMockWorktreeRunner()
+	// Branch is checked out at the main repo path
+	runner.findByBranchResult = "/tmp/repo"
+	runner.repoPathResult = "/tmp/repo"
+	runner.createResult = &WorktreeInfo{
+		Path:   "/tmp/repo-new-ws",
+		Branch: "feat/my-branch",
+	}
+
+	mgr := NewManager(store, runner, zerolog.Nop())
+	ws, err := mgr.Create(context.Background(), CreateOptions{
+		Name:           "new-ws",
+		RepoPath:       "/tmp/repo",
+		ExistingBranch: "feat/my-branch",
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, ws)
+	assert.Equal(t, "new-ws", ws.Name)
+	// DetachBranch should have been called instead of Remove
+	assert.Equal(t, 1, runner.detachBranchCallCount)
+	assert.Equal(t, "feat/my-branch", runner.detachBranchLastBranch)
+	assert.Equal(t, 0, runner.removeCallCount, "Remove should not be called for main repo")
+}
+
+func TestDefaultManager_Create_ExistingBranch_DetachBranchDirtyTreeError(t *testing.T) {
+	store := newMockStore()
+	runner := newMockWorktreeRunner()
+	// Branch is checked out at the main repo path
+	runner.findByBranchResult = "/tmp/repo"
+	runner.repoPathResult = "/tmp/repo"
+	runner.detachBranchErr = fmt.Errorf("main repository has uncommitted changes: %w", atlaserrors.ErrWorktreeDirty)
+
+	mgr := NewManager(store, runner, zerolog.Nop())
+	ws, err := mgr.Create(context.Background(), CreateOptions{
+		Name:           "new-ws",
+		RepoPath:       "/tmp/repo",
+		ExistingBranch: "feat/my-branch",
+	})
+
+	require.Error(t, err)
+	assert.Nil(t, ws)
+	assert.ErrorIs(t, err, atlaserrors.ErrWorktreeDirty)
+}
+
+func TestDefaultManager_DetectFallbackBranch(t *testing.T) {
+	t.Run("prefers main when it exists", func(t *testing.T) {
+		store := newMockStore()
+		runner := newMockWorktreeRunner()
+		runner.branchExists = true // BranchExists returns true for any branch
+
+		mgr := NewManager(store, runner, zerolog.Nop())
+		fb := mgr.detectFallbackBranch(context.Background())
+		assert.Equal(t, "main", fb)
+	})
+
+	t.Run("falls back to master when main does not exist", func(t *testing.T) {
+		store := newMockStore()
+		runner := newMockWorktreeRunner()
+		callCount := 0
+		// Custom branchExists behavior: first call (main) returns false, second (master) returns true
+		origRunner := &branchExistsMockRunner{
+			MockWorktreeRunner: *runner,
+			existsMap: map[string]bool{
+				"main":   false,
+				"master": true,
+			},
+		}
+
+		_ = callCount
+		mgr := NewManager(store, origRunner, zerolog.Nop())
+		fb := mgr.detectFallbackBranch(context.Background())
+		assert.Equal(t, "master", fb)
+	})
+
+	t.Run("defaults to main when neither exists", func(t *testing.T) {
+		store := newMockStore()
+		runner := newMockWorktreeRunner()
+		runner.branchExists = false
+
+		mgr := NewManager(store, runner, zerolog.Nop())
+		fb := mgr.detectFallbackBranch(context.Background())
+		assert.Equal(t, "main", fb)
+	})
+}
+
+// branchExistsMockRunner is a mock that returns different results per branch name.
+type branchExistsMockRunner struct {
+	MockWorktreeRunner
+
+	existsMap map[string]bool
+}
+
+func (m *branchExistsMockRunner) BranchExists(_ context.Context, name string) (bool, error) {
+	if exists, ok := m.existsMap[name]; ok {
+		return exists, nil
+	}
+	return false, nil
 }

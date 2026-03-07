@@ -466,13 +466,37 @@ func (m *DefaultManager) Exists(ctx context.Context, name string) (bool, error) 
 	return m.store.Exists(ctx, name)
 }
 
+// detectFallbackBranch returns a safe branch to switch the main repo to.
+// Checks if "main" exists, falls back to "master", defaults to "main".
+func (m *DefaultManager) detectFallbackBranch(ctx context.Context) string {
+	if exists, err := m.worktreeRunner.BranchExists(ctx, "main"); err == nil && exists {
+		return "main"
+	}
+	if exists, err := m.worktreeRunner.BranchExists(ctx, "master"); err == nil && exists {
+		return "master"
+	}
+	return "main"
+}
+
 // cleanupStaleWorktreeForBranch checks if the given branch is already checked out
 // in another worktree and cleans it up if it belongs to a closed or unknown workspace.
+// If the branch is checked out in the main repository, it switches the main repo
+// to a fallback branch instead of removing it.
 // Returns an error only if the branch is in use by an active workspace.
 func (m *DefaultManager) cleanupStaleWorktreeForBranch(ctx context.Context, branch string) error {
 	existingPath := m.worktreeRunner.FindByBranch(ctx, branch)
 	if existingPath == "" {
 		return nil // Branch not checked out anywhere
+	}
+
+	// Check if the branch is checked out in the main repository
+	if existingPath == m.worktreeRunner.RepoPath() {
+		fallbackBranch := m.detectFallbackBranch(ctx)
+		m.logger.Info().
+			Str("branch", branch).
+			Str("fallback_branch", fallbackBranch).
+			Msg("branch is checked out in main repository, switching to fallback branch")
+		return m.worktreeRunner.DetachBranch(ctx, branch, fallbackBranch)
 	}
 
 	// Find which workspace owns this worktree

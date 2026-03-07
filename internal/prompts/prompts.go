@@ -119,6 +119,10 @@ func ValidateData(id PromptID, data any) error {
 		if _, ok := data.(AutoFixData); !ok {
 			return fmt.Errorf("%w: expected AutoFixData, got %T", ErrInvalidData, data)
 		}
+	case Deduplication, GoroutineLeak, JrToSr, ConstantHunter, ConfigHunter, GoOptimize, TestCreator:
+		if _, ok := data.(QualityAnalysisData); !ok {
+			return fmt.Errorf("%w: expected QualityAnalysisData, got %T", ErrInvalidData, data)
+		}
 	}
 	return nil
 }

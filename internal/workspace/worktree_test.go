@@ -1545,3 +1545,91 @@ func TestGitRunCommand(t *testing.T) {
 		assert.Error(t, err)
 	})
 }
+
+func TestGitWorktreeRunner_RepoPath(t *testing.T) {
+	repoPath := createTestRepo(t)
+	runner, err := NewGitWorktreeRunner(context.Background(), repoPath, zerolog.Nop())
+	require.NoError(t, err)
+
+	// Resolve symlinks for macOS /var -> /private/var
+	expectedPath, _ := filepath.EvalSymlinks(repoPath)
+	actualPath, _ := filepath.EvalSymlinks(runner.RepoPath())
+	assert.Equal(t, expectedPath, actualPath)
+}
+
+func TestGitWorktreeRunner_DetachBranch(t *testing.T) {
+	t.Run("switches away from target branch", func(t *testing.T) {
+		repoPath := createTestRepo(t)
+		runner, err := NewGitWorktreeRunner(context.Background(), repoPath, zerolog.Nop())
+		require.NoError(t, err)
+
+		// Create and checkout a feature branch
+		runGit(t, repoPath, "checkout", "-b", "feat/target")
+
+		// Verify we're on the target branch
+		output, err := git.RunCommand(context.Background(), repoPath, "rev-parse", "--abbrev-ref", "HEAD")
+		require.NoError(t, err)
+		assert.Equal(t, "feat/target", strings.TrimSpace(output))
+
+		// Create a fallback branch (master already exists from init)
+		err = runner.DetachBranch(context.Background(), "feat/target", "master")
+		require.NoError(t, err)
+
+		// Verify we switched to master
+		output, err = git.RunCommand(context.Background(), repoPath, "rev-parse", "--abbrev-ref", "HEAD")
+		require.NoError(t, err)
+		assert.Equal(t, "master", strings.TrimSpace(output))
+	})
+
+	t.Run("no-op when on different branch", func(t *testing.T) {
+		repoPath := createTestRepo(t)
+		runner, err := NewGitWorktreeRunner(context.Background(), repoPath, zerolog.Nop())
+		require.NoError(t, err)
+
+		// We're on master, try to detach from a different branch
+		runGit(t, repoPath, "branch", "feat/other")
+
+		err = runner.DetachBranch(context.Background(), "feat/other", "master")
+		require.NoError(t, err)
+
+		// Verify we're still on master
+		output, err := git.RunCommand(context.Background(), repoPath, "rev-parse", "--abbrev-ref", "HEAD")
+		require.NoError(t, err)
+		assert.Equal(t, "master", strings.TrimSpace(output))
+	})
+
+	t.Run("fails on dirty working tree", func(t *testing.T) {
+		repoPath := createTestRepo(t)
+		runner, err := NewGitWorktreeRunner(context.Background(), repoPath, zerolog.Nop())
+		require.NoError(t, err)
+
+		// Create and checkout a feature branch
+		runGit(t, repoPath, "checkout", "-b", "feat/dirty")
+
+		// Make working tree dirty
+		dirtyFile := filepath.Join(repoPath, "dirty.txt")
+		err = os.WriteFile(dirtyFile, []byte("dirty"), 0o600)
+		require.NoError(t, err)
+
+		err = runner.DetachBranch(context.Background(), "feat/dirty", "master")
+		require.Error(t, err)
+		require.ErrorIs(t, err, atlaserrors.ErrWorktreeDirty)
+
+		// Verify we're still on the original branch
+		output, err := git.RunCommand(context.Background(), repoPath, "rev-parse", "--abbrev-ref", "HEAD")
+		require.NoError(t, err)
+		assert.Equal(t, "feat/dirty", strings.TrimSpace(output))
+	})
+
+	t.Run("respects context cancellation", func(t *testing.T) {
+		repoPath := createTestRepo(t)
+		runner, err := NewGitWorktreeRunner(context.Background(), repoPath, zerolog.Nop())
+		require.NoError(t, err)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		err = runner.DetachBranch(ctx, "any", "master")
+		assert.ErrorIs(t, err, context.Canceled)
+	})
+}
