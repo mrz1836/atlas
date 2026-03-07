@@ -62,6 +62,10 @@ Examples:
 	return cmd
 }
 
+// runValidate runs the validation pipeline using real command execution.
+// WARNING: Do NOT call this from tests — it executes real commands (magex format:fix,
+// magex lint, go-pre-commit, etc.) against os.Getwd(), which will modify source files.
+// Use runValidateWithOptions() with a mock runner instead (see validate_test.go).
 func runValidate(ctx context.Context, cmd *cobra.Command, w io.Writer) error {
 	return runValidateWithOptions(ctx, cmd, w, nil)
 }

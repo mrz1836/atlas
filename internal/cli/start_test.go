@@ -1657,7 +1657,87 @@ func TestRunStart_ConflictingBranchAndTargetFlags(t *testing.T) {
 	require.Error(t, err)
 	require.ErrorIs(t, err, errors.ErrConflictingFlags)
 	assert.True(t, errors.IsExitCode2Error(err))
-	assert.Contains(t, err.Error(), "cannot use both --branch and --target")
+	assert.Contains(t, err.Error(), "--branch, --target, and --from-pr are mutually exclusive")
+}
+
+// TestRunStart_ConflictingFromPRAndTargetFlags ensures --from-pr and --target are mutually exclusive
+func TestRunStart_ConflictingFromPRAndTargetFlags(t *testing.T) {
+	cmd := newStartCmd()
+
+	root := &cobra.Command{Use: "atlas"}
+	AddGlobalFlags(root, &GlobalFlags{})
+	root.AddCommand(cmd)
+
+	var buf bytes.Buffer
+	err := runStart(context.Background(), cmd, &buf, "test description", startOptions{
+		templateName: "patch",
+		fromPRNumber: 123,
+		targetBranch: "feat/existing",
+	})
+
+	require.Error(t, err)
+	require.ErrorIs(t, err, errors.ErrConflictingFlags)
+	assert.True(t, errors.IsExitCode2Error(err))
+	assert.Contains(t, err.Error(), "--branch, --target, and --from-pr are mutually exclusive")
+}
+
+// TestRunStart_ConflictingFromPRAndBranchFlags ensures --from-pr and --branch are mutually exclusive
+func TestRunStart_ConflictingFromPRAndBranchFlags(t *testing.T) {
+	cmd := newStartCmd()
+
+	root := &cobra.Command{Use: "atlas"}
+	AddGlobalFlags(root, &GlobalFlags{})
+	root.AddCommand(cmd)
+
+	var buf bytes.Buffer
+	err := runStart(context.Background(), cmd, &buf, "test description", startOptions{
+		templateName: "patch",
+		fromPRNumber: 123,
+		baseBranch:   "develop",
+	})
+
+	require.Error(t, err)
+	require.ErrorIs(t, err, errors.ErrConflictingFlags)
+	assert.True(t, errors.IsExitCode2Error(err))
+	assert.Contains(t, err.Error(), "--branch, --target, and --from-pr are mutually exclusive")
+}
+
+// TestRunStart_FromPR_NegativeNumber ensures --from-pr rejects negative values
+func TestRunStart_FromPR_NegativeNumber(t *testing.T) {
+	cmd := newStartCmd()
+
+	root := &cobra.Command{Use: "atlas"}
+	AddGlobalFlags(root, &GlobalFlags{})
+	root.AddCommand(cmd)
+
+	var buf bytes.Buffer
+	err := runStart(context.Background(), cmd, &buf, "test description", startOptions{
+		templateName: "patch",
+		fromPRNumber: -1,
+	})
+
+	require.Error(t, err)
+	assert.True(t, errors.IsExitCode2Error(err))
+	assert.Contains(t, err.Error(), "--from-pr must be a positive integer")
+}
+
+// TestStartCmd_FromPRFlag_Registration verifies the --from-pr flag is registered with the correct type
+func TestStartCmd_FromPRFlag_Registration(t *testing.T) {
+	cmd := newStartCmd()
+
+	require.NoError(t, cmd.Flags().Set("from-pr", "123"))
+	val, err := cmd.Flags().GetInt("from-pr")
+	require.NoError(t, err)
+	assert.Equal(t, 123, val)
+}
+
+// TestStartCmd_FromPRFlag_DefaultZero ensures --from-pr defaults to 0
+func TestStartCmd_FromPRFlag_DefaultZero(t *testing.T) {
+	cmd := newStartCmd()
+
+	val, err := cmd.Flags().GetInt("from-pr")
+	require.NoError(t, err)
+	assert.Equal(t, 0, val)
 }
 
 // TestRunStart_TargetFlag_WithHotfixTemplate tests the happy path with --target and hotfix template
@@ -1733,15 +1813,53 @@ func TestStartOptions_TargetBranch(t *testing.T) {
 			},
 			expectError: false,
 		},
+		{
+			name: "from-pr only",
+			opts: startOptions{
+				templateName: "patch",
+				fromPRNumber: 123,
+			},
+			expectError: false,
+		},
+		{
+			name: "from-pr and target conflict",
+			opts: startOptions{
+				templateName: "patch",
+				fromPRNumber: 123,
+				targetBranch: "feat/existing",
+			},
+			expectError:  true,
+			errorContain: "--from-pr are mutually exclusive",
+		},
+		{
+			name: "from-pr and branch conflict",
+			opts: startOptions{
+				templateName: "patch",
+				fromPRNumber: 123,
+				baseBranch:   "develop",
+			},
+			expectError:  true,
+			errorContain: "--from-pr are mutually exclusive",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Validate the option combinations - full validation happens in runStart
-			hasConflict := tt.opts.baseBranch != "" && tt.opts.targetBranch != ""
+			exclusiveCount := 0
+			if tt.opts.baseBranch != "" {
+				exclusiveCount++
+			}
+			if tt.opts.targetBranch != "" {
+				exclusiveCount++
+			}
+			if tt.opts.fromPRNumber > 0 {
+				exclusiveCount++
+			}
+			hasConflict := exclusiveCount > 1
 
 			if tt.expectError {
-				assert.True(t, hasConflict, "expected conflict between baseBranch and targetBranch")
+				assert.True(t, hasConflict, "expected conflict between branch flags")
 			} else {
 				assert.False(t, hasConflict, "did not expect conflict")
 			}

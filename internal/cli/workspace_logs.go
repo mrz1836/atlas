@@ -422,7 +422,7 @@ func outputLogsFormatted(w io.Writer, lines [][]byte) error {
 
 	for _, line := range lines {
 		formatted := formatLogLine(line, styles)
-		_, _ = fmt.Fprintln(w, formatted) //nolint:gosec // G705: writing to local output writer, not an HTTP response writer
+		_, _ = fmt.Fprintln(w, formatted)
 	}
 
 	return nil
@@ -530,7 +530,7 @@ func readNewLines(reader *bufio.Reader, w io.Writer, styles *logStyles, output, 
 		if output == OutputJSON {
 			_, _ = w.Write(line)
 		} else {
-			_, _ = fmt.Fprintln(w, formatLogLine(line, styles)) //nolint:gosec // G705: writing to local output writer, not an HTTP response writer
+			_, _ = fmt.Fprintln(w, formatLogLine(line, styles))
 		}
 	}
 }

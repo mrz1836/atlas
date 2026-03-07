@@ -525,12 +525,13 @@ func TestTTYOutput_URL(t *testing.T) {
 		out := NewTTYOutput(&buf)
 		out.URL("https://github.com/mrz1836/atlas", "Atlas Repository")
 
+		raw := buf.String()
 		// Strip ANSI since lipgloss v2 Render() always emits escape codes
-		visible := stripANSI(buf.String())
+		visible := stripANSI(raw)
 		// Should contain display text
 		assert.Contains(t, visible, "Atlas Repository")
-		// If hyperlinks supported, may use OSC 8, otherwise shows URL separately
-		assert.Contains(t, visible, "https://github.com/mrz1836/atlas")
+		// URL may be in OSC 8 escape sequences (stripped by stripANSI), so check raw output
+		assert.Contains(t, raw, "https://github.com/mrz1836/atlas")
 	})
 
 	t.Run("url without display text", func(t *testing.T) {
@@ -561,10 +562,12 @@ func TestTTYOutput_URL(t *testing.T) {
 		out := NewTTYOutput(&buf)
 		out.URL("https://example.com/very/long/path", "Short Link")
 
-		visible := stripANSI(buf.String())
-		// Should contain both display text and URL
+		raw := buf.String()
+		visible := stripANSI(raw)
+		// Should contain display text
 		assert.Contains(t, visible, "Short Link")
-		assert.Contains(t, visible, "https://example.com/very/long/path")
+		// URL may be in OSC 8 escape sequences (stripped by stripANSI), so check raw output
+		assert.Contains(t, raw, "https://example.com/very/long/path")
 	})
 
 	t.Run("url output is formatted", func(t *testing.T) {

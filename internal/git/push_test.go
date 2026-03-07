@@ -357,7 +357,7 @@ func TestPushRunner_Push_ContextCancellation(t *testing.T) {
 			Multiplier:   2.0,
 		}))
 
-		ctx, cancel := context.WithCancel(context.Background())
+		ctx, cancel := context.WithCancel(context.Background()) //nolint:gosec // G118: cancel is called in goroutine below
 
 		// Cancel after a short delay
 		go func() {

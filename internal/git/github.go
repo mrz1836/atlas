@@ -40,6 +40,9 @@ type PRStatusReader interface {
 
 	// WatchPRChecks monitors CI checks until completion or timeout.
 	WatchPRChecks(ctx context.Context, opts CIWatchOptions) (*CIWatchResult, error)
+
+	// GetPRHeadBranch returns the head branch name for a given PR number.
+	GetPRHeadBranch(ctx context.Context, prNumber int) (string, error)
 }
 
 // PRModifier handles PR state modifications.

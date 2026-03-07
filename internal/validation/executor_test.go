@@ -282,7 +282,7 @@ func TestExecutor_RunSingle_ContextCancellationDuringCommand(t *testing.T) {
 	runner.SetResponseWithDelay("slow_command", "", "", 0, nil, 5*time.Second)
 
 	executor := validation.NewExecutorWithRunner(10*time.Second, runner)
-	ctx, cancel := context.WithCancel(testContext())
+	ctx, cancel := context.WithCancel(testContext()) //nolint:gosec // G118: cancel is called in goroutine below
 
 	// Cancel context after 50ms
 	go func() {

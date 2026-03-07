@@ -52,6 +52,10 @@ func (m *MockHubRunner) WatchPRChecks(ctx context.Context, opts git.CIWatchOptio
 	return nil, fmt.Errorf("WatchPRChecks not implemented: %w", atlaserrors.ErrCommandNotConfigured)
 }
 
+func (m *MockHubRunner) GetPRHeadBranch(_ context.Context, _ int) (string, error) {
+	return "", fmt.Errorf("GetPRHeadBranch not implemented: %w", atlaserrors.ErrCommandNotConfigured)
+}
+
 func (m *MockHubRunner) ConvertToDraft(ctx context.Context, prNumber int) error {
 	if m.ConvertToDraftFunc != nil {
 		return m.ConvertToDraftFunc(ctx, prNumber)

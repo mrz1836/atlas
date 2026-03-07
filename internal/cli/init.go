@@ -625,7 +625,7 @@ func copyFile(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(dst, data, 0o600)
+	return os.WriteFile(dst, data, 0o600) //nolint:gosec // G703: dst is from internal config file path, not user input
 }
 
 // isInGitRepo checks if the current directory is inside a git repository.

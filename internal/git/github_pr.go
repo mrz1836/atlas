@@ -78,6 +78,11 @@ type ghPRViewResponse struct {
 	StatusCheckRollup []ghStatusCheckEntry `json:"statusCheckRollup"`
 }
 
+// ghPRInfoResponse represents the JSON response from gh pr view for branch info.
+type ghPRInfoResponse struct {
+	HeadRefName string `json:"headRefName"`
+}
+
 // ghStatusCheckEntry represents a single status check in the rollup.
 type ghStatusCheckEntry struct {
 	Conclusion string `json:"conclusion"`
@@ -125,6 +130,38 @@ func (r *CLIGitHubRunner) GetPRStatus(ctx context.Context, prNumber int) (*PRSta
 
 	// Parse JSON output
 	return parsePRStatusOutput(output)
+}
+
+// GetPRHeadBranch returns the head branch name of a pull request.
+// It uses the gh CLI to resolve a PR number to the name of the source branch.
+func (r *CLIGitHubRunner) GetPRHeadBranch(ctx context.Context, prNumber int) (string, error) {
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return "", err
+	}
+
+	if prNumber <= 0 {
+		return "", fmt.Errorf("invalid PR number %d: %w", prNumber, atlaserrors.ErrEmptyValue)
+	}
+
+	args := []string{"pr", "view", strconv.Itoa(prNumber), "--json", "headRefName"}
+	output, err := r.cmdExec.Execute(ctx, r.workDir, "gh", args...)
+	if err != nil {
+		if classifyGHError(err) == PRErrorNotFound {
+			return "", fmt.Errorf("PR #%d not found: %w", prNumber, atlaserrors.ErrPRNotFound)
+		}
+		return "", fmt.Errorf("failed to get PR #%d: %w", prNumber, err)
+	}
+
+	var resp ghPRInfoResponse
+	if err := json.Unmarshal(output, &resp); err != nil {
+		return "", fmt.Errorf("failed to parse PR info: %w", err)
+	}
+
+	if resp.HeadRefName == "" {
+		return "", fmt.Errorf("PR #%d returned empty head branch: %w", prNumber, atlaserrors.ErrEmptyValue)
+	}
+
+	return resp.HeadRefName, nil
 }
 
 // validatePROptions validates PR creation options and sets defaults.

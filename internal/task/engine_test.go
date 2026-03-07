@@ -978,7 +978,7 @@ func TestEngine_RunSteps_ContextCanceledMidLoop(t *testing.T) {
 		},
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(context.Background()) //nolint:gosec // G118: cancel is called in goroutine below
 
 	// Cancel after first step completes
 	go func() {
