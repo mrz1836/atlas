@@ -193,3 +193,34 @@ type AutoFixIssue struct {
 	// Suggestion is an optional fix suggestion.
 	Suggestion string
 }
+
+// QualityAnalysisData contains input for code quality analysis prompts.
+type QualityAnalysisData struct {
+	// Files are the source files to analyze.
+	Files []SourceFile
+	// GoVersion is the target Go version (e.g., "1.24").
+	GoVersion string
+	// ProjectContext provides additional context about the project (optional).
+	ProjectContext string
+}
+
+// SourceFile represents a source file for quality analysis.
+type SourceFile struct {
+	// Path is the file path relative to project root.
+	Path string
+	// Content is the full file content.
+	Content string
+	// Language is the file language (e.g., "go", "yaml").
+	Language string
+}
+
+// QualityIssue represents a detected quality issue (output schema documentation).
+// This documents the expected JSON output format from quality prompts.
+type QualityIssue struct {
+	Severity   string `json:"severity"`   // "critical", "warning", "suggestion"
+	File       string `json:"file"`
+	Line       int    `json:"line"`
+	Message    string `json:"message"`
+	Suggestion string `json:"suggestion"`
+	Category   string `json:"category"` // e.g., "duplication", "goroutine-leak"
+}
