@@ -2,6 +2,7 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -56,6 +57,7 @@ func TestApprovalSummary_NewApprovalSummary(t *testing.T) {
 		Branch:       "fix/payment-null-ptr",
 		Status:       constants.WorkspaceStatusActive,
 		WorktreePath: "/path/to/worktree",
+		RepoPath:     "/Users/dev/projects/atlas",
 	}
 
 	// Create approval summary
@@ -65,12 +67,38 @@ func TestApprovalSummary_NewApprovalSummary(t *testing.T) {
 	require.NotNil(t, summary)
 	assert.Equal(t, "task-test-abc", summary.TaskID)
 	assert.Equal(t, "payment", summary.WorkspaceName)
+	assert.Equal(t, "atlas", summary.Repository)
 	assert.Equal(t, constants.TaskStatusAwaitingApproval, summary.Status)
 	assert.Equal(t, 6, summary.CurrentStep) // CurrentStep is 0-based, display is 1-based
 	assert.Equal(t, 7, summary.TotalSteps)
 	assert.Equal(t, "Fix null pointer in parseConfig", summary.Description)
 	assert.Equal(t, "fix/payment-null-ptr", summary.BranchName)
 	assert.Equal(t, "https://github.com/org/repo/pull/47", summary.PRURL)
+}
+
+// TestApprovalSummary_RepositoryField tests Repository extraction from RepoPath.
+func TestApprovalSummary_RepositoryField(t *testing.T) {
+	task := &domain.Task{
+		ID:     "task-repo",
+		Status: constants.TaskStatusAwaitingApproval,
+	}
+
+	t.Run("extracts basename from RepoPath", func(t *testing.T) {
+		ws := &domain.Workspace{Name: "ws", RepoPath: "/home/user/projects/myrepo"}
+		summary := NewApprovalSummary(task, ws)
+		assert.Equal(t, "myrepo", summary.Repository)
+	})
+
+	t.Run("empty when RepoPath is empty", func(t *testing.T) {
+		ws := &domain.Workspace{Name: "ws"}
+		summary := NewApprovalSummary(task, ws)
+		assert.Empty(t, summary.Repository)
+	})
+
+	t.Run("empty when workspace is nil", func(t *testing.T) {
+		summary := NewApprovalSummary(task, nil)
+		assert.Empty(t, summary.Repository)
+	})
 }
 
 // TestApprovalSummary_FileChanges tests file change tracking and stats.
@@ -279,6 +307,40 @@ func TestValidationSummary_Struct(t *testing.T) {
 
 // TestRenderApprovalSummary tests the approval summary renderer (AC: #1, #2, #3, #4).
 func TestRenderApprovalSummary(t *testing.T) {
+	t.Run("renders repository line when set", func(t *testing.T) {
+		t.Setenv("NO_COLOR", "1")
+		summary := &ApprovalSummary{
+			TaskID:        "task-repo-render",
+			Repository:    "atlas",
+			WorkspaceName: "payment",
+			Status:        constants.TaskStatusAwaitingApproval,
+			CurrentStep:   1,
+			TotalSteps:    3,
+			BranchName:    "feat/repo",
+		}
+		result := RenderApprovalSummaryWithWidth(summary, 100, false)
+		assert.Contains(t, result, "Repository")
+		assert.Contains(t, result, "atlas")
+		// Repository should appear before Workspace
+		repoIdx := strings.Index(result, "Repository")
+		wsIdx := strings.Index(result, "Workspace")
+		assert.Less(t, repoIdx, wsIdx, "Repository should appear before Workspace")
+	})
+
+	t.Run("omits repository line when empty", func(t *testing.T) {
+		t.Setenv("NO_COLOR", "1")
+		summary := &ApprovalSummary{
+			TaskID:        "task-no-repo",
+			WorkspaceName: "test",
+			Status:        constants.TaskStatusAwaitingApproval,
+			CurrentStep:   1,
+			TotalSteps:    3,
+			BranchName:    "feat/test",
+		}
+		result := RenderApprovalSummaryWithWidth(summary, 100, false)
+		assert.NotContains(t, result, "Repository")
+	})
+
 	t.Run("full summary with all fields", func(t *testing.T) {
 		now := time.Now()
 		summary := &ApprovalSummary{

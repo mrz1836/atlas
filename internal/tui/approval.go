@@ -29,6 +29,7 @@ package tui
 
 import (
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -44,6 +45,9 @@ import (
 type ApprovalSummary struct {
 	// TaskID is the unique identifier for the task.
 	TaskID string
+
+	// Repository is the repository name (basename of RepoPath).
+	Repository string
 
 	// WorkspaceName is the name of the workspace containing this task.
 	WorkspaceName string
@@ -158,6 +162,9 @@ func NewApprovalSummary(task *domain.Task, workspace *domain.Workspace) *Approva
 	if workspace != nil {
 		summary.WorkspaceName = workspace.Name
 		summary.BranchName = workspace.Branch
+		if workspace.RepoPath != "" {
+			summary.Repository = filepath.Base(workspace.RepoPath)
+		}
 	}
 
 	// Extract PR URL from task metadata (AC: #2)
@@ -591,6 +598,9 @@ func RenderApprovalSummaryWithWidth(summary *ApprovalSummary, width int, verbose
 	}
 
 	// Task info section (AC: #1)
+	if summary.Repository != "" {
+		content.WriteString(renderInfoLineWithMode("Repository", summary.Repository, width, mode))
+	}
 	content.WriteString(renderInfoLineWithMode("Workspace", summary.WorkspaceName, width, mode))
 	content.WriteString(renderInfoLineWithMode("Branch", summary.BranchName, width, mode))
 	content.WriteString(renderStatusLine(summary.Status, width))
