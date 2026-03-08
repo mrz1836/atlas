@@ -3,6 +3,7 @@ package cli
 
 import (
 	"bufio"
+	"cmp"
 	"context"
 	"encoding/json"
 	stderrors "errors"
@@ -10,7 +11,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 	"time"
 
@@ -284,22 +285,22 @@ func findMostRecentTask(tasks []domain.TaskRef) *domain.TaskRef {
 	// Sort by StartedAt descending (most recent first), with ID as tiebreaker for determinism
 	sorted := make([]domain.TaskRef, len(tasks))
 	copy(sorted, tasks)
-	sort.Slice(sorted, func(i, j int) bool {
+	slices.SortFunc(sorted, func(a, b domain.TaskRef) int {
 		// Both nil - use ID as tiebreaker (lexicographically larger ID = more recent convention)
-		if sorted[i].StartedAt == nil && sorted[j].StartedAt == nil {
-			return sorted[i].ID > sorted[j].ID
+		if a.StartedAt == nil && b.StartedAt == nil {
+			return cmp.Compare(b.ID, a.ID)
 		}
-		if sorted[i].StartedAt == nil {
-			return false
+		if a.StartedAt == nil {
+			return 1
 		}
-		if sorted[j].StartedAt == nil {
-			return true
+		if b.StartedAt == nil {
+			return -1
 		}
 		// Equal times - use ID as tiebreaker
-		if sorted[i].StartedAt.Equal(*sorted[j].StartedAt) {
-			return sorted[i].ID > sorted[j].ID
+		if a.StartedAt.Equal(*b.StartedAt) {
+			return cmp.Compare(b.ID, a.ID)
 		}
-		return sorted[i].StartedAt.After(*sorted[j].StartedAt)
+		return b.StartedAt.Compare(*a.StartedAt)
 	})
 
 	return &sorted[0]

@@ -2,13 +2,14 @@
 package cli
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -295,15 +296,15 @@ func taskPath(workspaceName, taskID string) string {
 
 // sortByStatusPriority sorts rows by status priority (attention first, then running).
 func sortByStatusPriority(rows []tui.StatusRow) {
-	sort.SliceStable(rows, func(i, j int) bool {
-		return statusPriority(rows[i].Status) > statusPriority(rows[j].Status)
+	slices.SortStableFunc(rows, func(a, b tui.StatusRow) int {
+		return cmp.Compare(statusPriority(b.Status), statusPriority(a.Status))
 	})
 }
 
 // sortGroupsByStatusPriority sorts workspace groups by status priority.
 func sortGroupsByStatusPriority(groups []tui.WorkspaceGroup) {
-	sort.SliceStable(groups, func(i, j int) bool {
-		return statusPriority(groups[i].Status) > statusPriority(groups[j].Status)
+	slices.SortStableFunc(groups, func(a, b tui.WorkspaceGroup) int {
+		return cmp.Compare(statusPriority(b.Status), statusPriority(a.Status))
 	})
 }
 
