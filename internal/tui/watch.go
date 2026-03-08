@@ -2,10 +2,11 @@
 package tui
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"os"
-	"sort"
+	"slices"
 	"strings"
 	"time"
 
@@ -289,10 +290,10 @@ func (m *WatchModel) buildStatusRows(ctx context.Context, workspaces []*domain.W
 }
 
 // sortByStatusPriority sorts rows by status priority (attention first, then running).
-// Uses sort.SliceStable for O(n log n) performance while maintaining stable ordering.
+// Uses slices.SortStableFunc for O(n log n) performance while maintaining stable ordering.
 func (m *WatchModel) sortByStatusPriority(rows []StatusRow) {
-	sort.SliceStable(rows, func(i, j int) bool {
-		return m.statusPriority(rows[i].Status) > m.statusPriority(rows[j].Status)
+	slices.SortStableFunc(rows, func(a, b StatusRow) int {
+		return cmp.Compare(m.statusPriority(b.Status), m.statusPriority(a.Status))
 	})
 }
 
@@ -446,8 +447,8 @@ func (m *WatchModel) buildWorkspaceGroups(ctx context.Context, workspaces []*dom
 
 // sortGroupsByStatusPriority sorts workspace groups by status priority.
 func (m *WatchModel) sortGroupsByStatusPriority(groups []WorkspaceGroup) {
-	sort.SliceStable(groups, func(i, j int) bool {
-		return m.statusPriority(groups[i].Status) > m.statusPriority(groups[j].Status)
+	slices.SortStableFunc(groups, func(a, b WorkspaceGroup) int {
+		return cmp.Compare(m.statusPriority(b.Status), m.statusPriority(a.Status))
 	})
 }
 
