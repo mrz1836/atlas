@@ -259,7 +259,7 @@ atlas start "fix null pointer" --template bug --dry-run --output json
 
 | Flag | Short | Description | Values |
 |------|-------|-------------|--------|
-| `--template` | `-t` | Template to use | `bug`, `feature`, `task`, `commit`, `patch` |
+| `--template` | `-t` | Template to use | `bug`, `feature`, `task`, `commit`, `patch`; quality: `go-optimize`, `dedup`, `goroutine-leak`, `jr-to-sr`, `constant-hunter`, `config-hunter`, `test-creator` |
 | `--workspace` | `-w` | Custom workspace name | Any string (sanitized) |
 | `--agent` | `-a` | AI agent/CLI to use | `claude`, `gemini`, `codex` |
 | `--model` | `-m` | AI model to use | Claude: `sonnet`, `opus`, `haiku`; Gemini: `flash`, `pro`; Codex: `codex`, `max`, `mini` |
@@ -1896,6 +1896,70 @@ atlas status --watch
 **Patch vs Bug:**
 - **Patch**: Works on an EXISTING branch with `--target`, no new PR
 - **Bug**: Creates a NEW branch from base, opens a new PR
+
+### Quality Analysis
+
+The **quality** templates run automated code quality improvements and open a PR with the results. All 7 templates share the same workflow: `analyze_and_fix → verify (optional) → validate → git_commit → git_push → git_pr → ci_wait → review`.
+
+```bash
+# Modernize Go code to use slices/maps and newer language features
+atlas start "modernize Go code to use slices/maps packages" \
+  --template go-optimize \
+  --branch feat/go-modernize
+
+# Detect and eliminate duplicated code
+atlas start "remove duplicated validation logic in internal/" \
+  --template dedup \
+  --branch feat/dedup-validation
+
+# Find and fix goroutine leaks
+atlas start "fix goroutine leaks in internal/worker/" \
+  --template goroutine-leak \
+  --branch feat/fix-leaks
+
+# Elevate junior developer patterns to idiomatic Go
+atlas start "improve code quality in internal/api/" \
+  --template jr-to-sr \
+  --branch feat/code-quality
+
+# Extract magic numbers and hardcoded strings into constants
+atlas start "extract magic values in internal/cache/" \
+  --template constant-hunter \
+  --branch feat/constants
+
+# Centralize scattered os.Getenv calls into a config struct
+atlas start "centralize config in internal/server/" \
+  --template config-hunter \
+  --branch feat/config-cleanup
+
+# Generate tests for uncovered functions and error paths
+atlas start "add tests for internal/parser/" \
+  --template test-creator \
+  --branch feat/add-tests
+
+# Run on an existing PR branch (patch-style, no new PR)
+atlas start "fix goroutine leaks in internal/worker/" \
+  --template goroutine-leak \
+  --target feat/my-feature
+```
+
+**Quality Template Reference:**
+
+| Template | Branch Prefix | Description |
+|----------|---------------|-------------|
+| `go-optimize` | `quality` | Modernize Go code using newer language features (version-aware) |
+| `dedup` | `quality` | Detect and eliminate duplicated code |
+| `goroutine-leak` | `quality` | Detect and fix goroutine leaks |
+| `jr-to-sr` | `quality` | Elevate junior developer patterns to senior-level code |
+| `constant-hunter` | `quality` | Extract magic numbers and hardcoded strings into named constants |
+| `config-hunter` | `quality` | Centralize scattered configuration values |
+| `test-creator` | `quality` | Generate missing tests for uncovered scenarios |
+
+**Key Features:**
+- **Branch prefix**: All quality templates create `quality/` branches
+- **Optional verification**: Add `--verify` for AI cross-validation using a different model
+- **Default model**: Uses `sonnet` for speed
+- **Use `--target`**: Point at an existing branch to avoid creating a new PR
 
 ### Parallel Features
 

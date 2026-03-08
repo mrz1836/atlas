@@ -309,3 +309,58 @@ All quality prompts return an empty array `[]` when no issues are found.
 | `message` | string | Human-readable description of the issue |
 | `suggestion` | string | Concrete fix or refactoring suggestion |
 | `category` | string | `"duplication"`, `"goroutine-leak"`, `"jr-to-sr"`, `"constant"`, `"config"`, `"optimize"`, `"test"` |
+
+## Using with atlas start
+
+Each quality prompt has a matching `atlas start` workflow template that runs the full analyze → fix → validate → PR → CI → review cycle automatically.
+
+```bash
+# Modernize Go code to use slices/maps packages and newer builtins
+atlas start "modernize Go code to use slices/maps packages" \
+  --template go-optimize \
+  --branch feat/my-feature
+
+# Eliminate duplicated validation logic across packages
+atlas start "remove duplicated validation logic in internal/" \
+  --template dedup \
+  --branch feat/dedup-validation
+
+# Fix goroutine leaks in an existing PR branch (no new PR created)
+atlas start "fix goroutine leaks in internal/worker/" \
+  --template goroutine-leak \
+  --target feat/my-feature
+
+# Elevate junior patterns in a specific package
+atlas start "improve code quality in internal/api/" \
+  --template jr-to-sr \
+  --branch feat/code-quality
+
+# Extract magic numbers and hardcoded strings
+atlas start "extract magic values in internal/cache/" \
+  --template constant-hunter \
+  --branch feat/constants
+
+# Centralize scattered os.Getenv calls into a config struct
+atlas start "centralize config in internal/server/" \
+  --template config-hunter \
+  --branch feat/config-cleanup
+
+# Generate missing tests for uncovered functions and error paths
+atlas start "add tests for internal/parser/" \
+  --template test-creator \
+  --branch feat/add-tests
+```
+
+**Template reference:**
+
+| Template | Description |
+|----------|-------------|
+| `go-optimize` | Modernize Go code using newer language features (version-aware) |
+| `dedup` | Detect and eliminate duplicated code |
+| `goroutine-leak` | Detect and fix goroutine leaks |
+| `jr-to-sr` | Elevate junior developer patterns to senior-level code |
+| `constant-hunter` | Extract magic numbers and hardcoded strings into named constants |
+| `config-hunter` | Centralize scattered configuration values |
+| `test-creator` | Generate missing tests for uncovered scenarios |
+
+All 7 quality templates follow the same workflow: `analyze_and_fix → verify (optional) → validate → git_commit → git_push → git_pr → ci_wait → review`.
