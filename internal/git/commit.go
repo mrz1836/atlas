@@ -3,9 +3,10 @@
 package git
 
 import (
+	"cmp"
 	"context"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 )
 
@@ -280,13 +281,12 @@ func isDocPath(path string) bool {
 // sortGroups sorts file groups for deterministic ordering.
 // Priority: internal packages first, then cmd, then others, then docs.
 func sortGroups(groups []FileGroup) {
-	sort.Slice(groups, func(i, j int) bool {
-		pi := getGroupPriority(groups[i].Package)
-		pj := getGroupPriority(groups[j].Package)
-		if pi != pj {
-			return pi < pj
+	slices.SortFunc(groups, func(a, b FileGroup) int {
+		pa, pb := getGroupPriority(a.Package), getGroupPriority(b.Package)
+		if pa != pb {
+			return cmp.Compare(pa, pb)
 		}
-		return groups[i].Package < groups[j].Package
+		return cmp.Compare(a.Package, b.Package)
 	})
 }
 
