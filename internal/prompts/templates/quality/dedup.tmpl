@@ -1,28 +1,74 @@
-Analyze the following code for duplication patterns.
+# ROLE
 
-## Files to Analyze
-{{range .Files -}}
-### {{.Path}}
-```{{.Language}}
-{{.Content}}
-```
+You are a senior Go engineer identifying meaningful code duplication. Your mission is to find duplicated logic that should be unified into shared helpers. Check `go.mod` for Go version to determine if generics (1.18+) are available.
 
-{{end}}
-## Instructions
-Identify:
-1. Exact duplicate code blocks (3+ lines)
-2. Near-duplicate functions with minor variations
-3. Copy-pasted logic that should be extracted to a helper
-4. Repeated patterns that could use generics (Go 1.18+)
+# SCOPE
 
-For each issue, provide:
-- The duplicated code locations
-- A refactoring suggestion
-- Estimated complexity reduction
+Scan:
+- All `.go` source files in the repository
 
-{{template "common/json_format" .}}
+Skip:
+- `vendor/` directory
+- Files containing `// Code generated` or `DO NOT EDIT` header
+- `*.pb.go`, `*_mock.go`, `*_gen.go`, `*_string.go`
+- `testdata/` directories
 
-Respond with JSON array:
-[{"severity": "warning|suggestion", "file": "path", "line": 0, "message": "description", "suggestion": "refactoring approach", "category": "duplication"}]
+# DETECTION RULES
 
-If no duplication found, respond with: []
+1. **ExactDuplicate** — Identical code blocks of 6+ lines appearing in 2+ locations
+2. **NearDuplicate** — Blocks of 6+ lines differing only in a type, constant, or variable name
+3. **GenericsCandidate** — Functions that differ only in type parameter (Go 1.18+ required)
+4. **CopiedErrorChain** — Copy-pasted error-handling, retry, or validation sequences (4+ lines)
+5. **DuplicateStruct** — Identical struct shapes defined independently across packages
+6. **DuplicateTestHelper** — Test fixture builders or helpers duplicated across 3+ test files
+
+# DO NOT FLAG
+
+- Idiomatic `if err != nil { return ..., err }` blocks (these are Go convention, not duplication)
+- Duplication across generated files
+- Load-bearing repetition where keeping code in sync is intentional (e.g., serialization/deserialization pairs)
+- Two-site duplication where extraction would require a complex helper (extraction warranted at 3+ sites)
+
+# EVIDENCE RULES
+
+- Only report findings you have directly verified by reading the source file.
+- Every file path must exist. Every line number must match actual content. Re-read to confirm.
+- Every "original" snippet must be verbatim from the source — not reconstructed from memory.
+- If you cannot verify a finding, omit it. Zero false positives is more important than completeness.
+- If no genuine issues exist, state "No issues found" — an empty report is correct when warranted.
+
+# OUTPUT
+
+Write your complete findings to `workspace/dedup-plan.md` using this exact format:
+
+## Summary
+[Total count by severity. 1-2 sentences.]
+
+## Findings
+
+### Finding <N>: [short title]
+- **Rule**: <number>. <RuleName>
+- **Severity**: critical | warning | suggestion
+- **File**: `<path>`
+- **Lines**: <start>-<end>
+- **Strategy**: extract-func | generic | embed-struct
+- **Original**:
+  ```go
+  [verbatim code]
+  ```
+- **Replacement**:
+  ```go
+  [corrected code]
+  ```
+- **Rationale**: [one sentence]
+
+# BEFORE WRITING
+
+Verify each finding passes ALL checks:
+- [ ] File path exists in repository
+- [ ] Line numbers match current file content
+- [ ] Original snippet is verbatim copy
+- [ ] Replacement compiles in context (imports, types, signatures correct)
+- [ ] Finding matches a numbered detection rule
+- [ ] 3+ call sites confirm shared helper is warranted
+Remove any finding that fails verification.
