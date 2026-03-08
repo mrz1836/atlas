@@ -1,0 +1,34 @@
+Review the following code for junior developer patterns that could be improved.
+
+## Files to Analyze
+{{range .Files -}}
+### {{.Path}}
+```{{.Language}}
+{{.Content}}
+```
+
+{{end}}
+## Instructions
+Identify patterns that indicate less experienced Go code:
+1. Unnecessary else after return
+2. Empty interface{} where generics would work
+3. Error handling that loses context (bare returns, fmt.Errorf without %w)
+4. Mutable globals instead of dependency injection
+5. Manual string building instead of strings.Builder
+6. Slice capacity not pre-allocated when size is known
+7. Using `interface{}` maps instead of typed structs
+8. Checking `len(slice) == 0` in a loop condition
+9. Not using table-driven tests
+10. Mixing business logic with I/O
+
+For each pattern, explain:
+- Why it's considered junior-level
+- The senior-level alternative
+- Concrete refactoring steps
+
+{{template "common/json_format" .}}
+
+Respond with JSON array:
+[{"severity": "warning|suggestion", "file": "path", "line": 0, "message": "junior pattern found", "suggestion": "senior approach", "category": "jr-to-sr"}]
+
+If no issues found, respond with: []

@@ -10,7 +10,7 @@ import (
 	"text/template"
 )
 
-//go:embed templates/common/*.tmpl templates/git/*.tmpl templates/validation/*.tmpl templates/backlog/*.tmpl templates/verify/*.tmpl templates/task/*.tmpl
+//go:embed templates/common/*.tmpl templates/git/*.tmpl templates/validation/*.tmpl templates/backlog/*.tmpl templates/verify/*.tmpl templates/task/*.tmpl templates/quality/*.tmpl
 var templateFS embed.FS
 
 // registry holds parsed templates and provides thread-safe access.

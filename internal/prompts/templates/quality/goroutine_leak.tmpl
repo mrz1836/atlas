@@ -1,0 +1,30 @@
+Analyze the following Go code for potential goroutine leaks.
+
+## Files to Analyze
+{{range .Files -}}
+### {{.Path}}
+```{{.Language}}
+{{.Content}}
+```
+
+{{end}}
+## Instructions
+Check for:
+1. Goroutines without cancellation context
+2. Unbuffered channel sends without receivers
+3. Missing `defer cancel()` after `context.WithCancel`
+4. Blocking operations without timeout
+5. Goroutines in loops without proper cleanup
+6. Missing `sync.WaitGroup` coordination
+
+Severity levels:
+- critical: Definite leak (blocking forever)
+- warning: Probable leak (missing context/timeout)
+- suggestion: Could leak under certain conditions
+
+{{template "common/json_format" .}}
+
+Respond with JSON array:
+[{"severity": "critical|warning|suggestion", "file": "path", "line": 0, "message": "description", "suggestion": "fix", "category": "goroutine-leak"}]
+
+If no issues found, respond with: []

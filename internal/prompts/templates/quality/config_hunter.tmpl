@@ -1,0 +1,35 @@
+Analyze the following code for scattered configuration values.
+
+## Files to Analyze
+{{range .Files -}}
+### {{.Path}}
+```{{.Language}}
+{{.Content}}
+```
+
+{{end}}
+{{if hasContent .ProjectContext}}
+## Project Context
+{{.ProjectContext}}
+{{end}}
+## Instructions
+Find configuration sprawl:
+1. `os.Getenv()` calls scattered across packages
+2. Hardcoded defaults that should be configurable
+3. Environment variables without documentation
+4. Missing validation for config values
+5. Config values duplicated across files
+6. No centralized config struct
+
+For each issue:
+- Identify the config value and its current location
+- Suggest centralization approach (struct field, env var)
+- Note any missing validation
+- Flag security-sensitive values (credentials, API keys)
+
+{{template "common/json_format" .}}
+
+Respond with JSON array:
+[{"severity": "warning|suggestion", "file": "path", "line": 0, "message": "scattered config found", "suggestion": "centralize in config.go", "category": "config"}]
+
+If no issues found, respond with: []

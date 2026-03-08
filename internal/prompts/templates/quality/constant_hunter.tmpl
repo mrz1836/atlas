@@ -1,0 +1,34 @@
+Scan the following code for magic values that should be constants.
+
+## Files to Analyze
+{{range .Files -}}
+### {{.Path}}
+```{{.Language}}
+{{.Content}}
+```
+
+{{end}}
+## Instructions
+Find magic values:
+1. Hardcoded strings (error messages, keys, URLs)
+2. Hardcoded numbers (timeouts, sizes, limits)
+3. Repeated literal values across files
+4. Status codes without named constants
+5. Format strings that appear multiple times
+
+Exclude:
+- Test assertions (expected values)
+- 0, 1, -1 in obvious contexts
+- Single-use strings in log messages
+
+For each magic value:
+- Suggest a constant name (SCREAMING_SNAKE for exported, camelCase for unexported)
+- Recommend placement (same file vs constants.go)
+- Note if it appears in multiple files
+
+{{template "common/json_format" .}}
+
+Respond with JSON array:
+[{"severity": "warning|suggestion", "file": "path", "line": 0, "message": "magic value found", "suggestion": "const Name = value", "category": "constant"}]
+
+If no issues found, respond with: []

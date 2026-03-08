@@ -1,0 +1,28 @@
+Analyze the following code for duplication patterns.
+
+## Files to Analyze
+{{range .Files -}}
+### {{.Path}}
+```{{.Language}}
+{{.Content}}
+```
+
+{{end}}
+## Instructions
+Identify:
+1. Exact duplicate code blocks (3+ lines)
+2. Near-duplicate functions with minor variations
+3. Copy-pasted logic that should be extracted to a helper
+4. Repeated patterns that could use generics (Go 1.18+)
+
+For each issue, provide:
+- The duplicated code locations
+- A refactoring suggestion
+- Estimated complexity reduction
+
+{{template "common/json_format" .}}
+
+Respond with JSON array:
+[{"severity": "warning|suggestion", "file": "path", "line": 0, "message": "description", "suggestion": "refactoring approach", "category": "duplication"}]
+
+If no duplication found, respond with: []

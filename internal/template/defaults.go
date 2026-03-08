@@ -37,6 +37,15 @@ func NewDefaultRegistry() *Registry {
 	mustRegister(r, NewCommitTemplate())
 	mustRegister(r, NewTaskTemplate())
 
+	// Quality analysis templates
+	mustRegister(r, NewGoOptimizeTemplate())
+	mustRegister(r, NewDedupTemplate())
+	mustRegister(r, NewGoroutineLeakTemplate())
+	mustRegister(r, NewJrToSrTemplate())
+	mustRegister(r, NewConstantHunterTemplate())
+	mustRegister(r, NewConfigHunterTemplate())
+	mustRegister(r, NewTestCreatorTemplate())
+
 	// Register aliases for backward compatibility
 	mustRegisterAlias(r, "fix", "bug")      // fix -> bug
 	mustRegisterAlias(r, "bugfix", "bug")   // bugfix -> bug

@@ -49,6 +49,15 @@ type WorktreeRunner interface {
 	// FindByBranch finds a worktree path by its branch name.
 	// Returns empty string if not found or on error.
 	FindByBranch(ctx context.Context, branch string) string
+
+	// RepoPath returns the main repository path.
+	RepoPath() string
+
+	// DetachBranch switches the main repository away from the given branch.
+	// If the main repo is currently on `branch`, it checks for a clean working tree
+	// and checks out `fallbackBranch` instead. No-op if already on a different branch.
+	// Returns ErrWorktreeDirty if the working tree has uncommitted changes.
+	DetachBranch(ctx context.Context, branch, fallbackBranch string) error
 }
 
 // WorktreeCreateOptions contains options for creating a worktree.
@@ -355,6 +364,55 @@ func (r *GitWorktreeRunner) FindByBranch(ctx context.Context, branch string) str
 	}
 
 	return ""
+}
+
+// RepoPath returns the main repository path.
+func (r *GitWorktreeRunner) RepoPath() string {
+	return r.repoPath
+}
+
+// DetachBranch switches the main repository away from the given branch.
+// If the main repo is currently on `branch`, it verifies a clean working tree
+// and checks out `fallbackBranch`. No-op if already on a different branch.
+func (r *GitWorktreeRunner) DetachBranch(ctx context.Context, branch, fallbackBranch string) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
+	// Determine current branch of main repo
+	currentBranch, err := git.RunCommand(ctx, r.repoPath, "rev-parse", "--abbrev-ref", "HEAD")
+	if err != nil {
+		return fmt.Errorf("failed to determine current branch: %w", err)
+	}
+
+	if strings.TrimSpace(currentBranch) != branch {
+		return nil // Already on a different branch, nothing to do
+	}
+
+	// Check for clean working tree
+	status, err := git.RunCommand(ctx, r.repoPath, "status", "--porcelain")
+	if err != nil {
+		return fmt.Errorf("failed to check working tree status: %w", err)
+	}
+	if strings.TrimSpace(status) != "" {
+		return fmt.Errorf("main repository has uncommitted changes, cannot switch away from '%s': %w",
+			branch, atlaserrors.ErrWorktreeDirty)
+	}
+
+	// Switch to fallback branch
+	_, err = git.RunCommand(ctx, r.repoPath, "checkout", fallbackBranch)
+	if err != nil {
+		return fmt.Errorf("failed to checkout '%s' in main repository: %w", fallbackBranch, err)
+	}
+
+	r.logger.Info().
+		Str("from_branch", branch).
+		Str("to_branch", fallbackBranch).
+		Msg("switched main repository to fallback branch")
+
+	return nil
 }
 
 // CleanupLocks removes stale lock files from a worktree directory.

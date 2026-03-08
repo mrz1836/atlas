@@ -12,7 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
+	"slices"
 	"strings"
 	"time"
 
@@ -343,8 +343,8 @@ func (s *FileStore) List(ctx context.Context, workspaceName string) ([]*domain.T
 	}
 
 	// Sort by creation time (newest first)
-	sort.Slice(tasks, func(i, j int) bool {
-		return tasks[i].CreatedAt.After(tasks[j].CreatedAt)
+	slices.SortFunc(tasks, func(a, b *domain.Task) int {
+		return b.CreatedAt.Compare(a.CreatedAt)
 	})
 
 	return tasks, nil
@@ -625,7 +625,7 @@ func (s *FileStore) ListArtifacts(ctx context.Context, workspaceName, taskID str
 	}
 
 	// Sort for consistent ordering
-	sort.Strings(filenames)
+	slices.Sort(filenames)
 
 	return filenames, nil
 }

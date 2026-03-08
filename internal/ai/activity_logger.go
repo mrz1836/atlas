@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"sync"
 	"time"
 )
@@ -189,13 +189,13 @@ func (l *ActivityLogger) cleanupOldLogs() {
 	}
 
 	// Sort by modification time (oldest first)
-	sort.Slice(logFiles, func(i, j int) bool {
-		infoI, errI := logFiles[i].Info()
-		infoJ, errJ := logFiles[j].Info()
-		if errI != nil || errJ != nil {
-			return false
+	slices.SortFunc(logFiles, func(a, b os.DirEntry) int {
+		infoA, errA := a.Info()
+		infoB, errB := b.Info()
+		if errA != nil || errB != nil {
+			return 0
 		}
-		return infoI.ModTime().Before(infoJ.ModTime())
+		return infoA.ModTime().Compare(infoB.ModTime())
 	})
 
 	// Remove oldest files

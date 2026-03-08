@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -301,8 +301,8 @@ collectLoop:
 	}
 
 	// Sort by discovered_at descending (newest first)
-	sort.Slice(discoveries, func(i, j int) bool {
-		return discoveries[i].Context.DiscoveredAt.After(discoveries[j].Context.DiscoveredAt)
+	slices.SortFunc(discoveries, func(a, b *Discovery) int {
+		return b.Context.DiscoveredAt.Compare(a.Context.DiscoveredAt)
 	})
 
 	// Apply limit
