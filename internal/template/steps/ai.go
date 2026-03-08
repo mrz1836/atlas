@@ -12,6 +12,7 @@ import (
 	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/domain"
+	"github.com/mrz1836/atlas/internal/prompts"
 	"github.com/mrz1836/atlas/internal/validation"
 )
 
@@ -275,7 +276,12 @@ func (e *AIExecutor) applyStepConfig(req *domain.AIRequest, description string, 
 		req.PermissionMode = pm
 	}
 	if pt, ok := config["prompt_template"].(string); ok {
-		req.Prompt = fmt.Sprintf("%s: %s", pt, description)
+		if rendered, err := prompts.Render(prompts.PromptID(pt), nil); err == nil {
+			req.Prompt = rendered
+		} else {
+			// Fallback: use template name as prefix if template lookup fails
+			req.Prompt = fmt.Sprintf("%s: %s", pt, description)
+		}
 	}
 	if model, ok := config["model"].(string); ok {
 		req.Model = model

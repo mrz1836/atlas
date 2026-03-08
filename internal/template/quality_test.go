@@ -13,7 +13,7 @@ import (
 
 func expectedQualitySteps() []string {
 	return []string{
-		"analyze_and_fix", "verify", "validate", "git_commit", "git_push", "git_pr", "ci_wait", "review",
+		"analyze", "fix", "verify", "validate", "git_commit", "git_push", "git_pr", "ci_wait", "review",
 	}
 }
 
@@ -40,14 +40,15 @@ func assertQualityTemplateSteps(t *testing.T, tmpl *domain.Template, promptTempl
 	}
 
 	expectedTypes := map[string]domain.StepType{
-		"analyze_and_fix": domain.StepTypeAI,
-		"verify":          domain.StepTypeVerify,
-		"validate":        domain.StepTypeValidation,
-		"git_commit":      domain.StepTypeGit,
-		"git_push":        domain.StepTypeGit,
-		"git_pr":          domain.StepTypeGit,
-		"ci_wait":         domain.StepTypeCI,
-		"review":          domain.StepTypeHuman,
+		"analyze":    domain.StepTypeAI,
+		"fix":        domain.StepTypeAI,
+		"verify":     domain.StepTypeVerify,
+		"validate":   domain.StepTypeValidation,
+		"git_commit": domain.StepTypeGit,
+		"git_push":   domain.StepTypeGit,
+		"git_pr":     domain.StepTypeGit,
+		"ci_wait":    domain.StepTypeCI,
+		"review":     domain.StepTypeHuman,
 	}
 	for _, step := range tmpl.Steps {
 		expected, ok := expectedTypes[step.Name]
@@ -64,13 +65,23 @@ func assertQualityTemplateSteps(t *testing.T, tmpl *domain.Template, promptTempl
 		}
 	}
 
-	// Check analyze_and_fix config
-	aiStep := findStep(tmpl, "analyze_and_fix")
-	require.NotNil(t, aiStep)
-	assert.Equal(t, "default", aiStep.Config["permission_mode"])
-	assert.Equal(t, promptTemplate, aiStep.Config["prompt_template"])
-	assert.Equal(t, constants.DefaultAITimeout, aiStep.Timeout)
-	assert.Equal(t, 3, aiStep.RetryCount)
+	// Check analyze step config
+	analyzeStep := findStep(tmpl, "analyze")
+	require.NotNil(t, analyzeStep)
+	assert.Equal(t, "plan", analyzeStep.Config["permission_mode"])
+	assert.Equal(t, "opus", analyzeStep.Config["model"])
+	assert.Equal(t, promptTemplate, analyzeStep.Config["prompt_template"])
+	assert.Equal(t, constants.DefaultAITimeout, analyzeStep.Timeout)
+	assert.Equal(t, 2, analyzeStep.RetryCount)
+
+	// Check fix step config
+	fixStep := findStep(tmpl, "fix")
+	require.NotNil(t, fixStep)
+	assert.Equal(t, "default", fixStep.Config["permission_mode"])
+	_, hasModel := fixStep.Config["model"]
+	assert.False(t, hasModel, "fix step should not have model key (inherits DefaultModel)")
+	assert.Equal(t, constants.DefaultAITimeout, fixStep.Timeout)
+	assert.Equal(t, 3, fixStep.RetryCount)
 }
 
 // assertQualityTemplateTimeouts validates step timeouts.
@@ -78,13 +89,14 @@ func assertQualityTemplateTimeouts(t *testing.T, tmpl *domain.Template) {
 	t.Helper()
 
 	stepTimeouts := map[string]time.Duration{
-		"analyze_and_fix": constants.DefaultAITimeout,
-		"verify":          5 * time.Minute,
-		"validate":        10 * time.Minute,
-		"git_commit":      constants.GitCommitTimeout,
-		"git_push":        constants.GitPushTimeout,
-		"git_pr":          constants.GitPRTimeout,
-		"ci_wait":         constants.DefaultCITimeout,
+		"analyze":    constants.DefaultAITimeout,
+		"fix":        constants.DefaultAITimeout,
+		"verify":     5 * time.Minute,
+		"validate":   10 * time.Minute,
+		"git_commit": constants.GitCommitTimeout,
+		"git_push":   constants.GitPushTimeout,
+		"git_pr":     constants.GitPRTimeout,
+		"ci_wait":    constants.DefaultCITimeout,
 	}
 	for _, step := range tmpl.Steps {
 		if expected, ok := stepTimeouts[step.Name]; ok {
@@ -158,7 +170,7 @@ func TestNewGoOptimizeTemplate(t *testing.T) {
 
 func TestGoOptimizeTemplate_Steps(t *testing.T) {
 	tmpl := NewGoOptimizeTemplate()
-	assertQualityTemplateSteps(t, tmpl, "go-optimize")
+	assertQualityTemplateSteps(t, tmpl, "quality/go_optimize")
 }
 
 func TestGoOptimizeTemplate_Timeouts(t *testing.T) {
@@ -193,7 +205,7 @@ func TestNewDedupTemplate(t *testing.T) {
 }
 
 func TestDedupTemplate_Steps(t *testing.T) {
-	assertQualityTemplateSteps(t, NewDedupTemplate(), "dedup")
+	assertQualityTemplateSteps(t, NewDedupTemplate(), "quality/dedup")
 }
 
 func TestDedupTemplate_Timeouts(t *testing.T) {
@@ -228,7 +240,7 @@ func TestNewGoroutineLeakTemplate(t *testing.T) {
 }
 
 func TestGoroutineLeakTemplate_Steps(t *testing.T) {
-	assertQualityTemplateSteps(t, NewGoroutineLeakTemplate(), "goroutine-leak")
+	assertQualityTemplateSteps(t, NewGoroutineLeakTemplate(), "quality/goroutine_leak")
 }
 
 func TestGoroutineLeakTemplate_Timeouts(t *testing.T) {
@@ -263,7 +275,7 @@ func TestNewJrToSrTemplate(t *testing.T) {
 }
 
 func TestJrToSrTemplate_Steps(t *testing.T) {
-	assertQualityTemplateSteps(t, NewJrToSrTemplate(), "jr-to-sr")
+	assertQualityTemplateSteps(t, NewJrToSrTemplate(), "quality/jr_to_sr")
 }
 
 func TestJrToSrTemplate_Timeouts(t *testing.T) {
@@ -298,7 +310,7 @@ func TestNewConstantHunterTemplate(t *testing.T) {
 }
 
 func TestConstantHunterTemplate_Steps(t *testing.T) {
-	assertQualityTemplateSteps(t, NewConstantHunterTemplate(), "constant-hunter")
+	assertQualityTemplateSteps(t, NewConstantHunterTemplate(), "quality/constant_hunter")
 }
 
 func TestConstantHunterTemplate_Timeouts(t *testing.T) {
@@ -333,7 +345,7 @@ func TestNewConfigHunterTemplate(t *testing.T) {
 }
 
 func TestConfigHunterTemplate_Steps(t *testing.T) {
-	assertQualityTemplateSteps(t, NewConfigHunterTemplate(), "config-hunter")
+	assertQualityTemplateSteps(t, NewConfigHunterTemplate(), "quality/config_hunter")
 }
 
 func TestConfigHunterTemplate_Timeouts(t *testing.T) {
@@ -368,7 +380,7 @@ func TestNewTestCreatorTemplate(t *testing.T) {
 }
 
 func TestTestCreatorTemplate_Steps(t *testing.T) {
-	assertQualityTemplateSteps(t, NewTestCreatorTemplate(), "test-creator")
+	assertQualityTemplateSteps(t, NewTestCreatorTemplate(), "quality/test_creator")
 }
 
 func TestTestCreatorTemplate_Timeouts(t *testing.T) {
