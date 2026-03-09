@@ -12,9 +12,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/rs/zerolog"
-
 	cache "github.com/mrz1836/go-cache"
+	"github.com/rs/zerolog"
 
 	"github.com/mrz1836/atlas/internal/config"
 )
@@ -33,9 +32,10 @@ type Daemon struct {
 	wg        sync.WaitGroup
 	startedAt time.Time
 
-	// server and runner will be set in Phase 4.
-	server interface{} //nolint:unused // placeholder for Phase 4 socket server
-	runner interface{} //nolint:unused // placeholder for Phase 4 task runner
+	// server is the Unix socket JSON-RPC server (wired in Start).
+	server *Server
+	// runner is the worker pool that executes queued tasks (wired in Start).
+	runner *Runner
 }
 
 // New creates a new Daemon instance.
@@ -82,14 +82,10 @@ func (d *Daemon) Start(ctx context.Context) error {
 	d.queue = NewRedisQueue(d.redis, keyPrefix)
 	d.events = NewEventPublisher(d.redis, "")
 
-	// 3. Create socket directory if needed.
-	// TODO(phase4): bind Unix socket at d.cfg.Daemon.SocketPath and start server.
+	// 3. Create socket directory if needed and start the IPC server.
 	if d.cfg.Daemon.SocketPath != "" {
-		sockDir := socketDir(d.cfg.Daemon.SocketPath)
-		if sockDir != "" {
-			if mkErr := os.MkdirAll(sockDir, 0o700); mkErr != nil {
-				return fmt.Errorf("start: create socket dir %q: %w", sockDir, mkErr)
-			}
+		if err := d.startServer(ctx); err != nil {
+			return err
 		}
 	}
 
@@ -101,7 +97,9 @@ func (d *Daemon) Start(ctx context.Context) error {
 	// 5. Start heartbeat goroutine.
 	d.startHeartbeat(ctx)
 
-	// TODO(phase4): start worker pool / runner.
+	// Start worker pool.
+	d.runner = NewRunner(d.cfg, d.redis, d.queue, d.events, d.logger)
+	d.runner.Start(ctx)
 
 	// 6. Publish daemon.started event.
 	evt := TaskEvent{
@@ -153,7 +151,13 @@ func (d *Daemon) Stop(_ context.Context) error {
 		d.logger.Warn().Dur("timeout", timeout).Msg("daemon: shutdown timeout exceeded; some tasks may still be in-flight")
 	}
 
-	// TODO(phase4): close Unix socket listener.
+	// Stop IPC server and worker pool.
+	if d.server != nil {
+		d.server.Stop()
+	}
+	if d.runner != nil {
+		d.runner.Stop()
+	}
 
 	// Remove PID file.
 	d.removePIDFile()
@@ -256,6 +260,25 @@ func (d *Daemon) removePIDFile() {
 	if err := os.Remove(pidFile); err != nil && !os.IsNotExist(err) {
 		d.logger.Warn().Err(err).Str("path", pidFile).Msg("daemon: failed to remove pid file")
 	}
+}
+
+// startServer ensures the socket directory exists, then binds the Unix socket
+// and starts the JSON-RPC server. Called from Start when SocketPath is non-empty.
+func (d *Daemon) startServer(ctx context.Context) error {
+	sockDir := socketDir(d.cfg.Daemon.SocketPath)
+	if sockDir != "" {
+		if mkErr := os.MkdirAll(sockDir, 0o700); mkErr != nil {
+			return fmt.Errorf("start: create socket dir %q: %w", sockDir, mkErr)
+		}
+	}
+
+	router := NewRouter(d.logger)
+	d.setupRouter(router)
+	d.server = NewServer(d.cfg.Daemon.SocketPath, router, d.logger)
+	if srvErr := d.server.Start(ctx); srvErr != nil {
+		return fmt.Errorf("start: bind unix socket: %w", srvErr)
+	}
+	return nil
 }
 
 // socketDir returns the directory part of a socket/PID path.
