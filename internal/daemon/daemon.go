@@ -55,6 +55,17 @@ func New(cfg *config.Config, logger zerolog.Logger) *Daemon {
 func (d *Daemon) Start(ctx context.Context) error {
 	d.startedAt = time.Now().UTC()
 
+	// 0. Expand ~ in all path config fields.
+	if expanded, err := ExpandSocketPath(d.cfg.Daemon.SocketPath); err == nil {
+		d.cfg.Daemon.SocketPath = expanded
+	}
+	if expanded, err := ExpandSocketPath(d.cfg.Daemon.PIDFile); err == nil {
+		d.cfg.Daemon.PIDFile = expanded
+	}
+	if expanded, err := ExpandSocketPath(d.cfg.Daemon.LogFile); err == nil {
+		d.cfg.Daemon.LogFile = expanded
+	}
+
 	// 1. Connect to Redis.
 	redisCfg := RedisConfig{
 		Addr:         d.cfg.Redis.Addr,

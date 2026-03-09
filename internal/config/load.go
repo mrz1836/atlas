@@ -302,6 +302,33 @@ func setDefaults(v *viper.Viper) {
 
 	// Approval defaults
 	v.SetDefault("approval.merge_message", "Approved and Merged by ATLAS")
+
+	// Daemon defaults
+	v.SetDefault("daemon.enabled", true)
+	v.SetDefault("daemon.socket_path", "~/.atlas/daemon.sock")
+	v.SetDefault("daemon.pid_file", "~/.atlas/daemon.pid")
+	v.SetDefault("daemon.log_file", "~/.atlas/logs/daemon.log")
+	v.SetDefault("daemon.max_parallel_tasks", 3)
+	v.SetDefault("daemon.task_timeout", "45m")
+	v.SetDefault("daemon.shutdown_timeout", "30s")
+	v.SetDefault("daemon.heartbeat_interval", "10s")
+
+	// Redis defaults
+	v.SetDefault("redis.addr", "localhost:6379")
+	v.SetDefault("redis.db", 0)
+	v.SetDefault("redis.password", "")
+	v.SetDefault("redis.key_prefix", "atlas:")
+	v.SetDefault("redis.pool_size", 10)
+	v.SetDefault("redis.max_retries", 3)
+	v.SetDefault("redis.dial_timeout", "5s")
+	v.SetDefault("redis.read_timeout", "3s")
+	v.SetDefault("redis.write_timeout", "3s")
+	v.SetDefault("redis.log_stream_max_len", 10000)
+
+	// Queue defaults
+	v.SetDefault("queue.max_size", 100)
+	v.SetDefault("queue.default_priority", "normal")
+	v.SetDefault("queue.stale_task_timeout", "2h")
 }
 
 // applyOverrides merges non-zero override values into the config.
