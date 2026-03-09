@@ -231,7 +231,7 @@ func (r *Runner) markTaskCompleted(ctx context.Context, taskID string) {
 }
 
 // markTaskFailed updates the task hash to status=failed with an error message.
-func (r *Runner) markTaskFailed(ctx context.Context, taskID string, errMsg string) {
+func (r *Runner) markTaskFailed(ctx context.Context, taskID, errMsg string) {
 	hashKey := r.cfg.Redis.KeyPrefix + "task:" + taskID
 	pairs := [][2]interface{}{
 		{"status", "failed"},

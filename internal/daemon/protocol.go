@@ -228,7 +228,7 @@ const (
 )
 
 // NewRequest constructs a JSON-RPC 2.0 request, marshaling params to JSON.
-func NewRequest(method string, params interface{}, id interface{}) (*Request, error) {
+func NewRequest(method string, params, id interface{}) (*Request, error) {
 	var raw json.RawMessage
 	if params != nil {
 		data, err := json.Marshal(params)
@@ -246,7 +246,7 @@ func NewRequest(method string, params interface{}, id interface{}) (*Request, er
 }
 
 // NewResponse constructs a successful JSON-RPC 2.0 response.
-func NewResponse(result interface{}, id interface{}) *Response {
+func NewResponse(result, id interface{}) *Response {
 	return &Response{
 		JSONRPC: "2.0",
 		Result:  result,

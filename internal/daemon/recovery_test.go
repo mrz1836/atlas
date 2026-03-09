@@ -9,11 +9,10 @@ import (
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
+	cache "github.com/mrz1836/go-cache"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	cache "github.com/mrz1836/go-cache"
 
 	"github.com/mrz1836/atlas/internal/config"
 )

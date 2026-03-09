@@ -46,7 +46,7 @@ func DialContext(ctx context.Context, socketPath string) (*Client, error) {
 }
 
 // Call sends a JSON-RPC request and decodes the response into result.
-func (c *Client) Call(method string, params interface{}, result interface{}) error {
+func (c *Client) Call(method string, params, result interface{}) error {
 	c.nextID++
 	req := &Request{
 		JSONRPC: "2.0",
