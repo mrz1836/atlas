@@ -15,6 +15,7 @@ import (
 var errTestHandler = errors.New("handler error")
 
 func TestRouterDispatch(t *testing.T) {
+	t.Parallel()
 	logger := zerolog.Nop()
 	router := NewRouter(logger)
 
@@ -36,6 +37,7 @@ func TestRouterDispatch(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("known method returns result", func(t *testing.T) {
+		t.Parallel()
 		req := &Request{JSONRPC: "2.0", Method: "test.echo", Params: json.RawMessage(`"hello"`), ID: 1}
 		resp := router.Dispatch(ctx, req)
 		require.NotNil(t, resp)
@@ -45,6 +47,7 @@ func TestRouterDispatch(t *testing.T) {
 	})
 
 	t.Run("unknown method returns method-not-found error", func(t *testing.T) {
+		t.Parallel()
 		req := &Request{JSONRPC: "2.0", Method: "no.such.method", ID: 2}
 		resp := router.Dispatch(ctx, req)
 		require.NotNil(t, resp)
@@ -54,6 +57,7 @@ func TestRouterDispatch(t *testing.T) {
 	})
 
 	t.Run("handler error returns internal error", func(t *testing.T) {
+		t.Parallel()
 		req := &Request{JSONRPC: "2.0", Method: "test.fail", ID: 3}
 		resp := router.Dispatch(ctx, req)
 		require.NotNil(t, resp)
@@ -63,6 +67,7 @@ func TestRouterDispatch(t *testing.T) {
 	})
 
 	t.Run("accepted result returns response", func(t *testing.T) {
+		t.Parallel()
 		req := &Request{JSONRPC: "2.0", Method: "test.accepted", ID: 4}
 		resp := router.Dispatch(ctx, req)
 		require.NotNil(t, resp)

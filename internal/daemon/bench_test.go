@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -42,6 +43,7 @@ func BenchmarkQueueSubmit(b *testing.B) {
 	q := NewRedisQueue(client, "bench:")
 	ctx := context.Background()
 
+	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = q.Submit(ctx, fmt.Sprintf("task-%d", i), PriorityNormal)
@@ -56,6 +58,7 @@ func BenchmarkQueueSubmitUrgent(b *testing.B) {
 	q := NewRedisQueue(client, "bench:")
 	ctx := context.Background()
 
+	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = q.Submit(ctx, fmt.Sprintf("urgent-task-%d", i), PriorityUrgent)
@@ -76,6 +79,7 @@ func BenchmarkQueuePop(b *testing.B) {
 		_ = q.Submit(ctx, fmt.Sprintf("task-%d", i), PriorityNormal)
 	}
 
+	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_, _ = q.Pop(ctx)
@@ -95,6 +99,7 @@ func BenchmarkQueueStats(b *testing.B) {
 		_ = q.Submit(ctx, fmt.Sprintf("task-%d", i), PriorityNormal)
 	}
 
+	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_, _ = q.Stats(ctx)
@@ -108,20 +113,20 @@ func BenchmarkConcurrentQueueSubmit(b *testing.B) {
 
 	q := NewRedisQueue(client, "bench:")
 	ctx := context.Background()
-	var taskCounter int64
+	var taskCounter atomic.Int64
 
+	b.ReportAllocs()
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
-		var i int64
 		for pb.Next() {
-			i++
-			_ = q.Submit(ctx, fmt.Sprintf("ptask-%d-%d", taskCounter, i), PriorityNormal)
+			id := taskCounter.Add(1)
+			_ = q.Submit(ctx, fmt.Sprintf("ptask-%d", id), PriorityNormal)
 		}
 	})
 }
 
 // BenchmarkClientCall measures the round-trip latency of a JSON-RPC call over Unix socket.
-func BenchmarkClientCall(b *testing.B) {
+func BenchmarkClientCall(b *testing.B) { //nolint:cyclop // benchmark setup complexity is acceptable
 	dir, err := os.MkdirTemp("", "atlsbench")
 	if err != nil {
 		b.Fatalf("temp dir: %v", err)
@@ -154,6 +159,7 @@ func BenchmarkClientCall(b *testing.B) {
 	}
 	defer func() { _ = c.Close() }()
 
+	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		var resp DaemonPingResponse
@@ -174,6 +180,7 @@ func BenchmarkEventPublish(b *testing.B) {
 		Status: "queued",
 	}
 
+	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = pub.Publish(ctx, evt)
@@ -204,6 +211,7 @@ func BenchmarkHandlerDaemonPing(b *testing.B) {
 
 	ctx := context.Background()
 
+	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_, _ = d.handleDaemonPing(ctx, nil)

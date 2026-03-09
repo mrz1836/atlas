@@ -23,6 +23,7 @@ func newTestQueue(t *testing.T) (*RedisQueue, func()) {
 }
 
 func TestQueueSubmitAndPop(t *testing.T) {
+	t.Parallel()
 	q, cleanup := newTestQueue(t)
 	defer cleanup()
 
@@ -49,6 +50,7 @@ func TestQueueSubmitAndPop(t *testing.T) {
 }
 
 func TestQueuePriorityOrder(t *testing.T) {
+	t.Parallel()
 	q, cleanup := newTestQueue(t)
 	defer cleanup()
 
@@ -73,6 +75,7 @@ func TestQueuePriorityOrder(t *testing.T) {
 }
 
 func TestQueueRemove(t *testing.T) {
+	t.Parallel()
 	q, cleanup := newTestQueue(t)
 	defer cleanup()
 
@@ -96,6 +99,7 @@ func TestQueueRemove(t *testing.T) {
 }
 
 func TestQueueStats(t *testing.T) {
+	t.Parallel()
 	q, cleanup := newTestQueue(t)
 	defer cleanup()
 
@@ -117,6 +121,7 @@ func TestQueueStats(t *testing.T) {
 }
 
 func TestQueueClear(t *testing.T) {
+	t.Parallel()
 	q, cleanup := newTestQueue(t)
 	defer cleanup()
 
@@ -145,6 +150,7 @@ func TestQueueClear(t *testing.T) {
 }
 
 func TestQueueEmpty(t *testing.T) {
+	t.Parallel()
 	q, cleanup := newTestQueue(t)
 	defer cleanup()
 
@@ -157,6 +163,7 @@ func TestQueueEmpty(t *testing.T) {
 }
 
 func TestQueueList(t *testing.T) {
+	t.Parallel()
 	q, cleanup := newTestQueue(t)
 	defer cleanup()
 

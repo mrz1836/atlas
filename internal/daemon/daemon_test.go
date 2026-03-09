@@ -43,6 +43,7 @@ func newTestConfig(t *testing.T) *config.Config {
 
 // TestDaemonNew verifies that New returns a non-nil, correctly initialized Daemon.
 func TestDaemonNew(t *testing.T) {
+	t.Parallel()
 	cfg := newTestConfig(t)
 	logger := zerolog.Nop()
 
@@ -58,6 +59,7 @@ func TestDaemonNew(t *testing.T) {
 
 // TestIsRunning_NoFile verifies that a missing PID file is treated as not running.
 func TestIsRunning(t *testing.T) {
+	t.Parallel()
 	tmp := t.TempDir()
 	pidFile := filepath.Join(tmp, "daemon.pid")
 
@@ -70,6 +72,7 @@ func TestIsRunning(t *testing.T) {
 
 // TestIsRunning_SelfPID verifies that writing the current PID returns running=true.
 func TestIsRunning_SelfPID(t *testing.T) {
+	t.Parallel()
 	tmp := t.TempDir()
 	pidFile := filepath.Join(tmp, "daemon.pid")
 
@@ -86,6 +89,7 @@ func TestIsRunning_SelfPID(t *testing.T) {
 
 // TestWriteRemovePIDFile verifies the full PID-file lifecycle.
 func TestWriteRemovePIDFile(t *testing.T) {
+	t.Parallel()
 	cfg := newTestConfig(t)
 	logger := zerolog.Nop()
 	d := New(cfg, logger)
@@ -111,6 +115,7 @@ func TestWriteRemovePIDFile(t *testing.T) {
 // TestRemovePIDFile_NonExistent verifies that removePIDFile does not panic or error
 // when the PID file does not exist.
 func TestRemovePIDFile_NonExistent(t *testing.T) {
+	t.Parallel()
 	cfg := newTestConfig(t)
 	logger := zerolog.Nop()
 	d := New(cfg, logger)

@@ -13,6 +13,7 @@ import (
 )
 
 func TestNewEventPublisher_DefaultChannel(t *testing.T) {
+	t.Parallel()
 	mr := miniredis.RunT(t)
 	cfg := newTestRedisConfig(mr.Addr())
 	ctx := context.Background()
@@ -25,6 +26,7 @@ func TestNewEventPublisher_DefaultChannel(t *testing.T) {
 }
 
 func TestNewEventPublisher_CustomChannel(t *testing.T) {
+	t.Parallel()
 	mr := miniredis.RunT(t)
 	cfg := newTestRedisConfig(mr.Addr())
 	ctx := context.Background()
@@ -37,6 +39,7 @@ func TestNewEventPublisher_CustomChannel(t *testing.T) {
 }
 
 func TestEventPublisher_Publish(t *testing.T) {
+	t.Parallel()
 	mr := miniredis.RunT(t)
 	cfg := newTestRedisConfig(mr.Addr())
 	ctx := context.Background()
@@ -86,6 +89,7 @@ func TestEventPublisher_Publish(t *testing.T) {
 }
 
 func TestEventPublisher_PublishSetsTime(t *testing.T) {
+	t.Parallel()
 	mr := miniredis.RunT(t)
 	cfg := newTestRedisConfig(mr.Addr())
 	ctx := context.Background()
@@ -123,6 +127,7 @@ func TestEventPublisher_PublishSetsTime(t *testing.T) {
 }
 
 func TestEventPublisher_MultipleEvents(t *testing.T) {
+	t.Parallel()
 	mr := miniredis.RunT(t)
 	cfg := newTestRedisConfig(mr.Addr())
 	ctx := context.Background()

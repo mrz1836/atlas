@@ -13,6 +13,7 @@ import (
 // -- daemon.ping --
 
 func TestHandlerDaemonPing(t *testing.T) {
+	t.Parallel()
 	d, _, cleanup := newTestDaemonWithRedis(t)
 	defer cleanup()
 
@@ -28,6 +29,7 @@ func TestHandlerDaemonPing(t *testing.T) {
 // -- daemon.status --
 
 func TestHandlerDaemonStatus(t *testing.T) {
+	t.Parallel()
 	d, _, cleanup := newTestDaemonWithRedis(t)
 	defer cleanup()
 
@@ -46,6 +48,7 @@ func TestHandlerDaemonStatus(t *testing.T) {
 // -- daemon.shutdown --
 
 func TestHandlerDaemonShutdown(t *testing.T) {
+	t.Parallel()
 	d, _, _ := newTestDaemonWithRedis(t)
 	// Don't defer cleanup — Stop() will close redis.
 
@@ -68,6 +71,7 @@ func TestHandlerDaemonShutdown(t *testing.T) {
 // -- task.submit --
 
 func TestHandlerTaskSubmit_Valid(t *testing.T) {
+	t.Parallel()
 	d, _, cleanup := newTestDaemonWithRedis(t)
 	defer cleanup()
 
@@ -90,6 +94,7 @@ func TestHandlerTaskSubmit_Valid(t *testing.T) {
 }
 
 func TestHandlerTaskSubmit_DefaultPriority(t *testing.T) {
+	t.Parallel()
 	d, _, cleanup := newTestDaemonWithRedis(t)
 	defer cleanup()
 
@@ -107,6 +112,7 @@ func TestHandlerTaskSubmit_DefaultPriority(t *testing.T) {
 }
 
 func TestHandlerTaskSubmit_MissingDescription(t *testing.T) {
+	t.Parallel()
 	d, _, cleanup := newTestDaemonWithRedis(t)
 	defer cleanup()
 
@@ -119,6 +125,7 @@ func TestHandlerTaskSubmit_MissingDescription(t *testing.T) {
 }
 
 func TestHandlerTaskSubmit_InvalidJSON(t *testing.T) {
+	t.Parallel()
 	d, _, cleanup := newTestDaemonWithRedis(t)
 	defer cleanup()
 
@@ -127,6 +134,7 @@ func TestHandlerTaskSubmit_InvalidJSON(t *testing.T) {
 }
 
 func TestHandlerTaskSubmit_LowPriority(t *testing.T) {
+	t.Parallel()
 	d, _, cleanup := newTestDaemonWithRedis(t)
 	defer cleanup()
 
@@ -144,9 +152,26 @@ func TestHandlerTaskSubmit_LowPriority(t *testing.T) {
 	assert.Equal(t, "queued", resp.Status)
 }
 
+func TestHandlerTaskSubmit_InvalidPriority(t *testing.T) {
+	t.Parallel()
+	d, _, cleanup := newTestDaemonWithRedis(t)
+	defer cleanup()
+
+	params, err := json.Marshal(TaskSubmitRequest{
+		Description: "task with bad priority",
+		Priority:    "critical",
+	})
+	require.NoError(t, err)
+
+	_, err = d.handleTaskSubmit(context.Background(), params)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, errInvalidPriority)
+}
+
 // -- task.status --
 
 func TestHandlerTaskStatus_Valid(t *testing.T) {
+	t.Parallel()
 	d, _, cleanup := newTestDaemonWithRedis(t)
 	defer cleanup()
 
@@ -173,6 +198,7 @@ func TestHandlerTaskStatus_Valid(t *testing.T) {
 }
 
 func TestHandlerTaskStatus_MissingID(t *testing.T) {
+	t.Parallel()
 	d, _, cleanup := newTestDaemonWithRedis(t)
 	defer cleanup()
 
@@ -185,6 +211,7 @@ func TestHandlerTaskStatus_MissingID(t *testing.T) {
 }
 
 func TestHandlerTaskStatus_NotFound(t *testing.T) {
+	t.Parallel()
 	d, _, cleanup := newTestDaemonWithRedis(t)
 	defer cleanup()
 
@@ -197,6 +224,7 @@ func TestHandlerTaskStatus_NotFound(t *testing.T) {
 }
 
 func TestHandlerTaskStatus_InvalidJSON(t *testing.T) {
+	t.Parallel()
 	d, _, cleanup := newTestDaemonWithRedis(t)
 	defer cleanup()
 
@@ -207,6 +235,7 @@ func TestHandlerTaskStatus_InvalidJSON(t *testing.T) {
 // -- task.list --
 
 func TestHandlerTaskList_Empty(t *testing.T) {
+	t.Parallel()
 	d, _, cleanup := newTestDaemonWithRedis(t)
 	defer cleanup()
 
@@ -219,6 +248,7 @@ func TestHandlerTaskList_Empty(t *testing.T) {
 }
 
 func TestHandlerTaskList_WithTasks(t *testing.T) {
+	t.Parallel()
 	d, _, cleanup := newTestDaemonWithRedis(t)
 	defer cleanup()
 
@@ -241,6 +271,7 @@ func TestHandlerTaskList_WithTasks(t *testing.T) {
 }
 
 func TestHandlerTaskList_StatusFilter(t *testing.T) {
+	t.Parallel()
 	d, _, cleanup := newTestDaemonWithRedis(t)
 	defer cleanup()
 
@@ -272,6 +303,7 @@ func TestHandlerTaskList_StatusFilter(t *testing.T) {
 }
 
 func TestHandlerTaskList_InvalidJSON(t *testing.T) {
+	t.Parallel()
 	d, _, cleanup := newTestDaemonWithRedis(t)
 	defer cleanup()
 
@@ -280,6 +312,7 @@ func TestHandlerTaskList_InvalidJSON(t *testing.T) {
 }
 
 func TestHandlerTaskList_DefaultLimit(t *testing.T) {
+	t.Parallel()
 	d, _, cleanup := newTestDaemonWithRedis(t)
 	defer cleanup()
 
@@ -296,6 +329,7 @@ func TestHandlerTaskList_DefaultLimit(t *testing.T) {
 // -- queue.stats --
 
 func TestHandlerQueueStats_Empty(t *testing.T) {
+	t.Parallel()
 	d, _, cleanup := newTestDaemonWithRedis(t)
 	defer cleanup()
 
@@ -308,6 +342,7 @@ func TestHandlerQueueStats_Empty(t *testing.T) {
 }
 
 func TestHandlerQueueStats_WithItems(t *testing.T) {
+	t.Parallel()
 	d, _, cleanup := newTestDaemonWithRedis(t)
 	defer cleanup()
 
@@ -339,6 +374,7 @@ func TestHandlerQueueStats_WithItems(t *testing.T) {
 // -- queue.list --
 
 func TestHandlerQueueList_All(t *testing.T) {
+	t.Parallel()
 	d, _, cleanup := newTestDaemonWithRedis(t)
 	defer cleanup()
 
@@ -359,6 +395,7 @@ func TestHandlerQueueList_All(t *testing.T) {
 }
 
 func TestHandlerQueueList_ByPriority(t *testing.T) {
+	t.Parallel()
 	d, _, cleanup := newTestDaemonWithRedis(t)
 	defer cleanup()
 
@@ -387,6 +424,7 @@ func TestHandlerQueueList_ByPriority(t *testing.T) {
 }
 
 func TestHandlerQueueList_InvalidJSON(t *testing.T) {
+	t.Parallel()
 	d, _, cleanup := newTestDaemonWithRedis(t)
 	defer cleanup()
 
@@ -397,6 +435,7 @@ func TestHandlerQueueList_InvalidJSON(t *testing.T) {
 // -- queue.clear --
 
 func TestHandlerQueueClear_All(t *testing.T) {
+	t.Parallel()
 	d, _, cleanup := newTestDaemonWithRedis(t)
 	defer cleanup()
 
@@ -422,6 +461,7 @@ func TestHandlerQueueClear_All(t *testing.T) {
 }
 
 func TestHandlerQueueClear_ByPriority(t *testing.T) {
+	t.Parallel()
 	d, _, cleanup := newTestDaemonWithRedis(t)
 	defer cleanup()
 
@@ -449,6 +489,7 @@ func TestHandlerQueueClear_ByPriority(t *testing.T) {
 }
 
 func TestHandlerQueueClear_InvalidJSON(t *testing.T) {
+	t.Parallel()
 	d, _, cleanup := newTestDaemonWithRedis(t)
 	defer cleanup()
 
@@ -459,6 +500,7 @@ func TestHandlerQueueClear_InvalidJSON(t *testing.T) {
 // -- events.subscribe --
 
 func TestHandlerEventsSubscribe(t *testing.T) {
+	t.Parallel()
 	d, _, cleanup := newTestDaemonWithRedis(t)
 	defer cleanup()
 
@@ -473,6 +515,7 @@ func TestHandlerEventsSubscribe(t *testing.T) {
 // -- stubHandler --
 
 func TestStubHandler(t *testing.T) {
+	t.Parallel()
 	h := stubHandler("task.approve")
 	result, err := h(context.Background(), nil)
 	require.ErrorIs(t, err, errNotImplemented)
@@ -482,6 +525,7 @@ func TestStubHandler(t *testing.T) {
 // -- setupRouter --
 
 func TestSetupRouter(t *testing.T) {
+	t.Parallel()
 	d, _, cleanup := newTestDaemonWithRedis(t)
 	defer cleanup()
 
@@ -510,6 +554,7 @@ func TestSetupRouter(t *testing.T) {
 // -- safeIndex --
 
 func TestSafeIndex(t *testing.T) {
+	t.Parallel()
 	vals := []string{"a", "b", "c"}
 	assert.Equal(t, "a", safeIndex(vals, 0))
 	assert.Equal(t, "b", safeIndex(vals, 1))

@@ -31,6 +31,7 @@ func dialUnix(t *testing.T, sockPath string) net.Conn {
 }
 
 func TestServerStartStop(t *testing.T) {
+	t.Parallel()
 	logger := zerolog.Nop()
 	router := NewRouter(logger)
 	sockPath := tempSocketPath(t)
@@ -54,6 +55,7 @@ func TestServerStartStop(t *testing.T) {
 }
 
 func TestServerStartStopStaleSock(t *testing.T) {
+	t.Parallel()
 	logger := zerolog.Nop()
 	router := NewRouter(logger)
 	sockPath := tempSocketPath(t)
@@ -70,6 +72,7 @@ func TestServerStartStopStaleSock(t *testing.T) {
 }
 
 func TestServerHandleConn(t *testing.T) {
+	t.Parallel()
 	logger := zerolog.Nop()
 	router := NewRouter(logger)
 
@@ -108,6 +111,7 @@ func TestServerHandleConn(t *testing.T) {
 }
 
 func TestServerHandleConnParseError(t *testing.T) {
+	t.Parallel()
 	logger := zerolog.Nop()
 	router := NewRouter(logger)
 	sockPath := tempSocketPath(t)

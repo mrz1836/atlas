@@ -45,6 +45,7 @@ func newLifecycleTestConfig(t *testing.T, mr *miniredis.Miniredis) *config.Confi
 
 // TestDaemonStartStop tests the full Start → Stop lifecycle.
 func TestDaemonStartStop(t *testing.T) {
+	t.Parallel()
 	mr := miniredis.RunT(t)
 	cfg := newLifecycleTestConfig(t, mr)
 	logger := zerolog.Nop()
@@ -78,6 +79,7 @@ func TestDaemonStartStop(t *testing.T) {
 
 // TestDaemonStop_Idempotent verifies that Stop can be called multiple times safely.
 func TestDaemonStop_Idempotent(t *testing.T) {
+	t.Parallel()
 	mr := miniredis.RunT(t)
 	cfg := newLifecycleTestConfig(t, mr)
 	logger := zerolog.Nop()
@@ -96,6 +98,7 @@ func TestDaemonStop_Idempotent(t *testing.T) {
 // TestDaemonStart_NoSocketPath verifies Start works when SocketPath is empty
 // (skips Unix socket binding).
 func TestDaemonStart_NoSocketPath(t *testing.T) {
+	t.Parallel()
 	mr := miniredis.RunT(t)
 	cfg := newLifecycleTestConfig(t, mr)
 	cfg.Daemon.SocketPath = "" // no socket
@@ -112,6 +115,7 @@ func TestDaemonStart_NoSocketPath(t *testing.T) {
 
 // TestDaemonRun_ContextCancel verifies Run exits cleanly when context is canceled.
 func TestDaemonRun_ContextCancel(t *testing.T) {
+	t.Parallel()
 	mr := miniredis.RunT(t)
 	cfg := newLifecycleTestConfig(t, mr)
 	logger := zerolog.Nop()
@@ -119,13 +123,20 @@ func TestDaemonRun_ContextCancel(t *testing.T) {
 	d := New(cfg, logger)
 	ctx, cancel := context.WithCancel(context.Background())
 
+	// Capture path before goroutine starts — d.Start() mutates d.cfg.Daemon.PIDFile
+	// (tilde expansion) which would race with the Eventually closure below.
+	pidFile := cfg.Daemon.PIDFile
+
 	done := make(chan error, 1)
 	go func() {
 		done <- d.Run(ctx)
 	}()
 
-	// Let the daemon start.
-	time.Sleep(150 * time.Millisecond)
+	// Wait for the daemon to start by polling the PID file.
+	require.Eventually(t, func() bool {
+		_, err := os.Stat(pidFile)
+		return err == nil
+	}, 5*time.Second, 10*time.Millisecond, "daemon should start (PID file should exist)")
 
 	// Cancel context to trigger shutdown.
 	cancel()
@@ -140,6 +151,7 @@ func TestDaemonRun_ContextCancel(t *testing.T) {
 
 // TestDaemonRun_StopCh verifies Run exits when stopCh is closed externally.
 func TestDaemonRun_StopCh(t *testing.T) {
+	t.Parallel()
 	mr := miniredis.RunT(t)
 	cfg := newLifecycleTestConfig(t, mr)
 	logger := zerolog.Nop()
@@ -147,13 +159,20 @@ func TestDaemonRun_StopCh(t *testing.T) {
 	d := New(cfg, logger)
 	ctx := context.Background()
 
+	// Capture path before goroutine starts — d.Start() mutates d.cfg.Daemon.PIDFile
+	// (tilde expansion) which would race with the Eventually closure below.
+	pidFile := cfg.Daemon.PIDFile
+
 	done := make(chan error, 1)
 	go func() {
 		done <- d.Run(ctx)
 	}()
 
-	// Let the daemon start.
-	time.Sleep(150 * time.Millisecond)
+	// Wait for the daemon to start by polling the PID file.
+	require.Eventually(t, func() bool {
+		_, err := os.Stat(pidFile)
+		return err == nil
+	}, 5*time.Second, 10*time.Millisecond, "daemon should start (PID file should exist)")
 
 	// Close stopCh directly.
 	close(d.stopCh)
@@ -168,6 +187,7 @@ func TestDaemonRun_StopCh(t *testing.T) {
 
 // TestDaemonStart_RedisFailure verifies Start returns an error when Redis is unreachable.
 func TestDaemonStart_RedisFailure(t *testing.T) {
+	t.Parallel()
 	dir, err := os.MkdirTemp("", "atlsfail")
 	require.NoError(t, err)
 	defer func() { _ = os.RemoveAll(dir) }()
@@ -203,6 +223,7 @@ func TestDaemonStart_RedisFailure(t *testing.T) {
 
 // TestSocketDir verifies socketDir extracts the directory component correctly.
 func TestSocketDir(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		input string
 		want  string
@@ -215,13 +236,17 @@ func TestSocketDir(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		got := socketDir(tt.input)
-		assert.Equal(t, tt.want, got, "socketDir(%q)", tt.input)
+		t.Run(tt.input, func(t *testing.T) {
+			t.Parallel()
+			got := socketDir(tt.input)
+			assert.Equal(t, tt.want, got, "socketDir(%q)", tt.input)
+		})
 	}
 }
 
 // TestIsRunning_InvalidPIDContent verifies errInvalidPID is returned for bad file content.
 func TestIsRunning_InvalidPIDContent(t *testing.T) {
+	t.Parallel()
 	tmp := t.TempDir()
 	pidFile := filepath.Join(tmp, "bad.pid")
 
@@ -236,6 +261,7 @@ func TestIsRunning_InvalidPIDContent(t *testing.T) {
 
 // TestIsRunning_ZeroPID verifies errInvalidPID is returned for PID=0.
 func TestIsRunning_ZeroPID(t *testing.T) {
+	t.Parallel()
 	tmp := t.TempDir()
 	pidFile := filepath.Join(tmp, "zero.pid")
 
@@ -250,6 +276,7 @@ func TestIsRunning_ZeroPID(t *testing.T) {
 
 // TestIsRunning_StaleProcess verifies a non-existent PID returns running=false.
 func TestIsRunning_StaleProcess(t *testing.T) {
+	t.Parallel()
 	tmp := t.TempDir()
 	pidFile := filepath.Join(tmp, "stale.pid")
 
@@ -265,6 +292,7 @@ func TestIsRunning_StaleProcess(t *testing.T) {
 
 // TestWritePIDFile_EmptyPath verifies that writePIDFile is a no-op when PIDFile is empty.
 func TestWritePIDFile_EmptyPath(t *testing.T) {
+	t.Parallel()
 	cfg := newTestConfig(t)
 	cfg.Daemon.PIDFile = ""
 	logger := zerolog.Nop()

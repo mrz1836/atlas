@@ -12,6 +12,7 @@ import (
 
 // TestRefreshHeartbeat verifies that refreshHeartbeat writes the heartbeat key and state hash.
 func TestRefreshHeartbeat(t *testing.T) {
+	t.Parallel()
 	d, _, cleanup := newTestDaemonWithRedis(t)
 	defer cleanup()
 
@@ -45,6 +46,7 @@ func TestRefreshHeartbeat(t *testing.T) {
 
 // TestRefreshHeartbeat_NilRedis verifies that refreshHeartbeat is a no-op when redis is nil.
 func TestRefreshHeartbeat_NilRedis(t *testing.T) {
+	t.Parallel()
 	d, _, cleanup := newTestDaemonWithRedis(t)
 	defer cleanup()
 
@@ -58,6 +60,7 @@ func TestRefreshHeartbeat_NilRedis(t *testing.T) {
 
 // TestDaemonHealth verifies that Health returns a populated response.
 func TestDaemonHealth(t *testing.T) {
+	t.Parallel()
 	d, _, cleanup := newTestDaemonWithRedis(t)
 	defer cleanup()
 
@@ -77,6 +80,7 @@ func TestDaemonHealth(t *testing.T) {
 
 // TestDaemonHealth_WithQueueDepth verifies that QueueDepth is populated from the queue.
 func TestDaemonHealth_WithQueueDepth(t *testing.T) {
+	t.Parallel()
 	d, _, cleanup := newTestDaemonWithRedis(t)
 	defer cleanup()
 
@@ -93,6 +97,7 @@ func TestDaemonHealth_WithQueueDepth(t *testing.T) {
 
 // TestDaemonHealth_NilQueue verifies that Health works even when queue is nil.
 func TestDaemonHealth_NilQueue(t *testing.T) {
+	t.Parallel()
 	d, _, cleanup := newTestDaemonWithRedis(t)
 	defer cleanup()
 
@@ -106,6 +111,7 @@ func TestDaemonHealth_NilQueue(t *testing.T) {
 
 // TestDaemonHealth_NilRedis verifies that Health reports RedisAlive=false when redis is nil.
 func TestDaemonHealth_NilRedis(t *testing.T) {
+	t.Parallel()
 	d, _, cleanup := newTestDaemonWithRedis(t)
 	defer cleanup()
 
@@ -120,6 +126,7 @@ func TestDaemonHealth_NilRedis(t *testing.T) {
 
 // TestStartHeartbeat verifies the heartbeat goroutine runs and refreshes the key.
 func TestStartHeartbeat(t *testing.T) {
+	t.Parallel()
 	d, _, cleanup := newTestDaemonWithRedis(t)
 	defer cleanup()
 
@@ -133,8 +140,11 @@ func TestStartHeartbeat(t *testing.T) {
 
 	d.startHeartbeat(ctx)
 
-	// Give the goroutine time for at least two heartbeat ticks.
-	time.Sleep(200 * time.Millisecond)
+	// Wait for the heartbeat goroutine to write the key instead of sleeping.
+	require.Eventually(t, func() bool {
+		val, err := cache.Get(ctx, d.redis, heartbeatKey)
+		return err == nil && val != ""
+	}, 5*time.Second, 10*time.Millisecond, "heartbeat key should be set by the goroutine")
 
 	val, err := cache.Get(ctx, d.redis, heartbeatKey)
 	require.NoError(t, err)
@@ -159,6 +169,7 @@ func TestStartHeartbeat(t *testing.T) {
 
 // TestStartHeartbeat_StopChannel verifies the heartbeat goroutine exits on stopCh.
 func TestStartHeartbeat_StopChannel(t *testing.T) {
+	t.Parallel()
 	d, _, cleanup := newTestDaemonWithRedis(t)
 	defer cleanup()
 

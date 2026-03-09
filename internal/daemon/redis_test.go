@@ -26,6 +26,7 @@ func newTestRedisConfig(addr string) RedisConfig {
 }
 
 func TestNewRedisClient_Success(t *testing.T) {
+	t.Parallel()
 	mr := miniredis.RunT(t)
 	cfg := newTestRedisConfig(mr.Addr())
 
@@ -54,6 +55,7 @@ func TestNewRedisClient_InvalidAddr(_ *testing.T) {
 }
 
 func TestPingRedis_Success(t *testing.T) {
+	t.Parallel()
 	mr := miniredis.RunT(t)
 	cfg := newTestRedisConfig(mr.Addr())
 
@@ -67,6 +69,7 @@ func TestPingRedis_Success(t *testing.T) {
 }
 
 func TestPingRedis_ServerDown(t *testing.T) {
+	t.Parallel()
 	mr := miniredis.RunT(t)
 	cfg := newTestRedisConfig(mr.Addr())
 
@@ -83,6 +86,7 @@ func TestPingRedis_ServerDown(t *testing.T) {
 }
 
 func TestKey(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name   string
 		prefix string
@@ -129,6 +133,7 @@ func TestKey(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got := Key(tt.prefix, tt.parts...)
 			assert.Equal(t, tt.want, got)
 		})

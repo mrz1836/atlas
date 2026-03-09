@@ -19,6 +19,7 @@ func roundTrip[T any](t *testing.T, v T) T {
 }
 
 func TestRequestRoundTrip(t *testing.T) {
+	t.Parallel()
 	req, err := NewRequest(MethodTaskSubmit, TaskSubmitRequest{Description: "test", Template: "default"}, 1)
 	require.NoError(t, err)
 	got := roundTrip(t, *req)
@@ -28,6 +29,7 @@ func TestRequestRoundTrip(t *testing.T) {
 }
 
 func TestResponseRoundTrip(t *testing.T) {
+	t.Parallel()
 	resp := NewResponse(TaskSubmitResponse{TaskID: "abc", Status: "queued"}, 42)
 	data, err := json.Marshal(resp)
 	require.NoError(t, err)
@@ -39,6 +41,7 @@ func TestResponseRoundTrip(t *testing.T) {
 }
 
 func TestErrorResponseRoundTrip(t *testing.T) {
+	t.Parallel()
 	resp := NewErrorResponse(ErrCodeMethodNotFound, "method not found", 99)
 	got := roundTrip(t, *resp)
 	assert.Equal(t, "2.0", got.JSONRPC)
@@ -48,6 +51,7 @@ func TestErrorResponseRoundTrip(t *testing.T) {
 }
 
 func TestNotificationRoundTrip(t *testing.T) {
+	t.Parallel()
 	n := NewNotification(EventTaskStarted, TaskEvent{Type: EventTaskStarted, TaskID: "xyz"})
 	got := roundTrip(t, *n)
 	assert.Equal(t, "2.0", got.JSONRPC)
@@ -55,6 +59,7 @@ func TestNotificationRoundTrip(t *testing.T) {
 }
 
 func TestTaskSubmitRequestRoundTrip(t *testing.T) {
+	t.Parallel()
 	v := TaskSubmitRequest{
 		Description: "fix bug",
 		Template:    "bugfix",
@@ -69,16 +74,19 @@ func TestTaskSubmitRequestRoundTrip(t *testing.T) {
 }
 
 func TestTaskSubmitResponseRoundTrip(t *testing.T) {
+	t.Parallel()
 	v := TaskSubmitResponse{TaskID: "t1", Status: "queued"}
 	assert.Equal(t, v, roundTrip(t, v))
 }
 
 func TestTaskStatusRequestRoundTrip(t *testing.T) {
+	t.Parallel()
 	v := TaskStatusRequest{TaskID: "t1"}
 	assert.Equal(t, v, roundTrip(t, v))
 }
 
 func TestTaskStatusResponseRoundTrip(t *testing.T) {
+	t.Parallel()
 	v := TaskStatusResponse{
 		TaskID:      "t1",
 		Status:      "running",
@@ -93,11 +101,13 @@ func TestTaskStatusResponseRoundTrip(t *testing.T) {
 }
 
 func TestTaskListRequestRoundTrip(t *testing.T) {
+	t.Parallel()
 	v := TaskListRequest{Status: "running", Priority: "urgent", Limit: 10}
 	assert.Equal(t, v, roundTrip(t, v))
 }
 
 func TestTaskListResponseRoundTrip(t *testing.T) {
+	t.Parallel()
 	v := TaskListResponse{
 		Tasks: []TaskStatusResponse{{TaskID: "t1", Status: "queued", Priority: "low", SubmittedAt: "2026-03-09T14:00:00Z"}},
 		Total: 1,
@@ -107,36 +117,43 @@ func TestTaskListResponseRoundTrip(t *testing.T) {
 }
 
 func TestTaskApproveRequestRoundTrip(t *testing.T) {
+	t.Parallel()
 	v := TaskApproveRequest{TaskID: "t1", Close: true, Message: "lgtm"}
 	assert.Equal(t, v, roundTrip(t, v))
 }
 
 func TestTaskRejectRequestRoundTrip(t *testing.T) {
+	t.Parallel()
 	v := TaskRejectRequest{TaskID: "t1", Retry: true, Feedback: "needs tests", Step: "test"}
 	assert.Equal(t, v, roundTrip(t, v))
 }
 
 func TestTaskResumeRequestRoundTrip(t *testing.T) {
+	t.Parallel()
 	v := TaskResumeRequest{TaskID: "t1", AIFix: true}
 	assert.Equal(t, v, roundTrip(t, v))
 }
 
 func TestTaskAbandonRequestRoundTrip(t *testing.T) {
+	t.Parallel()
 	v := TaskAbandonRequest{TaskID: "t1"}
 	assert.Equal(t, v, roundTrip(t, v))
 }
 
 func TestTaskCancelRequestRoundTrip(t *testing.T) {
+	t.Parallel()
 	v := TaskCancelRequest{TaskID: "t1"}
 	assert.Equal(t, v, roundTrip(t, v))
 }
 
 func TestQueueListRequestRoundTrip(t *testing.T) {
+	t.Parallel()
 	v := QueueListRequest{Priority: "urgent"}
 	assert.Equal(t, v, roundTrip(t, v))
 }
 
 func TestQueueListResponseRoundTrip(t *testing.T) {
+	t.Parallel()
 	v := QueueListResponse{
 		Entries: []QueueEntryResponse{{TaskID: "t1", Priority: "urgent", Score: 1234567890}},
 		Total:   1,
@@ -145,21 +162,25 @@ func TestQueueListResponseRoundTrip(t *testing.T) {
 }
 
 func TestQueueClearRequestRoundTrip(t *testing.T) {
+	t.Parallel()
 	v := QueueClearRequest{Priority: "low"}
 	assert.Equal(t, v, roundTrip(t, v))
 }
 
 func TestQueueStatsResponseRoundTrip(t *testing.T) {
+	t.Parallel()
 	v := QueueStatsResponse{Urgent: 1, Normal: 5, Low: 2, Total: 8}
 	assert.Equal(t, v, roundTrip(t, v))
 }
 
 func TestDaemonPingResponseRoundTrip(t *testing.T) {
+	t.Parallel()
 	v := DaemonPingResponse{Alive: true, Version: "1.0.0"}
 	assert.Equal(t, v, roundTrip(t, v))
 }
 
 func TestDaemonStatusResponseRoundTrip(t *testing.T) {
+	t.Parallel()
 	v := DaemonStatusResponse{
 		PID:         12345,
 		Uptime:      "1h2m3s",
@@ -173,16 +194,19 @@ func TestDaemonStatusResponseRoundTrip(t *testing.T) {
 }
 
 func TestDaemonShutdownRequestRoundTrip(t *testing.T) {
+	t.Parallel()
 	v := DaemonShutdownRequest{Graceful: true}
 	assert.Equal(t, v, roundTrip(t, v))
 }
 
 func TestEventSubscribeRequestRoundTrip(t *testing.T) {
+	t.Parallel()
 	v := EventSubscribeRequest{Events: []string{"task.*", "queue.*"}}
 	assert.Equal(t, v, roundTrip(t, v))
 }
 
 func TestTaskEventRoundTrip(t *testing.T) {
+	t.Parallel()
 	v := TaskEvent{
 		Type:    EventTaskSubmitted,
 		TaskID:  "t1",
@@ -194,6 +218,7 @@ func TestTaskEventRoundTrip(t *testing.T) {
 }
 
 func TestRPCErrorCodeConstants(t *testing.T) {
+	t.Parallel()
 	assert.Equal(t, -32700, ErrCodeParseError)
 	assert.Equal(t, -32600, ErrCodeInvalidRequest)
 	assert.Equal(t, -32601, ErrCodeMethodNotFound)
@@ -202,6 +227,7 @@ func TestRPCErrorCodeConstants(t *testing.T) {
 }
 
 func TestMethodConstants(t *testing.T) {
+	t.Parallel()
 	methods := []string{
 		MethodTaskSubmit, MethodTaskStatus, MethodTaskList,
 		MethodTaskApprove, MethodTaskReject, MethodTaskResume,
@@ -216,6 +242,7 @@ func TestMethodConstants(t *testing.T) {
 }
 
 func TestEventConstants(t *testing.T) {
+	t.Parallel()
 	events := []string{
 		EventTaskSubmitted, EventTaskStarted, EventTaskCompleted,
 		EventTaskFailed, EventTaskApproved, EventQueueChanged,
@@ -227,6 +254,7 @@ func TestEventConstants(t *testing.T) {
 }
 
 func TestNewRequestNilParams(t *testing.T) {
+	t.Parallel()
 	req, err := NewRequest(MethodDaemonPing, nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "2.0", req.JSONRPC)

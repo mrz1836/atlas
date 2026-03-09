@@ -98,12 +98,14 @@ func newTestRunner(cfg *config.Config, q Queue) *Runner {
 		sem:      make(chan struct{}, cfg.Daemon.MaxParallelTasks),
 		stopCh:   make(chan struct{}),
 		workerID: "test-worker",
+		taskCtxs: make(map[string]context.CancelFunc),
 	}
 }
 
 // ---- Tests ----
 
 func TestRunnerNew(t *testing.T) {
+	t.Parallel()
 	cfg := testRunnerCfg(3)
 	q := &mockQueue{}
 	r := newTestRunner(cfg, q)
@@ -116,6 +118,7 @@ func TestRunnerNew(t *testing.T) {
 }
 
 func TestRunnerMaxParallelism(t *testing.T) {
+	t.Parallel()
 	const maxParallel = 2
 	const numTasks = 5
 
@@ -153,8 +156,12 @@ func TestRunnerMaxParallelism(t *testing.T) {
 		}()
 	}
 
-	// Give goroutines a moment to fill the semaphore.
-	time.Sleep(50 * time.Millisecond)
+	// Wait for the semaphore to fill (all goroutines either acquired or are
+	// blocking on it) before releasing the gate.
+	require.Eventually(t, func() bool {
+		return atomic.LoadInt64(&currentConc) == maxParallel
+	}, 5*time.Second, time.Millisecond, "semaphore should be full")
+
 	close(gate)
 	outerWg.Wait()
 
@@ -163,6 +170,7 @@ func TestRunnerMaxParallelism(t *testing.T) {
 }
 
 func TestRunnerGracefulDrain(t *testing.T) {
+	t.Parallel()
 	cfg := testRunnerCfg(3)
 	q := &mockQueue{}
 
@@ -205,14 +213,18 @@ func TestRunnerGracefulDrain(t *testing.T) {
 		}
 	}()
 
-	// Let the loop run briefly.
-	time.Sleep(50 * time.Millisecond)
+	// Wait for at least one task to be dispatched.
+	require.Eventually(t, func() bool {
+		return atomic.LoadInt64(&dispatched) >= 1
+	}, 5*time.Second, 10*time.Millisecond, "at least one task should be dispatched")
+
 	runner.Stop()
 
 	assert.GreaterOrEqual(t, int(atomic.LoadInt64(&dispatched)), 1, "at least one task should have been dispatched")
 }
 
 func TestRunnerPanicRecovery(t *testing.T) {
+	t.Parallel()
 	cfg := testRunnerCfg(2)
 	q := &mockQueue{}
 	logger := zerolog.Nop()
@@ -233,6 +245,7 @@ func TestRunnerPanicRecovery(t *testing.T) {
 		sem:      make(chan struct{}, cfg.Daemon.MaxParallelTasks),
 		stopCh:   make(chan struct{}),
 		workerID: "test-worker",
+		taskCtxs: make(map[string]context.CancelFunc),
 	}
 
 	runTask := func(taskID string, shouldPanic bool) {

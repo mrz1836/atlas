@@ -56,6 +56,7 @@ func newTestRunnerWithRedis(t *testing.T) (*Runner, *cache.Client, Queue, func()
 
 // TestNewRunner verifies NewRunner initializes correctly.
 func TestNewRunner(t *testing.T) {
+	t.Parallel()
 	r, _, _, cleanup := newTestRunnerWithRedis(t)
 	defer cleanup()
 
@@ -67,6 +68,7 @@ func TestNewRunner(t *testing.T) {
 // TestRunnerIntegration_DispatchAndComplete submits a task and verifies the runner
 // picks it up, executes it (100ms stub), and marks it completed.
 func TestRunnerIntegration_DispatchAndComplete(t *testing.T) {
+	t.Parallel()
 	r, client, q, cleanup := newTestRunnerWithRedis(t)
 	defer cleanup()
 
@@ -78,13 +80,15 @@ func TestRunnerIntegration_DispatchAndComplete(t *testing.T) {
 
 	// Start the runner.
 	r.Start(ctx)
+	defer r.Stop()
 
-	// Wait for execution: 100ms stub + poll overhead + margin.
-	time.Sleep(800 * time.Millisecond)
-	r.Stop()
-
-	// Verify the task was marked completed.
+	// Wait for task completion instead of sleeping.
 	hashKey := "atlas:task:" + taskID
+	require.Eventually(t, func() bool {
+		status, err := cache.HashGet(ctx, client, hashKey, "status")
+		return err == nil && status == "completed"
+	}, 5*time.Second, 50*time.Millisecond, "task should be marked completed after execution")
+
 	status, err := cache.HashGet(ctx, client, hashKey, "status")
 	require.NoError(t, err)
 	assert.Equal(t, "completed", status, "task should be marked completed after execution")
@@ -96,6 +100,7 @@ func TestRunnerIntegration_DispatchAndComplete(t *testing.T) {
 
 // TestRunnerIntegration_MultipleTasksCompleted verifies multiple tasks are all completed.
 func TestRunnerIntegration_MultipleTasksCompleted(t *testing.T) {
+	t.Parallel()
 	r, client, q, cleanup := newTestRunnerWithRedis(t)
 	defer cleanup()
 
@@ -109,10 +114,19 @@ func TestRunnerIntegration_MultipleTasksCompleted(t *testing.T) {
 	}
 
 	r.Start(ctx)
+	defer r.Stop()
 
-	// Wait for all tasks: 100ms each, parallelism=2 → ~200ms for 4 tasks + margin.
-	time.Sleep(1500 * time.Millisecond)
-	r.Stop()
+	// Wait for all tasks to complete instead of sleeping.
+	require.Eventually(t, func() bool {
+		for _, taskID := range taskIDs {
+			hashKey := "atlas:task:" + taskID
+			status, err := cache.HashGet(ctx, client, hashKey, "status")
+			if err != nil || status != "completed" {
+				return false
+			}
+		}
+		return true
+	}, 10*time.Second, 50*time.Millisecond, "all tasks should be completed")
 
 	for _, taskID := range taskIDs {
 		hashKey := "atlas:task:" + taskID
@@ -124,6 +138,7 @@ func TestRunnerIntegration_MultipleTasksCompleted(t *testing.T) {
 
 // TestRunnerMarkTaskRunning verifies markTaskRunning sets status=running and started_at.
 func TestRunnerMarkTaskRunning(t *testing.T) {
+	t.Parallel()
 	r, client, _, cleanup := newTestRunnerWithRedis(t)
 	defer cleanup()
 
@@ -145,6 +160,7 @@ func TestRunnerMarkTaskRunning(t *testing.T) {
 // TestRunnerMarkTaskCompleted verifies markTaskCompleted sets status=completed, completed_at,
 // and removes the task from the active set.
 func TestRunnerMarkTaskCompleted(t *testing.T) {
+	t.Parallel()
 	r, client, _, cleanup := newTestRunnerWithRedis(t)
 	defer cleanup()
 
@@ -169,6 +185,7 @@ func TestRunnerMarkTaskCompleted(t *testing.T) {
 
 // TestRunnerMarkTaskFailed verifies markTaskFailed sets status=failed with an error message.
 func TestRunnerMarkTaskFailed(t *testing.T) {
+	t.Parallel()
 	r, client, _, cleanup := newTestRunnerWithRedis(t)
 	defer cleanup()
 
@@ -197,6 +214,7 @@ func TestRunnerMarkTaskFailed(t *testing.T) {
 
 // TestRunnerStop_Idempotent verifies that Stop can be called multiple times safely.
 func TestRunnerStop_Idempotent(t *testing.T) {
+	t.Parallel()
 	r, _, _, cleanup := newTestRunnerWithRedis(t)
 	defer cleanup()
 
@@ -212,6 +230,7 @@ func TestRunnerStop_Idempotent(t *testing.T) {
 
 // TestRunnerDispatchLoop_EmptyQueue verifies the dispatchLoop backs off on empty queue.
 func TestRunnerDispatchLoop_EmptyQueue(t *testing.T) {
+	t.Parallel()
 	r, _, _, cleanup := newTestRunnerWithRedis(t)
 	defer cleanup()
 
@@ -239,6 +258,7 @@ func TestRunnerDispatchLoop_EmptyQueue(t *testing.T) {
 
 // TestRunnerDispatchLoop_StopCh verifies the dispatchLoop exits on stopCh.
 func TestRunnerDispatchLoop_StopCh(t *testing.T) {
+	t.Parallel()
 	r, _, _, cleanup := newTestRunnerWithRedis(t)
 	defer cleanup()
 
@@ -264,6 +284,7 @@ func TestRunnerDispatchLoop_StopCh(t *testing.T) {
 // TestRunnerDispatchLoop_ShutdownRequeues verifies that a task popped right before shutdown
 // is requeued by the runner.
 func TestRunnerDispatchLoop_ShutdownDuringExecute(t *testing.T) {
+	t.Parallel()
 	r, _, q, cleanup := newTestRunnerWithRedis(t)
 	defer cleanup()
 

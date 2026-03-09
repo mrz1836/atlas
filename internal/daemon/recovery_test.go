@@ -79,6 +79,7 @@ func seedOrphanedTask(t *testing.T, mr *miniredis.Miniredis, taskID string, retr
 
 // TestRecoverOrphanedTasks verifies that an orphaned task (running, no lock) is re-queued.
 func TestRecoverOrphanedTasks(t *testing.T) {
+	t.Parallel()
 	d, mr, cleanup := newTestDaemonWithRedis(t)
 	defer cleanup()
 
@@ -108,6 +109,7 @@ func TestRecoverOrphanedTasks(t *testing.T) {
 
 // TestRecoverMaxRetries verifies that a task at max retries is marked failed, not re-queued.
 func TestRecoverMaxRetries(t *testing.T) {
+	t.Parallel()
 	d, mr, cleanup := newTestDaemonWithRedis(t)
 	defer cleanup()
 
@@ -137,6 +139,7 @@ func TestRecoverMaxRetries(t *testing.T) {
 
 // TestRecoverOrphanedTasks_WithLock verifies that a task with an active lock is not touched.
 func TestRecoverOrphanedTasks_WithLock(t *testing.T) {
+	t.Parallel()
 	d, mr, cleanup := newTestDaemonWithRedis(t)
 	defer cleanup()
 
@@ -160,6 +163,7 @@ func TestRecoverOrphanedTasks_WithLock(t *testing.T) {
 
 // TestRecoverOrphanedTasks_Empty verifies no error is returned for an empty active set.
 func TestRecoverOrphanedTasks_Empty(t *testing.T) {
+	t.Parallel()
 	d, _, cleanup := newTestDaemonWithRedis(t)
 	defer cleanup()
 

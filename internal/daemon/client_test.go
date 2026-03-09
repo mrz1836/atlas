@@ -87,6 +87,7 @@ func handleTestConn(conn net.Conn) {
 }
 
 func TestDial_Success(t *testing.T) {
+	t.Parallel()
 	socketPath, cleanup := startTestServer(t)
 	defer cleanup()
 
@@ -96,12 +97,14 @@ func TestDial_Success(t *testing.T) {
 }
 
 func TestDial_Failure(t *testing.T) {
+	t.Parallel()
 	_, err := Dial("/nonexistent/path/to/daemon.sock")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "daemon not running")
 }
 
 func TestClient_Ping(t *testing.T) {
+	t.Parallel()
 	socketPath, cleanup := startTestServer(t)
 	defer cleanup()
 
@@ -113,6 +116,7 @@ func TestClient_Ping(t *testing.T) {
 }
 
 func TestClient_Call_Status(t *testing.T) {
+	t.Parallel()
 	socketPath, cleanup := startTestServer(t)
 	defer cleanup()
 
@@ -128,6 +132,7 @@ func TestClient_Call_Status(t *testing.T) {
 }
 
 func TestClient_Call_TaskSubmit(t *testing.T) {
+	t.Parallel()
 	socketPath, cleanup := startTestServer(t)
 	defer cleanup()
 
@@ -147,6 +152,7 @@ func TestClient_Call_TaskSubmit(t *testing.T) {
 }
 
 func TestClient_Call_UnknownMethod(t *testing.T) {
+	t.Parallel()
 	socketPath, cleanup := startTestServer(t)
 	defer cleanup()
 
@@ -160,6 +166,7 @@ func TestClient_Call_UnknownMethod(t *testing.T) {
 }
 
 func TestClient_MultipleSequentialCalls(t *testing.T) {
+	t.Parallel()
 	socketPath, cleanup := startTestServer(t)
 	defer cleanup()
 
@@ -178,6 +185,7 @@ func TestClient_MultipleSequentialCalls(t *testing.T) {
 }
 
 func TestPingSocket_True(t *testing.T) {
+	t.Parallel()
 	socketPath, cleanup := startTestServer(t)
 	defer cleanup()
 
@@ -185,10 +193,12 @@ func TestPingSocket_True(t *testing.T) {
 }
 
 func TestPingSocket_False(t *testing.T) {
+	t.Parallel()
 	assert.False(t, PingSocket("/nonexistent/path/to/daemon.sock"))
 }
 
 func TestDialFromConfig_AbsolutePath(t *testing.T) {
+	t.Parallel()
 	socketPath, cleanup := startTestServer(t)
 	defer cleanup()
 
@@ -200,6 +210,7 @@ func TestDialFromConfig_AbsolutePath(t *testing.T) {
 }
 
 func TestExpandSocketPath(t *testing.T) {
+	t.Parallel()
 	home, err := os.UserHomeDir()
 	require.NoError(t, err)
 
@@ -232,6 +243,7 @@ func TestExpandSocketPath(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			result, expErr := ExpandSocketPath(tt.input)
 			require.NoError(t, expErr)
 			assert.Equal(t, tt.expected, result)
