@@ -49,30 +49,37 @@
       - [atlas workspace close](#atlas-workspace-close)
       - [atlas workspace logs](#atlas-workspace-logs)
    - [atlas completion](#atlas-completion)
-6. [Templates](#templates)
+6. [Daemon Mode](#daemon-mode)
+   - [Prerequisites](#daemon-prerequisites)
+   - [Quick Start](#daemon-quick-start)
+   - [Commands](#daemon-commands)
+   - [Daemon vs. Direct Mode](#daemon-vs-direct-mode)
+   - [Configuration](#daemon-configuration)
+   - [Troubleshooting](#daemon-troubleshooting)
+7. [Templates](#templates)
    - [Custom Templates](#custom-templates)
-7. [Task States](#task-states)
-8. [Workflows](#workflows)
+8. [Task States](#task-states)
+9. [Workflows](#workflows)
    - [Bug Workflow](#bug-workflow)
    - [Feature Workflow (Speckit SDD)](#feature-workflow-speckit-sdd)
    - [Task Workflow](#task-workflow)
    - [Patch Workflow](#patch-workflow)
    - [Parallel Features](#parallel-features)
    - [Error Recovery Workflow](#error-recovery-workflow)
-9. [Configuration](#configuration)
-   - [Configuration Locations](#configuration-locations)
-   - [Configuration Precedence](#configuration-precedence)
-   - [Environment Variables](#environment-variables)
-   - [Configuration File Reference](#configuration-file-reference)
-10. [File Structure](#file-structure)
-   - [ATLAS Home Directory](#atlas-home-directory)
-   - [Git Worktree Location](#git-worktree-location)
-   - [Browsing Examples](#browsing-examples)
-11. [AI Prompt Management](#ai-prompt-management)
-12. [Troubleshooting](#troubleshooting)
-   - [Common Issues](#common-issues)
-   - [Debugging](#debugging)
-   - [Getting Help](#getting-help)
+10. [Configuration](#configuration)
+    - [Configuration Locations](#configuration-locations)
+    - [Configuration Precedence](#configuration-precedence)
+    - [Environment Variables](#environment-variables)
+    - [Configuration File Reference](#configuration-file-reference)
+11. [File Structure](#file-structure)
+    - [ATLAS Home Directory](#atlas-home-directory)
+    - [Git Worktree Location](#git-worktree-location)
+    - [Browsing Examples](#browsing-examples)
+12. [AI Prompt Management](#ai-prompt-management)
+13. [Troubleshooting](#troubleshooting)
+    - [Common Issues](#common-issues)
+    - [Debugging](#debugging)
+    - [Getting Help](#getting-help)
 
 <br>
 
@@ -1308,6 +1315,156 @@ source <(atlas completion bash)
 # Fish
 atlas completion fish | source
 ```
+
+<br>
+
+## Daemon Mode
+
+ATLAS includes an optional background daemon that enables instant task submission, concurrent execution, and task persistence across terminal sessions.
+
+<a name="daemon-prerequisites"></a>
+
+### Prerequisites
+
+Redis must be running locally:
+
+```bash
+# macOS
+brew services start redis
+
+# Or start manually
+redis-server
+```
+
+Verify Redis is up:
+
+```bash
+redis-cli ping
+# → PONG
+```
+
+<a name="daemon-quick-start"></a>
+
+### Quick Start
+
+```bash
+# Start the daemon (runs in background, prints PID)
+atlas daemon start
+# → Daemon started (PID 12345)
+
+# Submit tasks instantly — returns in <1s
+atlas start "fix authentication bug" -t bug
+# → Task queued: task-abc123 (status: queued)
+
+# Check daemon health
+atlas daemon status
+
+# Stop the daemon gracefully (waits up to 30s)
+atlas daemon stop
+```
+
+<a name="daemon-commands"></a>
+
+### Commands
+
+| Command | Description |
+|---------|-------------|
+| `atlas daemon start` | Start daemon in background |
+| `atlas daemon stop` | Graceful shutdown (waits up to 30s) |
+| `atlas daemon restart` | Stop + start |
+| `atlas daemon status` | Health: PID, uptime, Redis connectivity, queue depth, active workers |
+| `atlas daemon ping` | Quick alive/dead check |
+
+**Example output — `atlas daemon status`:**
+
+```
+Daemon status: running
+  PID:          12345
+  Uptime:       2h 34m
+  Redis:        connected (localhost:6379)
+  Queue depth:  3 tasks pending
+  Workers:      2 active / 3 max
+```
+
+**Example output — `atlas daemon ping`:**
+
+```
+Daemon: alive (PID 12345)
+```
+
+<a name="daemon-vs-direct-mode"></a>
+
+### Daemon vs. Direct Mode
+
+When the daemon is running, `atlas start` submits the task to the queue and returns immediately (< 1 second), printing the task ID:
+
+```bash
+# With daemon running:
+atlas start "fix authentication bug" -t bug
+# → Task queued: task-abc123 (status: queued)
+```
+
+When the daemon is **not** running, `atlas start` behaves exactly as before — blocking until the task completes:
+
+```bash
+# Without daemon:
+atlas start "fix authentication bug" -t bug
+# (blocks until complete)
+```
+
+Zero configuration required — the switch is **automatic**. ATLAS detects whether the daemon is running and routes accordingly.
+
+<a name="daemon-configuration"></a>
+
+### Configuration
+
+The daemon is configured via `.atlas/config.yaml` (project) or `~/.atlas/config.yaml` (global):
+
+```yaml
+daemon:
+  enabled: true
+  socket_path: ~/.atlas/daemon.sock
+  pid_file: ~/.atlas/daemon.pid
+  log_file: ~/.atlas/logs/daemon.log
+  max_parallel_tasks: 3
+  task_timeout: 45m
+  shutdown_timeout: 30s
+  heartbeat_interval: 10s
+
+redis:
+  addr: localhost:6379
+  db: 0
+  password: ""
+  key_prefix: "atlas:"
+  pool_size: 10
+
+queue:
+  max_size: 100
+  default_priority: normal  # urgent | normal | low
+  stale_task_timeout: 2h
+```
+
+<a name="daemon-troubleshooting"></a>
+
+### Troubleshooting
+
+**Daemon won't start**
+- Check Redis is running: `redis-cli ping` should return `PONG`
+- Start Redis: `brew services start redis` (macOS) or `redis-server`
+- Check for a stale PID file: `rm ~/.atlas/daemon.pid`
+- Check logs: `tail -f ~/.atlas/logs/daemon.log`
+
+**Stale socket**
+- Stop the daemon: `atlas daemon stop`
+- If it's stuck: `rm ~/.atlas/daemon.sock && atlas daemon start`
+
+**Tasks stuck in queue**
+- Check workers: `atlas daemon status`
+- Restart daemon: `atlas daemon restart`
+
+**Task submitted but not executing**
+- Ensure `daemon.enabled: true` in config
+- Verify `queue.max_size` hasn't been reached: `atlas daemon status`
 
 <br>
 
