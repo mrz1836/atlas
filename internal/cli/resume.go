@@ -109,6 +109,9 @@ func runResume(ctx context.Context, cmd *cobra.Command, w io.Writer, workspaceNa
 	default:
 	}
 
+	// Phase 5 partial: daemon routing for resume is deferred to a follow-up phase.
+	// The daemon handler (task.resume) is not yet implemented server-side.
+
 	logger := Logger()
 	outputFormat := cmd.Flag("output").Value.String()
 	tui.CheckNoColor()

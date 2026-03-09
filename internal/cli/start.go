@@ -17,6 +17,7 @@ import (
 	"github.com/mrz1836/atlas/internal/cli/workflow"
 	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/constants"
+	"github.com/mrz1836/atlas/internal/daemon"
 	"github.com/mrz1836/atlas/internal/domain"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 	"github.com/mrz1836/atlas/internal/git"
@@ -135,6 +136,39 @@ Examples:
 	return cmd
 }
 
+// tryDaemonSubmit attempts to submit the task to the daemon queue.
+// Returns a non-nil pointer with the result if the daemon handled it; nil means fall through to direct execution.
+func tryDaemonSubmit(ctx context.Context, cmd *cobra.Command, w io.Writer, description string, opts startOptions) *error {
+	quickCfg, cfgErr := config.Load(ctx)
+	if cfgErr != nil {
+		return nil // no config; fall through
+	}
+	c := tryDaemonClient(ctx, quickCfg)
+	if c == nil {
+		return nil // daemon not running; fall through
+	}
+	defer func() { _ = c.Close() }()
+
+	req := daemon.TaskSubmitRequest{
+		Description: description,
+		Template:    opts.templateName,
+		Workspace:   opts.workspaceName,
+		Agent:       opts.agent,
+		Model:       opts.model,
+		Branch:      opts.baseBranch,
+	}
+	var resp daemon.TaskSubmitResponse
+	if submitErr := c.Call(daemon.MethodTaskSubmit, req, &resp); submitErr != nil {
+		return nil // submit failed; fall through to direct execution
+	}
+	out := tui.NewOutput(w, cmd.Flag("output").Value.String())
+	out.Success(fmt.Sprintf("Task queued: %s", resp.TaskID))
+	out.Info(fmt.Sprintf("  Status: %s", resp.Status))
+	out.Info("  Run 'atlas status' to check progress")
+	result := error(nil)
+	return &result
+}
+
 // startContext holds shared state for the start command execution.
 type startContext struct {
 	ctx          context.Context //nolint:containedctx // context needed for error handling
@@ -150,6 +184,15 @@ func runStart(ctx context.Context, cmd *cobra.Command, w io.Writer, description 
 	case <-ctx.Done():
 		return ctx.Err()
 	default:
+	}
+
+	// Daemon-aware path: when the daemon is running and this is not a dry-run,
+	// submit the task to the queue and return immediately.
+	// Falls through to direct (blocking) execution if the daemon is unavailable.
+	if !opts.dryRun {
+		if daemonResult := tryDaemonSubmit(ctx, cmd, w, description, opts); daemonResult != nil {
+			return *daemonResult
+		}
 	}
 
 	// Create signal handler for graceful shutdown on Ctrl+C

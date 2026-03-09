@@ -198,6 +198,78 @@ func DefaultConfig() *Config {
 			},
 		},
 		Operations: DefaultOperationsConfig(),
+
+		// Daemon: background process management defaults.
+		Daemon: DaemonConfig{
+			// Enabled: daemon mode is on by default.
+			Enabled: true,
+
+			// SocketPath: Unix socket for IPC in the user's Atlas home.
+			SocketPath: "~/.atlas/daemon.sock",
+
+			// PIDFile: PID stored in Atlas home for process tracking.
+			PIDFile: "~/.atlas/daemon.pid",
+
+			// LogFile: daemon writes its own structured log here.
+			LogFile: "~/.atlas/logs/daemon.log",
+
+			// MaxParallelTasks: 3 tasks concurrently balances throughput vs resource use.
+			MaxParallelTasks: 3,
+
+			// TaskTimeout: 45m is generous for AI-assisted coding tasks.
+			TaskTimeout: 45 * time.Minute,
+
+			// ShutdownTimeout: 30s to let in-flight tasks finish gracefully.
+			ShutdownTimeout: 30 * time.Second,
+
+			// HeartbeatInterval: 10s keeps stale detection accurate without spam.
+			HeartbeatInterval: 10 * time.Second,
+		},
+
+		// Redis: connection pool defaults for localhost development.
+		Redis: RedisConfig{
+			// Addr: standard Redis default port.
+			Addr: "localhost:6379",
+
+			// DB: database 0 is the conventional default.
+			DB: 0,
+
+			// Password: empty — no auth for local development.
+			Password: "",
+
+			// KeyPrefix: all Atlas keys live under this namespace.
+			KeyPrefix: "atlas:",
+
+			// PoolSize: 10 connections handles typical daemon workload.
+			PoolSize: 10,
+
+			// MaxRetries: 3 attempts on transient connection failures.
+			MaxRetries: 3,
+
+			// DialTimeout: 5s gives Redis time to accept under load.
+			DialTimeout: 5 * time.Second,
+
+			// ReadTimeout: 3s — fast operations should complete well under this.
+			ReadTimeout: 3 * time.Second,
+
+			// WriteTimeout: 3s matches read timeout for symmetry.
+			WriteTimeout: 3 * time.Second,
+
+			// LogStreamMaxLen: 10000 entries per task log stream (~weeks of history).
+			LogStreamMaxLen: 10000,
+		},
+
+		// Queue: task queue defaults.
+		Queue: QueueConfig{
+			// MaxSize: 100 queued tasks before backpressure kicks in.
+			MaxSize: 100,
+
+			// DefaultPriority: normal for all tasks unless overridden.
+			DefaultPriority: "normal",
+
+			// StaleTaskTimeout: 2h — tasks not heartbeating for 2h are considered orphaned.
+			StaleTaskTimeout: 2 * time.Hour,
+		},
 	}
 }
 

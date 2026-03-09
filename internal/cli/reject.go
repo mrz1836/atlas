@@ -115,6 +115,9 @@ func runReject(ctx context.Context, cmd *cobra.Command, w io.Writer, opts *rejec
 	default:
 	}
 
+	// Phase 5 partial: daemon routing for reject is deferred to a follow-up phase.
+	// The daemon handler (task.reject) is not yet implemented server-side.
+
 	logger := Logger()
 	outputFormat := cmd.Flag("output").Value.String()
 
