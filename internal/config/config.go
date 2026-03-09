@@ -54,6 +54,15 @@ type Config struct {
 	// Operations contains per-operation AI settings.
 	// These override ai.agent/model for specific step types across all templates.
 	Operations OperationsConfig `yaml:"operations,omitempty" mapstructure:"operations"`
+
+	// Daemon contains settings for the background daemon process.
+	Daemon DaemonConfig `yaml:"daemon" mapstructure:"daemon"`
+
+	// Redis contains settings for the Redis connection used by the daemon.
+	Redis RedisConfig `yaml:"redis" mapstructure:"redis"`
+
+	// Queue contains settings for the daemon task queue.
+	Queue QueueConfig `yaml:"queue" mapstructure:"queue"`
 }
 
 // AIConfig contains settings for AI/LLM operations.
@@ -491,4 +500,99 @@ type RetentionConfig struct {
 	// Abandoned is the retention period for abandoned task hooks.
 	// Default: 168h (7 days)
 	Abandoned time.Duration `yaml:"abandoned" mapstructure:"abandoned"`
+}
+
+// DaemonConfig holds settings for the Atlas background daemon process.
+type DaemonConfig struct {
+	// Enabled controls whether daemon mode is active.
+	// Default: true
+	Enabled bool `yaml:"enabled" mapstructure:"enabled"`
+
+	// SocketPath is the Unix domain socket path for IPC.
+	// Default: ~/.atlas/daemon.sock
+	SocketPath string `yaml:"socket_path" mapstructure:"socket_path"`
+
+	// PIDFile is the path to the file storing the daemon's process ID.
+	// Default: ~/.atlas/daemon.pid
+	PIDFile string `yaml:"pid_file" mapstructure:"pid_file"`
+
+	// LogFile is the path to the daemon's log file.
+	// Default: ~/.atlas/logs/daemon.log
+	LogFile string `yaml:"log_file" mapstructure:"log_file"`
+
+	// MaxParallelTasks is the number of tasks that may run concurrently.
+	// Default: 3
+	MaxParallelTasks int `yaml:"max_parallel_tasks" mapstructure:"max_parallel_tasks"`
+
+	// TaskTimeout is the maximum time a single task may run before being killed.
+	// Default: 45m
+	TaskTimeout time.Duration `yaml:"task_timeout" mapstructure:"task_timeout"`
+
+	// ShutdownTimeout is the graceful shutdown window before forceful termination.
+	// Default: 30s
+	ShutdownTimeout time.Duration `yaml:"shutdown_timeout" mapstructure:"shutdown_timeout"`
+
+	// HeartbeatInterval is how often the daemon writes a heartbeat to Redis.
+	// Default: 10s
+	HeartbeatInterval time.Duration `yaml:"heartbeat_interval" mapstructure:"heartbeat_interval"`
+}
+
+// RedisConfig holds settings for the Redis connection used by the daemon.
+type RedisConfig struct {
+	// Addr is the Redis server address (host:port).
+	// Default: localhost:6379
+	Addr string `yaml:"addr" mapstructure:"addr"`
+
+	// DB is the Redis database number.
+	// Default: 0
+	DB int `yaml:"db" mapstructure:"db"`
+
+	// Password is the Redis AUTH password (empty for no auth).
+	// Default: ""
+	Password string `yaml:"password" mapstructure:"password"`
+
+	// KeyPrefix is the namespace prefix for all Atlas keys.
+	// Default: atlas:
+	KeyPrefix string `yaml:"key_prefix" mapstructure:"key_prefix"`
+
+	// PoolSize is the maximum number of active Redis connections.
+	// Default: 10
+	PoolSize int `yaml:"pool_size" mapstructure:"pool_size"`
+
+	// MaxRetries is the number of dial retry attempts before giving up.
+	// Default: 3
+	MaxRetries int `yaml:"max_retries" mapstructure:"max_retries"`
+
+	// DialTimeout is the timeout for establishing new connections.
+	// Default: 5s
+	DialTimeout time.Duration `yaml:"dial_timeout" mapstructure:"dial_timeout"`
+
+	// ReadTimeout is the timeout for Redis read operations.
+	// Default: 3s
+	ReadTimeout time.Duration `yaml:"read_timeout" mapstructure:"read_timeout"`
+
+	// WriteTimeout is the timeout for Redis write operations.
+	// Default: 3s
+	WriteTimeout time.Duration `yaml:"write_timeout" mapstructure:"write_timeout"`
+
+	// LogStreamMaxLen is the maximum number of entries retained in task log streams.
+	// Default: 10000
+	LogStreamMaxLen int64 `yaml:"log_stream_max_len" mapstructure:"log_stream_max_len"`
+}
+
+// QueueConfig holds settings for the daemon task queue.
+type QueueConfig struct {
+	// MaxSize is the maximum number of items the queue may hold.
+	// Default: 100
+	MaxSize int `yaml:"max_size" mapstructure:"max_size"`
+
+	// DefaultPriority is the priority assigned to tasks that do not specify one.
+	// Valid values: "urgent", "normal", "low"
+	// Default: normal
+	DefaultPriority string `yaml:"default_priority" mapstructure:"default_priority"`
+
+	// StaleTaskTimeout is the duration after which a running task with no heartbeat
+	// is considered stale and eligible for recovery on next daemon start.
+	// Default: 2h
+	StaleTaskTimeout time.Duration `yaml:"stale_task_timeout" mapstructure:"stale_task_timeout"`
 }

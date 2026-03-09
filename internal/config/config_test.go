@@ -578,3 +578,73 @@ func TestValidate_ValidConfig(t *testing.T) {
 		})
 	}
 }
+
+func TestDefaultConfig_DaemonDefaults(t *testing.T) {
+	cfg := DefaultConfig()
+
+	// Daemon defaults
+	assert.True(t, cfg.Daemon.Enabled, "daemon should be enabled by default")
+	assert.Equal(t, "~/.atlas/daemon.sock", cfg.Daemon.SocketPath, "default daemon socket path")
+	assert.Equal(t, "~/.atlas/daemon.pid", cfg.Daemon.PIDFile, "default daemon PID file")
+	assert.Equal(t, "~/.atlas/logs/daemon.log", cfg.Daemon.LogFile, "default daemon log file")
+	assert.Equal(t, 3, cfg.Daemon.MaxParallelTasks, "default max parallel tasks")
+	assert.Equal(t, 45*time.Minute, cfg.Daemon.TaskTimeout, "default task timeout")
+	assert.Equal(t, 30*time.Second, cfg.Daemon.ShutdownTimeout, "default shutdown timeout")
+	assert.Equal(t, 10*time.Second, cfg.Daemon.HeartbeatInterval, "default heartbeat interval")
+}
+
+func TestDefaultConfig_RedisDefaults(t *testing.T) {
+	cfg := DefaultConfig()
+
+	// Redis defaults
+	assert.Equal(t, "localhost:6379", cfg.Redis.Addr, "default Redis addr")
+	assert.Equal(t, 0, cfg.Redis.DB, "default Redis DB")
+	assert.Empty(t, cfg.Redis.Password, "default Redis password should be empty")
+	assert.Equal(t, "atlas:", cfg.Redis.KeyPrefix, "default Redis key prefix")
+	assert.Equal(t, 10, cfg.Redis.PoolSize, "default Redis pool size")
+	assert.Equal(t, 3, cfg.Redis.MaxRetries, "default Redis max retries")
+	assert.Equal(t, 5*time.Second, cfg.Redis.DialTimeout, "default Redis dial timeout")
+	assert.Equal(t, 3*time.Second, cfg.Redis.ReadTimeout, "default Redis read timeout")
+	assert.Equal(t, 3*time.Second, cfg.Redis.WriteTimeout, "default Redis write timeout")
+	assert.Equal(t, int64(10000), cfg.Redis.LogStreamMaxLen, "default Redis log stream max len")
+}
+
+func TestDefaultConfig_QueueDefaults(t *testing.T) {
+	cfg := DefaultConfig()
+
+	// Queue defaults
+	assert.Equal(t, 100, cfg.Queue.MaxSize, "default queue max size")
+	assert.Equal(t, "normal", cfg.Queue.DefaultPriority, "default queue priority")
+	assert.Equal(t, 2*time.Hour, cfg.Queue.StaleTaskTimeout, "default stale task timeout")
+}
+
+func TestConfig_DaemonYAMLRoundTrip(t *testing.T) {
+	original := DefaultConfig()
+	original.Daemon.MaxParallelTasks = 5
+	original.Daemon.TaskTimeout = 60 * time.Minute
+	original.Redis.Addr = "redis.example.com:6380"
+	original.Redis.Password = "secret"
+	original.Queue.MaxSize = 200
+	original.Queue.DefaultPriority = "urgent"
+
+	// Serialize
+	data, err := yaml.Marshal(original)
+	require.NoError(t, err, "config should marshal to YAML")
+
+	// Deserialize
+	var restored Config
+	err = yaml.Unmarshal(data, &restored)
+	require.NoError(t, err, "config should unmarshal from YAML")
+
+	// Verify daemon fields round-tripped correctly
+	assert.Equal(t, 5, restored.Daemon.MaxParallelTasks, "max parallel tasks round-trip")
+	assert.Equal(t, 60*time.Minute, restored.Daemon.TaskTimeout, "task timeout round-trip")
+
+	// Verify Redis fields round-tripped correctly
+	assert.Equal(t, "redis.example.com:6380", restored.Redis.Addr, "Redis addr round-trip")
+	assert.Equal(t, "secret", restored.Redis.Password, "Redis password round-trip")
+
+	// Verify Queue fields round-tripped correctly
+	assert.Equal(t, 200, restored.Queue.MaxSize, "queue max size round-trip")
+	assert.Equal(t, "urgent", restored.Queue.DefaultPriority, "queue default priority round-trip")
+}
