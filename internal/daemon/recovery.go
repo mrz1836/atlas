@@ -138,7 +138,12 @@ func (d *Daemon) getTaskStatus(ctx context.Context, taskID string) (map[string]s
 	result := make(map[string]string, len(keys))
 	for i, k := range keys {
 		if i < len(values) {
-			result[k.(string)] = values[i]
+			field, ok := k.(string)
+			if !ok {
+				d.logger.Warn().Interface("key", k).Msg("recovery: unexpected key type, skipping")
+				continue
+			}
+			result[field] = values[i]
 		}
 	}
 	return result, nil

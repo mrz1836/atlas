@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"sync"
 
 	"github.com/rs/zerolog"
 )
@@ -12,6 +13,7 @@ type HandlerFunc func(ctx context.Context, params json.RawMessage) (interface{},
 
 // Router dispatches JSON-RPC methods to registered handlers.
 type Router struct {
+	mu       sync.RWMutex
 	handlers map[string]HandlerFunc
 	logger   zerolog.Logger
 }
@@ -24,14 +26,18 @@ func NewRouter(logger zerolog.Logger) *Router {
 	}
 }
 
-// Register adds a method handler.
+// Register adds a method handler. Safe for concurrent use.
 func (r *Router) Register(method string, handler HandlerFunc) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.handlers[method] = handler
 }
 
 // Dispatch routes a request to the appropriate handler and returns a Response.
 func (r *Router) Dispatch(ctx context.Context, req *Request) *Response {
+	r.mu.RLock()
 	handler, ok := r.handlers[req.Method]
+	r.mu.RUnlock()
 	if !ok {
 		r.logger.Debug().Str("method", req.Method).Msg("router: unknown method")
 		return NewErrorResponse(ErrCodeMethodNotFound, "method not found", req.ID)

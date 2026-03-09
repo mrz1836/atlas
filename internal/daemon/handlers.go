@@ -16,6 +16,7 @@ var (
 	errDescriptionRequired = errors.New("description is required")
 	errTaskIDRequired      = errors.New("task_id is required")
 	errTaskNotFound        = errors.New("task not found")
+	errInvalidPriority     = errors.New("invalid priority: must be urgent, normal, or low")
 )
 
 // setupRouter registers all JSON-RPC method handlers on the given Router.
@@ -84,8 +85,13 @@ func (d *Daemon) handleTaskSubmit(ctx context.Context, params json.RawMessage) (
 
 	taskID := uuid.New().String()
 	priority := Priority(req.Priority)
-	if priority == "" {
+	switch priority {
+	case PriorityUrgent, PriorityNormal, PriorityLow:
+		// valid
+	case "":
 		priority = PriorityNormal
+	default:
+		return nil, fmt.Errorf("%w: got %q", errInvalidPriority, req.Priority)
 	}
 
 	// Store task metadata in a Redis hash.

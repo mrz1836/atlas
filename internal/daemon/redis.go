@@ -53,6 +53,8 @@ func NewRedisClient(ctx context.Context, cfg RedisConfig) (*cache.Client, error)
 	} else {
 		redisURL = fmt.Sprintf("redis://%s/%d", cfg.Addr, cfg.DB)
 	}
+	// safeURL omits the password so it is safe to use in error messages and logs.
+	safeURL := fmt.Sprintf("redis://%s/%d", cfg.Addr, cfg.DB)
 
 	// Derive pool params from config.
 	// go-cache Connect: (ctx, url, maxActive, idleConnections, maxConnLifetime, idleTimeout, dependencyMode, newRelicEnabled)
@@ -76,7 +78,7 @@ func NewRedisClient(ctx context.Context, cfg RedisConfig) (*cache.Client, error)
 
 	client, err := cache.Connect(ctx, redisURL, poolSize, idleConnections, maxConnLifetime, idleTimeout, false, false)
 	if err != nil {
-		return nil, fmt.Errorf("connecting to Redis at %s: %w", cfg.Addr, err)
+		return nil, fmt.Errorf("connecting to Redis at %s: %w", safeURL, err)
 	}
 
 	return client, nil

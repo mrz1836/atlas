@@ -21,6 +21,9 @@ import (
 // errInvalidPID is returned when the PID file contains a non-numeric or non-positive value.
 var errInvalidPID = errors.New("invalid pid in pid file")
 
+// errShutdownTimeout is returned from Stop when goroutines do not drain within ShutdownTimeout.
+var errShutdownTimeout = errors.New("shutdown timeout exceeded: goroutines still running")
+
 // Daemon manages the Atlas background process lifecycle.
 type Daemon struct {
 	cfg       *config.Config
@@ -150,15 +153,20 @@ func (d *Daemon) Stop(_ context.Context) error {
 		timeout = 30 * time.Second
 	}
 	done := make(chan struct{})
+	// The goroutine below outlives Stop() if the timeout fires, but will
+	// complete once in-flight goroutines finish. This is intentional — it
+	// prevents a goroutine leak in the WaitGroup sense.
 	go func() {
 		d.wg.Wait()
 		close(done)
 	}()
 
+	var stopErr error
 	select {
 	case <-done:
 		d.logger.Info().Msg("daemon: all workers stopped cleanly")
 	case <-time.After(timeout):
+		stopErr = fmt.Errorf("%w after %s", errShutdownTimeout, timeout)
 		d.logger.Warn().Dur("timeout", timeout).Msg("daemon: shutdown timeout exceeded; some tasks may still be in-flight")
 	}
 
@@ -179,7 +187,7 @@ func (d *Daemon) Stop(_ context.Context) error {
 	}
 
 	d.logger.Info().Msg("daemon: stopped")
-	return nil
+	return stopErr
 }
 
 // Run blocks until a SIGTERM/SIGINT is received or Stop() is called.

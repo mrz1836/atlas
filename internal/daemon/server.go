@@ -53,6 +53,16 @@ func (s *Server) Start(ctx context.Context) error {
 
 	s.logger.Info().Str("socket", s.socketPath).Msg("server: listening")
 
+	// Bridge context cancellation to the stop channel so acceptLoop responds
+	// to ctx.Done() without polling.
+	go func() {
+		select {
+		case <-ctx.Done():
+			s.Stop()
+		case <-s.stopCh:
+		}
+	}()
+
 	go s.acceptLoop(ctx)
 	return nil
 }

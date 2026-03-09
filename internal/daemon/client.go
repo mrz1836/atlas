@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 )
 
@@ -23,6 +24,7 @@ type Client struct {
 	conn    net.Conn
 	encoder *json.Encoder
 	scanner *bufio.Scanner
+	mu      sync.Mutex
 	nextID  int
 }
 
@@ -46,12 +48,16 @@ func DialContext(ctx context.Context, socketPath string) (*Client, error) {
 }
 
 // Call sends a JSON-RPC request and decodes the response into result.
+// Safe for concurrent use from multiple goroutines.
 func (c *Client) Call(method string, params, result interface{}) error {
+	c.mu.Lock()
 	c.nextID++
+	id := c.nextID
+	c.mu.Unlock()
 	req := &Request{
 		JSONRPC: "2.0",
 		Method:  method,
-		ID:      c.nextID,
+		ID:      id,
 	}
 	if params != nil {
 		b, err := json.Marshal(params)
