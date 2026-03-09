@@ -4,6 +4,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"os"
 	"sync"
 
 	"github.com/rs/zerolog"
@@ -147,6 +148,7 @@ func newRootCmd(flags *GlobalFlags, info BuildInfo) *cobra.Command {
 	AddCheckpointCommand(cmd)
 	AddCleanupCommand(cmd)
 	AddBacklogCommand(cmd)
+	AddDaemonCommand(cmd)
 
 	return cmd
 }
@@ -167,6 +169,14 @@ func formatVersion(info BuildInfo) string {
 
 // Execute runs the root command with the provided context and build info.
 func Execute(ctx context.Context, info BuildInfo) error {
+	// Check for --daemon flag before cobra parses anything.
+	// When present, run the daemon process in-process (blocking) instead of the CLI.
+	for _, arg := range os.Args[1:] {
+		if arg == "--daemon" {
+			return RunDaemonProcess(ctx)
+		}
+	}
+
 	flags := &GlobalFlags{}
 	//nolint:contextcheck // Cobra command pattern uses cmd.Context() internally
 	cmd := newRootCmd(flags, info)

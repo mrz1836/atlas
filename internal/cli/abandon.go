@@ -70,6 +70,9 @@ func runAbandon(ctx context.Context, cmd *cobra.Command, w io.Writer, workspaceN
 	default:
 	}
 
+	// Phase 5 partial: daemon routing for abandon is deferred to a follow-up phase.
+	// The daemon handler (task.abandon) is not yet implemented server-side.
+
 	// Get output format from global flags
 	outputFormat := cmd.Flag("output").Value.String()
 

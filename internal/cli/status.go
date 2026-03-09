@@ -17,6 +17,7 @@ import (
 
 	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/constants"
+	"github.com/mrz1836/atlas/internal/daemon"
 	"github.com/mrz1836/atlas/internal/domain"
 	"github.com/mrz1836/atlas/internal/errors"
 	"github.com/mrz1836/atlas/internal/task"
@@ -130,6 +131,12 @@ func runStatus(ctx context.Context, cmd *cobra.Command, w io.Writer, opts status
 	output := cmd.Flag("output").Value.String()
 	quiet := cmd.Flag("quiet").Value.String() == "true"
 
+	// Daemon-aware: if the daemon is running, show queue stats as a header.
+	// Falls through to workspace-based status regardless (no breaking change).
+	if output != OutputJSON && !quiet && !opts.WatchMode {
+		printDaemonQueueStats(ctx, w, output)
+	}
+
 	// Respect NO_COLOR
 	tui.CheckNoColor()
 
@@ -179,6 +186,28 @@ func runStatus(ctx context.Context, cmd *cobra.Command, w io.Writer, opts status
 		TaskStore:    taskStore,
 	}
 	return runStatusWithDeps(ctx, w, renderOpts, deps)
+}
+
+// printDaemonQueueStats queries the daemon (if running) and prints pending queue stats.
+// This is a best-effort display — errors are silently ignored.
+func printDaemonQueueStats(ctx context.Context, w io.Writer, output string) {
+	quickCfg, cfgErr := config.Load(ctx)
+	if cfgErr != nil {
+		return
+	}
+	c := tryDaemonClient(ctx, quickCfg)
+	if c == nil {
+		return
+	}
+	defer func() { _ = c.Close() }()
+
+	var qStats daemon.QueueStatsResponse
+	if err := c.Call(daemon.MethodQueueStats, nil, &qStats); err != nil || qStats.Total == 0 {
+		return
+	}
+	out := tui.NewOutput(w, output)
+	out.Info(fmt.Sprintf("Daemon queue: %d pending (urgent:%d normal:%d low:%d)",
+		qStats.Total, qStats.Urgent, qStats.Normal, qStats.Low))
 }
 
 // runStatusWithDeps executes the status command with injected dependencies.

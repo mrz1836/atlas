@@ -172,6 +172,10 @@ func runApprove(ctx context.Context, cmd *cobra.Command, w io.Writer, opts appro
 	default:
 	}
 
+	// Phase 5 partial: daemon routing for approve is deferred to a follow-up phase.
+	// The daemon handler (task.approve) is not yet implemented server-side.
+	// When implemented, we will forward to the daemon and return immediately here.
+
 	logger := Logger()
 	outputFormat := cmd.Flag("output").Value.String()
 
