@@ -44,7 +44,7 @@ func NewEventSubscriber(client *cache.Client, channel string) *EventSubscriber {
 func (s *EventSubscriber) Start(ctx context.Context) error {
 	var startErr error
 	s.once.Do(func() {
-		sub, err := cache.Subscribe(ctx, s.client, s.channel)
+		sub, err := cache.Subscribe(ctx, s.client, []string{s.channel})
 		if err != nil {
 			startErr = err
 			return

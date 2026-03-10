@@ -50,7 +50,7 @@ func TestEventPublisher_Publish(t *testing.T) {
 	defer subClient.Close()
 
 	// Subscribe before publishing
-	sub, err := cache.Subscribe(ctx, subClient, defaultEventsChannel)
+	sub, err := cache.Subscribe(ctx, subClient, []string{defaultEventsChannel})
 	require.NoError(t, err)
 	defer sub.Close() //nolint:errcheck // subscription close may fail during miniredis teardown; error is non-actionable
 
@@ -100,7 +100,7 @@ func TestEventPublisher_PublishSetsTime(t *testing.T) {
 	defer client.Close()
 
 	// Subscribe to capture the message
-	sub, err := cache.Subscribe(ctx, client, "test:events")
+	sub, err := cache.Subscribe(ctx, client, []string{"test:events"})
 	require.NoError(t, err)
 	defer sub.Close() //nolint:errcheck // subscription close may fail during miniredis teardown; error is non-actionable
 
@@ -140,7 +140,7 @@ func TestEventPublisher_MultipleEvents(t *testing.T) {
 	require.NoError(t, err)
 	defer subClient.Close()
 
-	sub, err := cache.Subscribe(ctx, subClient, defaultEventsChannel)
+	sub, err := cache.Subscribe(ctx, subClient, []string{defaultEventsChannel})
 	require.NoError(t, err)
 	defer sub.Close() //nolint:errcheck // subscription close may fail during miniredis teardown; error is non-actionable
 
