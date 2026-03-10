@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/rs/zerolog"
 )
@@ -96,6 +97,26 @@ func (s *Server) Stop() {
 	s.logger.Info().Msg("server: stopped")
 }
 
+// serveRequest decodes a single JSON-RPC request from data, dispatches it, and writes the response.
+func (s *Server) serveRequest(ctx context.Context, encoder *json.Encoder, data []byte) {
+	var req Request
+	if err := json.Unmarshal(data, &req); err != nil {
+		s.logger.Warn().Err(err).Msg("server: parse error")
+		errResp := NewErrorResponse(ErrCodeParseError, "parse error", nil)
+		if encErr := encoder.Encode(errResp); encErr != nil {
+			s.logger.Debug().Err(encErr).Msg("server: failed to encode parse error response")
+		}
+		return
+	}
+
+	resp := s.router.Dispatch(ctx, &req)
+	if resp != nil {
+		if encErr := encoder.Encode(resp); encErr != nil {
+			s.logger.Warn().Err(encErr).Msg("server: encode response error")
+		}
+	}
+}
+
 // acceptLoop accepts new connections until Stop is called.
 func (s *Server) acceptLoop(ctx context.Context) {
 	for {
@@ -121,6 +142,10 @@ func (s *Server) acceptLoop(ctx context.Context) {
 	}
 }
 
+// connReadTimeout is the per-request idle timeout on a client connection.
+// A connection that sends no data for this duration is closed.
+const connReadTimeout = 30 * time.Second
+
 // handleConn reads newline-delimited JSON-RPC requests from conn and writes responses.
 // Each request is dispatched synchronously. A nil response (e.g. events.subscribe stub)
 // produces no output on the wire.
@@ -131,26 +156,25 @@ func (s *Server) handleConn(ctx context.Context, conn net.Conn) {
 		}
 	}()
 
+	// Q3: raise the line scanner limit to 1 MB to handle large task payloads.
 	scanner := bufio.NewScanner(conn)
+	scanner.Buffer(make([]byte, 1<<20), 1<<20)
 	encoder := json.NewEncoder(conn)
 
-	for scanner.Scan() {
-		var req Request
-		if err := json.Unmarshal(scanner.Bytes(), &req); err != nil {
-			s.logger.Warn().Err(err).Msg("server: parse error")
-			errResp := NewErrorResponse(ErrCodeParseError, "parse error", nil)
-			if encErr := encoder.Encode(errResp); encErr != nil {
-				s.logger.Debug().Err(encErr).Msg("server: failed to encode parse error response")
-			}
-			continue
+	for {
+		// Q2: apply a per-request read deadline so an idle client does not hold the
+		// connection open indefinitely. The deadline is cleared before dispatching so
+		// slow handlers are not interrupted.
+		if err := conn.SetReadDeadline(time.Now().Add(connReadTimeout)); err != nil {
+			break
 		}
+		if !scanner.Scan() {
+			break
+		}
+		// Clear deadline while the handler runs.
+		_ = conn.SetDeadline(time.Time{})
 
-		resp := s.router.Dispatch(ctx, &req)
-		if resp != nil {
-			if encErr := encoder.Encode(resp); encErr != nil {
-				s.logger.Warn().Err(encErr).Msg("server: encode response error")
-			}
-		}
+		s.serveRequest(ctx, encoder, scanner.Bytes())
 	}
 
 	if err := scanner.Err(); err != nil {

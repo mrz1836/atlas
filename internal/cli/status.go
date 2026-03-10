@@ -202,7 +202,7 @@ func printDaemonQueueStats(ctx context.Context, w io.Writer, output string) {
 	defer func() { _ = c.Close() }()
 
 	var qStats daemon.QueueStatsResponse
-	if err := c.Call(daemon.MethodQueueStats, nil, &qStats); err != nil || qStats.Total == 0 {
+	if err := c.Call(ctx, daemon.MethodQueueStats, nil, &qStats); err != nil || qStats.Total == 0 {
 		return
 	}
 	out := tui.NewOutput(w, output)

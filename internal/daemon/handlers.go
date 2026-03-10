@@ -13,10 +13,13 @@ import (
 
 // Sentinel errors for handlers.
 var (
-	errDescriptionRequired = errors.New("description is required")
-	errTaskIDRequired      = errors.New("task_id is required")
-	errTaskNotFound        = errors.New("task not found")
-	errInvalidPriority     = errors.New("invalid priority: must be urgent, normal, or low")
+	errDescriptionRequired  = errors.New("description is required")
+	errTaskIDRequired       = errors.New("task_id is required")
+	errTaskNotFound         = errors.New("task not found")
+	errInvalidPriority      = errors.New("invalid priority: must be urgent, normal, or low")
+	errTaskNotResumable     = errors.New("task is not in a resumable state")
+	errTaskNotAwaitApproval = errors.New("task is not awaiting approval")
+	errRunnerNotInitialized = errors.New("runner not initialized")
 )
 
 // setupRouter registers all JSON-RPC method handlers on the given Router.
@@ -28,11 +31,11 @@ func (d *Daemon) setupRouter(r *Router) {
 	r.Register(MethodTaskSubmit, d.handleTaskSubmit)
 	r.Register(MethodTaskStatus, d.handleTaskStatus)
 	r.Register(MethodTaskList, d.handleTaskList)
-	r.Register(MethodTaskApprove, stubHandler("task.approve"))
-	r.Register(MethodTaskReject, stubHandler("task.reject"))
-	r.Register(MethodTaskResume, stubHandler("task.resume"))
-	r.Register(MethodTaskAbandon, stubHandler("task.abandon"))
-	r.Register(MethodTaskCancel, stubHandler("task.cancel"))
+	r.Register(MethodTaskApprove, d.handleTaskApprove)
+	r.Register(MethodTaskReject, d.handleTaskReject)
+	r.Register(MethodTaskResume, d.handleTaskResume)
+	r.Register(MethodTaskAbandon, d.handleTaskAbandon)
+	r.Register(MethodTaskCancel, d.handleTaskCancel)
 
 	r.Register(MethodQueueStats, d.handleQueueStats)
 	r.Register(MethodQueueList, d.handleQueueList)
@@ -41,10 +44,11 @@ func (d *Daemon) setupRouter(r *Router) {
 	r.Register(MethodEventsSubscribe, d.handleEventsSubscribe)
 }
 
-// errNotImplemented is returned by Phase-5 stub handlers.
+// errNotImplemented is kept for test compatibility (stubHandler is used in tests).
 var errNotImplemented = errors.New("not implemented: deferred to Phase 5")
 
 // stubHandler returns a HandlerFunc that always returns errNotImplemented.
+// Retained for use in tests.
 func stubHandler(method string) HandlerFunc {
 	return func(_ context.Context, _ json.RawMessage) (interface{}, error) {
 		return nil, fmt.Errorf("%w: %s", errNotImplemented, method)
@@ -110,19 +114,29 @@ func (d *Daemon) handleTaskSubmit(ctx context.Context, params json.RawMessage) (
 	if req.Branch != "" {
 		pairs = append(pairs, [2]interface{}{"branch", req.Branch})
 	}
+	if req.RepoPath != "" {
+		pairs = append(pairs, [2]interface{}{"repo_path", req.RepoPath})
+	}
+	if req.Agent != "" {
+		pairs = append(pairs, [2]interface{}{"agent", req.Agent})
+	}
+	if req.Model != "" {
+		pairs = append(pairs, [2]interface{}{"model", req.Model})
+	}
 	if err := cache.HashMapSet(ctx, d.redis, hashKey, pairs); err != nil {
 		return nil, fmt.Errorf("store task hash: %w", err)
 	}
 
-	// Add to the priority queue.
-	if err := d.queue.Submit(ctx, taskID, priority); err != nil {
-		return nil, fmt.Errorf("queue submit: %w", err)
-	}
-
-	// Track in active set.
+	// Track in active set BEFORE queuing so the task is always visible once submitted.
 	activeKey := d.cfg.Redis.KeyPrefix + "active"
 	if err := cache.SetAdd(ctx, d.redis, activeKey, taskID); err != nil {
-		d.logger.Warn().Err(err).Str("task_id", taskID).Msg("handlers: failed to add to active set")
+		return nil, fmt.Errorf("track in active set: %w", err)
+	}
+
+	// Add to the priority queue; roll back the active-set entry on failure.
+	if err := d.queue.Submit(ctx, taskID, priority); err != nil {
+		_ = cache.SetRemoveMember(ctx, d.redis, activeKey, taskID)
+		return nil, fmt.Errorf("queue submit: %w", err)
 	}
 
 	// Publish event.
@@ -219,6 +233,181 @@ func (d *Daemon) handleTaskList(ctx context.Context, params json.RawMessage) (in
 	return TaskListResponse{Tasks: tasks, Total: len(tasks)}, nil
 }
 
+func (d *Daemon) handleTaskCancel(ctx context.Context, params json.RawMessage) (interface{}, error) {
+	var req TaskCancelRequest
+	if err := json.Unmarshal(params, &req); err != nil {
+		return nil, fmt.Errorf("invalid params: %w", err)
+	}
+	if req.TaskID == "" {
+		return nil, errTaskIDRequired
+	}
+
+	// If the task is actively running, cancel its context.
+	// executeTask will set the final "canceled" status when it detects context cancellation.
+	wasRunning := false
+	if d.runner != nil {
+		wasRunning = d.runner.CancelTask(req.TaskID)
+	}
+
+	if !wasRunning {
+		// Task is queued or not yet started — write the terminal state to Redis directly.
+		if err := d.cancelQueuedTask(ctx, req.TaskID); err != nil {
+			return nil, err
+		}
+	}
+
+	return map[string]interface{}{"ok": true}, nil
+}
+
+// cancelQueuedTask marks a non-running task as canceled in Redis and removes it from
+// the active set. This path is taken when the task has not yet been picked up by a worker.
+func (d *Daemon) cancelQueuedTask(ctx context.Context, taskID string) error {
+	hashKey := d.cfg.Redis.KeyPrefix + "task:" + taskID
+	pairs := [][2]interface{}{
+		{"status", "canceled"},
+		{"completed_at", time.Now().UTC().Format(time.RFC3339)},
+	}
+	if err := cache.HashMapSet(ctx, d.redis, hashKey, pairs); err != nil {
+		return fmt.Errorf("mark task canceled: %w", err)
+	}
+	activeKey := d.cfg.Redis.KeyPrefix + "active"
+	if err := cache.SetRemoveMember(ctx, d.redis, activeKey, taskID); err != nil {
+		d.logger.Warn().Err(err).Str("task_id", taskID).Msg("handlers: failed to remove canceled task from active set")
+	}
+	return nil
+}
+
+func (d *Daemon) handleTaskAbandon(ctx context.Context, params json.RawMessage) (interface{}, error) {
+	var req TaskAbandonRequest
+	if err := json.Unmarshal(params, &req); err != nil {
+		return nil, fmt.Errorf("invalid params: %w", err)
+	}
+	if req.TaskID == "" {
+		return nil, errTaskIDRequired
+	}
+
+	// If the task is running, signal it to stop; executeTask handles Redis cleanup.
+	wasRunning := false
+	if d.runner != nil {
+		wasRunning = d.runner.AbandonRunningTask(req.TaskID)
+	}
+
+	if !wasRunning {
+		if err := d.abandonQueuedTask(ctx, req.TaskID); err != nil {
+			return nil, err
+		}
+	}
+
+	return map[string]interface{}{"ok": true}, nil
+}
+
+// abandonQueuedTask notifies the executor (if available) and marks the task as abandoned in Redis.
+// This path is taken when the task is not currently running.
+func (d *Daemon) abandonQueuedTask(ctx context.Context, taskID string) error {
+	// Best-effort: notify the engine task store if the task has an associated engine task.
+	if d.executor != nil && d.runner != nil {
+		d.tryAbandonEngineTask(ctx, taskID)
+	}
+	hashKey := d.cfg.Redis.KeyPrefix + "task:" + taskID
+	pairs := [][2]interface{}{
+		{"status", "abandoned"},
+		{"completed_at", time.Now().UTC().Format(time.RFC3339)},
+	}
+	if err := cache.HashMapSet(ctx, d.redis, hashKey, pairs); err != nil {
+		return fmt.Errorf("mark task abandoned: %w", err)
+	}
+	activeKey := d.cfg.Redis.KeyPrefix + "active"
+	if err := cache.SetRemoveMember(ctx, d.redis, activeKey, taskID); err != nil {
+		d.logger.Warn().Err(err).Str("task_id", taskID).Msg("handlers: failed to remove abandoned task from active set")
+	}
+	return nil
+}
+
+// tryAbandonEngineTask loads the task job and signals the engine to mark it abandoned.
+// Errors are logged but not propagated — this is a best-effort cleanup step.
+func (d *Daemon) tryAbandonEngineTask(ctx context.Context, taskID string) {
+	job, loadErr := d.runner.loadTaskJob(ctx, taskID)
+	if loadErr != nil || job.EngineTaskID == "" {
+		return
+	}
+	if err := d.executor.Abandon(ctx, job, "abandoned by user"); err != nil {
+		d.logger.Warn().Err(err).Str("task_id", taskID).Msg("handlers: executor abandon failed")
+	}
+}
+
+func (d *Daemon) handleTaskResume(ctx context.Context, params json.RawMessage) (interface{}, error) {
+	var req TaskResumeRequest
+	if err := json.Unmarshal(params, &req); err != nil {
+		return nil, fmt.Errorf("invalid params: %w", err)
+	}
+	if req.TaskID == "" {
+		return nil, errTaskIDRequired
+	}
+
+	// Validate that the task is in a resumable state.
+	status, statusErr := d.fetchTaskStatus(ctx, req.TaskID)
+	if statusErr != nil {
+		return nil, statusErr
+	}
+	if !isResumableStatus(status) {
+		return nil, fmt.Errorf("task %s: %w (status=%s)", req.TaskID, errTaskNotResumable, status)
+	}
+
+	if d.runner == nil {
+		return nil, errRunnerNotInitialized
+	}
+	if err := d.runner.RequeueForResume(ctx, req.TaskID, "", ""); err != nil {
+		return nil, fmt.Errorf("requeue task: %w", err)
+	}
+	return map[string]interface{}{"ok": true}, nil
+}
+
+func (d *Daemon) handleTaskApprove(ctx context.Context, params json.RawMessage) (interface{}, error) {
+	var req TaskApproveRequest
+	if err := json.Unmarshal(params, &req); err != nil {
+		return nil, fmt.Errorf("invalid params: %w", err)
+	}
+	if req.TaskID == "" {
+		return nil, errTaskIDRequired
+	}
+
+	status, statusErr := d.fetchTaskStatus(ctx, req.TaskID)
+	if statusErr != nil {
+		return nil, statusErr
+	}
+	if status != "awaiting_approval" {
+		return nil, fmt.Errorf("task %s: %w (status=%s)", req.TaskID, errTaskNotAwaitApproval, status)
+	}
+
+	if err := d.runner.RequeueForResume(ctx, req.TaskID, "approve", ""); err != nil {
+		return nil, fmt.Errorf("requeue task for approval: %w", err)
+	}
+	return map[string]interface{}{"ok": true}, nil
+}
+
+func (d *Daemon) handleTaskReject(ctx context.Context, params json.RawMessage) (interface{}, error) {
+	var req TaskRejectRequest
+	if err := json.Unmarshal(params, &req); err != nil {
+		return nil, fmt.Errorf("invalid params: %w", err)
+	}
+	if req.TaskID == "" {
+		return nil, errTaskIDRequired
+	}
+
+	status, statusErr := d.fetchTaskStatus(ctx, req.TaskID)
+	if statusErr != nil {
+		return nil, statusErr
+	}
+	if status != "awaiting_approval" {
+		return nil, fmt.Errorf("task %s: %w (status=%s)", req.TaskID, errTaskNotAwaitApproval, status)
+	}
+
+	if err := d.runner.RequeueForResume(ctx, req.TaskID, "reject", req.Feedback); err != nil {
+		return nil, fmt.Errorf("requeue task for rejection: %w", err)
+	}
+	return map[string]interface{}{"ok": true}, nil
+}
+
 // -- queue.* --
 
 func (d *Daemon) handleQueueStats(ctx context.Context, _ json.RawMessage) (interface{}, error) {
@@ -251,6 +440,24 @@ func (d *Daemon) handleQueueList(ctx context.Context, params json.RawMessage) (i
 	entries, err := d.queue.List(ctx, prio)
 	if err != nil {
 		return nil, err
+	}
+
+	// Apply offset/limit with a safety cap so a huge queue cannot OOM the daemon.
+	const maxQueueListLimit = 500
+	limit := req.Limit
+	if limit <= 0 || limit > maxQueueListLimit {
+		limit = maxQueueListLimit
+	}
+	offset := req.Offset
+	if offset < 0 {
+		offset = 0
+	}
+	if offset > len(entries) {
+		offset = len(entries)
+	}
+	entries = entries[offset:]
+	if len(entries) > limit {
+		entries = entries[:limit]
 	}
 
 	resp := QueueListResponse{Total: len(entries)}
@@ -286,8 +493,8 @@ func (d *Daemon) handleQueueClear(ctx context.Context, params json.RawMessage) (
 
 // -- events.* --
 
-// handleEventsSubscribe stubs the streaming subscription for Phase 5.
-// Returns an "accepted" response; persistent streaming is deferred.
+// handleEventsSubscribe stubs the streaming subscription.
+// Returns an "accepted" response; persistent streaming is genuinely deferred.
 func (d *Daemon) handleEventsSubscribe(_ context.Context, _ json.RawMessage) (interface{}, error) {
 	return map[string]interface{}{"accepted": true, "note": "streaming deferred to Phase 5"}, nil
 }
@@ -300,4 +507,28 @@ func safeIndex(vals []string, i int) string {
 		return vals[i]
 	}
 	return ""
+}
+
+// fetchTaskStatus reads the status field for a task from Redis.
+// Returns errTaskNotFound if the task hash does not exist.
+func (d *Daemon) fetchTaskStatus(ctx context.Context, taskID string) (string, error) {
+	hashKey := d.cfg.Redis.KeyPrefix + "task:" + taskID
+	vals, err := cache.HashMapGet(ctx, d.redis, hashKey, "status")
+	if err != nil {
+		return "", fmt.Errorf("read task status: %w", err)
+	}
+	status := safeIndex(vals, 0)
+	if status == "" {
+		return "", fmt.Errorf("task %s: %w", taskID, errTaskNotFound)
+	}
+	return status, nil
+}
+
+// isResumableStatus returns true for statuses from which a task can be resumed.
+func isResumableStatus(status string) bool {
+	switch status {
+	case "awaiting_approval", "failed", "interrupted":
+		return true
+	}
+	return false
 }

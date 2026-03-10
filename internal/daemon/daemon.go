@@ -24,6 +24,17 @@ var errInvalidPID = errors.New("invalid pid in pid file")
 // errShutdownTimeout is returned from Stop when goroutines do not drain within ShutdownTimeout.
 var errShutdownTimeout = errors.New("shutdown timeout exceeded: goroutines still running")
 
+// Option configures a Daemon.
+type Option func(*Daemon)
+
+// WithExecutor sets the TaskExecutor used by the daemon's worker pool.
+// When not provided, the runner operates in stub mode (simulates execution).
+func WithExecutor(e TaskExecutor) Option {
+	return func(d *Daemon) {
+		d.executor = e
+	}
+}
+
 // Daemon manages the Atlas background process lifecycle.
 type Daemon struct {
 	cfg       *config.Config
@@ -35,6 +46,9 @@ type Daemon struct {
 	wg        sync.WaitGroup
 	startedAt time.Time
 
+	// executor is the task engine bridge; injected via WithExecutor.
+	executor TaskExecutor
+
 	// server is the Unix socket JSON-RPC server (wired in Start).
 	server *Server
 	// runner is the worker pool that executes queued tasks (wired in Start).
@@ -42,12 +56,16 @@ type Daemon struct {
 }
 
 // New creates a new Daemon instance.
-func New(cfg *config.Config, logger zerolog.Logger) *Daemon {
-	return &Daemon{
+func New(cfg *config.Config, logger zerolog.Logger, opts ...Option) *Daemon {
+	d := &Daemon{
 		cfg:    cfg,
 		logger: logger,
 		stopCh: make(chan struct{}),
 	}
+	for _, opt := range opts {
+		opt(d)
+	}
+	return d
 }
 
 // Start connects Redis, starts the heartbeat, writes the PID file, and
@@ -112,7 +130,7 @@ func (d *Daemon) Start(ctx context.Context) error {
 	d.startHeartbeat(ctx)
 
 	// Start worker pool.
-	d.runner = NewRunner(d.cfg, d.redis, d.queue, d.events, d.logger)
+	d.runner = NewRunner(d.cfg, d.redis, d.queue, d.events, d.logger, d.executor)
 	d.runner.Start(ctx)
 
 	// 6. Publish daemon.started event.

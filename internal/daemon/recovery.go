@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/google/uuid"
 	cache "github.com/mrz1836/go-cache"
 )
 
@@ -36,6 +37,11 @@ func (d *Daemon) RecoverOrphanedTasks(ctx context.Context) error {
 	d.logger.Info().Int("count", len(members)).Msg("recovery: scanning active tasks")
 
 	for _, taskID := range members {
+		// H3: reject malformed IDs that could construct unexpected Redis keys.
+		if _, parseErr := uuid.Parse(taskID); parseErr != nil {
+			d.logger.Warn().Str("task_id", taskID).Msg("recovery: skipping non-UUID task ID")
+			continue
+		}
 		if recoverErr := d.recoverTask(ctx, taskID); recoverErr != nil {
 			// Log and continue — one bad task should not abort the whole recovery scan.
 			d.logger.Error().

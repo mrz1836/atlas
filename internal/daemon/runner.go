@@ -13,7 +13,6 @@ import (
 )
 
 // Runner manages a pool of workers that execute tasks popped from the queue.
-// Task execution is stubbed for Phase 4; real engine wiring is deferred to Phase 5.
 type Runner struct {
 	cfg      *config.Config
 	redis    *cache.Client
@@ -25,14 +24,20 @@ type Runner struct {
 	wg       sync.WaitGroup
 	workerID string // unique ID for lock namespacing
 
-	// taskCtxs tracks per-task cancel funcs so individual tasks can be canceled
-	// on demand (e.g., for Phase 5 task.cancel support).
+	// executor runs the actual task engine. Nil means stub/dev mode.
+	executor TaskExecutor
+
+	// taskCtxs tracks per-task cancel funcs for on-demand cancellation.
 	taskCtxMu sync.Mutex
 	taskCtxs  map[string]context.CancelFunc
+
+	// canceledTasks signals that a task was explicitly canceled or abandoned.
+	// Value is the final status string: "canceled" | "abandoned".
+	canceledTasks sync.Map
 }
 
 // NewRunner creates a Runner with a semaphore sized to cfg.Daemon.MaxParallelTasks.
-func NewRunner(cfg *config.Config, redis *cache.Client, queue Queue, events *EventPublisher, logger zerolog.Logger) *Runner {
+func NewRunner(cfg *config.Config, redis *cache.Client, queue Queue, events *EventPublisher, logger zerolog.Logger, executor TaskExecutor) *Runner {
 	maxP := cfg.Daemon.MaxParallelTasks
 	if maxP <= 0 {
 		maxP = 1
@@ -43,6 +48,7 @@ func NewRunner(cfg *config.Config, redis *cache.Client, queue Queue, events *Eve
 		queue:    queue,
 		events:   events,
 		logger:   logger,
+		executor: executor,
 		sem:      make(chan struct{}, maxP),
 		stopCh:   make(chan struct{}),
 		workerID: fmt.Sprintf("worker-%d", time.Now().UnixNano()),
@@ -81,6 +87,107 @@ func (r *Runner) Stop() {
 		r.logger.Info().Msg("runner: all workers drained")
 	case <-time.After(timeout):
 		r.logger.Warn().Dur("timeout", timeout).Msg("runner: shutdown timeout exceeded, forcing stop")
+	}
+}
+
+// CancelTask cancels the context of a running task, signaling it to stop.
+// Stores "canceled" in canceledTasks so executeTask can set the correct final status.
+// Returns true if the task was actively running, false otherwise.
+func (r *Runner) CancelTask(taskID string) bool {
+	r.canceledTasks.Store(taskID, "canceled")
+	r.taskCtxMu.Lock()
+	cancel, ok := r.taskCtxs[taskID]
+	r.taskCtxMu.Unlock()
+	if ok {
+		cancel()
+		return true
+	}
+	// Not running — clean up the marker so it doesn't pollute future runs.
+	r.canceledTasks.Delete(taskID)
+	return false
+}
+
+// AbandonRunningTask cancels a running task and marks it for "abandoned" final status.
+// Returns true if the task was actively running, false otherwise.
+func (r *Runner) AbandonRunningTask(taskID string) bool {
+	r.canceledTasks.Store(taskID, "abandoned")
+	r.taskCtxMu.Lock()
+	cancel, ok := r.taskCtxs[taskID]
+	r.taskCtxMu.Unlock()
+	if ok {
+		cancel()
+		return true
+	}
+	r.canceledTasks.Delete(taskID)
+	return false
+}
+
+// RequeueForResume stores optional approval fields in the Redis hash and
+// re-submits the task to the queue at normal priority.
+func (r *Runner) RequeueForResume(ctx context.Context, taskID, approvalChoice, rejectFeedback string) error {
+	hashKey := r.cfg.Redis.KeyPrefix + "task:" + taskID
+	pairs := [][2]interface{}{{"status", "queued"}}
+	if approvalChoice != "" {
+		pairs = append(pairs, [2]interface{}{"approval_choice", approvalChoice})
+	}
+	if rejectFeedback != "" {
+		pairs = append(pairs, [2]interface{}{"reject_feedback", rejectFeedback})
+	}
+	if err := cache.HashMapSet(ctx, r.redis, hashKey, pairs); err != nil {
+		return fmt.Errorf("requeue: update task hash: %w", err)
+	}
+	// Ensure task is present in the active set (may have been removed on failure).
+	activeKey := r.cfg.Redis.KeyPrefix + "active"
+	if err := cache.SetAdd(ctx, r.redis, activeKey, taskID); err != nil {
+		r.logger.Warn().Err(err).Str("task_id", taskID).Msg("runner: failed to re-add task to active set on resume")
+	}
+	return r.queue.Submit(ctx, taskID, PriorityNormal)
+}
+
+// loadTaskJob reads all per-task metadata fields from the Redis hash and
+// returns a populated TaskJob.
+func (r *Runner) loadTaskJob(ctx context.Context, taskID string) (TaskJob, error) {
+	hashKey := r.cfg.Redis.KeyPrefix + "task:" + taskID
+	fields := []interface{}{
+		"description", "template", "workspace", "branch",
+		"repo_path", "agent", "model",
+		"engine_task_id", "approval_choice", "reject_feedback",
+	}
+	vals, err := cache.HashMapGet(ctx, r.redis, hashKey, fields...)
+	if err != nil {
+		return TaskJob{}, fmt.Errorf("load task job %s: %w", taskID, err)
+	}
+	return TaskJob{
+		TaskID:         taskID,
+		Description:    safeIndex(vals, 0),
+		Template:       safeIndex(vals, 1),
+		Workspace:      safeIndex(vals, 2),
+		Branch:         safeIndex(vals, 3),
+		RepoPath:       safeIndex(vals, 4),
+		Agent:          safeIndex(vals, 5),
+		Model:          safeIndex(vals, 6),
+		EngineTaskID:   safeIndex(vals, 7),
+		ApprovalChoice: safeIndex(vals, 8),
+		RejectFeedback: safeIndex(vals, 9),
+	}, nil
+}
+
+// storeEngineTaskID persists the engine-assigned task ID into the Redis hash
+// so future resume/approve/reject calls can find the engine task.
+func (r *Runner) storeEngineTaskID(ctx context.Context, taskID, engineTaskID string) {
+	hashKey := r.cfg.Redis.KeyPrefix + "task:" + taskID
+	pairs := [][2]interface{}{{"engine_task_id", engineTaskID}}
+	if err := cache.HashMapSet(ctx, r.redis, hashKey, pairs); err != nil {
+		r.logger.Warn().Err(err).Str("task_id", taskID).Msg("runner: failed to store engine task ID")
+	}
+}
+
+// markTaskStatus sets the task's status field in the Redis hash.
+func (r *Runner) markTaskStatus(ctx context.Context, taskID, status string) {
+	hashKey := r.cfg.Redis.KeyPrefix + "task:" + taskID
+	pairs := [][2]interface{}{{"status", status}}
+	if err := cache.HashMapSet(ctx, r.redis, hashKey, pairs); err != nil {
+		r.logger.Warn().Err(err).Str("task_id", taskID).Msg("runner: failed to update task status")
 	}
 }
 
@@ -140,15 +247,10 @@ func (r *Runner) dispatchLoop(ctx context.Context) {
 // executeTask runs a single task with panic recovery.
 // Each task gets its own context derived from context.Background() so that
 // daemon shutdown (which cancels the dispatch loop context) does not abruptly
-// cancel in-flight Redis operations. Per-task cancel funcs are tracked in
-// r.taskCtxs for future on-demand cancellation (Phase 5).
+// cancel in-flight Redis operations.
 //
-// Phase 4 stubs the actual execution with a simulated delay.
-// Real task.Engine wiring is deferred to Phase 5.
-//
-//nolint:contextcheck // Intentional: each task gets an independent context so daemon shutdown does not cancel in-flight work.
+//nolint:contextcheck,gocognit // contextcheck: intentional independent task context; gocognit: inherent orchestration complexity.
 func (r *Runner) executeTask(_ context.Context, taskID string) {
-	// Create an independent context for this task's lifetime.
 	//nolint:gosec // G118: context.Background() is intentional — task context must be independent of dispatch loop lifetime.
 	taskCtx, cancel := context.WithCancel(context.Background()) //nolint:contextcheck // Intentional: independent task context; cancel is called in the deferred cleanup below.
 	r.taskCtxMu.Lock()
@@ -185,7 +287,6 @@ func (r *Runner) executeTask(_ context.Context, taskID string) {
 	}()
 
 	// Acquire a distributed lock to prevent double-execution across daemon instances.
-	// Use a bounded timeout so a stalled Redis connection does not hold the worker slot.
 	lockKey := r.cfg.Redis.KeyPrefix + "lock:task:" + taskID
 	lockCtx, lockCancel := context.WithTimeout(taskCtx, 5*time.Second)
 	defer lockCancel()
@@ -204,41 +305,130 @@ func (r *Runner) executeTask(_ context.Context, taskID string) {
 		}
 	}()
 
-	r.markTaskRunning(taskCtx, taskID)
-	if pubErr := r.events.Publish(taskCtx, TaskEvent{
-		Type:   EventTaskStarted,
-		TaskID: taskID,
-		Status: "running",
-	}); pubErr != nil {
-		r.logger.Warn().Err(pubErr).Str("task_id", taskID).Msg("runner: failed to publish task.started event")
+	// H2: re-read the status from Redis after acquiring the lock. A concurrent
+	// task.cancel handler may have written "canceled" between the queue Pop and
+	// this point; if so, skip execution rather than overwriting the terminal state.
+	hashKey := r.cfg.Redis.KeyPrefix + "task:" + taskID
+	if statusVals, statusErr := cache.HashMapGet(taskCtx, r.redis, hashKey, "status"); statusErr == nil {
+		if s := safeIndex(statusVals, 0); s == "canceled" || s == "abandoned" {
+			r.logger.Debug().Str("task_id", taskID).Str("status", s).
+				Msg("runner: task already terminal; skipping execution")
+			return
+		}
 	}
 
-	r.logger.Info().Str("task_id", taskID).Msg("runner: executing task (stub)")
+	// H1: treat a failure to record running state as a hard error; proceeding
+	// without updating Redis would leave the task stuck in "queued" forever.
+	if err := r.markTaskRunning(taskCtx, taskID); err != nil {
+		return
+	}
+	if r.events != nil {
+		if pubErr := r.events.Publish(taskCtx, TaskEvent{
+			Type:   EventTaskStarted,
+			TaskID: taskID,
+			Status: "running",
+		}); pubErr != nil {
+			r.logger.Warn().Err(pubErr).Str("task_id", taskID).Msg("runner: failed to publish task.started event")
+		}
+	}
 
-	// TODO(Phase 5): Wire to task.Engine for real execution.
-	// Requires workspace, git worktree, AI config, and template resolution.
-	time.Sleep(100 * time.Millisecond)
+	// Load job metadata from Redis.
+	job, loadErr := r.loadTaskJob(taskCtx, taskID)
+	if loadErr != nil {
+		r.logger.Error().Err(loadErr).Str("task_id", taskID).Msg("runner: failed to load task job")
+		r.markTaskFailed(taskCtx, taskID, loadErr.Error())
+		if r.events != nil {
+			if pubErr := r.events.Publish(taskCtx, TaskEvent{
+				Type:    EventTaskFailed,
+				TaskID:  taskID,
+				Status:  "failed",
+				Message: loadErr.Error(),
+			}); pubErr != nil {
+				r.logger.Warn().Err(pubErr).Str("task_id", taskID).Msg("runner: failed to publish task.failed event")
+			}
+		}
+		return
+	}
 
-	r.markTaskCompleted(taskCtx, taskID)
-	if pubErr := r.events.Publish(taskCtx, TaskEvent{
-		Type:   EventTaskCompleted,
-		TaskID: taskID,
-		Status: "completed",
-	}); pubErr != nil {
-		r.logger.Warn().Err(pubErr).Str("task_id", taskID).Msg("runner: failed to publish task.completed event")
+	if r.executor == nil {
+		// Stub mode: no executor wired (test/dev mode).
+		r.logger.Info().Str("task_id", taskID).Msg("runner: executing task (stub)")
+		time.Sleep(100 * time.Millisecond)
+		r.markTaskCompleted(taskCtx, taskID)
+		if r.events != nil {
+			if pubErr := r.events.Publish(taskCtx, TaskEvent{
+				Type:   EventTaskCompleted,
+				TaskID: taskID,
+				Status: "completed",
+			}); pubErr != nil {
+				r.logger.Warn().Err(pubErr).Str("task_id", taskID).Msg("runner: failed to publish task.completed event")
+			}
+		}
+		return
+	}
+
+	r.logger.Info().Str("task_id", taskID).Msg("runner: executing task")
+	engineTaskID, finalStatus, execErr := r.executor.Execute(taskCtx, job)
+
+	// If the task context was canceled (via CancelTask or AbandonRunningTask),
+	// read the intended final status from canceledTasks and update Redis.
+	if taskCtx.Err() != nil {
+		r.finalizeCanceledTask(taskID, hashKey)
+		return
+	}
+
+	// Store engine task ID for future resume/approve/reject (only on first start).
+	if engineTaskID != "" && job.EngineTaskID == "" {
+		r.storeEngineTaskID(taskCtx, taskID, engineTaskID)
+	}
+
+	switch finalStatus {
+	case "completed":
+		r.markTaskCompleted(taskCtx, taskID)
+		if r.events != nil {
+			if pubErr := r.events.Publish(taskCtx, TaskEvent{
+				Type:   EventTaskCompleted,
+				TaskID: taskID,
+				Status: "completed",
+			}); pubErr != nil {
+				r.logger.Warn().Err(pubErr).Str("task_id", taskID).Msg("runner: failed to publish task.completed event")
+			}
+		}
+	case "awaiting_approval":
+		r.markTaskStatus(taskCtx, taskID, "awaiting_approval")
+	default:
+		msg := "task execution failed"
+		if execErr != nil {
+			msg = execErr.Error()
+		}
+		r.markTaskFailed(taskCtx, taskID, msg)
+		if r.events != nil {
+			if pubErr := r.events.Publish(taskCtx, TaskEvent{
+				Type:    EventTaskFailed,
+				TaskID:  taskID,
+				Status:  "failed",
+				Message: msg,
+			}); pubErr != nil {
+				r.logger.Warn().Err(pubErr).Str("task_id", taskID).Msg("runner: failed to publish task.failed event")
+			}
+		}
 	}
 }
 
 // markTaskRunning updates the task hash to status=running with a started_at timestamp.
-func (r *Runner) markTaskRunning(ctx context.Context, taskID string) {
+// Returns an error if the Redis write fails; callers should abort execution on failure
+// to avoid running a task whose state cannot be recorded.
+func (r *Runner) markTaskRunning(ctx context.Context, taskID string) error {
 	hashKey := r.cfg.Redis.KeyPrefix + "task:" + taskID
 	pairs := [][2]interface{}{
 		{"status", "running"},
 		{"started_at", time.Now().UTC().Format(time.RFC3339)},
 	}
 	if err := cache.HashMapSet(ctx, r.redis, hashKey, pairs); err != nil {
-		r.logger.Warn().Err(err).Str("task_id", taskID).Msg("runner: failed to mark task running")
+		r.logger.Error().Err(err).Str("task_id", taskID).Msg("runner: failed to mark task running")
+		return fmt.Errorf("mark task running: %w", err)
 	}
+	return nil
 }
 
 // markTaskCompleted updates the task hash to status=completed with a completed_at timestamp.
@@ -256,6 +446,38 @@ func (r *Runner) markTaskCompleted(ctx context.Context, taskID string) {
 	activeKey := r.cfg.Redis.KeyPrefix + "active"
 	if err := cache.SetRemoveMember(ctx, r.redis, activeKey, taskID); err != nil {
 		r.logger.Warn().Err(err).Str("task_id", taskID).Msg("runner: failed to remove task from active set")
+	}
+}
+
+// finalizeCanceledTask writes the terminal state for a task whose context was canceled.
+// It uses a fresh background context because taskCtx is already done.
+func (r *Runner) finalizeCanceledTask(taskID, hashKey string) {
+	bgCtx := context.Background()
+	finalStatVal, loaded := r.canceledTasks.LoadAndDelete(taskID)
+	status := "canceled"
+	if loaded {
+		status, _ = finalStatVal.(string)
+	}
+	termPairs := [][2]interface{}{
+		{"status", status},
+		{"completed_at", time.Now().UTC().Format(time.RFC3339)},
+	}
+	if err := cache.HashMapSet(bgCtx, r.redis, hashKey, termPairs); err != nil {
+		r.logger.Warn().Err(err).Str("task_id", taskID).Msg("runner: failed to update status on cancel")
+	}
+	activeKey := r.cfg.Redis.KeyPrefix + "active"
+	if err := cache.SetRemoveMember(bgCtx, r.redis, activeKey, taskID); err != nil {
+		r.logger.Warn().Err(err).Str("task_id", taskID).Msg("runner: failed to remove task from active set on cancel")
+	}
+	if r.events != nil {
+		if pubErr := r.events.Publish(bgCtx, TaskEvent{
+			Type:    EventTaskFailed,
+			TaskID:  taskID,
+			Status:  status,
+			Message: "task " + status,
+		}); pubErr != nil {
+			r.logger.Warn().Err(pubErr).Str("task_id", taskID).Msg("runner: failed to publish cancel event")
+		}
 	}
 }
 

@@ -24,7 +24,7 @@ func tryDaemonClient(ctx context.Context, cfg *config.Config) *daemon.Client {
 	if err != nil {
 		return nil
 	}
-	if !c.Ping() {
+	if !c.PingContext(ctx) {
 		_ = c.Close()
 		return nil
 	}

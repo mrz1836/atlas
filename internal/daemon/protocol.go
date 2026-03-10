@@ -72,6 +72,7 @@ type TaskSubmitRequest struct {
 	Agent       string `json:"agent,omitempty"`
 	Model       string `json:"model,omitempty"`
 	Branch      string `json:"branch,omitempty"`
+	RepoPath    string `json:"repo_path,omitempty"`
 }
 
 // TaskSubmitResponse is the result for task.submit.
@@ -145,6 +146,8 @@ type TaskCancelRequest struct {
 // QueueListRequest is the params for queue.list.
 type QueueListRequest struct {
 	Priority string `json:"priority,omitempty"`
+	Limit    int    `json:"limit,omitempty"`  // max entries to return; default/max 500
+	Offset   int    `json:"offset,omitempty"` // skip first N entries
 }
 
 // QueueListResponse is the result for queue.list.

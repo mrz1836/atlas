@@ -49,15 +49,15 @@ func DialContext(ctx context.Context, socketPath string) (*Client, error) {
 
 // Call sends a JSON-RPC request and decodes the response into result.
 // Safe for concurrent use from multiple goroutines.
-func (c *Client) Call(method string, params, result interface{}) error {
+// If ctx carries a deadline, it is applied to the underlying connection.
+func (c *Client) Call(ctx context.Context, method string, params, result interface{}) error {
 	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.nextID++
-	id := c.nextID
-	c.mu.Unlock()
 	req := &Request{
 		JSONRPC: "2.0",
 		Method:  method,
-		ID:      id,
+		ID:      c.nextID,
 	}
 	if params != nil {
 		b, err := json.Marshal(params)
@@ -65,6 +65,9 @@ func (c *Client) Call(method string, params, result interface{}) error {
 			return fmt.Errorf("marshal params: %w", err)
 		}
 		req.Params = json.RawMessage(b)
+	}
+	if dl, ok := ctx.Deadline(); ok {
+		_ = c.conn.SetDeadline(dl)
 	}
 	if err := c.encoder.Encode(req); err != nil {
 		return fmt.Errorf("send request: %w", err)
@@ -91,8 +94,13 @@ func (c *Client) Call(method string, params, result interface{}) error {
 
 // Ping checks if the daemon is alive. Returns true if alive.
 func (c *Client) Ping() bool {
+	return c.PingContext(context.Background())
+}
+
+// PingContext checks if the daemon is alive, propagating the provided context.
+func (c *Client) PingContext(ctx context.Context) bool {
 	var resp DaemonPingResponse
-	return c.Call(MethodDaemonPing, nil, &resp) == nil && resp.Alive
+	return c.Call(ctx, MethodDaemonPing, nil, &resp) == nil && resp.Alive
 }
 
 // Close disconnects from the daemon.

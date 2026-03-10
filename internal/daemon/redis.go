@@ -47,12 +47,17 @@ type RedisConfig struct {
 func NewRedisClient(ctx context.Context, cfg RedisConfig) (*cache.Client, error) {
 	// Build the Redis URL in the format expected by go-cache:
 	// redis://[:password@]host:port[/db]
+	//
+	// C3: redisURL may contain a plaintext password. It is zeroed after the
+	// Connect call below to reduce the exposure window in process memory.
+	// Ensure the library (go-cache) does not log the URL on connection errors.
 	var redisURL string
 	if cfg.Password != "" {
 		redisURL = fmt.Sprintf("redis://:%s@%s/%d", cfg.Password, cfg.Addr, cfg.DB)
 	} else {
 		redisURL = fmt.Sprintf("redis://%s/%d", cfg.Addr, cfg.DB)
 	}
+	defer func() { redisURL = "" }() // zero the password-bearing string after use
 	// safeURL omits the password so it is safe to use in error messages and logs.
 	safeURL := fmt.Sprintf("redis://%s/%d", cfg.Addr, cfg.DB)
 

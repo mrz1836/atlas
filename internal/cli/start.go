@@ -158,7 +158,7 @@ func tryDaemonSubmit(ctx context.Context, cmd *cobra.Command, w io.Writer, descr
 		Branch:      opts.baseBranch,
 	}
 	var resp daemon.TaskSubmitResponse
-	if submitErr := c.Call(daemon.MethodTaskSubmit, req, &resp); submitErr != nil {
+	if submitErr := c.Call(ctx, daemon.MethodTaskSubmit, req, &resp); submitErr != nil {
 		return nil // submit failed; fall through to direct execution
 	}
 	out := tui.NewOutput(w, cmd.Flag("output").Value.String())

@@ -10,9 +10,13 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/mrz1836/atlas/internal/cli/workflow"
 	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/daemon"
 )
+
+// Compile-time check: DaemonTaskExecutor implements daemon.TaskExecutor.
+var _ daemon.TaskExecutor = (*workflow.DaemonTaskExecutor)(nil)
 
 // AddDaemonCommand adds the daemon command group to the root command.
 func AddDaemonCommand(root *cobra.Command) {
@@ -113,7 +117,7 @@ func runDaemonStop(cmd *cobra.Command, _ []string) error {
 	defer func() { _ = c.Close() }()
 
 	var result map[string]interface{}
-	if callErr := c.Call(daemon.MethodDaemonShutdown, nil, &result); callErr != nil {
+	if callErr := c.Call(cmd.Context(), daemon.MethodDaemonShutdown, nil, &result); callErr != nil {
 		return fmt.Errorf("shutdown daemon: %w", callErr)
 	}
 
@@ -160,7 +164,7 @@ func runDaemonStatus(cmd *cobra.Command, _ []string) error {
 	defer func() { _ = c.Close() }()
 
 	var status daemon.DaemonStatusResponse
-	if callErr := c.Call(daemon.MethodDaemonStatus, nil, &status); callErr != nil {
+	if callErr := c.Call(cmd.Context(), daemon.MethodDaemonStatus, nil, &status); callErr != nil {
 		return fmt.Errorf("get daemon status: %w", callErr)
 	}
 
@@ -200,7 +204,7 @@ func runDaemonPing(cmd *cobra.Command, _ []string) error {
 	defer func() { _ = c.Close() }()
 
 	var resp daemon.DaemonPingResponse
-	if callErr := c.Call(daemon.MethodDaemonPing, nil, &resp); callErr != nil {
+	if callErr := c.Call(cmd.Context(), daemon.MethodDaemonPing, nil, &resp); callErr != nil {
 		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "pong: daemon not responding")
 		return nil
 	}
@@ -222,6 +226,7 @@ func RunDaemonProcess(ctx context.Context) error {
 	}
 
 	logger := InitLogger(false, false)
-	d := daemon.New(cfg, logger)
+	executor := workflow.NewDaemonTaskExecutor(cfg, logger)
+	d := daemon.New(cfg, logger, daemon.WithExecutor(executor))
 	return d.Run(ctx)
 }
