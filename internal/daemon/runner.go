@@ -96,8 +96,11 @@ func (r *Runner) Stop() {
 // CancelTask cancels the context of a running task, signaling it to stop.
 // Stores "canceled" in canceledTasks so executeTask can set the correct final status.
 // Returns true if the task was actively running, false otherwise.
-func (r *Runner) CancelTask(taskID string) bool {
+func (r *Runner) CancelTask(ctx context.Context, taskID string) bool {
 	r.canceledTasks.Store(taskID, "canceled")
+	hashKey := r.cfg.Redis.KeyPrefix + "task:" + taskID
+	_ = cache.HashMapSet(ctx, r.redis, hashKey, [][2]interface{}{{"status", "canceled"}})
+
 	r.taskCtxMu.Lock()
 	cancel, ok := r.taskCtxs[taskID]
 	r.taskCtxMu.Unlock()
@@ -105,15 +108,16 @@ func (r *Runner) CancelTask(taskID string) bool {
 		cancel()
 		return true
 	}
-	// Not running — clean up the marker so it doesn't pollute future runs.
-	r.canceledTasks.Delete(taskID)
 	return false
 }
 
 // PauseRunningTask cancels a running task and marks it for "paused" final status.
 // The task can be resumed via task.resume. Returns true if the task was running.
-func (r *Runner) PauseRunningTask(taskID string) bool {
+func (r *Runner) PauseRunningTask(ctx context.Context, taskID string) bool {
 	r.canceledTasks.Store(taskID, "paused")
+	hashKey := r.cfg.Redis.KeyPrefix + "task:" + taskID
+	_ = cache.HashMapSet(ctx, r.redis, hashKey, [][2]interface{}{{"status", "paused"}})
+
 	r.taskCtxMu.Lock()
 	cancel, ok := r.taskCtxs[taskID]
 	r.taskCtxMu.Unlock()
@@ -121,14 +125,16 @@ func (r *Runner) PauseRunningTask(taskID string) bool {
 		cancel()
 		return true
 	}
-	r.canceledTasks.Delete(taskID)
 	return false
 }
 
 // AbandonRunningTask cancels a running task and marks it for "abandoned" final status.
 // Returns true if the task was actively running, false otherwise.
-func (r *Runner) AbandonRunningTask(taskID string) bool {
+func (r *Runner) AbandonRunningTask(ctx context.Context, taskID string) bool {
 	r.canceledTasks.Store(taskID, "abandoned")
+	hashKey := r.cfg.Redis.KeyPrefix + "task:" + taskID
+	_ = cache.HashMapSet(ctx, r.redis, hashKey, [][2]interface{}{{"status", "abandoned"}})
+
 	r.taskCtxMu.Lock()
 	cancel, ok := r.taskCtxs[taskID]
 	r.taskCtxMu.Unlock()
@@ -136,7 +142,6 @@ func (r *Runner) AbandonRunningTask(taskID string) bool {
 		cancel()
 		return true
 	}
-	r.canceledTasks.Delete(taskID)
 	return false
 }
 
@@ -214,9 +219,73 @@ func (r *Runner) markTaskStatus(ctx context.Context, taskID, status string) {
 	}
 }
 
+// setupQueueNotify subscribes to Redis queue notifications and returns a channel
+// that receives a signal whenever a new task is enqueued. Returns nil if Redis
+// is unavailable or the subscription fails.
+func (r *Runner) setupQueueNotify(ctx context.Context) <-chan struct{} {
+	if r.redis == nil {
+		return nil
+	}
+	sub, err := cache.Subscribe(ctx, r.redis, []string{r.cfg.Redis.KeyPrefix + "queue:notify"})
+	if err != nil {
+		return nil
+	}
+	ch := make(chan struct{}, 1)
+	go func() {
+		defer close(ch)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-r.stopCh:
+				return
+			case _, ok := <-sub.Messages:
+				if !ok {
+					return
+				}
+				select {
+				case ch <- struct{}{}:
+				default:
+				}
+			}
+		}
+	}()
+	return ch
+}
+
+// backoffAfterError waits one second after a queue pop error.
+// Returns false if the dispatch loop should exit.
+func (r *Runner) backoffAfterError(ctx context.Context) bool {
+	select {
+	case <-r.stopCh:
+		return false
+	case <-ctx.Done():
+		return false
+	case <-time.After(time.Second):
+		return true
+	}
+}
+
+// waitForEmptyQueue blocks until a new task may be available, or stop is signaled.
+// notifyCh may be nil; a nil channel blocks forever so the timeout always fires.
+// Returns false if the dispatch loop should exit.
+func (r *Runner) waitForEmptyQueue(ctx context.Context, notifyCh <-chan struct{}) bool {
+	select {
+	case <-r.stopCh:
+		return false
+	case <-ctx.Done():
+		return false
+	case <-notifyCh: // wakes instantly on queue notification; nil channel never fires
+	case <-time.After(500 * time.Millisecond):
+	}
+	return true
+}
+
 // dispatchLoop polls the queue and dispatches tasks to worker goroutines.
 func (r *Runner) dispatchLoop(ctx context.Context) {
 	defer r.wg.Done()
+
+	notifyCh := r.setupQueueNotify(ctx)
 
 	for {
 		select {
@@ -227,27 +296,19 @@ func (r *Runner) dispatchLoop(ctx context.Context) {
 		default:
 		}
 
-		taskID, err := r.queue.Pop(ctx)
+		taskID, prio, err := r.queue.Pop(ctx)
 		if err != nil {
 			r.logger.Error().Err(err).Msg("runner: queue pop failed")
-			select {
-			case <-r.stopCh:
+			if !r.backoffAfterError(ctx) {
 				return
-			case <-ctx.Done():
-				return
-			case <-time.After(time.Second):
 			}
 			continue
 		}
 
 		if taskID == "" {
 			// Queue empty — back off before polling again.
-			select {
-			case <-r.stopCh:
+			if !r.waitForEmptyQueue(ctx, notifyCh) {
 				return
-			case <-ctx.Done():
-				return
-			case <-time.After(500 * time.Millisecond):
 			}
 			continue
 		}
@@ -259,7 +320,7 @@ func (r *Runner) dispatchLoop(ctx context.Context) {
 			go r.executeTask(ctx, taskID) //nolint:gosec // G118: executeTask creates its own independent context; ctx is ignored inside.
 		case <-r.stopCh:
 			// Return the task so it can be picked up after restart.
-			if submitErr := r.queue.Submit(ctx, taskID, PriorityNormal); submitErr != nil {
+			if submitErr := r.queue.Submit(ctx, taskID, prio); submitErr != nil {
 				r.logger.Warn().Err(submitErr).Str("task_id", taskID).Msg("runner: failed to requeue task on shutdown")
 			}
 			return
@@ -341,9 +402,10 @@ func (r *Runner) executeTask(_ context.Context, taskID string) {
 	// this point; if so, skip execution rather than overwriting the terminal state.
 	hashKey := r.cfg.Redis.KeyPrefix + "task:" + taskID
 	if statusVals, statusErr := cache.HashMapGet(taskCtx, r.redis, hashKey, "status"); statusErr == nil {
-		if s := safeIndex(statusVals, 0); s == "canceled" || s == "abandoned" {
+		if s := safeIndex(statusVals, 0); s == "canceled" || s == "abandoned" || s == "paused" {
 			r.logger.Debug().Str("task_id", taskID).Str("status", s).
 				Msg("runner: task already terminal; skipping execution")
+			r.canceledTasks.Delete(taskID)
 			return
 		}
 	}

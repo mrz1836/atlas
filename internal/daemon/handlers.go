@@ -290,7 +290,7 @@ func (d *Daemon) handleTaskCancel(ctx context.Context, params json.RawMessage) (
 	// executeTask will set the final "canceled" status when it detects context cancellation.
 	wasRunning := false
 	if d.runner != nil {
-		wasRunning = d.runner.CancelTask(req.TaskID)
+		wasRunning = d.runner.CancelTask(ctx, req.TaskID)
 	}
 
 	if !wasRunning {
@@ -333,7 +333,7 @@ func (d *Daemon) handleTaskAbandon(ctx context.Context, params json.RawMessage) 
 	// If the task is running, signal it to stop; executeTask handles Redis cleanup.
 	wasRunning := false
 	if d.runner != nil {
-		wasRunning = d.runner.AbandonRunningTask(req.TaskID)
+		wasRunning = d.runner.AbandonRunningTask(ctx, req.TaskID)
 	}
 
 	if !wasRunning {
@@ -465,7 +465,7 @@ func (d *Daemon) handleTaskPause(ctx context.Context, params json.RawMessage) (i
 	// The runner stores "paused" so executeTask sets the correct final status.
 	wasRunning := false
 	if d.runner != nil {
-		wasRunning = d.runner.PauseRunningTask(req.TaskID)
+		wasRunning = d.runner.PauseRunningTask(ctx, req.TaskID)
 	}
 
 	if !wasRunning {

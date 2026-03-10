@@ -13,6 +13,14 @@ import (
 	"github.com/rs/zerolog"
 )
 
+//nolint:gochecknoglobals // package-level pool is the intended pattern for sync.Pool
+var scannerBufferPool = sync.Pool{
+	New: func() interface{} {
+		buf := make([]byte, 1<<20)
+		return &buf // pointer avoids SA6002 allocation on Put
+	},
+}
+
 // Server listens on a Unix domain socket and dispatches JSON-RPC requests via Router.
 type Server struct {
 	socketPath string
@@ -154,8 +162,11 @@ func (s *Server) handleConn(ctx context.Context, conn net.Conn) {
 	}()
 
 	// Q3: raise the line scanner limit to 1 MB to handle large task payloads.
+	// We rent from a sync.Pool to reduce GC allocations on reconnects.
 	scanner := bufio.NewScanner(conn)
-	scanner.Buffer(make([]byte, 1<<20), 1<<20)
+	bufp := scannerBufferPool.Get().(*[]byte)
+	defer scannerBufferPool.Put(bufp)
+	scanner.Buffer(*bufp, 1<<20)
 	encoder := json.NewEncoder(conn)
 
 	for {

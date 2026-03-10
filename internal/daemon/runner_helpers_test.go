@@ -125,7 +125,7 @@ func TestCancelTask_Running(t *testing.T) {
 	r.taskCtxs[taskID] = cancel
 	r.taskCtxMu.Unlock()
 
-	wasRunning := r.CancelTask(taskID)
+	wasRunning := r.CancelTask(context.Background(), taskID)
 	assert.True(t, wasRunning)
 
 	// The context should now be done.
@@ -149,12 +149,13 @@ func TestCancelTask_NotRunning(t *testing.T) {
 	r, _, _, cleanup := newTestRunnerWithRedis(t)
 	defer cleanup()
 
-	wasRunning := r.CancelTask("no-such-task")
+	wasRunning := r.CancelTask(context.Background(), "no-such-task")
 	assert.False(t, wasRunning)
 
-	// canceledTasks entry must be cleaned up.
-	_, ok := r.canceledTasks.Load("no-such-task")
-	assert.False(t, ok)
+	// canceledTasks entry must be retained so executeTask respects the cancellation.
+	val, ok := r.canceledTasks.Load("no-such-task")
+	assert.True(t, ok)
+	assert.Equal(t, "canceled", val)
 }
 
 // TestAbandonRunningTask_Running verifies AbandonRunningTask cancels the context
@@ -172,7 +173,7 @@ func TestAbandonRunningTask_Running(t *testing.T) {
 	r.taskCtxs[taskID] = cancel
 	r.taskCtxMu.Unlock()
 
-	wasRunning := r.AbandonRunningTask(taskID)
+	wasRunning := r.AbandonRunningTask(context.Background(), taskID)
 	assert.True(t, wasRunning)
 
 	// Context must be canceled.
@@ -195,11 +196,12 @@ func TestAbandonRunningTask_NotRunning(t *testing.T) {
 	r, _, _, cleanup := newTestRunnerWithRedis(t)
 	defer cleanup()
 
-	wasRunning := r.AbandonRunningTask("ghost-task")
+	wasRunning := r.AbandonRunningTask(context.Background(), "ghost-task")
 	assert.False(t, wasRunning)
 
-	_, ok := r.canceledTasks.Load("ghost-task")
-	assert.False(t, ok)
+	val, ok := r.canceledTasks.Load("ghost-task")
+	assert.True(t, ok)
+	assert.Equal(t, "abandoned", val)
 }
 
 // TestRequeueForResume_Basic verifies RequeueForResume updates status and resubmits.
@@ -225,7 +227,7 @@ func TestRequeueForResume_Basic(t *testing.T) {
 	assert.Equal(t, "queued", status)
 
 	// Task should be re-submitted to queue.
-	poppedID, popErr := q.Pop(ctx)
+	poppedID, _, popErr := q.Pop(ctx)
 	require.NoError(t, popErr)
 	assert.Equal(t, taskID, poppedID)
 }
@@ -391,7 +393,7 @@ func TestExecuteTask_WithExecutor_CancelDuringExecution(t *testing.T) {
 	}, 5*time.Second, 50*time.Millisecond, "task should start running")
 
 	// Now cancel it.
-	wasRunning := r.CancelTask(taskID)
+	wasRunning := r.CancelTask(ctx, taskID)
 	assert.True(t, wasRunning)
 
 	require.Eventually(t, func() bool {
@@ -427,7 +429,7 @@ func TestExecuteTask_WithExecutor_AbandonDuringExecution(t *testing.T) {
 		return err == nil && status == "running"
 	}, 5*time.Second, 50*time.Millisecond, "task should start running")
 
-	wasRunning := r.AbandonRunningTask(taskID)
+	wasRunning := r.AbandonRunningTask(ctx, taskID)
 	assert.True(t, wasRunning)
 
 	require.Eventually(t, func() bool {
