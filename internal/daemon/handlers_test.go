@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	cache "github.com/mrz1836/go-cache"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -268,6 +269,53 @@ func TestHandlerTaskList_WithTasks(t *testing.T) {
 	resp, ok := result.(TaskListResponse)
 	require.True(t, ok)
 	assert.Equal(t, 3, resp.Total)
+}
+
+func TestHandlerTaskList_TerminalTasksVisible(t *testing.T) {
+	t.Parallel()
+	d, _, cleanup := newTestDaemonWithRedis(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Submit two tasks.
+	var taskIDs [2]string
+	for i := range taskIDs {
+		params, err := json.Marshal(TaskSubmitRequest{Description: "terminal-test"})
+		require.NoError(t, err)
+		result, err := d.handleTaskSubmit(ctx, params)
+		require.NoError(t, err)
+		taskIDs[i] = result.(TaskSubmitResponse).TaskID
+	}
+
+	// Simulate what markTaskCompleted/markTaskFailed does:
+	// update the hash status and remove from the active set.
+	activeKey := d.cfg.Redis.KeyPrefix + "active"
+	for i, taskID := range taskIDs {
+		hashKey := d.cfg.Redis.KeyPrefix + "task:" + taskID
+		status := "completed"
+		if i == 1 {
+			status = "failed"
+		}
+		pairs := [][2]interface{}{{"status", status}}
+		require.NoError(t, cache.HashMapSet(ctx, d.redis, hashKey, pairs))
+		require.NoError(t, cache.SetRemoveMember(ctx, d.redis, activeKey, taskID))
+	}
+
+	// Both tasks must still appear in the task list despite being removed from active set.
+	result, err := d.handleTaskList(ctx, nil)
+	require.NoError(t, err)
+	resp := result.(TaskListResponse)
+	assert.Equal(t, 2, resp.Total)
+
+	// Filter by "failed" should return exactly one.
+	listParams, err := json.Marshal(TaskListRequest{Status: "failed"})
+	require.NoError(t, err)
+	result2, err := d.handleTaskList(ctx, listParams)
+	require.NoError(t, err)
+	resp2 := result2.(TaskListResponse)
+	assert.Equal(t, 1, resp2.Total)
+	assert.Equal(t, "failed", resp2.Tasks[0].Status)
 }
 
 func TestHandlerTaskList_StatusFilter(t *testing.T) {

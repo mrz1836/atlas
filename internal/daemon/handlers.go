@@ -146,6 +146,13 @@ func (d *Daemon) handleTaskSubmit(ctx context.Context, params json.RawMessage) (
 		return nil, fmt.Errorf("store task hash: %w", err)
 	}
 
+	// Track in persistent tasks set so the task remains visible in listings
+	// even after it reaches a terminal state (completed/failed/canceled).
+	tasksKey := d.cfg.Redis.KeyPrefix + "tasks"
+	if err := cache.SetAdd(ctx, d.redis, tasksKey, taskID); err != nil {
+		return nil, fmt.Errorf("track in tasks set: %w", err)
+	}
+
 	// Track in active set BEFORE queuing so the task is always visible once submitted.
 	activeKey := d.cfg.Redis.KeyPrefix + "active"
 	if err := cache.SetAdd(ctx, d.redis, activeKey, taskID); err != nil {
@@ -220,9 +227,9 @@ func (d *Daemon) handleTaskList(ctx context.Context, params json.RawMessage) (in
 		}
 	}
 
-	// Retrieve active task IDs from the set.
-	activeKey := d.cfg.Redis.KeyPrefix + "active"
-	members, err := cache.SetMembers(ctx, d.redis, activeKey)
+	// Retrieve all task IDs from the persistent tasks set (includes terminal-state tasks).
+	tasksKey := d.cfg.Redis.KeyPrefix + "tasks"
+	members, err := cache.SetMembers(ctx, d.redis, tasksKey)
 	if err != nil {
 		return nil, fmt.Errorf("list active tasks: %w", err)
 	}
