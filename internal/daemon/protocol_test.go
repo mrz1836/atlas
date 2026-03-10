@@ -182,6 +182,7 @@ func TestDaemonPingResponseRoundTrip(t *testing.T) {
 func TestDaemonStatusResponseRoundTrip(t *testing.T) {
 	t.Parallel()
 	v := DaemonStatusResponse{
+		Version:     "dev",
 		PID:         12345,
 		Uptime:      "1h2m3s",
 		StartedAt:   "2026-03-09T13:00:00Z",

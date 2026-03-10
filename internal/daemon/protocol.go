@@ -200,6 +200,7 @@ type DaemonPingResponse struct {
 //
 //nolint:revive // DaemonStatusResponse is intentionally prefixed; it disambiguates across packages.
 type DaemonStatusResponse struct {
+	Version     string `json:"version,omitempty"`
 	PID         int    `json:"pid"`
 	Uptime      string `json:"uptime"`
 	StartedAt   string `json:"started_at"`

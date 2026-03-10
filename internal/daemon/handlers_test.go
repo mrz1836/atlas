@@ -41,6 +41,7 @@ func TestHandlerDaemonStatus(t *testing.T) {
 
 	resp, ok := result.(*DaemonStatusResponse)
 	require.True(t, ok)
+	assert.Equal(t, daemonVersion, resp.Version)
 	assert.Positive(t, resp.PID)
 	assert.NotEmpty(t, resp.StartedAt)
 	assert.True(t, resp.RedisAlive)

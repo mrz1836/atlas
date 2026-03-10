@@ -90,6 +90,7 @@ func (d *Daemon) refreshHeartbeat(ctx context.Context) {
 // Redis liveness, worker count, active task count, and queue depth.
 func (d *Daemon) Health(ctx context.Context) (*DaemonStatusResponse, error) {
 	resp := &DaemonStatusResponse{
+		Version:   daemonVersion,
 		PID:       os.Getpid(),
 		StartedAt: d.startedAt.UTC().Format(time.RFC3339),
 		Uptime:    time.Since(d.startedAt).Round(time.Second).String(),
@@ -100,6 +101,15 @@ func (d *Daemon) Health(ctx context.Context) (*DaemonStatusResponse, error) {
 	if d.redis != nil {
 		if err := PingRedis(ctx, d.redis); err == nil {
 			resp.RedisAlive = true
+		}
+	}
+
+	// Get active task count from Redis set.
+	if d.redis != nil {
+		activeKey := d.cfg.Redis.KeyPrefix + "active"
+		members, membersErr := cache.SetMembers(ctx, d.redis, activeKey)
+		if membersErr == nil {
+			resp.ActiveTasks = len(members)
 		}
 	}
 

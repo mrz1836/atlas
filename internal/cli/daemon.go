@@ -170,6 +170,7 @@ func runDaemonStatus(cmd *cobra.Command, _ []string) error {
 	out := cmd.OutOrStdout()
 	_, _ = fmt.Fprintln(out, "Daemon Status")
 	_, _ = fmt.Fprintln(out, "─────────────────────────────")
+	_, _ = fmt.Fprintf(out, "  Version:      %s\n", status.Version)
 	_, _ = fmt.Fprintf(out, "  PID:          %d\n", status.PID)
 	_, _ = fmt.Fprintf(out, "  Uptime:       %s\n", status.Uptime)
 	_, _ = fmt.Fprintf(out, "  Started at:   %s\n", status.StartedAt)
