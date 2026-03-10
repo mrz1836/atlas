@@ -4,6 +4,9 @@ import (
 	"strings"
 )
 
+// maxErrorHintLen is the maximum length of the error message shown in the status bar.
+const maxErrorHintLen = 60
+
 // StatusBar is the single-row footer component of the ATLAS dashboard.
 // It renders context-sensitive keybinding hints based on the currently selected task.
 // StatusBar is a pure renderer — call SetTask before each View call.
@@ -58,13 +61,23 @@ type hint struct {
 
 // buildHints returns the ordered list of key hints based on current task context.
 func (sb *StatusBar) buildHints() []hint {
-	hints := make([]hint, 0, 7)
+	hints := make([]hint, 0, 9)
 
 	if sb.selectedTask != nil {
+		statusText := string(sb.selectedTask.Status)
+		if sb.selectedTask.Status == TaskStatusFailed && sb.selectedTask.Error != "" {
+			errMsg := sb.selectedTask.Error
+			if len(errMsg) > maxErrorHintLen {
+				errMsg = errMsg[:maxErrorHintLen] + "…"
+			}
+			statusText += ": " + errMsg
+		}
+		hints = append(hints, hint{"status", statusText})
 		hints = append(hints, hintsForStatus(sb.selectedTask.Status)...)
 	}
 
 	// Always-present hints.
+	hints = append(hints, hint{"tab", "switch panel"})
 	hints = append(hints, hint{"?", "help"})
 	hints = append(hints, hint{"q", "quit"})
 

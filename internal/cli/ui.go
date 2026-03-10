@@ -97,6 +97,11 @@ func runUI(cmd *cobra.Command, _ []string) error {
 		defer redisClient.Close()
 	}
 
+	// Detect repo path for workspace operations (best-effort).
+	if repoPath, rpErr := detectRepoPath(); rpErr == nil {
+		model.SetRepoPath(repoPath)
+	}
+
 	// Show startup error if daemon is unreachable.
 	if daemonErr != nil {
 		model.SetStartupError(buildStartupError(daemonErr, redisErr))

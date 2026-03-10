@@ -21,6 +21,13 @@ const (
 	reconnectInitialDelay = 500 * time.Millisecond
 	reconnectMaxDelay     = 10 * time.Second
 	daemonPingInterval    = 5 * time.Second
+	taskRefreshInterval   = 10 * time.Second
+)
+
+// Focus panel constants for split-pane keyboard routing.
+const (
+	focusTaskList = iota
+	focusLogPanel
 )
 
 // Sentinel errors for daemon action dispatching.
@@ -106,6 +113,10 @@ type Model struct {
 	// reconnectDelay is the next backoff delay to use.
 	reconnectDelay time.Duration
 
+	// ── Workspace context ────────────────────────────────────────────────────
+	// repoPath is the git repository root, used for workspace.destroy RPC.
+	repoPath string
+
 	// ── Display state ─────────────────────────────────────────────────────────
 	// connState is the current daemon/Redis connection state.
 	connState ConnectionState
@@ -119,6 +130,8 @@ type Model struct {
 	showHelp bool
 	// helpOverlay is the help keybinds overlay component.
 	helpOverlay *HelpOverlay
+	// focusPanel tracks which panel has keyboard focus in split view.
+	focusPanel int
 }
 
 // New creates a new dashboard Model with sensible defaults.
@@ -170,6 +183,7 @@ func (m *Model) Init() tea.Cmd {
 	// sent, so we must start the health-check ping loop here.
 	if m.client != nil {
 		cmds = append(cmds, daemonPingCmd(m.client))
+		cmds = append(cmds, taskRefreshCmd(m.client))
 	}
 	if m.cacheClient != nil {
 		sub := daemon.NewEventSubscriber(m.cacheClient, "")
@@ -252,7 +266,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.reconnectAttempts = 0
 		m.reconnectDelay = reconnectInitialDelay
 		m.startupError = ""
-		reconnectCmds := []tea.Cmd{m.initialTaskListCmd(), daemonPingCmd(m.client)}
+		reconnectCmds := []tea.Cmd{m.initialTaskListCmd(), daemonPingCmd(m.client), taskRefreshCmd(m.client)}
 		if m.cacheClient != nil && m.eventSub == nil {
 			sub := daemon.NewEventSubscriber(m.cacheClient, "")
 			sCtx, sCancel := context.WithCancel(context.Background())
@@ -273,6 +287,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case reconnectAttemptMsg:
 		return m, m.doReconnect()
+
+	case taskRefreshMsg:
+		return m, tea.Batch(m.initialTaskListCmd(), taskRefreshCmd(m.client))
 
 	case daemonPingMsg:
 		return m, m.handleDaemonPing()
@@ -301,6 +318,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case actionSuccessMsg:
 		m.setNotification(notificationStyle{text: notificationForAction(msg.action)})
+		if msg.action == "resume" {
+			return m, tea.Batch(m.startLogStream(m.selectedTaskID), m.initialTaskListCmd())
+		}
 		return m, nil
 
 	case taskListLoadedMsg:
@@ -408,6 +428,9 @@ func (m *Model) SelectedTaskID() string { return m.selectedTaskID }
 
 // SetClient replaces the daemon client (useful for testing).
 func (m *Model) SetClient(c *daemon.Client) { m.client = c }
+
+// SetRepoPath sets the git repository root path used for workspace.destroy.
+func (m *Model) SetRepoPath(p string) { m.repoPath = p }
 
 // defaultKeyPrefix is the Atlas Redis namespace used when no explicit prefix is provided.
 const defaultKeyPrefix = "atlas:"
@@ -548,17 +571,44 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if handled := m.handleLogKey(key, msg); handled {
 		return m, nil
 	}
+	// Tab switches focus between task list and log panel in split view.
+	if key == "tab" && m.layout.Mode != ViewModeLog {
+		m.toggleFocusPanel()
+		return m, nil
+	}
 	// Action keys — context-sensitive (status guards inside handleActionKey).
 	if cmd := m.handleActionKey(key); cmd != nil {
 		return m, cmd
 	}
-	// Task list navigation (list mode only).
+	// Task list / log panel navigation depending on focus.
 	if key == "up" || key == "k" || key == "down" || key == "j" {
-		updated, cmd := m.taskList.Update(msg)
-		m.taskList = updated
-		return m, cmd
+		return m.handleNavKey(key, msg)
 	}
 	return m, nil
+}
+
+// toggleFocusPanel switches keyboard focus between the task list and log panel.
+func (m *Model) toggleFocusPanel() {
+	if m.focusPanel == focusTaskList {
+		m.focusPanel = focusLogPanel
+	} else {
+		m.focusPanel = focusTaskList
+	}
+}
+
+// handleNavKey routes up/down/j/k to either the log panel or task list based on focus.
+func (m *Model) handleNavKey(key string, msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	if m.focusPanel == focusLogPanel {
+		if key == "up" || key == "k" {
+			m.logPanel.ScrollUp(1)
+		} else {
+			m.logPanel.ScrollDown(1)
+		}
+		return m, nil
+	}
+	updated, cmd := m.taskList.Update(msg)
+	m.taskList = updated
+	return m, cmd
 }
 
 // handleActionKey processes action keys (a/r/p/R/x/d) for the selected task.
@@ -691,9 +741,11 @@ func (m *Model) handleModeKey(key string) bool {
 			m.helpOverlay.Hide()
 		}
 		m.layout.Mode = ViewModeList
+		m.focusPanel = focusTaskList
 		return true
 	case "l":
 		m.layout.Mode = ViewModeLog
+		m.focusPanel = focusLogPanel
 		return true
 	}
 	return false
@@ -930,6 +982,9 @@ func (m *Model) processTaskListLoaded(tasks []daemon.TaskStatusResponse) {
 	// Auto-select the first task if nothing is selected.
 	if m.selectedTaskID == "" && len(m.taskOrder) > 0 {
 		m.selectTask(m.taskOrder[0])
+	} else if m.selectedTaskID != "" {
+		// Refresh the selected task's detail and status bar with updated data.
+		m.selectTask(m.selectedTaskID)
 	}
 }
 
@@ -1002,6 +1057,9 @@ func (m *Model) startLogStream(taskID string) tea.Cmd {
 // slow each LogEntryMsg is delivered in order without dropping entries.
 func (m *Model) logStreamCmd(ctx context.Context, taskID, lastID string) tea.Cmd {
 	reader := m.logReader
+	if reader == nil {
+		return nil
+	}
 	return func() tea.Msg {
 		// Block for up to 500ms waiting for new entries.
 		entries, err := reader.Tail(ctx, taskID, lastID, 50, 500)
@@ -1063,8 +1121,9 @@ func (m *Model) executeActionCmd(action, taskID, feedback string) tea.Cmd {
 		}
 	}
 	c := m.client
+	repoPath := m.repoPath
 	return func() tea.Msg {
-		if err := callDaemonAction(c, action, taskID, feedback); err != nil {
+		if err := callDaemonAction(c, action, taskID, feedback, repoPath); err != nil {
 			return ErrorMsg{Err: err}
 		}
 		return actionSuccessMsg{action: action}
@@ -1073,7 +1132,7 @@ func (m *Model) executeActionCmd(action, taskID, feedback string) tea.Cmd {
 
 // callDaemonAction performs the daemon JSON-RPC call for an action.
 // It is a pure function (no model state) to keep the goroutine-safe closure simple.
-func callDaemonAction(c *daemon.Client, action, taskID, feedback string) error {
+func callDaemonAction(c *daemon.Client, action, taskID, feedback, repoPath string) error {
 	ctx := context.Background()
 	var resp map[string]interface{}
 
@@ -1101,7 +1160,7 @@ func callDaemonAction(c *daemon.Client, action, taskID, feedback string) error {
 	case "destroy":
 		// For workspace.destroy we need the workspace name, not the taskID.
 		// The caller (handleActionKey) passes task.Workspace as taskID for this action.
-		req := daemon.WorkspaceDestroyRequest{Workspace: taskID}
+		req := daemon.WorkspaceDestroyRequest{Workspace: taskID, RepoPath: repoPath}
 		return c.Call(ctx, daemon.MethodWorkspaceDestroy, req, &resp)
 
 	default:
@@ -1198,6 +1257,19 @@ func (m *Model) handleDaemonPing() tea.Cmd {
 		}
 		return daemonPingMsg{}
 	}
+}
+
+// taskRefreshMsg is emitted by the periodic task list refresh ticker.
+type taskRefreshMsg struct{}
+
+// taskRefreshCmd schedules a periodic task list refresh after taskRefreshInterval.
+func taskRefreshCmd(client *daemon.Client) tea.Cmd {
+	if client == nil {
+		return nil
+	}
+	return tea.Tick(taskRefreshInterval, func(_ time.Time) tea.Msg {
+		return taskRefreshMsg{}
+	})
 }
 
 // daemonPingCmd schedules the first periodic daemon ping after daemonPingInterval.
