@@ -61,6 +61,8 @@ const (
 	MethodDaemonShutdown    = "daemon.shutdown"
 	MethodEventsSubscribe   = "events.subscribe"
 	MethodEventsUnsubscribe = "events.unsubscribe"
+	MethodWorkspaceDestroy  = "workspace.destroy"
+	MethodTaskPause         = "task.pause"
 )
 
 // TaskSubmitRequest is the params for task.submit.
@@ -97,6 +99,12 @@ type TaskStatusResponse struct {
 	StartedAt   string `json:"started_at,omitempty"`
 	CompletedAt string `json:"completed_at,omitempty"`
 	Error       string `json:"error,omitempty"`
+	Description string `json:"description,omitempty"`
+	Workspace   string `json:"workspace,omitempty"`
+	Agent       string `json:"agent,omitempty"`
+	Model       string `json:"model,omitempty"`
+	Branch      string `json:"branch,omitempty"`
+	Template    string `json:"template,omitempty"`
 }
 
 // TaskListRequest is the params for task.list.
@@ -209,25 +217,65 @@ type EventSubscribeRequest struct {
 	Events []string `json:"events,omitempty"` // e.g., ["task.*", "queue.*"]
 }
 
+// EventSubscribeResponse is the result for events.subscribe.
+// It returns the channel name and key prefix so clients know where to connect.
+type EventSubscribeResponse struct {
+	Channel   string `json:"channel"`    // e.g., "atlas:events"
+	LogPrefix string `json:"log_prefix"` // e.g., "atlas:log:" for stream keys
+}
+
+// WorkspaceDestroyRequest is the params for workspace.destroy.
+type WorkspaceDestroyRequest struct {
+	Workspace string `json:"workspace"`
+	RepoPath  string `json:"repo_path,omitempty"`
+}
+
+// TaskPauseRequest is the params for task.pause.
+type TaskPauseRequest struct {
+	TaskID string `json:"task_id"`
+}
+
 // TaskEvent is the event payload published to the atlas:events channel.
 type TaskEvent struct {
-	Type    string `json:"type"` // task.submitted, task.started, etc.
-	TaskID  string `json:"task_id"`
-	Status  string `json:"status,omitempty"`
-	Message string `json:"message,omitempty"`
-	Time    string `json:"time"`
+	Type        string `json:"type"` // task.submitted, task.started, etc.
+	TaskID      string `json:"task_id"`
+	Status      string `json:"status,omitempty"`
+	Message     string `json:"message,omitempty"`
+	Time        string `json:"time"`
+	Workspace   string `json:"workspace,omitempty"`
+	Agent       string `json:"agent,omitempty"`
+	Model       string `json:"model,omitempty"`
+	Branch      string `json:"branch,omitempty"`
+	Template    string `json:"template,omitempty"`
+	Priority    string `json:"priority,omitempty"`
+	Step        string `json:"step,omitempty"`
+	StepIndex   int    `json:"step_index,omitempty"`
+	StepTotal   int    `json:"step_total,omitempty"`
+	PRURL       string `json:"pr_url,omitempty"`
+	Error       string `json:"error,omitempty"`
+	Description string `json:"description,omitempty"`
 }
 
 // Event type constants.
 const (
-	EventTaskSubmitted  = "task.submitted"
-	EventTaskStarted    = "task.started"
-	EventTaskCompleted  = "task.completed"
-	EventTaskFailed     = "task.failed"
-	EventTaskApproved   = "task.approved"
-	EventQueueChanged   = "queue.changed"
-	EventDaemonStarted  = "daemon.started"
-	EventDaemonStopping = "daemon.stopping"
+	EventTaskSubmitted        = "task.submitted"
+	EventTaskStarted          = "task.started"
+	EventTaskCompleted        = "task.completed"
+	EventTaskFailed           = "task.failed"
+	EventTaskApproved         = "task.approved"
+	EventTaskRejected         = "task.rejected"
+	EventTaskPaused           = "task.paused"
+	EventTaskResumed          = "task.resumed"
+	EventTaskAbandoned        = "task.abandoned"
+	EventTaskCancelled        = "task.cancelled"
+	EventTaskStepStarted      = "task.step_started"
+	EventTaskStepCompleted    = "task.step_completed"
+	EventTaskApprovalRequired = "task.approval_required"
+	EventTaskLogEntry         = "task.log_entry"
+	EventQueueChanged         = "queue.changed"
+	EventDaemonStarted        = "daemon.started"
+	EventDaemonStopping       = "daemon.stopping"
+	EventDaemonHeartbeat      = "daemon.heartbeat"
 )
 
 // NewRequest constructs a JSON-RPC 2.0 request, marshaling params to JSON.

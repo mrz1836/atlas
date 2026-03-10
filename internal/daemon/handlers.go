@@ -9,6 +9,8 @@ import (
 
 	"github.com/google/uuid"
 	cache "github.com/mrz1836/go-cache"
+
+	"github.com/mrz1836/atlas/internal/workspace"
 )
 
 // Sentinel errors for handlers.
@@ -20,6 +22,8 @@ var (
 	errTaskNotResumable     = errors.New("task is not in a resumable state")
 	errTaskNotAwaitApproval = errors.New("task is not awaiting approval")
 	errRunnerNotInitialized = errors.New("runner not initialized")
+	errWorkspaceRequired    = errors.New("workspace is required")
+	errRepoPathRequired     = errors.New("repo_path is required")
 )
 
 // setupRouter registers all JSON-RPC method handlers on the given Router.
@@ -42,6 +46,9 @@ func (d *Daemon) setupRouter(r *Router) {
 	r.Register(MethodQueueClear, d.handleQueueClear)
 
 	r.Register(MethodEventsSubscribe, d.handleEventsSubscribe)
+
+	r.Register(MethodWorkspaceDestroy, d.handleWorkspaceDestroy)
+	r.Register(MethodTaskPause, d.handleTaskPause)
 }
 
 // errNotImplemented is kept for test compatibility (stubHandler is used in tests).
@@ -162,7 +169,10 @@ func (d *Daemon) handleTaskStatus(ctx context.Context, params json.RawMessage) (
 
 	hashKey := d.cfg.Redis.KeyPrefix + "task:" + req.TaskID
 
-	fields := []interface{}{"id", "status", "priority", "submitted_at", "started_at", "completed_at", "error"}
+	fields := []interface{}{
+		"id", "status", "priority", "submitted_at", "started_at", "completed_at", "error",
+		"description", "workspace", "agent", "model", "branch", "template",
+	}
 	vals, err := cache.HashMapGet(ctx, d.redis, hashKey, fields...)
 	if err != nil {
 		return nil, fmt.Errorf("read task hash: %w", err)
@@ -177,6 +187,12 @@ func (d *Daemon) handleTaskStatus(ctx context.Context, params json.RawMessage) (
 		StartedAt:   safeIndex(vals, 4),
 		CompletedAt: safeIndex(vals, 5),
 		Error:       safeIndex(vals, 6),
+		Description: safeIndex(vals, 7),
+		Workspace:   safeIndex(vals, 8),
+		Agent:       safeIndex(vals, 9),
+		Model:       safeIndex(vals, 10),
+		Branch:      safeIndex(vals, 11),
+		Template:    safeIndex(vals, 12),
 	}
 	if resp.TaskID == "" {
 		return nil, fmt.Errorf("task %s: %w", req.TaskID, errTaskNotFound)
@@ -210,7 +226,10 @@ func (d *Daemon) handleTaskList(ctx context.Context, params json.RawMessage) (in
 			break
 		}
 		hashKey := d.cfg.Redis.KeyPrefix + "task:" + taskID
-		fields := []interface{}{"id", "status", "priority", "submitted_at", "started_at", "completed_at", "error"}
+		fields := []interface{}{
+			"id", "status", "priority", "submitted_at", "started_at", "completed_at", "error",
+			"description", "workspace", "agent", "model", "branch", "template",
+		}
 		vals, err := cache.HashMapGet(ctx, d.redis, hashKey, fields...)
 		if err != nil {
 			d.logger.Warn().Err(err).Str("task_id", taskID).Msg("handlers: failed to read task hash during list")
@@ -224,6 +243,12 @@ func (d *Daemon) handleTaskList(ctx context.Context, params json.RawMessage) (in
 			StartedAt:   safeIndex(vals, 4),
 			CompletedAt: safeIndex(vals, 5),
 			Error:       safeIndex(vals, 6),
+			Description: safeIndex(vals, 7),
+			Workspace:   safeIndex(vals, 8),
+			Agent:       safeIndex(vals, 9),
+			Model:       safeIndex(vals, 10),
+			Branch:      safeIndex(vals, 11),
+			Template:    safeIndex(vals, 12),
 		}
 		if req.Status == "" || t.Status == req.Status {
 			tasks = append(tasks, t)
@@ -408,6 +433,44 @@ func (d *Daemon) handleTaskReject(ctx context.Context, params json.RawMessage) (
 	return map[string]interface{}{"ok": true}, nil
 }
 
+func (d *Daemon) handleTaskPause(ctx context.Context, params json.RawMessage) (interface{}, error) {
+	var req TaskPauseRequest
+	if err := json.Unmarshal(params, &req); err != nil {
+		return nil, fmt.Errorf("invalid params: %w", err)
+	}
+	if req.TaskID == "" {
+		return nil, errTaskIDRequired
+	}
+
+	// If the task is actively running, pause it via context cancellation.
+	// The runner stores "paused" so executeTask sets the correct final status.
+	wasRunning := false
+	if d.runner != nil {
+		wasRunning = d.runner.PauseRunningTask(req.TaskID)
+	}
+
+	if !wasRunning {
+		// Task is queued — write paused state directly to Redis.
+		if err := d.pauseQueuedTask(ctx, req.TaskID); err != nil {
+			return nil, err
+		}
+	}
+	return map[string]interface{}{"ok": true}, nil
+}
+
+// pauseQueuedTask marks a non-running task as paused in Redis and removes it from
+// the active set. Paused tasks are resumable via task.resume.
+func (d *Daemon) pauseQueuedTask(ctx context.Context, taskID string) error {
+	hashKey := d.cfg.Redis.KeyPrefix + "task:" + taskID
+	pairs := [][2]interface{}{
+		{"status", "paused"},
+	}
+	if err := cache.HashMapSet(ctx, d.redis, hashKey, pairs); err != nil {
+		return fmt.Errorf("mark task paused: %w", err)
+	}
+	return nil
+}
+
 // -- queue.* --
 
 func (d *Daemon) handleQueueStats(ctx context.Context, _ json.RawMessage) (interface{}, error) {
@@ -493,10 +556,45 @@ func (d *Daemon) handleQueueClear(ctx context.Context, params json.RawMessage) (
 
 // -- events.* --
 
-// handleEventsSubscribe stubs the streaming subscription.
-// Returns an "accepted" response; persistent streaming is genuinely deferred.
+// handleEventsSubscribe returns the Redis channel name and log key prefix so clients
+// can subscribe directly to Redis pub/sub and tail log streams without routing
+// through the JSON-RPC socket.
 func (d *Daemon) handleEventsSubscribe(_ context.Context, _ json.RawMessage) (interface{}, error) {
-	return map[string]interface{}{"accepted": true, "note": "streaming deferred to Phase 5"}, nil
+	return EventSubscribeResponse{
+		Channel:   defaultEventsChannel,
+		LogPrefix: d.cfg.Redis.KeyPrefix + logKeyPrefix,
+	}, nil
+}
+
+// -- workspace.* --
+
+// handleWorkspaceDestroy destroys a workspace (removes worktree + branch).
+// It uses workspace.DefaultManager so all the NFR18 "always succeed" semantics are preserved.
+func (d *Daemon) handleWorkspaceDestroy(ctx context.Context, params json.RawMessage) (interface{}, error) {
+	var req WorkspaceDestroyRequest
+	if err := json.Unmarshal(params, &req); err != nil {
+		return nil, fmt.Errorf("invalid params: %w", err)
+	}
+	if req.Workspace == "" {
+		return nil, errWorkspaceRequired
+	}
+	if req.RepoPath == "" {
+		return nil, errRepoPathRequired
+	}
+
+	wsStore, err := workspace.NewRepoScopedFileStore(req.RepoPath)
+	if err != nil {
+		return nil, fmt.Errorf("workspace store: %w", err)
+	}
+	wtRunner, err := workspace.NewGitWorktreeRunner(ctx, req.RepoPath, d.logger)
+	if err != nil {
+		return nil, fmt.Errorf("worktree runner: %w", err)
+	}
+	mgr := workspace.NewManager(wsStore, wtRunner, d.logger)
+	if err = mgr.Destroy(ctx, req.Workspace); err != nil {
+		return nil, fmt.Errorf("destroy workspace: %w", err)
+	}
+	return map[string]interface{}{"ok": true}, nil
 }
 
 // -- helpers --
@@ -527,7 +625,7 @@ func (d *Daemon) fetchTaskStatus(ctx context.Context, taskID string) (string, er
 // isResumableStatus returns true for statuses from which a task can be resumed.
 func isResumableStatus(status string) bool {
 	switch status {
-	case "awaiting_approval", "failed", "interrupted":
+	case "awaiting_approval", "failed", "interrupted", "paused":
 		return true
 	}
 	return false

@@ -14,15 +14,16 @@ import (
 
 // Runner manages a pool of workers that execute tasks popped from the queue.
 type Runner struct {
-	cfg      *config.Config
-	redis    *cache.Client
-	queue    Queue
-	events   *EventPublisher
-	logger   zerolog.Logger
-	sem      chan struct{} // semaphore limiting concurrent tasks
-	stopCh   chan struct{}
-	wg       sync.WaitGroup
-	workerID string // unique ID for lock namespacing
+	cfg       *config.Config
+	redis     *cache.Client
+	queue     Queue
+	events    *EventPublisher
+	logWriter *LogWriter
+	logger    zerolog.Logger
+	sem       chan struct{} // semaphore limiting concurrent tasks
+	stopCh    chan struct{}
+	wg        sync.WaitGroup
+	workerID  string // unique ID for lock namespacing
 
 	// executor runs the actual task engine. Nil means stub/dev mode.
 	executor TaskExecutor
@@ -32,7 +33,7 @@ type Runner struct {
 	taskCtxs  map[string]context.CancelFunc
 
 	// canceledTasks signals that a task was explicitly canceled or abandoned.
-	// Value is the final status string: "canceled" | "abandoned".
+	// Value is the final status string: "canceled" | "abandoned" | "paused".
 	canceledTasks sync.Map
 }
 
@@ -43,16 +44,17 @@ func NewRunner(cfg *config.Config, redis *cache.Client, queue Queue, events *Eve
 		maxP = 1
 	}
 	return &Runner{
-		cfg:      cfg,
-		redis:    redis,
-		queue:    queue,
-		events:   events,
-		logger:   logger,
-		executor: executor,
-		sem:      make(chan struct{}, maxP),
-		stopCh:   make(chan struct{}),
-		workerID: fmt.Sprintf("worker-%d", time.Now().UnixNano()),
-		taskCtxs: make(map[string]context.CancelFunc),
+		cfg:       cfg,
+		redis:     redis,
+		queue:     queue,
+		events:    events,
+		logWriter: NewLogWriter(redis, cfg.Redis.KeyPrefix, cfg.Redis.LogStreamMaxLen),
+		logger:    logger,
+		executor:  executor,
+		sem:       make(chan struct{}, maxP),
+		stopCh:    make(chan struct{}),
+		workerID:  fmt.Sprintf("worker-%d", time.Now().UnixNano()),
+		taskCtxs:  make(map[string]context.CancelFunc),
 	}
 }
 
@@ -103,6 +105,21 @@ func (r *Runner) CancelTask(taskID string) bool {
 		return true
 	}
 	// Not running — clean up the marker so it doesn't pollute future runs.
+	r.canceledTasks.Delete(taskID)
+	return false
+}
+
+// PauseRunningTask cancels a running task and marks it for "paused" final status.
+// The task can be resumed via task.resume. Returns true if the task was running.
+func (r *Runner) PauseRunningTask(taskID string) bool {
+	r.canceledTasks.Store(taskID, "paused")
+	r.taskCtxMu.Lock()
+	cancel, ok := r.taskCtxs[taskID]
+	r.taskCtxMu.Unlock()
+	if ok {
+		cancel()
+		return true
+	}
 	r.canceledTasks.Delete(taskID)
 	return false
 }
@@ -322,27 +339,21 @@ func (r *Runner) executeTask(_ context.Context, taskID string) {
 	if err := r.markTaskRunning(taskCtx, taskID); err != nil {
 		return
 	}
-	if r.events != nil {
-		if pubErr := r.events.Publish(taskCtx, TaskEvent{
-			Type:   EventTaskStarted,
-			TaskID: taskID,
-			Status: "running",
-		}); pubErr != nil {
-			r.logger.Warn().Err(pubErr).Str("task_id", taskID).Msg("runner: failed to publish task.started event")
-		}
-	}
 
-	// Load job metadata from Redis.
+	// Load job metadata from Redis before publishing started event so we can
+	// include enriched fields (workspace, agent, model, etc.) in the event.
 	job, loadErr := r.loadTaskJob(taskCtx, taskID)
 	if loadErr != nil {
 		r.logger.Error().Err(loadErr).Str("task_id", taskID).Msg("runner: failed to load task job")
 		r.markTaskFailed(taskCtx, taskID, loadErr.Error())
+		r.writeLog(taskCtx, taskID, LogEntry{Level: "error", Message: "failed to load task job: " + loadErr.Error(), Source: "runner"})
 		if r.events != nil {
 			if pubErr := r.events.Publish(taskCtx, TaskEvent{
 				Type:    EventTaskFailed,
 				TaskID:  taskID,
 				Status:  "failed",
 				Message: loadErr.Error(),
+				Error:   loadErr.Error(),
 			}); pubErr != nil {
 				r.logger.Warn().Err(pubErr).Str("task_id", taskID).Msg("runner: failed to publish task.failed event")
 			}
@@ -350,16 +361,41 @@ func (r *Runner) executeTask(_ context.Context, taskID string) {
 		return
 	}
 
+	if r.events != nil {
+		if pubErr := r.events.Publish(taskCtx, TaskEvent{
+			Type:        EventTaskStarted,
+			TaskID:      taskID,
+			Status:      "running",
+			Workspace:   job.Workspace,
+			Agent:       job.Agent,
+			Model:       job.Model,
+			Branch:      job.Branch,
+			Template:    job.Template,
+			Description: job.Description,
+		}); pubErr != nil {
+			r.logger.Warn().Err(pubErr).Str("task_id", taskID).Msg("runner: failed to publish task.started event")
+		}
+	}
+	r.writeLog(taskCtx, taskID, LogEntry{Level: "info", Message: "task started", Source: "runner"})
+
 	if r.executor == nil {
 		// Stub mode: no executor wired (test/dev mode).
 		r.logger.Info().Str("task_id", taskID).Msg("runner: executing task (stub)")
+		r.writeLog(taskCtx, taskID, LogEntry{Level: "info", Message: "executing task (stub mode)", Source: "runner"})
 		time.Sleep(100 * time.Millisecond)
 		r.markTaskCompleted(taskCtx, taskID)
+		r.writeLog(taskCtx, taskID, LogEntry{Level: "info", Message: "task completed", Source: "runner"})
 		if r.events != nil {
 			if pubErr := r.events.Publish(taskCtx, TaskEvent{
-				Type:   EventTaskCompleted,
-				TaskID: taskID,
-				Status: "completed",
+				Type:        EventTaskCompleted,
+				TaskID:      taskID,
+				Status:      "completed",
+				Workspace:   job.Workspace,
+				Agent:       job.Agent,
+				Model:       job.Model,
+				Branch:      job.Branch,
+				Template:    job.Template,
+				Description: job.Description,
 			}); pubErr != nil {
 				r.logger.Warn().Err(pubErr).Str("task_id", taskID).Msg("runner: failed to publish task.completed event")
 			}
@@ -385,29 +421,60 @@ func (r *Runner) executeTask(_ context.Context, taskID string) {
 	switch finalStatus {
 	case "completed":
 		r.markTaskCompleted(taskCtx, taskID)
+		r.writeLog(taskCtx, taskID, LogEntry{Level: "info", Message: "task completed", Source: "runner"})
 		if r.events != nil {
 			if pubErr := r.events.Publish(taskCtx, TaskEvent{
-				Type:   EventTaskCompleted,
-				TaskID: taskID,
-				Status: "completed",
+				Type:        EventTaskCompleted,
+				TaskID:      taskID,
+				Status:      "completed",
+				Workspace:   job.Workspace,
+				Agent:       job.Agent,
+				Model:       job.Model,
+				Branch:      job.Branch,
+				Template:    job.Template,
+				Description: job.Description,
 			}); pubErr != nil {
 				r.logger.Warn().Err(pubErr).Str("task_id", taskID).Msg("runner: failed to publish task.completed event")
 			}
 		}
 	case "awaiting_approval":
 		r.markTaskStatus(taskCtx, taskID, "awaiting_approval")
+		r.writeLog(taskCtx, taskID, LogEntry{Level: "info", Message: "task awaiting approval", Source: "runner"})
+		if r.events != nil {
+			if pubErr := r.events.Publish(taskCtx, TaskEvent{
+				Type:        EventTaskApprovalRequired,
+				TaskID:      taskID,
+				Status:      "awaiting_approval",
+				Workspace:   job.Workspace,
+				Agent:       job.Agent,
+				Model:       job.Model,
+				Branch:      job.Branch,
+				Template:    job.Template,
+				Description: job.Description,
+			}); pubErr != nil {
+				r.logger.Warn().Err(pubErr).Str("task_id", taskID).Msg("runner: failed to publish task.approval_required event")
+			}
+		}
 	default:
 		msg := "task execution failed"
 		if execErr != nil {
 			msg = execErr.Error()
 		}
 		r.markTaskFailed(taskCtx, taskID, msg)
+		r.writeLog(taskCtx, taskID, LogEntry{Level: "error", Message: "task failed: " + msg, Source: "runner"})
 		if r.events != nil {
 			if pubErr := r.events.Publish(taskCtx, TaskEvent{
-				Type:    EventTaskFailed,
-				TaskID:  taskID,
-				Status:  "failed",
-				Message: msg,
+				Type:        EventTaskFailed,
+				TaskID:      taskID,
+				Status:      "failed",
+				Message:     msg,
+				Error:       msg,
+				Workspace:   job.Workspace,
+				Agent:       job.Agent,
+				Model:       job.Model,
+				Branch:      job.Branch,
+				Template:    job.Template,
+				Description: job.Description,
 			}); pubErr != nil {
 				r.logger.Warn().Err(pubErr).Str("task_id", taskID).Msg("runner: failed to publish task.failed event")
 			}
@@ -469,15 +536,34 @@ func (r *Runner) finalizeCanceledTask(taskID, hashKey string) {
 	if err := cache.SetRemoveMember(bgCtx, r.redis, activeKey, taskID); err != nil {
 		r.logger.Warn().Err(err).Str("task_id", taskID).Msg("runner: failed to remove task from active set on cancel")
 	}
+	// Choose the appropriate event type based on final status.
 	if r.events != nil {
+		evType := EventTaskCancelled
+		switch status {
+		case "abandoned":
+			evType = EventTaskAbandoned
+		case "paused":
+			evType = EventTaskPaused
+		}
 		if pubErr := r.events.Publish(bgCtx, TaskEvent{
-			Type:    EventTaskFailed,
+			Type:    evType,
 			TaskID:  taskID,
 			Status:  status,
 			Message: "task " + status,
 		}); pubErr != nil {
 			r.logger.Warn().Err(pubErr).Str("task_id", taskID).Msg("runner: failed to publish cancel event")
 		}
+	}
+}
+
+// writeLog writes a single LogEntry to the task's log stream.
+// Errors are logged but not propagated — log stream failures are non-fatal.
+func (r *Runner) writeLog(ctx context.Context, taskID string, entry LogEntry) {
+	if r.logWriter == nil {
+		return
+	}
+	if err := r.logWriter.Write(ctx, taskID, entry); err != nil {
+		r.logger.Warn().Err(err).Str("task_id", taskID).Msg("runner: failed to write log entry")
 	}
 }
 
