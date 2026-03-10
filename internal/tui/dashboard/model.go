@@ -147,6 +147,7 @@ func NewWithClient(client *daemon.Client) *Model {
 	m := New()
 	m.client = client
 	m.connState = ConnectionStateConnected
+	m.header.SetConnection(ConnectionStateConnected)
 	return m
 }
 
@@ -154,10 +155,16 @@ func NewWithClient(client *daemon.Client) *Model {
 // It returns the initial set of commands: start the clock tick and set up a
 // placeholder event subscription command (Phase 6 replaces this with real connection).
 func (m *Model) Init() tea.Cmd {
-	return tea.Batch(
+	cmds := []tea.Cmd{
 		tickCmd(),
 		m.initialTaskListCmd(),
-	)
+	}
+	// When the client is pre-wired (NewWithClient path), ReconnectedMsg is never
+	// sent, so we must start the health-check ping loop here.
+	if m.client != nil {
+		cmds = append(cmds, daemonPingCmd(m.client))
+	}
+	return tea.Batch(cmds...)
 }
 
 // Update handles incoming messages and updates the model accordingly.
