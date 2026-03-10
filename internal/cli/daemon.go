@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -73,7 +72,7 @@ func runDaemonStart(cmd *cobra.Command, _ []string) error {
 
 	//nolint:gosec // G204: exe is from os.Executable, which is the current binary
 	daemonCmd := exec.CommandContext(context.Background(), exe, "--daemon")
-	daemonCmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	setDaemonSysProcAttr(daemonCmd)
 	daemonCmd.Stdout = nil
 	daemonCmd.Stderr = nil
 	daemonCmd.Stdin = nil
