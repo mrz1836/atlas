@@ -67,8 +67,8 @@ func newTestDaemonWithRedis(t *testing.T) (*Daemon, *miniredis.Miniredis, func()
 // seedOrphanedTask creates a fake running task in miniredis without a lock key.
 func seedOrphanedTask(t *testing.T, mr *miniredis.Miniredis, taskID string, retryCount int) {
 	t.Helper()
-	// Add to active set.
-	_, sAddErr := mr.SAdd(activeSetKey, taskID)
+	// Add to active set (key prefix matches newTestDaemonWithRedis config: "atlas:").
+	_, sAddErr := mr.SAdd("atlas:active", taskID)
 	require.NoError(t, sAddErr)
 	// Set task hash fields.
 	hashKey := fmt.Sprintf("atlas:task:%s", taskID)

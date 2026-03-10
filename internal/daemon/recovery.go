@@ -12,9 +12,6 @@ import (
 const (
 	// maxRetryCount is the maximum number of times a task is re-queued after a crash.
 	maxRetryCount = 3
-
-	// activeSetKey is the Redis set that tracks all currently-running task IDs.
-	activeSetKey = "atlas:active"
 )
 
 // RecoverOrphanedTasks scans the active-tasks set for tasks that were running when
@@ -23,6 +20,12 @@ const (
 // A task is considered orphaned when its status is "running" but its worker
 // heartbeat lock (atlas:lock:task:{id}) no longer exists in Redis.
 func (d *Daemon) RecoverOrphanedTasks(ctx context.Context) error {
+	keyPrefix := d.cfg.Redis.KeyPrefix
+	if keyPrefix == "" {
+		keyPrefix = "atlas:"
+	}
+	activeSetKey := keyPrefix + "active"
+
 	// 1. Get all task IDs from the active set.
 	members, err := cache.SetMembers(ctx, d.redis, activeSetKey)
 	if err != nil {
@@ -42,7 +45,7 @@ func (d *Daemon) RecoverOrphanedTasks(ctx context.Context) error {
 			d.logger.Warn().Str("task_id", taskID).Msg("recovery: skipping non-UUID task ID")
 			continue
 		}
-		if recoverErr := d.recoverTask(ctx, taskID); recoverErr != nil {
+		if recoverErr := d.recoverTask(ctx, taskID, keyPrefix); recoverErr != nil {
 			// Log and continue — one bad task should not abort the whole recovery scan.
 			d.logger.Error().
 				Err(recoverErr).
@@ -55,9 +58,9 @@ func (d *Daemon) RecoverOrphanedTasks(ctx context.Context) error {
 }
 
 // recoverTask inspects a single task and either re-queues it or marks it failed.
-func (d *Daemon) recoverTask(ctx context.Context, taskID string) error {
-	// a. Get task fields from hash atlas:task:{taskID}.
-	fields, err := d.getTaskStatus(ctx, taskID)
+func (d *Daemon) recoverTask(ctx context.Context, taskID, keyPrefix string) error {
+	// a. Get task fields from hash {prefix}task:{taskID}.
+	fields, err := d.getTaskStatus(ctx, taskID, keyPrefix)
 	if err != nil {
 		return fmt.Errorf("get task status: %w", err)
 	}
@@ -72,7 +75,7 @@ func (d *Daemon) recoverTask(ctx context.Context, taskID string) error {
 	}
 
 	// c. Check if the worker heartbeat lock exists.
-	lockKey := fmt.Sprintf("atlas:lock:task:%s", taskID)
+	lockKey := keyPrefix + "lock:task:" + taskID
 	hasLock, err := cache.Exists(ctx, d.redis, lockKey)
 	if err != nil {
 		return fmt.Errorf("check lock key %q: %w", lockKey, err)
@@ -93,10 +96,10 @@ func (d *Daemon) recoverTask(ctx context.Context, taskID string) error {
 			Int("retry_count", retryCount).
 			Msg("recovery: max retries exceeded; marking task failed")
 
-		if err := d.setTaskField(ctx, taskID, "status", "failed"); err != nil {
+		if err := d.setTaskField(ctx, taskID, keyPrefix, "status", "failed"); err != nil {
 			return fmt.Errorf("set failed status: %w", err)
 		}
-		if err := d.setTaskField(ctx, taskID, "error", "max retries exceeded"); err != nil {
+		if err := d.setTaskField(ctx, taskID, keyPrefix, "error", "max retries exceeded"); err != nil {
 			return fmt.Errorf("set error field: %w", err)
 		}
 		return nil
@@ -104,10 +107,10 @@ func (d *Daemon) recoverTask(ctx context.Context, taskID string) error {
 
 	// g. Re-queue: increment retry_count, reset status, push back onto queue.
 	newRetry := strconv.Itoa(retryCount + 1)
-	if err := d.setTaskField(ctx, taskID, "retry_count", newRetry); err != nil {
+	if err := d.setTaskField(ctx, taskID, keyPrefix, "retry_count", newRetry); err != nil {
 		return fmt.Errorf("increment retry_count: %w", err)
 	}
-	if err := d.setTaskField(ctx, taskID, "status", "queued"); err != nil {
+	if err := d.setTaskField(ctx, taskID, keyPrefix, "status", "queued"); err != nil {
 		return fmt.Errorf("reset status to queued: %w", err)
 	}
 
@@ -130,10 +133,10 @@ func (d *Daemon) recoverTask(ctx context.Context, taskID string) error {
 	return nil
 }
 
-// getTaskStatus reads task fields from the Redis hash atlas:task:{taskID}.
+// getTaskStatus reads task fields from the Redis hash {prefix}task:{taskID}.
 // Returns a map of field names to values for the fields: status, retry_count, priority.
-func (d *Daemon) getTaskStatus(ctx context.Context, taskID string) (map[string]string, error) {
-	hashKey := fmt.Sprintf("atlas:task:%s", taskID)
+func (d *Daemon) getTaskStatus(ctx context.Context, taskID, keyPrefix string) (map[string]string, error) {
+	hashKey := keyPrefix + "task:" + taskID
 	keys := []interface{}{"status", "retry_count", "priority"}
 
 	values, err := cache.HashMapGet(ctx, d.redis, hashKey, keys...)
@@ -155,9 +158,9 @@ func (d *Daemon) getTaskStatus(ctx context.Context, taskID string) (map[string]s
 	return result, nil
 }
 
-// setTaskField updates a single field in the task hash atlas:task:{taskID}.
-func (d *Daemon) setTaskField(ctx context.Context, taskID, field, value string) error {
-	hashKey := fmt.Sprintf("atlas:task:%s", taskID)
+// setTaskField updates a single field in the task hash {prefix}task:{taskID}.
+func (d *Daemon) setTaskField(ctx context.Context, taskID, keyPrefix, field, value string) error {
+	hashKey := keyPrefix + "task:" + taskID
 	if err := cache.HashSet(ctx, d.redis, hashKey, field, value); err != nil {
 		return fmt.Errorf("hash set %q[%q]: %w", hashKey, field, err)
 	}
