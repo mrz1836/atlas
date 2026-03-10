@@ -3,6 +3,8 @@ package workflow
 import (
 	"context"
 	"fmt"
+	"io"
+	"strings"
 
 	"github.com/rs/zerolog"
 
@@ -177,6 +179,33 @@ func applyApprovalMetadata(ctx context.Context, taskStore *task.FileStore, t *do
 	return nil
 }
 
+// logStreamWriter adapts daemon.LogWriter to io.Writer for streaming live
+// validation command output to the Redis log stream.
+type logStreamWriter struct {
+	logWriter *daemon.LogWriter
+	ctx       context.Context //nolint:containedctx // carries context for async writes
+	taskID    string
+}
+
+// Write implements io.Writer. Each call writes non-empty trimmed lines as
+// debug-level log entries to the Redis log stream.
+func (w *logStreamWriter) Write(p []byte) (int, error) {
+	line := strings.TrimSpace(string(p))
+	if line == "" {
+		return len(p), nil
+	}
+	_ = w.logWriter.Write(w.ctx, w.taskID, daemon.LogEntry{
+		Level:   "debug",
+		Message: line,
+		Step:    "validate",
+		Source:  "command",
+	})
+	return len(p), nil
+}
+
+// Ensure logStreamWriter implements io.Writer.
+var _ io.Writer = (*logStreamWriter)(nil)
+
 // buildEngine creates a fully-wired task engine for the given worktree path.
 func (e *DaemonTaskExecutor) buildEngine(
 	ctx context.Context,
@@ -198,6 +227,11 @@ func (e *DaemonTaskExecutor) buildEngine(
 
 	validationRetryHandler := services.CreateValidationRetryHandler(aiRunner, cfg)
 
+	var liveOut io.Writer
+	if e.logWriter != nil {
+		liveOut = &logStreamWriter{logWriter: e.logWriter, ctx: ctx, taskID: taskID}
+	}
+
 	execRegistry := services.CreateExecutorRegistry(RegistryDeps{
 		WorkDir:                    worktreePath,
 		TaskStore:                  taskStore,
@@ -207,6 +241,7 @@ func (e *DaemonTaskExecutor) buildEngine(
 		GitServices:                gitServices,
 		Config:                     cfg,
 		ValidationProgressCallback: e.makeValidationProgressCallback(ctx, taskID),
+		ValidationLiveOutput:       liveOut,
 	})
 
 	return services.CreateEngine(EngineDeps{

@@ -82,6 +82,13 @@ type Model struct {
 	// Used as the cursor for the next Tail call.
 	lastLogID string
 
+	// ── Event subscriber ────────────────────────────────────────────────────
+	// eventSub is a persistent Redis pub/sub subscriber for task events.
+	// Started once in Init() and reused across events.
+	eventSub *daemon.EventSubscriber
+	// eventSubCancel cancels the event subscriber's context.
+	eventSubCancel context.CancelFunc
+
 	// ── Overlay state ─────────────────────────────────────────────────────────
 	// overlay holds the currently active modal (confirmation or feedback).
 	// Exactly one overlay is shown at a time; kind==OverlayNone when idle.
@@ -165,7 +172,15 @@ func (m *Model) Init() tea.Cmd {
 		cmds = append(cmds, daemonPingCmd(m.client))
 	}
 	if m.cacheClient != nil {
-		cmds = append(cmds, watchEventsCmd(m.cacheClient))
+		sub := daemon.NewEventSubscriber(m.cacheClient, "")
+		ctx, cancel := context.WithCancel(context.Background())
+		if err := sub.Start(ctx); err == nil {
+			m.eventSub = sub
+			m.eventSubCancel = cancel
+			cmds = append(cmds, watchEventsCmd(sub))
+		} else {
+			cancel()
+		}
 	}
 	return tea.Batch(cmds...)
 }
@@ -184,7 +199,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case TaskEventMsg:
 		m.applyTaskEvent(msg.Event)
-		return m, watchEventsCmd(m.cacheClient)
+		return m, watchEventsCmd(m.eventSub)
 
 	case TaskSelectedMsg:
 		m.selectTask(msg.TaskID)
@@ -237,7 +252,19 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.reconnectAttempts = 0
 		m.reconnectDelay = reconnectInitialDelay
 		m.startupError = ""
-		return m, tea.Batch(m.initialTaskListCmd(), daemonPingCmd(m.client))
+		reconnectCmds := []tea.Cmd{m.initialTaskListCmd(), daemonPingCmd(m.client)}
+		if m.cacheClient != nil && m.eventSub == nil {
+			sub := daemon.NewEventSubscriber(m.cacheClient, "")
+			sCtx, sCancel := context.WithCancel(context.Background())
+			if err := sub.Start(sCtx); err == nil {
+				m.eventSub = sub
+				m.eventSubCancel = sCancel
+				reconnectCmds = append(reconnectCmds, watchEventsCmd(m.eventSub))
+			} else {
+				sCancel()
+			}
+		}
+		return m, tea.Batch(reconnectCmds...)
 
 	case DisconnectedMsg:
 		m.connState = ConnectionStateReconnecting
@@ -504,6 +531,12 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	// Global quit.
 	if key == "q" || key == "ctrl+c" {
+		if m.eventSub != nil {
+			_ = m.eventSub.Stop()
+		}
+		if m.eventSubCancel != nil {
+			m.eventSubCancel()
+		}
 		m.quitting = true
 		return m, tea.Quit
 	}
@@ -1076,21 +1109,14 @@ func callDaemonAction(c *daemon.Client, action, taskID, feedback string) error {
 	}
 }
 
-// watchEventsCmd subscribes to the Atlas Redis event channel and delivers one
-// TaskEventMsg to the Bubble Tea update loop. The Update handler re-queues it
-// after each event, forming a single-event-at-a-time polling loop.
-// Returns nil (no-op) if cacheClient is nil or the subscription fails.
-func watchEventsCmd(cacheClient *cache.Client) tea.Cmd {
-	if cacheClient == nil {
+// watchEventsCmd reads the next event from a persistent EventSubscriber.
+// The Update handler re-queues it after each event, forming a polling loop.
+// Returns nil if sub is nil (no Redis connection).
+func watchEventsCmd(sub *daemon.EventSubscriber) tea.Cmd {
+	if sub == nil {
 		return nil
 	}
 	return func() tea.Msg {
-		sub := daemon.NewEventSubscriber(cacheClient, "")
-		ctx := context.Background()
-		if err := sub.Start(ctx); err != nil {
-			return nil
-		}
-		defer sub.Stop() //nolint:errcheck // stop is best-effort cleanup, error is not actionable here
 		ev, ok := <-sub.Events()
 		if !ok {
 			return nil

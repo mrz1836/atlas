@@ -4,6 +4,7 @@ package workflow
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"time"
@@ -48,6 +49,10 @@ type RegistryDeps struct {
 	// ValidationProgressCallback is used for validation sub-step progress.
 	// If nil, validation sub-step progress is not reported.
 	ValidationProgressCallback func(step, status string, info *validation.ProgressInfo)
+
+	// ValidationLiveOutput is an optional writer for streaming validation command output.
+	// If nil, live output streaming is not enabled.
+	ValidationLiveOutput io.Writer
 }
 
 // ServiceFactory creates all services needed for task execution.
@@ -218,6 +223,7 @@ func (f *ServiceFactory) CreateExecutorRegistry(deps RegistryDeps) *steps.Execut
 		PreCommitCommands:          deps.Config.Validation.Commands.PreCommit,
 		ProgressCallback:           deps.ProgressCallback,
 		ValidationProgressCallback: deps.ValidationProgressCallback,
+		ValidationLiveOutput:       deps.ValidationLiveOutput,
 	})
 }
 

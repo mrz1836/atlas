@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 
@@ -34,6 +35,9 @@ type ValidationExecutor struct {
 
 	// HubRunner for fetching CI check status when --from-pr is used
 	hubRunner git.PRStatusReader
+
+	// liveOutput streams command output in real-time to a writer (e.g., Redis log stream).
+	liveOutput io.Writer
 
 	// Validation commands from project config (ordered by execution)
 	preCommitCommands []string
@@ -128,6 +132,13 @@ func WithValidationProgressCallback(cb func(step, status string, info *validatio
 func WithValidationHubRunner(runner git.PRStatusReader) ValidationExecutorOption {
 	return func(e *ValidationExecutor) {
 		e.hubRunner = runner
+	}
+}
+
+// WithValidationLiveOutput sets a writer for streaming command output in real-time.
+func WithValidationLiveOutput(w io.Writer) ValidationExecutorOption {
+	return func(e *ValidationExecutor) {
+		e.liveOutput = w
 	}
 }
 
@@ -233,6 +244,9 @@ func (e *ValidationExecutor) runPipeline(ctx context.Context, task *domain.Task,
 		Msg("running validation pipeline")
 
 	executor := validation.NewExecutorWithRunner(validation.DefaultTimeout, e.runner)
+	if e.liveOutput != nil {
+		executor.SetLiveOutput(e.liveOutput)
+	}
 	runner := validation.NewRunner(executor, config)
 	return runner.Run(ctx, e.workDir)
 }

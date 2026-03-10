@@ -3,6 +3,7 @@ package steps
 
 import (
 	"context"
+	"io"
 
 	"github.com/rs/zerolog"
 
@@ -118,6 +119,10 @@ type ExecutorDeps struct {
 	// ValidationProgressCallback is used for validation sub-step progress reporting.
 	// If nil, validation sub-step progress is not reported.
 	ValidationProgressCallback func(step, status string, info *validation.ProgressInfo)
+
+	// ValidationLiveOutput is an optional writer for streaming validation command output.
+	// If nil, live output streaming is not enabled.
+	ValidationLiveOutput io.Writer
 }
 
 // NewDefaultRegistry creates a registry with all built-in executors.
@@ -164,6 +169,9 @@ func registerValidationExecutor(r *ExecutorRegistry, deps ExecutorDeps) {
 	}
 	if deps.HubRunner != nil {
 		validationOpts = append(validationOpts, WithValidationHubRunner(deps.HubRunner))
+	}
+	if deps.ValidationLiveOutput != nil {
+		validationOpts = append(validationOpts, WithValidationLiveOutput(deps.ValidationLiveOutput))
 	}
 	r.Register(NewValidationExecutorWithOptions(deps.WorkDir, validationOpts...))
 }
