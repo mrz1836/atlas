@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"time"
 
 	"github.com/google/uuid"
@@ -24,6 +25,7 @@ var (
 	errRunnerNotInitialized = errors.New("runner not initialized")
 	errWorkspaceRequired    = errors.New("workspace is required")
 	errRepoPathRequired     = errors.New("repo_path is required")
+	errInvalidTemplateName  = errors.New("invalid template name requested")
 )
 
 // setupRouter registers all JSON-RPC method handlers on the given Router.
@@ -92,6 +94,9 @@ func (d *Daemon) handleTaskSubmit(ctx context.Context, params json.RawMessage) (
 	}
 	if req.Description == "" {
 		return nil, errDescriptionRequired
+	}
+	if req.Template == "" || !regexp.MustCompile(`^[a-zA-Z0-9_-]+$`).MatchString(req.Template) {
+		return nil, errInvalidTemplateName
 	}
 
 	taskID := uuid.New().String()
@@ -239,7 +244,11 @@ func (d *Daemon) handleTaskList(ctx context.Context, params json.RawMessage) (in
 		limit = 100
 	}
 
-	var tasks []TaskStatusResponse
+	capacity := len(members)
+	if limit < capacity {
+		capacity = limit
+	}
+	tasks := make([]TaskStatusResponse, 0, capacity)
 	for _, taskID := range members {
 		if len(tasks) >= limit {
 			break

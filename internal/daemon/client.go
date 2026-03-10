@@ -82,7 +82,7 @@ func (c *Client) Call(ctx context.Context, method string, params, result interfa
 	if dl, ok := ctx.Deadline(); ok {
 		_ = c.conn.SetWriteDeadline(dl)
 	} else {
-		_ = c.conn.SetWriteDeadline(time.Time{})
+		_ = c.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 	}
 	err := c.encoder.Encode(req)
 	c.writeMu.Unlock()

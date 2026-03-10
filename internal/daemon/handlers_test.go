@@ -101,6 +101,7 @@ func TestHandlerTaskSubmit_DefaultPriority(t *testing.T) {
 	defer cleanup()
 
 	params, err := json.Marshal(TaskSubmitRequest{
+		Template:    "test-template",
 		Description: "task with default priority",
 	})
 	require.NoError(t, err)
@@ -118,7 +119,7 @@ func TestHandlerTaskSubmit_MissingDescription(t *testing.T) {
 	d, _, cleanup := newTestDaemonWithRedis(t)
 	defer cleanup()
 
-	params, err := json.Marshal(TaskSubmitRequest{})
+	params, err := json.Marshal(TaskSubmitRequest{Template: "test-template"})
 	require.NoError(t, err)
 
 	_, err = d.handleTaskSubmit(context.Background(), params)
@@ -141,6 +142,7 @@ func TestHandlerTaskSubmit_LowPriority(t *testing.T) {
 	defer cleanup()
 
 	params, err := json.Marshal(TaskSubmitRequest{
+		Template:    "test-template",
 		Description: "low prio task",
 		Priority:    string(PriorityLow),
 	})
@@ -160,6 +162,7 @@ func TestHandlerTaskSubmit_InvalidPriority(t *testing.T) {
 	defer cleanup()
 
 	params, err := json.Marshal(TaskSubmitRequest{
+		Template:    "test-template",
 		Description: "task with bad priority",
 		Priority:    "critical",
 	})
@@ -180,7 +183,7 @@ func TestHandlerTaskStatus_Valid(t *testing.T) {
 	ctx := context.Background()
 
 	// Submit a task first.
-	submitParams, err := json.Marshal(TaskSubmitRequest{Description: "status test task"})
+	submitParams, err := json.Marshal(TaskSubmitRequest{Template: "test-template", Description: "status test task"})
 	require.NoError(t, err)
 	submitResult, err := d.handleTaskSubmit(ctx, submitParams)
 	require.NoError(t, err)
@@ -258,7 +261,7 @@ func TestHandlerTaskList_WithTasks(t *testing.T) {
 
 	// Submit three tasks.
 	for i := 0; i < 3; i++ {
-		params, err := json.Marshal(TaskSubmitRequest{Description: "task"})
+		params, err := json.Marshal(TaskSubmitRequest{Template: "test-template", Description: "task"})
 		require.NoError(t, err)
 		_, err = d.handleTaskSubmit(ctx, params)
 		require.NoError(t, err)
@@ -282,7 +285,7 @@ func TestHandlerTaskList_TerminalTasksVisible(t *testing.T) {
 	// Submit two tasks.
 	var taskIDs [2]string
 	for i := range taskIDs {
-		params, err := json.Marshal(TaskSubmitRequest{Description: "terminal-test"})
+		params, err := json.Marshal(TaskSubmitRequest{Template: "test-template", Description: "terminal-test"})
 		require.NoError(t, err)
 		result, err := d.handleTaskSubmit(ctx, params)
 		require.NoError(t, err)
@@ -327,7 +330,7 @@ func TestHandlerTaskList_StatusFilter(t *testing.T) {
 	ctx := context.Background()
 
 	// Submit a task (status=queued).
-	params, err := json.Marshal(TaskSubmitRequest{Description: "filterable"})
+	params, err := json.Marshal(TaskSubmitRequest{Template: "test-template", Description: "filterable"})
 	require.NoError(t, err)
 	_, err = d.handleTaskSubmit(ctx, params)
 	require.NoError(t, err)
@@ -399,13 +402,13 @@ func TestHandlerQueueStats_WithItems(t *testing.T) {
 
 	// Submit tasks at different priorities via the handler.
 	for i := 0; i < 2; i++ {
-		params, err := json.Marshal(TaskSubmitRequest{Description: "u", Priority: "urgent"})
+		params, err := json.Marshal(TaskSubmitRequest{Template: "test-template", Description: "u", Priority: "urgent"})
 		require.NoError(t, err)
 		_, err = d.handleTaskSubmit(ctx, params)
 		require.NoError(t, err)
 	}
 
-	params, err := json.Marshal(TaskSubmitRequest{Description: "n", Priority: "normal"})
+	params, err := json.Marshal(TaskSubmitRequest{Template: "test-template", Description: "n", Priority: "normal"})
 	require.NoError(t, err)
 	_, err = d.handleTaskSubmit(ctx, params)
 	require.NoError(t, err)
@@ -430,7 +433,7 @@ func TestHandlerQueueList_All(t *testing.T) {
 	ctx := context.Background()
 
 	for _, prio := range []string{"urgent", "normal", "low"} {
-		params, err := json.Marshal(TaskSubmitRequest{Description: "t", Priority: prio})
+		params, err := json.Marshal(TaskSubmitRequest{Template: "test-template", Description: "t", Priority: prio})
 		require.NoError(t, err)
 		_, err = d.handleTaskSubmit(ctx, params)
 		require.NoError(t, err)
@@ -450,12 +453,12 @@ func TestHandlerQueueList_ByPriority(t *testing.T) {
 
 	ctx := context.Background()
 
-	params, err := json.Marshal(TaskSubmitRequest{Description: "urgent task", Priority: "urgent"})
+	params, err := json.Marshal(TaskSubmitRequest{Template: "test-template", Description: "urgent task", Priority: "urgent"})
 	require.NoError(t, err)
 	_, err = d.handleTaskSubmit(ctx, params)
 	require.NoError(t, err)
 
-	params, err = json.Marshal(TaskSubmitRequest{Description: "normal task", Priority: "normal"})
+	params, err = json.Marshal(TaskSubmitRequest{Template: "test-template", Description: "normal task", Priority: "normal"})
 	require.NoError(t, err)
 	_, err = d.handleTaskSubmit(ctx, params)
 	require.NoError(t, err)
@@ -491,7 +494,7 @@ func TestHandlerQueueClear_All(t *testing.T) {
 	ctx := context.Background()
 
 	for _, prio := range []string{"urgent", "normal", "low"} {
-		params, err := json.Marshal(TaskSubmitRequest{Description: "t", Priority: prio})
+		params, err := json.Marshal(TaskSubmitRequest{Template: "test-template", Description: "t", Priority: prio})
 		require.NoError(t, err)
 		_, err = d.handleTaskSubmit(ctx, params)
 		require.NoError(t, err)
@@ -517,7 +520,7 @@ func TestHandlerQueueClear_ByPriority(t *testing.T) {
 	ctx := context.Background()
 
 	for _, prio := range []string{"urgent", "normal", "low"} {
-		params, err := json.Marshal(TaskSubmitRequest{Description: "t", Priority: prio})
+		params, err := json.Marshal(TaskSubmitRequest{Template: "test-template", Description: "t", Priority: prio})
 		require.NoError(t, err)
 		_, err = d.handleTaskSubmit(ctx, params)
 		require.NoError(t, err)

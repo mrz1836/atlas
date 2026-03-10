@@ -68,7 +68,7 @@ func NewRedisQueue(client *cache.Client, keyPrefix string) *RedisQueue {
 // Submit adds a task to the priority queue with a nanosecond timestamp score.
 // Lower scores are popped first (FIFO within the same priority).
 func (q *RedisQueue) Submit(ctx context.Context, taskID string, priority Priority) error {
-	score := float64(time.Now().UnixNano())
+	score := float64(time.Now().UnixMicro())
 	if err := cache.SortedSetAdd(ctx, q.client, q.queueKey(priority), score, taskID); err != nil {
 		return err
 	}

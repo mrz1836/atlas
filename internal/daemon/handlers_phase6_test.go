@@ -38,7 +38,7 @@ func TestHandlerTaskPause_QueuedTask(t *testing.T) {
 
 	// Submit a task first so it exists in Redis.
 	ctx := context.Background()
-	submitParams, err := json.Marshal(TaskSubmitRequest{Description: "pause me"})
+	submitParams, err := json.Marshal(TaskSubmitRequest{Template: "test-template", Description: "pause me"})
 	require.NoError(t, err)
 	result, err := d.handleTaskSubmit(ctx, submitParams)
 	require.NoError(t, err)
@@ -72,7 +72,7 @@ func TestHandlerTaskPause_RunnerNotInitialized(t *testing.T) {
 	d.runner = nil
 
 	ctx := context.Background()
-	submitParams, err := json.Marshal(TaskSubmitRequest{Description: "test pause"})
+	submitParams, err := json.Marshal(TaskSubmitRequest{Template: "test-template", Description: "test pause"})
 	require.NoError(t, err)
 	result, err := d.handleTaskSubmit(ctx, submitParams)
 	require.NoError(t, err)
