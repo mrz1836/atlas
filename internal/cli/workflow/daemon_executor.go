@@ -12,6 +12,7 @@ import (
 	"github.com/mrz1836/atlas/internal/domain"
 	"github.com/mrz1836/atlas/internal/task"
 	"github.com/mrz1836/atlas/internal/template"
+	"github.com/mrz1836/atlas/internal/validation"
 	"github.com/mrz1836/atlas/internal/workspace"
 )
 
@@ -19,8 +20,9 @@ import (
 // It bridges daemon TaskJob metadata to the full workspace / git / engine setup
 // that is normally done by the CLI start and resume commands.
 type DaemonTaskExecutor struct {
-	logger zerolog.Logger
-	cfg    *config.Config
+	logger    zerolog.Logger
+	cfg       *config.Config
+	logWriter *daemon.LogWriter // set by daemon after Redis connects
 }
 
 // NewDaemonTaskExecutor creates a DaemonTaskExecutor.
@@ -29,6 +31,11 @@ func NewDaemonTaskExecutor(cfg *config.Config, logger zerolog.Logger) *DaemonTas
 		logger: logger,
 		cfg:    cfg,
 	}
+}
+
+// SetLogWriter injects the Redis log writer. Called by the daemon after Redis connects.
+func (e *DaemonTaskExecutor) SetLogWriter(lw *daemon.LogWriter) {
+	e.logWriter = lw
 }
 
 // Execute starts or resumes a task based on whether job.EngineTaskID is set.
@@ -85,7 +92,7 @@ func (e *DaemonTaskExecutor) start(ctx context.Context, job daemon.TaskJob) (str
 		return "", "", fmt.Errorf("start: provision workspace: %w", err)
 	}
 
-	eng, err := e.buildEngine(ctx, services, worktreePath, taskStore, cfg)
+	eng, err := e.buildEngine(ctx, services, worktreePath, taskStore, cfg, job.TaskID)
 	if err != nil {
 		return "", "", fmt.Errorf("start: build engine: %w", err)
 	}
@@ -136,7 +143,7 @@ func (e *DaemonTaskExecutor) resume(ctx context.Context, job daemon.TaskJob) (st
 	// Reconstruct workspace paths from persisted task metadata.
 	worktreePath, _ := t.Metadata["worktree_dir"].(string)
 
-	eng, err := e.buildEngine(ctx, services, worktreePath, taskStore, cfg)
+	eng, err := e.buildEngine(ctx, services, worktreePath, taskStore, cfg, job.TaskID)
 	if err != nil {
 		return "", "", fmt.Errorf("resume: build engine: %w", err)
 	}
@@ -177,6 +184,7 @@ func (e *DaemonTaskExecutor) buildEngine(
 	worktreePath string,
 	taskStore *task.FileStore,
 	cfg *config.Config,
+	taskID string,
 ) (*task.Engine, error) {
 	hookManager := services.CreateHookManager(cfg, e.logger)
 	_, stateNotifier := services.CreateNotifiers(cfg)
@@ -191,13 +199,14 @@ func (e *DaemonTaskExecutor) buildEngine(
 	validationRetryHandler := services.CreateValidationRetryHandler(aiRunner, cfg)
 
 	execRegistry := services.CreateExecutorRegistry(RegistryDeps{
-		WorkDir:     worktreePath,
-		TaskStore:   taskStore,
-		Notifier:    nil, // no TUI in daemon mode
-		AIRunner:    aiRunner,
-		Logger:      e.logger,
-		GitServices: gitServices,
-		Config:      cfg,
+		WorkDir:                    worktreePath,
+		TaskStore:                  taskStore,
+		Notifier:                   nil, // no TUI in daemon mode
+		AIRunner:                   aiRunner,
+		Logger:                     e.logger,
+		GitServices:                gitServices,
+		Config:                     cfg,
+		ValidationProgressCallback: e.makeValidationProgressCallback(ctx, taskID),
 	})
 
 	return services.CreateEngine(EngineDeps{
@@ -207,7 +216,64 @@ func (e *DaemonTaskExecutor) buildEngine(
 		StateNotifier:          stateNotifier,
 		ValidationRetryHandler: validationRetryHandler,
 		HookManager:            hookManager,
+		ProgressCallback:       e.makeProgressCallback(ctx, taskID),
 	}, cfg), nil
+}
+
+// makeProgressCallback returns a StepProgressCallback that writes step events to Redis.
+// Returns nil when no logWriter is configured.
+func (e *DaemonTaskExecutor) makeProgressCallback(ctx context.Context, taskID string) task.StepProgressCallback {
+	if e.logWriter == nil {
+		return nil
+	}
+	return func(ev task.StepProgressEvent) {
+		var msg string
+		level := "info"
+		switch ev.Type {
+		case "start":
+			msg = fmt.Sprintf("[step %d/%d] starting: %s (%s)", ev.StepIndex+1, ev.TotalSteps, ev.StepName, ev.StepType)
+		case "complete":
+			if ev.Status != "" && ev.Status != "completed" {
+				level = "warn"
+			}
+			msg = fmt.Sprintf("[step %d/%d] %s: %s (%dms)", ev.StepIndex+1, ev.TotalSteps, ev.StepName, ev.Status, ev.DurationMs)
+		case "progress":
+			if ev.SubStep != "" {
+				msg = fmt.Sprintf("[step %d/%d] %s: %s", ev.StepIndex+1, ev.TotalSteps, ev.StepName, ev.SubStep)
+			}
+		default:
+			msg = fmt.Sprintf("[step %d/%d] %s: %s", ev.StepIndex+1, ev.TotalSteps, ev.StepName, ev.Type)
+		}
+		if msg == "" {
+			return
+		}
+		_ = e.logWriter.Write(ctx, taskID, daemon.LogEntry{
+			Level:   level,
+			Message: msg,
+			Step:    ev.StepName,
+			Source:  "engine",
+		})
+	}
+}
+
+// makeValidationProgressCallback returns a validation progress callback that writes to Redis.
+// Returns nil when no logWriter is configured.
+func (e *DaemonTaskExecutor) makeValidationProgressCallback(ctx context.Context, taskID string) func(step, status string, info *validation.ProgressInfo) {
+	if e.logWriter == nil {
+		return nil
+	}
+	return func(step, status string, _ *validation.ProgressInfo) {
+		level := "info"
+		if status == "failed" {
+			level = "warn"
+		}
+		_ = e.logWriter.Write(ctx, taskID, daemon.LogEntry{
+			Level:   level,
+			Message: fmt.Sprintf("validation: %s %s", step, status),
+			Step:    "validate",
+			Source:  "engine",
+		})
+	}
 }
 
 // provisionWorkspace creates or reuses a workspace and returns worktreePath and branch.
