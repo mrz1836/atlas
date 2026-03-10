@@ -3,6 +3,8 @@ package dashboard
 import (
 	"strings"
 
+	"charm.land/lipgloss/v2"
+
 	"github.com/mrz1836/atlas/internal/tui"
 )
 
@@ -172,6 +174,21 @@ func padOrTruncate(lines []string, n int) []string {
 	copy(out, lines)
 	// remaining entries are already "" (zero value)
 	return out
+}
+
+// applyLineBg pads each line to width and applies the given background style.
+// This ensures the background color covers the full terminal width on every line.
+func applyLineBg(content string, width int, style lipgloss.Style) string {
+	lines := strings.Split(content, "\n")
+	for i, line := range lines {
+		visible := stripANSI(line)
+		visW := len([]rune(visible))
+		if visW < width {
+			line += strings.Repeat(" ", width-visW)
+		}
+		lines[i] = style.Render(line)
+	}
+	return strings.Join(lines, "\n")
 }
 
 // padOrTruncateLine pads a single line to width with spaces, or truncates it.

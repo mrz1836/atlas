@@ -164,6 +164,9 @@ func (m *Model) Init() tea.Cmd {
 	if m.client != nil {
 		cmds = append(cmds, daemonPingCmd(m.client))
 	}
+	if m.cacheClient != nil {
+		cmds = append(cmds, watchEventsCmd(m.cacheClient))
+	}
 	return tea.Batch(cmds...)
 }
 
@@ -181,7 +184,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case TaskEventMsg:
 		m.applyTaskEvent(msg.Event)
-		return m, nil
+		return m, watchEventsCmd(m.cacheClient)
 
 	case TaskSelectedMsg:
 		m.selectTask(msg.TaskID)
@@ -334,6 +337,11 @@ func (m *Model) View() tea.View {
 
 	// ── Assemble full screen ───────────────────────────────────────────────────
 	full := headerStr + "\n" + contentStr + "\n" + footerStr
+
+	// ── Apply background color to every line ──────────────────────────────────
+	if hasColor() {
+		full = applyLineBg(full, m.width, GetStyles().ContentBg)
+	}
 
 	// ── Help overlay ──────────────────────────────────────────────────────────
 	if m.helpOverlay != nil && m.helpOverlay.IsVisible() {
@@ -1065,6 +1073,29 @@ func callDaemonAction(c *daemon.Client, action, taskID, feedback string) error {
 
 	default:
 		return fmt.Errorf("%w: %s", errUnknownAction, action)
+	}
+}
+
+// watchEventsCmd subscribes to the Atlas Redis event channel and delivers one
+// TaskEventMsg to the Bubble Tea update loop. The Update handler re-queues it
+// after each event, forming a single-event-at-a-time polling loop.
+// Returns nil (no-op) if cacheClient is nil or the subscription fails.
+func watchEventsCmd(cacheClient *cache.Client) tea.Cmd {
+	if cacheClient == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		sub := daemon.NewEventSubscriber(cacheClient, "")
+		ctx := context.Background()
+		if err := sub.Start(ctx); err != nil {
+			return nil
+		}
+		defer sub.Stop() //nolint:errcheck // stop is best-effort cleanup, error is not actionable here
+		ev, ok := <-sub.Events()
+		if !ok {
+			return nil
+		}
+		return TaskEventMsg{Event: ev}
 	}
 }
 
