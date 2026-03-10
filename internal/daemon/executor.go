@@ -14,14 +14,24 @@ type TaskJob struct {
 	Template string
 	// Workspace is the workspace name to execute in.
 	Workspace string
-	// Branch is the git branch name for this task.
+	// Branch is the base git branch to create the workspace from (maps to --branch CLI flag).
 	Branch string
+	// TargetBranch is an existing branch to check out directly, skipping new branch creation
+	// (maps to --target CLI flag; mutually exclusive with Branch).
+	TargetBranch string
+	// UseLocal prefers the local copy of the branch over the remote when both exist
+	// (maps to --use-local CLI flag).
+	UseLocal bool
 	// RepoPath is the absolute path to the git repository.
 	RepoPath string
 	// Agent overrides the template's default AI agent (optional).
 	Agent string
 	// Model overrides the template's default AI model (optional).
 	Model string
+	// Verify enables the AI verification step (maps to --verify CLI flag).
+	Verify bool
+	// NoVerify disables the AI verification step (maps to --no-verify CLI flag).
+	NoVerify bool
 	// ApprovalChoice is "approve" or "reject" when resuming after approval.
 	ApprovalChoice string
 	// RejectFeedback is AI feedback passed on rejection (optional).

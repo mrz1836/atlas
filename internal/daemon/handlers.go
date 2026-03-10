@@ -130,6 +130,18 @@ func (d *Daemon) handleTaskSubmit(ctx context.Context, params json.RawMessage) (
 	if req.Model != "" {
 		pairs = append(pairs, [2]interface{}{"model", req.Model})
 	}
+	if req.TargetBranch != "" {
+		pairs = append(pairs, [2]interface{}{"target_branch", req.TargetBranch})
+	}
+	if req.UseLocal {
+		pairs = append(pairs, [2]interface{}{"use_local", "true"})
+	}
+	if req.Verify {
+		pairs = append(pairs, [2]interface{}{"verify", "true"})
+	}
+	if req.NoVerify {
+		pairs = append(pairs, [2]interface{}{"no_verify", "true"})
+	}
 	if err := cache.HashMapSet(ctx, d.redis, hashKey, pairs); err != nil {
 		return nil, fmt.Errorf("store task hash: %w", err)
 	}

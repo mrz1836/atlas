@@ -96,6 +96,7 @@ func (e *DaemonTaskExecutor) start(ctx context.Context, job daemon.TaskJob) (str
 	}
 
 	ApplyAgentModelOverrides(tmpl, job.Agent, job.Model)
+	ApplyVerifyOverrides(tmpl, job.Verify, job.NoVerify)
 
 	t, execErr := eng.Start(ctx, wsName, branch, worktreePath, tmpl, job.Description, "")
 	if execErr != nil && t == nil {
@@ -233,10 +234,15 @@ func (e *DaemonTaskExecutor) provisionWorkspace(
 		RepoPath:   job.RepoPath,
 		BranchType: "feature",
 		BaseBranch: cfg.Git.BaseBranch,
+		UseLocal:   job.UseLocal,
 	}
 	if job.Branch != "" {
-		// Checkout an existing branch directly.
-		createOpts.ExistingBranch = job.Branch
+		// Use the specified base branch instead of the config default.
+		createOpts.BaseBranch = job.Branch
+	}
+	if job.TargetBranch != "" {
+		// Checkout an existing branch directly (mutually exclusive with BranchType/BaseBranch).
+		createOpts.ExistingBranch = job.TargetBranch
 		createOpts.BranchType = ""
 		createOpts.BaseBranch = ""
 	}

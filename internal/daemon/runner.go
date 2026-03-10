@@ -169,6 +169,7 @@ func (r *Runner) loadTaskJob(ctx context.Context, taskID string) (TaskJob, error
 		"description", "template", "workspace", "branch",
 		"repo_path", "agent", "model",
 		"engine_task_id", "approval_choice", "reject_feedback",
+		"target_branch", "use_local", "verify", "no_verify",
 	}
 	vals, err := cache.HashMapGet(ctx, r.redis, hashKey, fields...)
 	if err != nil {
@@ -186,6 +187,10 @@ func (r *Runner) loadTaskJob(ctx context.Context, taskID string) (TaskJob, error
 		EngineTaskID:   safeIndex(vals, 7),
 		ApprovalChoice: safeIndex(vals, 8),
 		RejectFeedback: safeIndex(vals, 9),
+		TargetBranch:   safeIndex(vals, 10),
+		UseLocal:       safeIndex(vals, 11) == "true",
+		Verify:         safeIndex(vals, 12) == "true",
+		NoVerify:       safeIndex(vals, 13) == "true",
 	}, nil
 }
 

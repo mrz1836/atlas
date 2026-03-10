@@ -150,12 +150,16 @@ func tryDaemonSubmit(ctx context.Context, cmd *cobra.Command, w io.Writer, descr
 	defer func() { _ = c.Close() }()
 
 	req := daemon.TaskSubmitRequest{
-		Description: description,
-		Template:    opts.templateName,
-		Workspace:   opts.workspaceName,
-		Agent:       opts.agent,
-		Model:       opts.model,
-		Branch:      opts.baseBranch,
+		Description:  description,
+		Template:     opts.templateName,
+		Workspace:    opts.workspaceName,
+		Agent:        opts.agent,
+		Model:        opts.model,
+		Branch:       opts.baseBranch,
+		TargetBranch: opts.targetBranch,
+		UseLocal:     opts.useLocal,
+		Verify:       opts.verify,
+		NoVerify:     opts.noVerify,
 	}
 	var resp daemon.TaskSubmitResponse
 	if submitErr := c.Call(ctx, daemon.MethodTaskSubmit, req, &resp); submitErr != nil {
@@ -184,6 +188,13 @@ func runStart(ctx context.Context, cmd *cobra.Command, w io.Writer, description 
 	case <-ctx.Done():
 		return ctx.Err()
 	default:
+	}
+
+	// Validate flag constraints first so that invalid combinations are always
+	// rejected, even when the daemon is running and would otherwise accept the
+	// submit request without enforcing them.
+	if err := validateStartFlags(opts); err != nil {
+		return err
 	}
 
 	// Daemon-aware path: when the daemon is running and this is not a dry-run,
@@ -257,6 +268,41 @@ func runStart(ctx context.Context, cmd *cobra.Command, w io.Writer, description 
 }
 
 // validateStartOptions validates all CLI option flags.
+// validateStartFlags validates flag-level constraints that must be enforced
+// regardless of whether the task runs via the daemon or directly.
+// It does not require a startContext and is called before tryDaemonSubmit.
+func validateStartFlags(opts startOptions) error {
+	if err := validateAgent(opts.agent); err != nil {
+		return err
+	}
+	if err := validateModel(opts.agent, opts.model); err != nil {
+		return err
+	}
+	if opts.verify && opts.noVerify {
+		return atlaserrors.NewExitCode2Error(
+			fmt.Errorf("%w: cannot use both --verify and --no-verify", atlaserrors.ErrConflictingFlags))
+	}
+	exclusiveCount := 0
+	if opts.baseBranch != "" {
+		exclusiveCount++
+	}
+	if opts.targetBranch != "" {
+		exclusiveCount++
+	}
+	if opts.fromPRNumber > 0 {
+		exclusiveCount++
+	}
+	if exclusiveCount > 1 {
+		return atlaserrors.NewExitCode2Error(
+			fmt.Errorf("%w: --branch, --target, and --from-pr are mutually exclusive", atlaserrors.ErrConflictingFlags))
+	}
+	if opts.fromPRNumber < 0 {
+		return atlaserrors.NewExitCode2Error(
+			fmt.Errorf("%w: --from-pr must be a positive integer", atlaserrors.ErrInvalidArgument))
+	}
+	return nil
+}
+
 func validateStartOptions(opts startOptions, sc *startContext) error {
 	// Validate agent flag if provided
 	if err := validateAgent(opts.agent); err != nil {

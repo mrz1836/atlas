@@ -67,14 +67,18 @@ const (
 
 // TaskSubmitRequest is the params for task.submit.
 type TaskSubmitRequest struct {
-	Description string `json:"description"`
-	Template    string `json:"template"`
-	Priority    string `json:"priority,omitempty"` // urgent|normal|low
-	Workspace   string `json:"workspace,omitempty"`
-	Agent       string `json:"agent,omitempty"`
-	Model       string `json:"model,omitempty"`
-	Branch      string `json:"branch,omitempty"`
-	RepoPath    string `json:"repo_path,omitempty"`
+	Description  string `json:"description"`
+	Template     string `json:"template"`
+	Priority     string `json:"priority,omitempty"` // urgent|normal|low
+	Workspace    string `json:"workspace,omitempty"`
+	Agent        string `json:"agent,omitempty"`
+	Model        string `json:"model,omitempty"`
+	Branch       string `json:"branch,omitempty"` // base branch to create workspace from
+	RepoPath     string `json:"repo_path,omitempty"`
+	TargetBranch string `json:"target_branch,omitempty"` // existing branch to checkout (mutually exclusive with Branch)
+	UseLocal     bool   `json:"use_local,omitempty"`     // prefer local branch over remote
+	Verify       bool   `json:"verify,omitempty"`        // enable AI verification step
+	NoVerify     bool   `json:"no_verify,omitempty"`     // disable AI verification step
 }
 
 // TaskSubmitResponse is the result for task.submit.
