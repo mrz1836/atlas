@@ -163,7 +163,7 @@ func BenchmarkClientCall(b *testing.B) { //nolint:cyclop // benchmark setup comp
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		var resp DaemonPingResponse
-		_ = c.Call(MethodDaemonPing, nil, &resp)
+		_ = c.Call(context.Background(), MethodDaemonPing, nil, &resp)
 	}
 }
 

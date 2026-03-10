@@ -2,12 +2,41 @@ package workflow
 
 import (
 	"context"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 )
+
+// initTestGitRepo creates a minimal git repository in a temp dir for use by
+// initializer tests that need real git operations.
+func initTestGitRepo(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	run := func(args ...string) {
+		t.Helper()
+		cmd := exec.CommandContext(context.Background(), "git", args...) //nolint:gosec // G204: test code
+		cmd.Dir = dir
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %s failed: %v\nOutput: %s", strings.Join(args, " "), err, out)
+		}
+	}
+	run("init")
+	run("config", "user.email", "test@example.com")
+	run("config", "user.name", "Test")
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "README.md"), []byte("# test"), 0o600))
+	run("add", ".")
+	run("commit", "-m", "Initial commit")
+	return dir
+}
 
 func TestNewInitializer(t *testing.T) {
 	logger := zerolog.Nop()
@@ -162,4 +191,121 @@ func TestCreateWorkspace_BranchModes(t *testing.T) {
 		assert.Empty(t, existingBranchOpts.BaseBranch)
 		assert.Equal(t, "patch/urgent", existingBranchOpts.TargetBranch)
 	})
+}
+
+// TestCreateWorkspace_ValidDir_NewGitWorktreeRunnerFails verifies that the error handler
+// is invoked when the repo path is valid but not a git repository.
+func TestCreateWorkspace_ValidDir_NewGitWorktreeRunnerFails(t *testing.T) {
+	t.Parallel()
+	logger := zerolog.Nop()
+	init := NewInitializer(logger)
+	ctx := context.Background()
+
+	errorHandlerCalled := false
+	opts := WorkspaceOptions{
+		Name:         "test-ws",
+		RepoPath:     t.TempDir(), // valid dir but not a git repo
+		BranchPrefix: "feature",
+		BaseBranch:   "master",
+		ErrorHandler: func(_ string, err error) error {
+			errorHandlerCalled = true
+			return err
+		},
+	}
+
+	_, err := init.CreateWorkspace(ctx, opts)
+	require.Error(t, err)
+	assert.True(t, errorHandlerCalled, "ErrorHandler should be called when worktree runner fails")
+}
+
+// TestCreateWorkspace_WithGitRepo_NewBranch exercises the full CreateWorkspace path using
+// a real git repository with new-branch mode. The workspace manager creates a worktree.
+func TestCreateWorkspace_WithGitRepo_NewBranch(t *testing.T) {
+	// Not parallel: creates sibling git worktree directories.
+	repoPath := initTestGitRepo(t)
+
+	logger := zerolog.Nop()
+	init := NewInitializer(logger)
+	ctx := context.Background()
+
+	opts := WorkspaceOptions{
+		Name:         "test-new-branch-ws",
+		RepoPath:     repoPath,
+		BranchPrefix: "feat",
+		BaseBranch:   "",
+		ErrorHandler: func(_ string, err error) error { return err },
+	}
+
+	ws, err := init.CreateWorkspace(ctx, opts)
+	require.NoError(t, err)
+	assert.NotNil(t, ws)
+	assert.Equal(t, "test-new-branch-ws", ws.Name)
+}
+
+// TestCreateWorkspace_WithGitRepo_ExistingBranch exercises the existing-branch mode of
+// CreateWorkspace, which checks out a branch that already exists.
+func TestCreateWorkspace_WithGitRepo_ExistingBranch(t *testing.T) {
+	// Not parallel: creates sibling git worktree directories.
+	repoPath := initTestGitRepo(t)
+
+	logger := zerolog.Nop()
+	init := NewInitializer(logger)
+	ctx := context.Background()
+
+	// Detect the default branch name used by git init (may be "master" or "main").
+	cmd := exec.CommandContext(ctx, "git", "rev-parse", "--abbrev-ref", "HEAD")
+	cmd.Dir = repoPath
+	out, err := cmd.Output()
+	require.NoError(t, err)
+	defaultBranch := strings.TrimSpace(string(out))
+
+	// Create a new branch to check out via the existing-branch mode.
+	cmd = exec.CommandContext(ctx, "git", "checkout", "-b", "feat/existing-target")
+	cmd.Dir = repoPath
+	require.NoError(t, cmd.Run())
+	// Switch back to the default branch so the target branch is not checked out.
+	cmd = exec.CommandContext(ctx, "git", "checkout", defaultBranch) //nolint:gosec // G204: variable constructed from test-controlled values
+	cmd.Dir = repoPath
+	require.NoError(t, cmd.Run())
+
+	opts := WorkspaceOptions{
+		Name:         "test-existing-branch-ws",
+		RepoPath:     repoPath,
+		TargetBranch: "feat/existing-target",
+		ErrorHandler: func(_ string, err error) error { return err },
+	}
+
+	ws, err := init.CreateWorkspace(ctx, opts)
+	require.NoError(t, err)
+	assert.NotNil(t, ws)
+	assert.Equal(t, "feat/existing-target", ws.Branch)
+}
+
+// TestInitializer_FindGitRepository_NonGitDir verifies that FindGitRepository returns
+// ErrNotGitRepo when the working directory is not inside a git repository.
+func TestInitializer_FindGitRepository_NonGitDir(t *testing.T) {
+	t.Parallel()
+
+	// Change to a temp dir that is NOT a git repo.
+	tmpDir := t.TempDir()
+	origWd, err := os.Getwd()
+	require.NoError(t, err)
+	require.NoError(t, os.Chdir(tmpDir))
+	defer func() { _ = os.Chdir(origWd) }()
+
+	init := NewInitializer(zerolog.Nop())
+	_, err = init.FindGitRepository(context.Background())
+	assert.ErrorIs(t, err, atlaserrors.ErrNotGitRepo)
+}
+
+// TestCleanupWorkspace_ValidDir_RunnerFails verifies CleanupWorkspace returns an error
+// when the repo path is not a git repository.
+func TestCleanupWorkspace_ValidDir_RunnerFails(t *testing.T) {
+	t.Parallel()
+	init := NewInitializer(zerolog.Nop())
+	ctx := context.Background()
+
+	// Valid dir but not a git repo → NewGitWorktreeRunner fails.
+	err := init.CleanupWorkspace(ctx, "some-ws", t.TempDir())
+	assert.Error(t, err)
 }

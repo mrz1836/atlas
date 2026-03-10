@@ -125,7 +125,7 @@ func TestClient_Call_Status(t *testing.T) {
 	defer func() { _ = c.Close() }()
 
 	var resp DaemonStatusResponse
-	err = c.Call(MethodDaemonStatus, nil, &resp)
+	err = c.Call(t.Context(), MethodDaemonStatus, nil, &resp)
 	require.NoError(t, err)
 	assert.Equal(t, 1234, resp.PID)
 	assert.True(t, resp.RedisAlive)
@@ -145,7 +145,7 @@ func TestClient_Call_TaskSubmit(t *testing.T) {
 		Template:    "bug",
 	}
 	var resp TaskSubmitResponse
-	err = c.Call(MethodTaskSubmit, req, &resp)
+	err = c.Call(t.Context(), MethodTaskSubmit, req, &resp)
 	require.NoError(t, err)
 	assert.Equal(t, "test-task-id", resp.TaskID)
 	assert.Equal(t, "queued", resp.Status)
@@ -160,7 +160,7 @@ func TestClient_Call_UnknownMethod(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = c.Close() }()
 
-	err = c.Call("unknown.method", nil, nil)
+	err = c.Call(t.Context(), "unknown.method", nil, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "rpc error")
 }
@@ -178,7 +178,7 @@ func TestClient_MultipleSequentialCalls(t *testing.T) {
 	assert.True(t, c.Ping())
 
 	var status DaemonStatusResponse
-	require.NoError(t, c.Call(MethodDaemonStatus, nil, &status))
+	require.NoError(t, c.Call(t.Context(), MethodDaemonStatus, nil, &status))
 	assert.Equal(t, 1234, status.PID)
 
 	assert.True(t, c.Ping())

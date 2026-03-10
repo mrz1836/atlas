@@ -50,7 +50,7 @@ func newTestRunnerWithRedis(t *testing.T) (*Runner, *cache.Client, Queue, func()
 	events := NewEventPublisher(client, "")
 	logger := zerolog.Nop()
 
-	r := NewRunner(cfg, client, q, events, logger)
+	r := NewRunner(cfg, client, q, events, logger, nil) // nil executor = stub mode
 	return r, client, q, func() { client.Close() }
 }
 
@@ -145,7 +145,7 @@ func TestRunnerMarkTaskRunning(t *testing.T) {
 	ctx := context.Background()
 	taskID := "mark-running-task"
 
-	r.markTaskRunning(ctx, taskID)
+	require.NoError(t, r.markTaskRunning(ctx, taskID))
 
 	hashKey := "atlas:task:" + taskID
 	status, err := cache.HashGet(ctx, client, hashKey, "status")

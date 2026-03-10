@@ -83,7 +83,7 @@ func TestRecoverOrphanedTasks(t *testing.T) {
 	d, mr, cleanup := newTestDaemonWithRedis(t)
 	defer cleanup()
 
-	taskID := "task-abc123"
+	taskID := "11111111-1111-1111-1111-111111111111"
 	seedOrphanedTask(t, mr, taskID, 0)
 
 	ctx := context.Background()
@@ -113,7 +113,7 @@ func TestRecoverMaxRetries(t *testing.T) {
 	d, mr, cleanup := newTestDaemonWithRedis(t)
 	defer cleanup()
 
-	taskID := "task-maxretry"
+	taskID := "22222222-2222-2222-2222-222222222222"
 	seedOrphanedTask(t, mr, taskID, maxRetryCount) // already at limit
 
 	ctx := context.Background()
@@ -143,7 +143,7 @@ func TestRecoverOrphanedTasks_WithLock(t *testing.T) {
 	d, mr, cleanup := newTestDaemonWithRedis(t)
 	defer cleanup()
 
-	taskID := "task-with-lock"
+	taskID := "33333333-3333-3333-3333-333333333333"
 	seedOrphanedTask(t, mr, taskID, 0)
 
 	// Add an active lock — this task is still being worked on.
