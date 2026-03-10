@@ -89,6 +89,7 @@ func (m *MockHubRunner) AddPRComment(ctx context.Context, prNumber int, body str
 }
 
 func TestCIFailureAction_String(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		action   CIFailureAction
 		expected string
@@ -108,6 +109,7 @@ func TestCIFailureAction_String(t *testing.T) {
 }
 
 func TestNewCIFailureHandler(t *testing.T) {
+	t.Parallel()
 	t.Run("creates handler with defaults", func(t *testing.T) {
 		handler := NewCIFailureHandler(nil)
 		require.NotNil(t, handler)
@@ -138,6 +140,7 @@ func TestNewCIFailureHandler(t *testing.T) {
 }
 
 func TestCIFailureHandler_HandleCIFailure_ViewLogs(t *testing.T) {
+	t.Parallel()
 	t.Run("opens browser with check URL", func(t *testing.T) {
 		openCalled := false
 		openURL := ""
@@ -206,6 +209,7 @@ func TestCIFailureHandler_HandleCIFailure_ViewLogs(t *testing.T) {
 }
 
 func TestCIFailureHandler_HandleCIFailure_RetryImplement(t *testing.T) {
+	t.Parallel()
 	t.Run("extracts error context for AI", func(t *testing.T) {
 		handler := NewCIFailureHandler(nil)
 
@@ -232,6 +236,7 @@ func TestCIFailureHandler_HandleCIFailure_RetryImplement(t *testing.T) {
 }
 
 func TestCIFailureHandler_HandleCIFailure_FixManually(t *testing.T) {
+	t.Parallel()
 	t.Run("formats manual fix instructions", func(t *testing.T) {
 		handler := NewCIFailureHandler(nil)
 
@@ -255,6 +260,7 @@ func TestCIFailureHandler_HandleCIFailure_FixManually(t *testing.T) {
 }
 
 func TestCIFailureHandler_HandleCIFailure_Abandon(t *testing.T) {
+	t.Parallel()
 	t.Run("converts PR to draft and abandons", func(t *testing.T) {
 		draftCalled := false
 		mockHub := &MockHubRunner{
@@ -314,6 +320,7 @@ func TestCIFailureHandler_HandleCIFailure_Abandon(t *testing.T) {
 }
 
 func TestCIFailureHandler_HandleCIFailure_ContextCancellation(t *testing.T) {
+	t.Parallel()
 	handler := NewCIFailureHandler(nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -329,6 +336,7 @@ func TestCIFailureHandler_HandleCIFailure_ContextCancellation(t *testing.T) {
 }
 
 func TestCIFailureHandler_HandleCIFailure_UnknownAction(t *testing.T) {
+	t.Parallel()
 	handler := NewCIFailureHandler(nil)
 
 	result, err := handler.HandleCIFailure(context.Background(), CIFailureOptions{
@@ -342,6 +350,7 @@ func TestCIFailureHandler_HandleCIFailure_UnknownAction(t *testing.T) {
 }
 
 func TestCIFailureHandler_HandleCIFailure_AutoSavesArtifact(t *testing.T) {
+	t.Parallel()
 	t.Run("saves artifact when ArtifactDir provided", func(t *testing.T) {
 		dir := t.TempDir()
 		handler := NewCIFailureHandler(nil)
@@ -397,6 +406,7 @@ func TestCIFailureHandler_HandleCIFailure_AutoSavesArtifact(t *testing.T) {
 }
 
 func TestCIFailureHandler_SaveCIResultArtifact(t *testing.T) {
+	t.Parallel()
 	t.Run("saves artifact file with correct content", func(t *testing.T) {
 		dir := t.TempDir()
 		handler := NewCIFailureHandler(nil)
@@ -482,6 +492,7 @@ func TestCIFailureHandler_SaveCIResultArtifact(t *testing.T) {
 }
 
 func TestExtractCIErrorContext(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		result   *git.CIWatchResult
@@ -558,6 +569,7 @@ func TestExtractCIErrorContext(t *testing.T) {
 }
 
 func TestFormatManualFixInstructions(t *testing.T) {
+	t.Parallel()
 	t.Run("formats instructions with failed checks", func(t *testing.T) {
 		result := &git.CIWatchResult{
 			CheckResults: []git.CheckResult{
@@ -597,6 +609,7 @@ func TestFormatManualFixInstructions(t *testing.T) {
 }
 
 func TestCIFailureHandler_extractBestCheckURL(t *testing.T) {
+	t.Parallel()
 	handler := NewCIFailureHandler(nil)
 
 	tests := []struct {
@@ -673,6 +686,7 @@ func TestCIFailureHandler_extractBestCheckURL(t *testing.T) {
 }
 
 func TestCIFailureHandler_buildCIResultArtifact(t *testing.T) {
+	t.Parallel()
 	handler := NewCIFailureHandler(nil)
 
 	t.Run("builds artifact with all fields", func(t *testing.T) {
@@ -738,6 +752,7 @@ func TestCIFailureHandler_buildCIResultArtifact(t *testing.T) {
 }
 
 func TestOpenInBrowser_ValidOS(t *testing.T) {
+	t.Parallel()
 	// Not parallel because it modifies global execCommandContextFunc
 
 	// Mock execCommandContextFunc to avoid opening a real browser

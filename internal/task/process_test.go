@@ -14,6 +14,7 @@ import (
 )
 
 func TestNewProcessManager(t *testing.T) {
+	t.Parallel()
 	t.Run("creates valid manager", func(t *testing.T) {
 		logger := zerolog.New(os.Stdout)
 		pm := NewProcessManager(logger)
@@ -32,6 +33,7 @@ func TestNewProcessManager(t *testing.T) {
 }
 
 func TestProcessManager_IsProcessAlive(t *testing.T) {
+	t.Parallel()
 	logger := zerolog.New(os.Stdout)
 	pm := NewProcessManager(logger)
 
@@ -94,6 +96,7 @@ func TestProcessManager_IsProcessAlive(t *testing.T) {
 }
 
 func TestProcessManager_CleanupDeadProcesses(t *testing.T) {
+	t.Parallel()
 	logger := zerolog.New(os.Stdout)
 	pm := NewProcessManager(logger)
 
@@ -150,6 +153,7 @@ func TestProcessManager_CleanupDeadProcesses(t *testing.T) {
 }
 
 func TestProcessManager_TerminateProcesses(t *testing.T) {
+	t.Parallel()
 	var logBuf bytes.Buffer
 	logger := zerolog.New(&logBuf)
 	pm := NewProcessManager(logger)

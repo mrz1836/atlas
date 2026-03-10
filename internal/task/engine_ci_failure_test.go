@@ -67,6 +67,7 @@ func ciTestLogger() zerolog.Logger {
 
 // TestEngine_WithCIFailureHandler tests that the CI failure handler option works.
 func TestEngine_WithCIFailureHandler(t *testing.T) {
+	t.Parallel()
 	store := newMockStore()
 	registry := steps.NewExecutorRegistry()
 	cfg := DefaultEngineConfig()
@@ -83,6 +84,7 @@ func TestEngine_WithCIFailureHandler(t *testing.T) {
 
 // TestEngine_ProcessCIFailureAction_ViewLogs tests the view logs action.
 func TestEngine_ProcessCIFailureAction_ViewLogs(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	store := newMockStore()
 	registry := steps.NewExecutorRegistry()
@@ -130,6 +132,7 @@ func TestEngine_ProcessCIFailureAction_ViewLogs(t *testing.T) {
 
 // TestEngine_ProcessCIFailureAction_RetryImplement tests retrying from implement.
 func TestEngine_ProcessCIFailureAction_RetryImplement(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	store := newMockStore()
 	registry := steps.NewExecutorRegistry()
@@ -179,6 +182,7 @@ func TestEngine_ProcessCIFailureAction_RetryImplement(t *testing.T) {
 
 // TestEngine_ProcessCIFailureAction_FixManually tests manual fix action.
 func TestEngine_ProcessCIFailureAction_FixManually(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	store := newMockStore()
 	registry := steps.NewExecutorRegistry()
@@ -215,6 +219,7 @@ func TestEngine_ProcessCIFailureAction_FixManually(t *testing.T) {
 
 // TestEngine_ProcessCIFailureAction_Abandon tests the abandon action.
 func TestEngine_ProcessCIFailureAction_Abandon(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	store := newMockStore()
 	registry := steps.NewExecutorRegistry()
@@ -251,6 +256,7 @@ func TestEngine_ProcessCIFailureAction_Abandon(t *testing.T) {
 
 // TestEngine_ProcessCIFailureAction_NoHandler tests error when handler is nil.
 func TestEngine_ProcessCIFailureAction_NoHandler(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	store := newMockStore()
 	registry := steps.NewExecutorRegistry()
@@ -273,6 +279,7 @@ func TestEngine_ProcessCIFailureAction_NoHandler(t *testing.T) {
 
 // TestEngine_HandleCIFailure_TransitionsState tests CI failure handling transitions.
 func TestEngine_HandleCIFailure(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	store := newMockStore()
 	registry := steps.NewExecutorRegistry()
@@ -318,6 +325,7 @@ func TestEngine_HandleCIFailure(t *testing.T) {
 
 // TestEngine_HandleGHFailure tests GitHub failure handling.
 func TestEngine_HandleGHFailure(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	store := newMockStore()
 	registry := steps.NewExecutorRegistry()
@@ -351,6 +359,7 @@ func TestEngine_HandleGHFailure(t *testing.T) {
 
 // TestEngine_HandleCITimeout tests CI timeout handling.
 func TestEngine_HandleCITimeout(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	store := newMockStore()
 	registry := steps.NewExecutorRegistry()
@@ -387,6 +396,7 @@ func TestEngine_HandleCITimeout(t *testing.T) {
 
 // TestEngine_Resume_FromCIFailedState tests resuming from CI failed state.
 func TestEngine_Resume_FromCIFailedState(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	store := newMockStore()
 	registry := steps.NewExecutorRegistry()
@@ -439,6 +449,7 @@ func TestEngine_Resume_FromCIFailedState(t *testing.T) {
 
 // TestEngine_Resume_FromCITimeoutState tests resuming from CI timeout state.
 func TestEngine_Resume_FromCITimeoutState(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	store := newMockStore()
 	registry := steps.NewExecutorRegistry()
@@ -491,6 +502,7 @@ func TestEngine_Resume_FromCITimeoutState(t *testing.T) {
 
 // TestEngine_ProcessGHFailureAction_Retry tests retrying GH operation.
 func TestEngine_ProcessGHFailureAction_Retry(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	store := newMockStore()
 	registry := steps.NewExecutorRegistry()
@@ -519,6 +531,7 @@ func TestEngine_ProcessGHFailureAction_Retry(t *testing.T) {
 
 // TestEngine_ProcessGHFailureAction_Abandon tests abandoning after GH failure.
 func TestEngine_ProcessGHFailureAction_Abandon(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	store := newMockStore()
 	registry := steps.NewExecutorRegistry()
@@ -544,6 +557,7 @@ func TestEngine_ProcessGHFailureAction_Abandon(t *testing.T) {
 
 // TestEngine_ProcessCITimeoutAction_ContinueWaiting tests continuing to wait.
 func TestEngine_ProcessCITimeoutAction_ContinueWaiting(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	store := newMockStore()
 	registry := steps.NewExecutorRegistry()
@@ -572,6 +586,7 @@ func TestEngine_ProcessCITimeoutAction_ContinueWaiting(t *testing.T) {
 
 // TestEngine_HandleGHFailure_PushFailure tests GitHub push failure handling.
 func TestEngine_HandleGHFailure_PushFailure(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	store := newMockStore()
 	registry := steps.NewExecutorRegistry()
@@ -610,6 +625,7 @@ func TestEngine_HandleGHFailure_PushFailure(t *testing.T) {
 
 // TestEngine_HandleGHFailure_PRCreationFailure tests PR creation failure handling.
 func TestEngine_HandleGHFailure_PRCreationFailure(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	store := newMockStore()
 	registry := steps.NewExecutorRegistry()
@@ -648,6 +664,7 @@ func TestEngine_HandleGHFailure_PRCreationFailure(t *testing.T) {
 
 // TestEngine_Resume_FromGHFailedState tests resuming from GitHub failed state.
 func TestEngine_Resume_FromGHFailedState(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	store := newMockStore()
 	registry := steps.NewExecutorRegistry()
@@ -694,6 +711,7 @@ func TestEngine_Resume_FromGHFailedState(t *testing.T) {
 
 // TestEngine_ProcessCITimeoutAction_Retry tests retry after CI timeout.
 func TestEngine_ProcessCITimeoutAction_Retry(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	store := newMockStore()
 	registry := steps.NewExecutorRegistry()
@@ -730,6 +748,7 @@ func TestEngine_ProcessCITimeoutAction_Retry(t *testing.T) {
 
 // TestEngine_ProcessCITimeoutAction_Abandon tests abandoning after CI timeout.
 func TestEngine_ProcessCITimeoutAction_Abandon(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	store := newMockStore()
 	registry := steps.NewExecutorRegistry()
@@ -754,6 +773,7 @@ func TestEngine_ProcessCITimeoutAction_Abandon(t *testing.T) {
 
 // TestEngine_StateMachine_AllCITransitions tests all CI-related state transitions.
 func TestEngine_StateMachine_AllCITransitions(t *testing.T) {
+	t.Parallel()
 	testCases := []struct {
 		name        string
 		fromStatus  constants.TaskStatus
@@ -789,6 +809,7 @@ func TestEngine_StateMachine_AllCITransitions(t *testing.T) {
 
 // TestEngine_ProcessCITimeoutAction_FixManually tests manual fix after timeout.
 func TestEngine_ProcessCITimeoutAction_FixManually(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	store := newMockStore()
 	registry := steps.NewExecutorRegistry()
@@ -816,6 +837,7 @@ func TestEngine_ProcessCITimeoutAction_FixManually(t *testing.T) {
 
 // TestEngine_FindImplementStep tests finding the implement step index.
 func TestEngine_FindImplementStep(t *testing.T) {
+	t.Parallel()
 	testCases := []struct {
 		name     string
 		steps    []domain.Step
@@ -863,6 +885,7 @@ func TestEngine_FindImplementStep(t *testing.T) {
 
 // TestEngine_DispatchFailureByType tests the failure type dispatcher.
 func TestEngine_DispatchFailureByType(t *testing.T) {
+	t.Parallel()
 	testCases := []struct {
 		name           string
 		metadata       map[string]any
@@ -977,6 +1000,7 @@ func TestEngine_DispatchFailureByType(t *testing.T) {
 
 // TestCIFailureHandler_HasHandler tests the HasHandler method.
 func TestCIFailureHandler_HasHandler(t *testing.T) {
+	t.Parallel()
 	testCases := []struct {
 		name     string
 		handler  *CIFailureHandler
@@ -1009,6 +1033,7 @@ func TestCIFailureHandler_HasHandler(t *testing.T) {
 
 // TestEngine_ExtractPRNumber tests PR number extraction from various metadata types.
 func TestEngine_ExtractPRNumber(t *testing.T) {
+	t.Parallel()
 	store := newMockStore()
 	registry := steps.NewExecutorRegistry()
 	engine := NewEngine(store, registry, DefaultEngineConfig(), ciTestLogger())
@@ -1061,6 +1086,7 @@ func TestEngine_ExtractPRNumber(t *testing.T) {
 
 // TestEngine_ProcessGHFailureAction_FixAndRetry tests fix and retry action.
 func TestEngine_ProcessGHFailureAction_FixAndRetry(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	store := newMockStore()
 	registry := steps.NewExecutorRegistry()
@@ -1088,6 +1114,7 @@ func TestEngine_ProcessGHFailureAction_FixAndRetry(t *testing.T) {
 
 // TestGHFailureAction_String tests all GH failure action string values.
 func TestGHFailureAction_String(t *testing.T) {
+	t.Parallel()
 	testCases := []struct {
 		action   GHFailureAction
 		expected string
@@ -1107,6 +1134,7 @@ func TestGHFailureAction_String(t *testing.T) {
 
 // TestCITimeoutAction_String tests all CI timeout action string values.
 func TestCITimeoutAction_String(t *testing.T) {
+	t.Parallel()
 	testCases := []struct {
 		action   CITimeoutAction
 		expected string
@@ -1128,6 +1156,7 @@ func TestCITimeoutAction_String(t *testing.T) {
 // TestEngine_HandleStepResult_WithFailureType tests that HandleStepResult
 // correctly dispatches to specialized failure handlers via DispatchFailureByType.
 func TestEngine_HandleStepResult_WithFailureType(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	store := newMockStore()
 	registry := steps.NewExecutorRegistry()

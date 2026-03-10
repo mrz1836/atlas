@@ -17,6 +17,7 @@ import (
 // TestIntegration_TaskLifecycle tests the full task lifecycle:
 // create -> update status -> add artifacts -> complete
 func TestIntegration_TaskLifecycle(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
@@ -128,6 +129,7 @@ func TestIntegration_TaskLifecycle(t *testing.T) {
 
 // TestIntegration_TaskWithVersionedArtifacts tests saving multiple versions of artifacts.
 func TestIntegration_TaskWithVersionedArtifacts(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
@@ -178,6 +180,7 @@ func TestIntegration_TaskWithVersionedArtifacts(t *testing.T) {
 
 // TestIntegration_TaskStateTransitions tests valid state transitions.
 func TestIntegration_TaskStateTransitions(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
@@ -221,6 +224,7 @@ func TestIntegration_TaskStateTransitions(t *testing.T) {
 
 // TestIntegration_TaskFailureAndRetry tests the failure and retry flow.
 func TestIntegration_TaskFailureAndRetry(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}

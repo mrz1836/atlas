@@ -10,12 +10,14 @@ import (
 )
 
 func TestNoopMetrics_ImplementsInterface(t *testing.T) {
+	t.Parallel()
 	// Verify NoopMetrics implements Metrics interface
 	var m Metrics = NoopMetrics{}
 	assert.NotNil(t, m)
 }
 
 func TestNoopMetrics_MethodsDoNotPanic(t *testing.T) {
+	t.Parallel()
 	m := NoopMetrics{}
 
 	// All methods should complete without panicking
@@ -87,12 +89,14 @@ func (m *mockMetrics) LoopIteration(taskID, stepName string, iteration int, dura
 }
 
 func TestMockMetrics_ImplementsInterface(t *testing.T) {
+	t.Parallel()
 	// Verify mockMetrics implements Metrics interface
 	var m Metrics = &mockMetrics{}
 	assert.NotNil(t, m)
 }
 
 func TestMockMetrics_RecordsCalls(t *testing.T) {
+	t.Parallel()
 	m := &mockMetrics{}
 
 	m.TaskStarted("task-123", "bugfix")

@@ -16,6 +16,7 @@ import (
 // TestIsValidTransition_AllValidTransitions tests all valid transitions defined
 // in the state machine. Each row in the transitions table is verified.
 func TestIsValidTransition_AllValidTransitions(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		from constants.TaskStatus
@@ -77,6 +78,7 @@ func TestIsValidTransition_AllValidTransitions(t *testing.T) {
 
 // TestIsValidTransition_InvalidTransitions tests transitions that are NOT allowed.
 func TestIsValidTransition_InvalidTransitions(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		from constants.TaskStatus
@@ -131,6 +133,7 @@ func TestIsValidTransition_InvalidTransitions(t *testing.T) {
 
 // TestIsValidTransition_UnknownStatus tests behavior with unknown status values.
 func TestIsValidTransition_UnknownStatus(t *testing.T) {
+	t.Parallel()
 	unknownStatus := constants.TaskStatus("unknown_status")
 
 	// Unknown as source should fail
@@ -142,6 +145,7 @@ func TestIsValidTransition_UnknownStatus(t *testing.T) {
 
 // TestIsTerminalStatus tests the IsTerminalStatus helper function.
 func TestIsTerminalStatus(t *testing.T) {
+	t.Parallel()
 	terminalStatuses := []constants.TaskStatus{
 		constants.TaskStatusCompleted,
 		constants.TaskStatusRejected,
@@ -178,6 +182,7 @@ func TestIsTerminalStatus(t *testing.T) {
 
 // TestIsErrorStatus tests the IsErrorStatus helper function.
 func TestIsErrorStatus(t *testing.T) {
+	t.Parallel()
 	errorStatuses := []constants.TaskStatus{
 		constants.TaskStatusValidationFailed,
 		constants.TaskStatusGHFailed,
@@ -214,6 +219,7 @@ func TestIsErrorStatus(t *testing.T) {
 
 // TestCanRetry tests the CanRetry helper function.
 func TestCanRetry(t *testing.T) {
+	t.Parallel()
 	retryableStatuses := []constants.TaskStatus{
 		constants.TaskStatusValidationFailed,
 		constants.TaskStatusGHFailed,
@@ -247,6 +253,7 @@ func TestCanRetry(t *testing.T) {
 
 // TestCanAbandon tests the CanAbandon helper function.
 func TestCanAbandon(t *testing.T) {
+	t.Parallel()
 	abandonableStatuses := []constants.TaskStatus{
 		constants.TaskStatusValidationFailed,
 		constants.TaskStatusGHFailed,
@@ -281,6 +288,7 @@ func TestCanAbandon(t *testing.T) {
 // TestCanForceAbandon tests the CanForceAbandon helper function.
 // CanForceAbandon is more permissive than CanAbandon and includes Running status.
 func TestCanForceAbandon(t *testing.T) {
+	t.Parallel()
 	forceAbandonableStatuses := []constants.TaskStatus{
 		constants.TaskStatusRunning, // Key difference from CanAbandon
 		constants.TaskStatusValidationFailed,
@@ -315,6 +323,7 @@ func TestCanForceAbandon(t *testing.T) {
 // TestCanForceAbandon_IncludesRunning verifies that CanForceAbandon allows Running
 // while CanAbandon does not.
 func TestCanForceAbandon_IncludesRunning(t *testing.T) {
+	t.Parallel()
 	assert.False(t, CanAbandon(constants.TaskStatusRunning),
 		"CanAbandon should return false for Running")
 	assert.True(t, CanForceAbandon(constants.TaskStatusRunning),
@@ -323,6 +332,7 @@ func TestCanForceAbandon_IncludesRunning(t *testing.T) {
 
 // TestGetValidTargetStatuses tests the GetValidTargetStatuses helper function.
 func TestGetValidTargetStatuses(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		from     constants.TaskStatus
@@ -435,6 +445,7 @@ func TestGetValidTargetStatuses(t *testing.T) {
 
 // TestGetValidTargetStatuses_ReturnsCopy verifies that the returned slice is a copy.
 func TestGetValidTargetStatuses_ReturnsCopy(t *testing.T) {
+	t.Parallel()
 	targets1 := GetValidTargetStatuses(constants.TaskStatusPending)
 	targets2 := GetValidTargetStatuses(constants.TaskStatusPending)
 
@@ -453,6 +464,7 @@ func TestGetValidTargetStatuses_ReturnsCopy(t *testing.T) {
 
 // TestTransition_ValidTransitions tests all valid transitions using the Transition function.
 func TestTransition_ValidTransitions(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name   string
 		from   constants.TaskStatus
@@ -510,6 +522,7 @@ func TestTransition_ValidTransitions(t *testing.T) {
 
 // TestTransition_InvalidTransitions tests that invalid transitions return errors.
 func TestTransition_InvalidTransitions(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		from constants.TaskStatus
@@ -548,6 +561,7 @@ func TestTransition_InvalidTransitions(t *testing.T) {
 
 // TestTransition_SetsCompletedAt tests that CompletedAt is set for terminal states.
 func TestTransition_SetsCompletedAt(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		from     constants.TaskStatus
@@ -582,6 +596,7 @@ func TestTransition_SetsCompletedAt(t *testing.T) {
 // TestTransition_DoesNotSetCompletedAtForNonTerminal verifies CompletedAt is not set
 // for non-terminal transitions.
 func TestTransition_DoesNotSetCompletedAtForNonTerminal(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		from constants.TaskStatus
@@ -610,6 +625,7 @@ func TestTransition_DoesNotSetCompletedAtForNonTerminal(t *testing.T) {
 
 // TestTransition_ContextCancellation tests that the function respects context cancellation.
 func TestTransition_ContextCancellation(t *testing.T) {
+	t.Parallel()
 	task := &domain.Task{
 		ID:     "task-00000000-0000-4000-8000-000000000000",
 		Status: constants.TaskStatusPending,
@@ -628,6 +644,7 @@ func TestTransition_ContextCancellation(t *testing.T) {
 
 // TestTransition_ContextDeadlineExceeded tests deadline exceeded behavior.
 func TestTransition_ContextDeadlineExceeded(t *testing.T) {
+	t.Parallel()
 	task := &domain.Task{
 		ID:     "task-00000000-0000-4000-8000-000000000000",
 		Status: constants.TaskStatusPending,
@@ -644,6 +661,7 @@ func TestTransition_ContextDeadlineExceeded(t *testing.T) {
 
 // TestTransition_NilTask tests that nil task returns an error.
 func TestTransition_NilTask(t *testing.T) {
+	t.Parallel()
 	err := Transition(context.Background(), nil, constants.TaskStatusRunning, "test")
 
 	require.Error(t, err)
@@ -653,6 +671,7 @@ func TestTransition_NilTask(t *testing.T) {
 
 // TestTransition_EmptyReason tests that empty reason is allowed.
 func TestTransition_EmptyReason(t *testing.T) {
+	t.Parallel()
 	task := &domain.Task{
 		ID:     "task-00000000-0000-4000-8000-000000000000",
 		Status: constants.TaskStatusPending,
@@ -668,6 +687,7 @@ func TestTransition_EmptyReason(t *testing.T) {
 // TestTransition_MultipleSequentialTransitions tests that multiple transitions
 // are appended to the history.
 func TestTransition_MultipleSequentialTransitions(t *testing.T) {
+	t.Parallel()
 	task := &domain.Task{
 		ID:     "task-00000000-0000-4000-8000-000000000000",
 		Status: constants.TaskStatusPending,
@@ -717,6 +737,7 @@ func TestTransition_MultipleSequentialTransitions(t *testing.T) {
 
 // TestTransition_TransitionHistoryTimestamps verifies timestamps are recorded correctly.
 func TestTransition_TransitionHistoryTimestamps(t *testing.T) {
+	t.Parallel()
 	task := &domain.Task{
 		ID:     "task-00000000-0000-4000-8000-000000000000",
 		Status: constants.TaskStatusPending,
@@ -739,6 +760,7 @@ func TestTransition_TransitionHistoryTimestamps(t *testing.T) {
 
 // TestValidTransitions_Completeness verifies all expected statuses are in the map.
 func TestValidTransitions_Completeness(t *testing.T) {
+	t.Parallel()
 	expectedNonTerminalStatuses := []constants.TaskStatus{
 		constants.TaskStatusPending,
 		constants.TaskStatusRunning,
@@ -778,6 +800,7 @@ func TestValidTransitions_Completeness(t *testing.T) {
 // maps contain the expected values. This ensures the init() function correctly derives
 // these maps from ValidTransitions.
 func TestGeneratedStateMaps(t *testing.T) {
+	t.Parallel()
 	t.Run("terminalStatuses contains expected statuses", func(t *testing.T) {
 		expectedTerminal := []constants.TaskStatus{
 			constants.TaskStatusCompleted,

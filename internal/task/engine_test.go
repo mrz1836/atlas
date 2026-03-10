@@ -164,6 +164,7 @@ func testLogger() zerolog.Logger {
 
 // TestNewEngine tests the constructor.
 func TestNewEngine(t *testing.T) {
+	t.Parallel()
 	store := newMockStore()
 	registry := steps.NewExecutorRegistry()
 	cfg := DefaultEngineConfig()
@@ -180,6 +181,7 @@ func TestNewEngine(t *testing.T) {
 
 // TestDefaultEngineConfig tests default configuration values.
 func TestDefaultEngineConfig(t *testing.T) {
+	t.Parallel()
 	cfg := DefaultEngineConfig()
 
 	assert.True(t, cfg.AutoProceedGit)
@@ -188,6 +190,7 @@ func TestDefaultEngineConfig(t *testing.T) {
 
 // TestEngine_Start_Success tests successful task creation and execution.
 func TestEngine_Start_Success(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	store := newMockStore()
@@ -219,6 +222,7 @@ func TestEngine_Start_Success(t *testing.T) {
 
 // TestEngine_Start_TaskIDFormat tests task ID follows pattern task-YYYYMMDD-HHMMSS.
 func TestEngine_Start_TaskIDFormat(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	store := newMockStore()
@@ -246,6 +250,7 @@ func TestEngine_Start_TaskIDFormat(t *testing.T) {
 
 // TestEngine_Start_SetsFromBacklogIDInMetadata tests that fromBacklogID is set in metadata.
 func TestEngine_Start_SetsFromBacklogIDInMetadata(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	store := newMockStore()
@@ -274,6 +279,7 @@ func TestEngine_Start_SetsFromBacklogIDInMetadata(t *testing.T) {
 
 // TestEngine_Start_EmptyFromBacklogIDNotSetInMetadata tests that empty fromBacklogID is not added to metadata.
 func TestEngine_Start_EmptyFromBacklogIDNotSetInMetadata(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	store := newMockStore()
@@ -304,6 +310,7 @@ func TestEngine_Start_EmptyFromBacklogIDNotSetInMetadata(t *testing.T) {
 
 // TestEngine_Start_IteratesSteps tests that steps execute in order.
 func TestEngine_Start_IteratesSteps(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	store := newMockStore()
@@ -345,6 +352,7 @@ func TestEngine_Start_IteratesSteps(t *testing.T) {
 
 // TestEngine_Start_ContextCancellation tests context cancellation at start.
 func TestEngine_Start_ContextCancellation(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately
 
@@ -367,6 +375,7 @@ func TestEngine_Start_ContextCancellation(t *testing.T) {
 
 // TestEngine_Resume_FromErrorState tests resuming from an error state.
 func TestEngine_Resume_FromErrorState(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	store := newMockStore()
@@ -410,6 +419,7 @@ func TestEngine_Resume_FromErrorState(t *testing.T) {
 
 // TestEngine_Resume_TerminalState tests that resume rejects terminal states.
 func TestEngine_Resume_TerminalState(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	store := newMockStore()
@@ -442,6 +452,7 @@ func TestEngine_Resume_TerminalState(t *testing.T) {
 
 // TestEngine_Resume_ContextCancellation tests context cancellation during resume.
 func TestEngine_Resume_ContextCancellation(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately
 
@@ -463,6 +474,7 @@ func TestEngine_Resume_ContextCancellation(t *testing.T) {
 
 // TestEngine_ExecuteStep_ContextCancellation tests context check at step entry.
 func TestEngine_ExecuteStep_ContextCancellation(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately
 
@@ -481,6 +493,7 @@ func TestEngine_ExecuteStep_ContextCancellation(t *testing.T) {
 
 // TestEngine_ExecuteStep_ExecutorNotFound tests error when executor not registered.
 func TestEngine_ExecuteStep_ExecutorNotFound(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	store := newMockStore()
@@ -498,6 +511,7 @@ func TestEngine_ExecuteStep_ExecutorNotFound(t *testing.T) {
 
 // TestEngine_HandleStepResult_AutoProceed tests auto-proceed for validation.
 func TestEngine_HandleStepResult_AutoProceed(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	store := newMockStore()
@@ -530,6 +544,7 @@ func TestEngine_HandleStepResult_AutoProceed(t *testing.T) {
 
 // TestEngine_HandleStepResult_PausesForHuman tests pausing for human step.
 func TestEngine_HandleStepResult_PausesForHuman(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	store := newMockStore()
@@ -561,6 +576,7 @@ func TestEngine_HandleStepResult_PausesForHuman(t *testing.T) {
 
 // TestEngine_HandleStepResult_ErrorState tests transitioning to error state on failure.
 func TestEngine_HandleStepResult_ErrorState(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	store := newMockStore()
@@ -607,6 +623,7 @@ func TestEngine_HandleStepResult_ErrorState(t *testing.T) {
 
 // TestEngine_ParallelExecution tests parallel step group execution.
 func TestEngine_ParallelExecution(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	store := newMockStore()
@@ -670,6 +687,7 @@ func TestEngine_ParallelExecution(t *testing.T) {
 
 // TestEngine_ParallelExecution_FirstErrorCancels tests that first error cancels remaining.
 func TestEngine_ParallelExecution_FirstErrorCancels(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	store := newMockStore()
@@ -716,6 +734,7 @@ func TestEngine_ParallelExecution_FirstErrorCancels(t *testing.T) {
 
 // TestEngine_StateSavedAfterEachStep tests checkpointing.
 func TestEngine_StateSavedAfterEachStep(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	store := newMockStore()
@@ -750,6 +769,7 @@ func TestEngine_StateSavedAfterEachStep(t *testing.T) {
 
 // TestEngine_BuildRetryContext tests retry context generation.
 func TestEngine_BuildRetryContext(t *testing.T) {
+	t.Parallel()
 	store := newMockStore()
 	registry := steps.NewExecutorRegistry()
 	engine := NewEngine(store, registry, DefaultEngineConfig(), testLogger())
@@ -780,6 +800,7 @@ func TestEngine_BuildRetryContext(t *testing.T) {
 
 // TestEngine_EmptyTemplateSteps tests handling of empty template.
 func TestEngine_EmptyTemplateSteps(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	store := newMockStore()
@@ -877,6 +898,7 @@ func (e *failingExecutor) Type() domain.StepType {
 
 // TestEngine_HandleStepError tests error handling during step execution.
 func TestEngine_HandleStepError(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	store := newMockStore()
@@ -917,6 +939,7 @@ func TestEngine_HandleStepError(t *testing.T) {
 
 // TestEngine_HandleStepError_StoreFails tests when store fails during error handling.
 func TestEngine_HandleStepError_StoreFails(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	store := newMockStore()
@@ -946,6 +969,7 @@ func TestEngine_HandleStepError_StoreFails(t *testing.T) {
 
 // TestEngine_RunSteps_ContextCanceledMidLoop tests context cancellation during step loop.
 func TestEngine_RunSteps_ContextCanceledMidLoop(t *testing.T) {
+	t.Parallel()
 	store := newMockStore()
 	registry := steps.NewExecutorRegistry()
 
@@ -996,6 +1020,7 @@ func TestEngine_RunSteps_ContextCanceledMidLoop(t *testing.T) {
 
 // TestEngine_RunSteps_CheckpointSaveFails tests checkpoint save failure.
 func TestEngine_RunSteps_CheckpointSaveFails(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	store := newMockStore()
@@ -1027,6 +1052,7 @@ func TestEngine_RunSteps_CheckpointSaveFails(t *testing.T) {
 
 // TestEngine_TransitionToErrorState_FromValidating tests transition from Validating state.
 func TestEngine_TransitionToErrorState_FromValidating(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	store := newMockStore()
@@ -1060,6 +1086,7 @@ func TestEngine_TransitionToErrorState_FromValidating(t *testing.T) {
 
 // TestEngine_TransitionToErrorState_GitFromRunning tests git failure from Running.
 func TestEngine_TransitionToErrorState_GitFromRunning(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	store := newMockStore()
@@ -1093,6 +1120,7 @@ func TestEngine_TransitionToErrorState_GitFromRunning(t *testing.T) {
 
 // TestEngine_TransitionToErrorState_CIFromRunning tests CI failure from Running.
 func TestEngine_TransitionToErrorState_CIFromRunning(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	store := newMockStore()
@@ -1126,6 +1154,7 @@ func TestEngine_TransitionToErrorState_CIFromRunning(t *testing.T) {
 
 // TestEngine_EnsureMetadata_NonNil tests ensureMetadata with existing metadata.
 func TestEngine_EnsureMetadata_NonNil(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	store := newMockStore()
@@ -1163,6 +1192,7 @@ func TestEngine_EnsureMetadata_NonNil(t *testing.T) {
 
 // TestEngine_CompleteTask_StoreFails tests complete task with store failure.
 func TestEngine_CompleteTask_StoreFails(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	store := newMockStore()
@@ -1193,6 +1223,7 @@ func TestEngine_CompleteTask_StoreFails(t *testing.T) {
 
 // TestEngine_MapStepTypeToErrorStatus_SDD tests SDD step type mapping.
 func TestEngine_MapStepTypeToErrorStatus_SDD(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	store := newMockStore()
@@ -1226,6 +1257,7 @@ func TestEngine_MapStepTypeToErrorStatus_SDD(t *testing.T) {
 
 // TestEngine_RunSteps_ShouldPauseSaveSuccess tests the pause path when save succeeds.
 func TestEngine_RunSteps_ShouldPauseSaveSuccess(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	store := newMockStore()
@@ -1256,6 +1288,7 @@ func TestEngine_RunSteps_ShouldPauseSaveSuccess(t *testing.T) {
 
 // TestEngine_RunSteps_ShouldPauseSaveFails tests the pause path when save fails.
 func TestEngine_RunSteps_ShouldPauseSaveFails(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	store := &conditionalFailStore{
@@ -1286,6 +1319,7 @@ func TestEngine_RunSteps_ShouldPauseSaveFails(t *testing.T) {
 
 // TestEngine_HandleStepResult_ContextCancelled tests context cancellation in HandleStepResult.
 func TestEngine_HandleStepResult_ContextCancelled(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately
 
@@ -1308,6 +1342,7 @@ func TestEngine_HandleStepResult_ContextCancelled(t *testing.T) {
 
 // TestEngine_CompleteTask_TransitionFails tests completeTask when transition fails.
 func TestEngine_CompleteTask_TransitionFails(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	store := newMockStore()
@@ -1335,6 +1370,7 @@ func TestEngine_CompleteTask_TransitionFails(t *testing.T) {
 
 // TestEngine_Resume_SaveFails tests Resume when save fails after state transition.
 func TestEngine_Resume_SaveFails(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	store := newMockStore()
@@ -1361,6 +1397,7 @@ func TestEngine_Resume_SaveFails(t *testing.T) {
 
 // TestEngine_CompleteTask_StoreSaveFails tests completeTask when final store save fails.
 func TestEngine_CompleteTask_StoreSaveFails(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	// Use conditional store that fails on the 2nd update (completeTask save)
@@ -1393,6 +1430,7 @@ func TestEngine_CompleteTask_StoreSaveFails(t *testing.T) {
 
 // TestEngine_Start_CreateFails tests Start when store create fails.
 func TestEngine_Start_CreateFails(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	store := newMockStore()
@@ -1481,6 +1519,7 @@ type callbackExecutor struct {
 
 // TestEngine_executeCurrentStep tests the executeCurrentStep helper.
 func TestEngine_executeCurrentStep(t *testing.T) {
+	t.Parallel()
 	t.Run("executes_step_at_current_index", func(t *testing.T) {
 		ctx := context.Background()
 
@@ -1554,6 +1593,7 @@ func TestEngine_executeCurrentStep(t *testing.T) {
 
 // TestEngine_processStepResult tests the processStepResult helper.
 func TestEngine_processStepResult(t *testing.T) {
+	t.Parallel()
 	t.Run("success_result_returns_nil", func(t *testing.T) {
 		ctx := context.Background()
 
@@ -1653,6 +1693,7 @@ func TestEngine_processStepResult(t *testing.T) {
 
 // TestEngine_advanceToNextStep tests the advanceToNextStep helper.
 func TestEngine_advanceToNextStep(t *testing.T) {
+	t.Parallel()
 	t.Run("increments_step_and_saves_checkpoint", func(t *testing.T) {
 		ctx := context.Background()
 
@@ -1700,6 +1741,7 @@ func TestEngine_advanceToNextStep(t *testing.T) {
 
 // TestEngine_saveAndPause tests the saveAndPause helper.
 func TestEngine_saveAndPause(t *testing.T) {
+	t.Parallel()
 	t.Run("saves_state_and_returns_nil", func(t *testing.T) {
 		ctx := context.Background()
 
@@ -1743,6 +1785,7 @@ func TestEngine_saveAndPause(t *testing.T) {
 
 // TestEngine_setErrorMetadata tests the setErrorMetadata helper.
 func TestEngine_setErrorMetadata(t *testing.T) {
+	t.Parallel()
 	t.Run("sets_error_metadata_on_nil_metadata", func(t *testing.T) {
 		store := newMockStore()
 		registry := steps.NewExecutorRegistry()
@@ -1783,6 +1826,7 @@ func TestEngine_setErrorMetadata(t *testing.T) {
 
 // TestEngine_requiresValidatingIntermediate tests the requiresValidatingIntermediate helper.
 func TestEngine_requiresValidatingIntermediate(t *testing.T) {
+	t.Parallel()
 	store := newMockStore()
 	registry := steps.NewExecutorRegistry()
 	engine := NewEngine(store, registry, DefaultEngineConfig(), testLogger())
@@ -1853,6 +1897,7 @@ func (e *callbackExecutor) Type() domain.StepType {
 // TestEngine_ExecuteStepInternal_AllStepTypes tests executeStepInternal with all 6 step types.
 // AC #3: Given executeStepInternal When called with each step type Then returns correct results.
 func TestEngine_ExecuteStepInternal_AllStepTypes(t *testing.T) {
+	t.Parallel()
 	testCases := []struct {
 		name           string
 		stepType       domain.StepType
@@ -1947,6 +1992,7 @@ func TestEngine_ExecuteStepInternal_AllStepTypes(t *testing.T) {
 
 // TestEngine_ExecuteStepInternal_LogsStepDetails verifies logging output includes step details.
 func TestEngine_ExecuteStepInternal_LogsStepDetails(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	store := newMockStore()
@@ -1981,6 +2027,7 @@ func TestEngine_ExecuteStepInternal_LogsStepDetails(t *testing.T) {
 // TestEngine_ShouldPause_AllErrorStates tests shouldPause for all error states.
 // AC #4: Given shouldPause When task is in any error state Then returns true.
 func TestEngine_ShouldPause_AllErrorStates(t *testing.T) {
+	t.Parallel()
 	store := newMockStore()
 	registry := steps.NewExecutorRegistry()
 	engine := NewEngine(store, registry, DefaultEngineConfig(), testLogger())
@@ -2055,6 +2102,7 @@ func TestEngine_ShouldPause_AllErrorStates(t *testing.T) {
 // TestEngine_ParallelExecution_RaceCondition is a stress test for race conditions.
 // AC #5: Given parallel step execution When 100+ iterations with race detector Then no data races.
 func TestEngine_ParallelExecution_RaceCondition(t *testing.T) {
+	t.Parallel()
 	const iterations = 100
 
 	for i := 0; i < iterations; i++ {
@@ -2114,6 +2162,7 @@ func TestEngine_ParallelExecution_RaceCondition(t *testing.T) {
 
 // TestEngine_ParallelExecution_NoPanicsUnderHighConcurrency verifies no panics under stress.
 func TestEngine_ParallelExecution_NoPanicsUnderHighConcurrency(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	store := newMockStore()
@@ -2170,6 +2219,7 @@ func TestEngine_ParallelExecution_NoPanicsUnderHighConcurrency(t *testing.T) {
 // TestEngine_Timeout_StepExceedsLimit tests timeout handling for long-running steps.
 // AC #6: Given step with configured timeout When execution exceeds timeout Then returns context.DeadlineExceeded.
 func TestEngine_Timeout_StepExceedsLimit(t *testing.T) {
+	t.Parallel()
 	t.Run("step_exceeds_timeout_returns_deadline_exceeded", func(t *testing.T) {
 		// Create context with short timeout (100ms)
 		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
@@ -2289,6 +2339,7 @@ func TestEngine_Timeout_StepExceedsLimit(t *testing.T) {
 // TestEngine_MapStepTypeToErrorStatus_Exhaustive tests exhaustive step type to error status mapping.
 // AC #7: Given mapStepTypeToErrorStatus When called with all step types Then returns correct mappings exhaustively.
 func TestEngine_MapStepTypeToErrorStatus_Exhaustive(t *testing.T) {
+	t.Parallel()
 	store := newMockStore()
 	registry := steps.NewExecutorRegistry()
 	engine := NewEngine(store, registry, DefaultEngineConfig(), testLogger())
@@ -2361,6 +2412,7 @@ func TestEngine_MapStepTypeToErrorStatus_Exhaustive(t *testing.T) {
 
 // TestEngine_BuildRetryContext_EdgeCases tests edge cases for buildRetryContext.
 func TestEngine_BuildRetryContext_EdgeCases(t *testing.T) {
+	t.Parallel()
 	store := newMockStore()
 	registry := steps.NewExecutorRegistry()
 	engine := NewEngine(store, registry, DefaultEngineConfig(), testLogger())
@@ -2498,6 +2550,7 @@ func TestEngine_BuildRetryContext_EdgeCases(t *testing.T) {
 // TestEngine_ConcurrentResume is a stress test for concurrent resume operations.
 // AC #5: Given parallel step execution When 100+ iterations with race detector Then no data races.
 func TestEngine_ConcurrentResume(t *testing.T) {
+	t.Parallel()
 	const goroutines = 10
 
 	t.Run("concurrent_resume_same_task_no_panics", func(t *testing.T) {
@@ -2658,6 +2711,7 @@ func TestEngine_ConcurrentResume(t *testing.T) {
 
 // TestEngine_ProcessStepResult_StoreSaveErrorPath tests the error path in processStepResult.
 func TestEngine_ProcessStepResult_StoreSaveErrorPath(t *testing.T) {
+	t.Parallel()
 	t.Run("unknown_result_status_returns_error", func(t *testing.T) {
 		ctx := context.Background()
 
@@ -2725,6 +2779,7 @@ func TestEngine_ProcessStepResult_StoreSaveErrorPath(t *testing.T) {
 
 // TestEngine_RunSteps_HandleStepErrorPath tests the handleStepError path in runSteps.
 func TestEngine_RunSteps_HandleStepErrorPath(t *testing.T) {
+	t.Parallel()
 	t.Run("handle_step_error_propagates_executor_error", func(t *testing.T) {
 		ctx := context.Background()
 
@@ -2755,6 +2810,7 @@ func TestEngine_RunSteps_HandleStepErrorPath(t *testing.T) {
 
 // TestEngine_CompleteTask_TransitionErrors tests error paths in completeTask.
 func TestEngine_CompleteTask_TransitionErrors(t *testing.T) {
+	t.Parallel()
 	t.Run("store_save_fails_returns_error", func(t *testing.T) {
 		ctx := context.Background()
 
@@ -2788,6 +2844,7 @@ func TestEngine_CompleteTask_TransitionErrors(t *testing.T) {
 
 // TestEngine_HandleStepResult_UnknownStatus tests unknown result status handling.
 func TestEngine_HandleStepResult_UnknownStatus(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	store := newMockStore()
@@ -2820,6 +2877,7 @@ func TestEngine_HandleStepResult_UnknownStatus(t *testing.T) {
 // This is the scenario when AI decides no changes are needed and the CI step
 // is skipped because no PR was created.
 func TestEngine_HandleStepResult_SkippedStatus(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	store := newMockStore()
@@ -2854,6 +2912,7 @@ func TestEngine_HandleStepResult_SkippedStatus(t *testing.T) {
 
 // TestEngine_MapStepTypeToErrorStatus_DefaultCase tests the default case in switch.
 func TestEngine_MapStepTypeToErrorStatus_DefaultCase(t *testing.T) {
+	t.Parallel()
 	store := newMockStore()
 	registry := steps.NewExecutorRegistry()
 	engine := NewEngine(store, registry, DefaultEngineConfig(), testLogger())
@@ -2868,6 +2927,7 @@ func TestEngine_MapStepTypeToErrorStatus_DefaultCase(t *testing.T) {
 
 // TestEngine_Start_StepBeyondArrayBounds tests edge case of CurrentStep >= len(Steps).
 func TestEngine_Start_StepBeyondArrayBounds(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	store := newMockStore()
@@ -2895,6 +2955,7 @@ func TestEngine_Start_StepBeyondArrayBounds(t *testing.T) {
 
 // TestEngine_ExecuteStep_UpdatesStepStatus tests that ExecuteStep updates step status correctly.
 func TestEngine_ExecuteStep_UpdatesStepStatus(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	store := newMockStore()
@@ -2931,6 +2992,7 @@ func TestEngine_ExecuteStep_UpdatesStepStatus(t *testing.T) {
 
 // TestEngine_HandleStepResult_UpdatesStepCompletion tests step completion updates.
 func TestEngine_HandleStepResult_UpdatesStepCompletion(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	store := newMockStore()
@@ -2966,6 +3028,7 @@ func TestEngine_HandleStepResult_UpdatesStepCompletion(t *testing.T) {
 
 // TestEngine_HandleStepResult_FailedStepSetsError tests error field is set on failure.
 func TestEngine_HandleStepResult_FailedStepSetsError(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	store := newMockStore()
@@ -2999,6 +3062,7 @@ func TestEngine_HandleStepResult_FailedStepSetsError(t *testing.T) {
 
 // TestEngine_Start_TransitionFails tests Start when initial transition fails.
 func TestEngine_Start_TransitionFails(t *testing.T) {
+	t.Parallel()
 	// This is hard to test directly since Transition() validates internal state machine
 	// The Transition function only fails on invalid state transitions
 	// Since we control the initial state (Pending), transition to Running always succeeds
@@ -3025,6 +3089,7 @@ func TestEngine_Start_TransitionFails(t *testing.T) {
 
 // TestEngine_CompleteTask_FirstTransitionFails tests completeTask when first transition fails.
 func TestEngine_CompleteTask_FirstTransitionFails(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	store := newMockStore()
@@ -3052,6 +3117,7 @@ func TestEngine_CompleteTask_FirstTransitionFails(t *testing.T) {
 // The second transition (Validating → AwaitingApproval) can only fail via context cancellation
 // since it's always a valid state machine transition.
 func TestEngine_CompleteTask_SecondTransitionFails(t *testing.T) {
+	t.Parallel()
 	// To test the second transition failing, we call completeTask directly
 	// with a task already in Validating state and a canceled context.
 	// The first transition will fail because context is checked at start of Transition.
@@ -3109,6 +3175,7 @@ func TestEngine_CompleteTask_SecondTransitionFails(t *testing.T) {
 
 // TestEngine_Resume_AlreadyRunning tests Resume when task is already Running.
 func TestEngine_Resume_AlreadyRunning(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	store := newMockStore()
@@ -3147,6 +3214,7 @@ func TestEngine_Resume_AlreadyRunning(t *testing.T) {
 
 // TestEngine_Resume_FromAwaitingApproval tests Resume when task is in AwaitingApproval state.
 func TestEngine_Resume_FromAwaitingApproval(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	store := newMockStore()
@@ -3193,6 +3261,7 @@ func TestEngine_Resume_FromAwaitingApproval(t *testing.T) {
 
 // TestEngine_ProcessStepResult_SaveWarningPath tests the warning log path when save fails on error handling.
 func TestEngine_ProcessStepResult_SaveWarningPath(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	store := newMockStore()
@@ -3227,6 +3296,7 @@ func TestEngine_ProcessStepResult_SaveWarningPath(t *testing.T) {
 
 // TestEngine_RunSteps_MultipleStepsWithPause tests the pause behavior mid-execution.
 func TestEngine_RunSteps_MultipleStepsWithPause(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	store := newMockStore()
@@ -3266,6 +3336,7 @@ func TestEngine_RunSteps_MultipleStepsWithPause(t *testing.T) {
 
 // TestEngine_HandleStepResult_CurrentStepBeyondArray tests edge case handling.
 func TestEngine_HandleStepResult_CurrentStepBeyondArray(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	store := newMockStore()
@@ -3298,6 +3369,7 @@ func TestEngine_HandleStepResult_CurrentStepBeyondArray(t *testing.T) {
 
 // TestEngine_ExecuteStep_CurrentStepBeyondArray tests ExecuteStep with out-of-bounds index.
 func TestEngine_ExecuteStep_CurrentStepBeyondArray(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	store := newMockStore()
@@ -3327,6 +3399,7 @@ func TestEngine_ExecuteStep_CurrentStepBeyondArray(t *testing.T) {
 
 // TestEngine_ProcessStepResult_HandleResultError_WithStoreSaveError tests the error path with store save failure.
 func TestEngine_ProcessStepResult_HandleResultError_WithStoreSaveError(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	store := newMockStore()
@@ -3359,6 +3432,7 @@ func TestEngine_ProcessStepResult_HandleResultError_WithStoreSaveError(t *testin
 
 // TestEngine_RunSteps_ExecuteCurrentStepError tests runSteps error handling when execute fails.
 func TestEngine_RunSteps_ExecuteCurrentStepError(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	store := newMockStore()
@@ -3393,6 +3467,7 @@ func TestEngine_RunSteps_ExecuteCurrentStepError(t *testing.T) {
 
 // TestEngine_Start_StoreCreateFails tests Start when store.Create fails.
 func TestEngine_Start_StoreCreateFails(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	store := newMockStore()
@@ -3421,6 +3496,7 @@ func TestEngine_Start_StoreCreateFails(t *testing.T) {
 
 // TestEngine_RunSteps_AdvanceToNextStepError tests runSteps when advanceToNextStep fails.
 func TestEngine_RunSteps_AdvanceToNextStepError(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	// Use a store that fails on second update (which happens in advanceToNextStep)
@@ -3454,6 +3530,7 @@ func TestEngine_RunSteps_AdvanceToNextStepError(t *testing.T) {
 
 // TestEngine_RunSteps_ContextErrorInLoop tests the context.Err() check in the loop.
 func TestEngine_RunSteps_ContextErrorInLoop(t *testing.T) {
+	t.Parallel()
 	registry := steps.NewExecutorRegistry()
 
 	// First step succeeds, then context gets canceled
@@ -3513,6 +3590,7 @@ func (s *contextCancellingStore) Update(ctx context.Context, workspaceName strin
 
 // TestEngine_Abandon_Success tests successful task abandonment.
 func TestEngine_Abandon_Success(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	store := newMockStore()
@@ -3548,6 +3626,7 @@ func TestEngine_Abandon_Success(t *testing.T) {
 
 // TestEngine_Abandon_FromGHFailed tests abandonment from gh_failed state.
 func TestEngine_Abandon_FromGHFailed(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	store := newMockStore()
@@ -3570,6 +3649,7 @@ func TestEngine_Abandon_FromGHFailed(t *testing.T) {
 
 // TestEngine_Abandon_FromCIFailed tests abandonment from ci_failed state.
 func TestEngine_Abandon_FromCIFailed(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	store := newMockStore()
@@ -3592,6 +3672,7 @@ func TestEngine_Abandon_FromCIFailed(t *testing.T) {
 
 // TestEngine_Abandon_FromCITimeout tests abandonment from ci_timeout state.
 func TestEngine_Abandon_FromCITimeout(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	store := newMockStore()
@@ -3614,6 +3695,7 @@ func TestEngine_Abandon_FromCITimeout(t *testing.T) {
 
 // TestEngine_Abandon_RejectsNonAbandonableState tests that non-abandonable states are rejected.
 func TestEngine_Abandon_RejectsNonAbandonableState(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name   string
 		status constants.TaskStatus
@@ -3654,6 +3736,7 @@ func TestEngine_Abandon_RejectsNonAbandonableState(t *testing.T) {
 
 // TestEngine_Abandon_NilTask tests abandonment with nil task.
 func TestEngine_Abandon_NilTask(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	store := newMockStore()
@@ -3667,6 +3750,7 @@ func TestEngine_Abandon_NilTask(t *testing.T) {
 
 // TestEngine_Abandon_ContextCanceled tests context cancellation during abandon.
 func TestEngine_Abandon_ContextCanceled(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately
 
@@ -3689,6 +3773,7 @@ func TestEngine_Abandon_ContextCanceled(t *testing.T) {
 
 // TestEngine_Abandon_StoreFails tests when store fails during abandon.
 func TestEngine_Abandon_StoreFails(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	store := newMockStore()
@@ -3713,6 +3798,7 @@ func TestEngine_Abandon_StoreFails(t *testing.T) {
 
 // TestEngine_Abandon_PreservesMetadata tests that abandonment preserves task metadata.
 func TestEngine_Abandon_PreservesMetadata(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	store := newMockStore()
@@ -4149,6 +4235,7 @@ func TestEngine_HandleStepResult_SetsNoIssuesDetected(t *testing.T) {
 }
 
 func TestWithNotifier(t *testing.T) {
+	t.Parallel()
 	// Create a mock notifier
 	notifier := &StateChangeNotifier{}
 
@@ -4166,6 +4253,7 @@ func TestWithNotifier(t *testing.T) {
 }
 
 func TestWithNotifier_NilNotifier(t *testing.T) {
+	t.Parallel()
 	// Test that nil notifier can be set
 	store := newMockStore()
 	registry := steps.NewExecutorRegistry()
@@ -4180,6 +4268,7 @@ func TestWithNotifier_NilNotifier(t *testing.T) {
 }
 
 func TestEngine_Abandon_ForceRunningTaskWithProcesses(t *testing.T) {
+	t.Parallel()
 	store := newMockStore()
 	registry := steps.NewExecutorRegistry()
 	engine := NewEngine(store, registry, DefaultEngineConfig(), testLogger())
@@ -4203,6 +4292,7 @@ func TestEngine_Abandon_ForceRunningTaskWithProcesses(t *testing.T) {
 }
 
 func TestEngine_Abandon_RequiresForceForRunning(t *testing.T) {
+	t.Parallel()
 	store := newMockStore()
 	registry := steps.NewExecutorRegistry()
 	engine := NewEngine(store, registry, DefaultEngineConfig(), testLogger())
@@ -4223,6 +4313,7 @@ func TestEngine_Abandon_RequiresForceForRunning(t *testing.T) {
 }
 
 func TestEngine_HandleExecutionError_WithResult(t *testing.T) {
+	t.Parallel()
 	store := newMockStore()
 	registry := steps.NewExecutorRegistry()
 	engine := NewEngine(store, registry, DefaultEngineConfig(), testLogger())
@@ -4255,6 +4346,7 @@ func TestEngine_HandleExecutionError_WithResult(t *testing.T) {
 }
 
 func TestEngine_IsSkippableGitOperation_Push(t *testing.T) {
+	t.Parallel()
 	store := newMockStore()
 	registry := steps.NewExecutorRegistry()
 	engine := NewEngine(store, registry, DefaultEngineConfig(), testLogger())
@@ -4272,6 +4364,7 @@ func TestEngine_IsSkippableGitOperation_Push(t *testing.T) {
 }
 
 func TestEngine_IsSkippableGitOperation_Commit(t *testing.T) {
+	t.Parallel()
 	store := newMockStore()
 	registry := steps.NewExecutorRegistry()
 	engine := NewEngine(store, registry, DefaultEngineConfig(), testLogger())
@@ -4290,6 +4383,7 @@ func TestEngine_IsSkippableGitOperation_Commit(t *testing.T) {
 
 // TestEngine_NotifyStateChange_WithNotifier tests notifyStateChange with a notifier configured.
 func TestEngine_NotifyStateChange_WithNotifier(t *testing.T) {
+	t.Parallel()
 	store := newMockStore()
 	registry := steps.NewExecutorRegistry()
 
@@ -4318,6 +4412,7 @@ func TestEngine_NotifyStateChange_NoNotifier(_ *testing.T) {
 
 // TestResolveStepAgentModel tests the ResolveStepAgentModel helper function
 func TestResolveStepAgentModel(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name          string
 		taskAgent     domain.Agent
@@ -4408,6 +4503,7 @@ func TestResolveStepAgentModel(t *testing.T) {
 
 // TestEngine_Start_UpdatesBacklogStatus tests that task creation updates linked backlog discovery status.
 func TestEngine_Start_UpdatesBacklogStatus(t *testing.T) {
+	t.Parallel()
 	t.Run("updates discovery status when from_backlog_id present", func(t *testing.T) {
 		// This test verifies that when a task is started with from_backlog_id metadata,
 		// the engine calls the backlog manager to update the discovery status.
@@ -4754,6 +4850,7 @@ func TestEngine_ApplyGitGarbageChoice(t *testing.T) {
 // TestEngine_HandleStepResult_ApprovalContextInTransition tests that approval context
 // (step name and output) is included in the transition reason when a step requires approval.
 func TestEngine_HandleStepResult_ApprovalContextInTransition(t *testing.T) {
+	t.Parallel()
 	t.Run("includes step name in transition reason", func(t *testing.T) {
 		ctx := context.Background()
 

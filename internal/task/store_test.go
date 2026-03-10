@@ -59,6 +59,7 @@ func setupTestStore(t *testing.T) (*FileStore, string) {
 }
 
 func TestNewFileStore(t *testing.T) {
+	t.Parallel()
 	t.Run("with custom path", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		store, err := NewFileStore(tmpDir)
@@ -77,6 +78,7 @@ func TestNewFileStore(t *testing.T) {
 }
 
 func TestFileStore_Create(t *testing.T) {
+	t.Parallel()
 	t.Run("creates task successfully", func(t *testing.T) {
 		store, tmpDir := setupTestStore(t)
 
@@ -156,6 +158,7 @@ func TestFileStore_Create(t *testing.T) {
 }
 
 func TestFileStore_Get(t *testing.T) {
+	t.Parallel()
 	t.Run("retrieves existing task", func(t *testing.T) {
 		store, _ := setupTestStore(t)
 
@@ -207,6 +210,7 @@ func TestFileStore_Get(t *testing.T) {
 }
 
 func TestFileStore_Update(t *testing.T) {
+	t.Parallel()
 	t.Run("updates existing task", func(t *testing.T) {
 		store, _ := setupTestStore(t)
 
@@ -259,6 +263,7 @@ func TestFileStore_Update(t *testing.T) {
 }
 
 func TestFileStore_List(t *testing.T) {
+	t.Parallel()
 	t.Run("lists multiple tasks sorted by creation time", func(t *testing.T) {
 		store, _ := setupTestStore(t)
 
@@ -304,6 +309,7 @@ func TestFileStore_List(t *testing.T) {
 }
 
 func TestFileStore_Delete(t *testing.T) {
+	t.Parallel()
 	t.Run("deletes existing task", func(t *testing.T) {
 		store, tmpDir := setupTestStore(t)
 
@@ -346,6 +352,7 @@ func TestFileStore_Delete(t *testing.T) {
 }
 
 func TestFileStore_AppendLog(t *testing.T) {
+	t.Parallel()
 	t.Run("appends log entries", func(t *testing.T) {
 		store, tmpDir := setupTestStore(t)
 
@@ -401,6 +408,7 @@ func TestFileStore_AppendLog(t *testing.T) {
 }
 
 func TestFileStore_ReadLog(t *testing.T) {
+	t.Parallel()
 	t.Run("reads log entries", func(t *testing.T) {
 		store, _ := setupTestStore(t)
 
@@ -457,6 +465,7 @@ func TestFileStore_ReadLog(t *testing.T) {
 }
 
 func TestFileStore_Artifacts(t *testing.T) {
+	t.Parallel()
 	t.Run("saves and retrieves artifact", func(t *testing.T) {
 		store, _ := setupTestStore(t)
 
@@ -589,6 +598,7 @@ func TestFileStore_Artifacts(t *testing.T) {
 }
 
 func TestFileStore_SaveVersionedArtifact(t *testing.T) {
+	t.Parallel()
 	t.Run("creates versioned artifacts", func(t *testing.T) {
 		store, _ := setupTestStore(t)
 
@@ -698,6 +708,7 @@ func TestFileStore_SaveVersionedArtifact(t *testing.T) {
 }
 
 func TestFileStore_AtomicWrite(t *testing.T) {
+	t.Parallel()
 	t.Run("atomic write prevents partial data on failure", func(t *testing.T) {
 		store, tmpDir := setupTestStore(t)
 
@@ -732,6 +743,7 @@ func TestFileStore_AtomicWrite(t *testing.T) {
 }
 
 func TestFileStore_ConcurrentAccess(t *testing.T) {
+	t.Parallel()
 	t.Run("handles concurrent updates with locking", func(t *testing.T) {
 		store, _ := setupTestStore(t)
 
@@ -781,6 +793,7 @@ func TestFileStore_ConcurrentAccess(t *testing.T) {
 }
 
 func TestFileStore_CorruptedJSON(t *testing.T) {
+	t.Parallel()
 	t.Run("returns error for corrupted task.json", func(t *testing.T) {
 		store, tmpDir := setupTestStore(t)
 
@@ -806,6 +819,7 @@ func isValidUUIDChar(c rune) bool {
 }
 
 func TestGenerateTaskID(t *testing.T) {
+	t.Parallel()
 	t.Run("generates valid UUID format", func(t *testing.T) {
 		id := GenerateTaskID()
 		assert.True(t, validTaskIDRegex.MatchString(id), "ID should match UUID pattern: %s", id)
@@ -853,6 +867,7 @@ func TestGenerateTaskID(t *testing.T) {
 }
 
 func TestFileStore_SchemaVersion(t *testing.T) {
+	t.Parallel()
 	t.Run("sets schema version on create", func(t *testing.T) {
 		store, _ := setupTestStore(t)
 
@@ -870,6 +885,7 @@ func TestFileStore_SchemaVersion(t *testing.T) {
 
 // TestFileStore_releaseLock_NilFile tests that releaseLock handles nil file gracefully.
 func TestFileStore_releaseLock_NilFile(t *testing.T) {
+	t.Parallel()
 	store, _ := setupTestStore(t)
 
 	// Should not panic or error with nil file
@@ -879,6 +895,7 @@ func TestFileStore_releaseLock_NilFile(t *testing.T) {
 
 // TestFileStore_atomicWrite_Success tests successful atomic write.
 func TestFileStore_atomicWrite_Success(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 	filePath := filepath.Join(tmpDir, "test-file.json")
 	data := []byte(`{"test": "data"}`)
@@ -898,6 +915,7 @@ func TestFileStore_atomicWrite_Success(t *testing.T) {
 
 // TestFileStore_atomicWrite_InvalidPath tests atomic write to an invalid path.
 func TestFileStore_atomicWrite_InvalidPath(t *testing.T) {
+	t.Parallel()
 	// Use a path that doesn't exist
 	filePath := "/nonexistent/directory/test-file.json"
 	data := []byte(`{"test": "data"}`)
@@ -909,6 +927,7 @@ func TestFileStore_atomicWrite_InvalidPath(t *testing.T) {
 
 // TestFileStore_List_EmptyWorkspace tests listing tasks from an empty workspace.
 func TestFileStore_List_EmptyWorkspace(t *testing.T) {
+	t.Parallel()
 	store, tmpDir := setupTestStore(t)
 
 	// Create workspace tasks directory but don't add any tasks
@@ -922,6 +941,7 @@ func TestFileStore_List_EmptyWorkspace(t *testing.T) {
 
 // TestFileStore_GetArtifact_NotFound tests getting a non-existent artifact.
 func TestFileStore_GetArtifact_NotFound(t *testing.T) {
+	t.Parallel()
 	store, _ := setupTestStore(t)
 
 	_, err := store.GetArtifact(context.Background(), "test-ws", "nonexistent-task", "artifact.txt")
@@ -931,6 +951,7 @@ func TestFileStore_GetArtifact_NotFound(t *testing.T) {
 
 // TestFileStore_ListArtifacts_NoArtifacts tests listing artifacts when none exist.
 func TestFileStore_ListArtifacts_NoArtifacts(t *testing.T) {
+	t.Parallel()
 	store, _ := setupTestStore(t)
 
 	task := createTestTask("task-00000000-0000-4000-8000-000000110000")
@@ -944,6 +965,7 @@ func TestFileStore_ListArtifacts_NoArtifacts(t *testing.T) {
 
 // TestFileStore_SaveArtifact_AndList tests saving and listing artifacts.
 func TestFileStore_SaveArtifact_AndList(t *testing.T) {
+	t.Parallel()
 	store, _ := setupTestStore(t)
 
 	task := createTestTask("task-00000000-0000-4000-8000-000000110001")
@@ -968,6 +990,7 @@ func TestFileStore_SaveArtifact_AndList(t *testing.T) {
 
 // TestFileStore_SaveVersionedArtifact_MultipleVersions tests saving multiple versioned artifacts.
 func TestFileStore_SaveVersionedArtifact_MultipleVersions(t *testing.T) {
+	t.Parallel()
 	store, _ := setupTestStore(t)
 
 	task := createTestTask("task-00000000-0000-4000-8000-000000110002")
@@ -987,6 +1010,7 @@ func TestFileStore_SaveVersionedArtifact_MultipleVersions(t *testing.T) {
 
 // TestFileStore_AppendLog_MultipleEntries tests appending multiple entries to task logs.
 func TestFileStore_AppendLog_MultipleEntries(t *testing.T) {
+	t.Parallel()
 	store, tmpDir := setupTestStore(t)
 
 	task := createTestTask("task-00000000-0000-4000-8000-000000110003")
@@ -1010,6 +1034,7 @@ func TestFileStore_AppendLog_MultipleEntries(t *testing.T) {
 
 // TestFileStore_Delete_NotFound tests deleting a non-existent task.
 func TestFileStore_Delete_NotFound(t *testing.T) {
+	t.Parallel()
 	store, _ := setupTestStore(t)
 
 	err := store.Delete(context.Background(), "test-ws", "nonexistent-task")
@@ -1019,6 +1044,7 @@ func TestFileStore_Delete_NotFound(t *testing.T) {
 
 // TestFileStore_Update_NotFound tests updating a non-existent task.
 func TestFileStore_Update_NotFound(t *testing.T) {
+	t.Parallel()
 	store, _ := setupTestStore(t)
 
 	task := createTestTask("nonexistent-task")
@@ -1029,6 +1055,7 @@ func TestFileStore_Update_NotFound(t *testing.T) {
 
 // TestFileStore_List_SkipsNonDirectories tests that List skips non-directory entries.
 func TestFileStore_List_SkipsNonDirectories(t *testing.T) {
+	t.Parallel()
 	store, tmpDir := setupTestStore(t)
 
 	// Create a valid task
@@ -1050,6 +1077,7 @@ func TestFileStore_List_SkipsNonDirectories(t *testing.T) {
 
 // TestFileStore_List_SkipsInvalidTaskIDs tests that List skips directories with invalid task ID format.
 func TestFileStore_List_SkipsInvalidTaskIDs(t *testing.T) {
+	t.Parallel()
 	store, tmpDir := setupTestStore(t)
 
 	// Create a valid task
@@ -1071,6 +1099,7 @@ func TestFileStore_List_SkipsInvalidTaskIDs(t *testing.T) {
 
 // TestFileStore_List_SkipsCorruptedTasks tests that List skips tasks with invalid JSON.
 func TestFileStore_List_SkipsCorruptedTasks(t *testing.T) {
+	t.Parallel()
 	store, tmpDir := setupTestStore(t)
 
 	// Create a valid task
@@ -1094,6 +1123,7 @@ func TestFileStore_List_SkipsCorruptedTasks(t *testing.T) {
 
 // TestFileStore_List_ContextCancelledDuringIteration tests context cancellation during list iteration.
 func TestFileStore_List_ContextCancelledDuringIteration(t *testing.T) {
+	t.Parallel()
 	store, _ := setupTestStore(t)
 
 	// Create multiple tasks
@@ -1115,6 +1145,7 @@ func TestFileStore_List_ContextCancelledDuringIteration(t *testing.T) {
 
 // TestFileStore_AppendLog_EmptyWorkspace tests AppendLog with empty workspace name.
 func TestFileStore_AppendLog_EmptyWorkspace(t *testing.T) {
+	t.Parallel()
 	store, _ := setupTestStore(t)
 
 	err := store.AppendLog(context.Background(), "", "task-123", []byte("log entry"))
@@ -1124,6 +1155,7 @@ func TestFileStore_AppendLog_EmptyWorkspace(t *testing.T) {
 
 // TestFileStore_AppendLog_EmptyTaskID tests AppendLog with empty task ID.
 func TestFileStore_AppendLog_EmptyTaskID(t *testing.T) {
+	t.Parallel()
 	store, _ := setupTestStore(t)
 
 	err := store.AppendLog(context.Background(), "test-ws", "", []byte("log entry"))
@@ -1133,6 +1165,7 @@ func TestFileStore_AppendLog_EmptyTaskID(t *testing.T) {
 
 // TestFileStore_SaveArtifact_EmptyWorkspace tests SaveArtifact with empty workspace name.
 func TestFileStore_SaveArtifact_EmptyWorkspace(t *testing.T) {
+	t.Parallel()
 	store, _ := setupTestStore(t)
 
 	err := store.SaveArtifact(context.Background(), "", "task-123", "artifact.txt", []byte("data"))
@@ -1142,6 +1175,7 @@ func TestFileStore_SaveArtifact_EmptyWorkspace(t *testing.T) {
 
 // TestFileStore_SaveArtifact_EmptyTaskID tests SaveArtifact with empty task ID.
 func TestFileStore_SaveArtifact_EmptyTaskID(t *testing.T) {
+	t.Parallel()
 	store, _ := setupTestStore(t)
 
 	err := store.SaveArtifact(context.Background(), "test-ws", "", "artifact.txt", []byte("data"))
@@ -1151,6 +1185,7 @@ func TestFileStore_SaveArtifact_EmptyTaskID(t *testing.T) {
 
 // TestFileStore_SaveArtifact_EmptyFilename tests SaveArtifact with empty filename.
 func TestFileStore_SaveArtifact_EmptyFilename(t *testing.T) {
+	t.Parallel()
 	store, _ := setupTestStore(t)
 
 	task := createTestTask("task-00000000-0000-4000-8000-000000120010")
@@ -1164,6 +1199,7 @@ func TestFileStore_SaveArtifact_EmptyFilename(t *testing.T) {
 
 // TestFileStore_GetArtifact_EmptyWorkspace tests GetArtifact with empty workspace name.
 func TestFileStore_GetArtifact_EmptyWorkspace(t *testing.T) {
+	t.Parallel()
 	store, _ := setupTestStore(t)
 
 	_, err := store.GetArtifact(context.Background(), "", "task-123", "artifact.txt")
@@ -1173,6 +1209,7 @@ func TestFileStore_GetArtifact_EmptyWorkspace(t *testing.T) {
 
 // TestFileStore_GetArtifact_EmptyTaskID tests GetArtifact with empty task ID.
 func TestFileStore_GetArtifact_EmptyTaskID(t *testing.T) {
+	t.Parallel()
 	store, _ := setupTestStore(t)
 
 	_, err := store.GetArtifact(context.Background(), "test-ws", "", "artifact.txt")
@@ -1182,6 +1219,7 @@ func TestFileStore_GetArtifact_EmptyTaskID(t *testing.T) {
 
 // TestFileStore_GetArtifact_EmptyFilename tests GetArtifact with empty filename.
 func TestFileStore_GetArtifact_EmptyFilename(t *testing.T) {
+	t.Parallel()
 	store, _ := setupTestStore(t)
 
 	_, err := store.GetArtifact(context.Background(), "test-ws", "task-123", "")
@@ -1191,6 +1229,7 @@ func TestFileStore_GetArtifact_EmptyFilename(t *testing.T) {
 
 // TestFileStore_ListArtifacts_EmptyWorkspace tests ListArtifacts with empty workspace name.
 func TestFileStore_ListArtifacts_EmptyWorkspace(t *testing.T) {
+	t.Parallel()
 	store, _ := setupTestStore(t)
 
 	_, err := store.ListArtifacts(context.Background(), "", "task-123")
@@ -1200,6 +1239,7 @@ func TestFileStore_ListArtifacts_EmptyWorkspace(t *testing.T) {
 
 // TestFileStore_ListArtifacts_EmptyTaskID tests ListArtifacts with empty task ID.
 func TestFileStore_ListArtifacts_EmptyTaskID(t *testing.T) {
+	t.Parallel()
 	store, _ := setupTestStore(t)
 
 	_, err := store.ListArtifacts(context.Background(), "test-ws", "")
@@ -1209,6 +1249,7 @@ func TestFileStore_ListArtifacts_EmptyTaskID(t *testing.T) {
 
 // TestFileStore_SaveVersionedArtifact_EmptyWorkspace tests SaveVersionedArtifact with empty workspace.
 func TestFileStore_SaveVersionedArtifact_EmptyWorkspace(t *testing.T) {
+	t.Parallel()
 	store, _ := setupTestStore(t)
 
 	_, err := store.SaveVersionedArtifact(context.Background(), "", "task-123", "artifact.txt", []byte("data"))
@@ -1218,6 +1259,7 @@ func TestFileStore_SaveVersionedArtifact_EmptyWorkspace(t *testing.T) {
 
 // TestFileStore_SaveVersionedArtifact_EmptyTaskID tests SaveVersionedArtifact with empty task ID.
 func TestFileStore_SaveVersionedArtifact_EmptyTaskID(t *testing.T) {
+	t.Parallel()
 	store, _ := setupTestStore(t)
 
 	_, err := store.SaveVersionedArtifact(context.Background(), "test-ws", "", "artifact.txt", []byte("data"))
@@ -1227,6 +1269,7 @@ func TestFileStore_SaveVersionedArtifact_EmptyTaskID(t *testing.T) {
 
 // TestFileStore_SaveVersionedArtifact_EmptyFilename tests SaveVersionedArtifact with empty filename.
 func TestFileStore_SaveVersionedArtifact_EmptyFilename(t *testing.T) {
+	t.Parallel()
 	store, _ := setupTestStore(t)
 
 	task := createTestTask("task-00000000-0000-4000-8000-000000120011")
@@ -1240,6 +1283,7 @@ func TestFileStore_SaveVersionedArtifact_EmptyFilename(t *testing.T) {
 
 // TestFileStore_Create_ConcurrentAccess tests that Create properly handles concurrent access with locking.
 func TestFileStore_Create_ConcurrentAccess(t *testing.T) {
+	t.Parallel()
 	store, _ := setupTestStore(t)
 
 	task1 := createTestTask("concurrent-task-1")
@@ -1276,6 +1320,7 @@ func TestFileStore_Create_ConcurrentAccess(t *testing.T) {
 
 // TestFileStore_Update_ConcurrentAccess tests that Update properly handles concurrent access with locking.
 func TestFileStore_Update_ConcurrentAccess(t *testing.T) {
+	t.Parallel()
 	store, _ := setupTestStore(t)
 
 	task := createTestTask("concurrent-update-task")
@@ -1313,6 +1358,7 @@ func TestFileStore_Update_ConcurrentAccess(t *testing.T) {
 
 // TestFileStore_AcquireLock_ContextCanceled tests that acquireLock respects context cancellation.
 func TestFileStore_AcquireLock_ContextCanceled(t *testing.T) {
+	t.Parallel()
 	store, _ := setupTestStore(t)
 
 	task := createTestTask("lock-cancel-task")
@@ -1330,6 +1376,7 @@ func TestFileStore_AcquireLock_ContextCanceled(t *testing.T) {
 
 // TestFileStore_Delete_WithLocking tests that Delete properly acquires and releases locks.
 func TestFileStore_Delete_WithLocking(t *testing.T) {
+	t.Parallel()
 	store, _ := setupTestStore(t)
 
 	task := createTestTask("delete-lock-task")
@@ -1348,6 +1395,7 @@ func TestFileStore_Delete_WithLocking(t *testing.T) {
 
 // TestFileStore_AppendLog_Concurrent tests that AppendLog handles concurrent writes with locking.
 func TestFileStore_AppendLog_Concurrent(t *testing.T) {
+	t.Parallel()
 	store, _ := setupTestStore(t)
 
 	task := createTestTask("log-concurrent-task")
@@ -1386,6 +1434,7 @@ func TestFileStore_AppendLog_Concurrent(t *testing.T) {
 
 // TestValidationHelpers tests the validation helper functions.
 func TestValidationHelpers(t *testing.T) {
+	t.Parallel()
 	t.Run("validateWorkspaceName", func(t *testing.T) {
 		err := validateWorkspaceName("test operation", "")
 		require.Error(t, err)
@@ -1475,6 +1524,7 @@ func TestNewRepoScopedFileStore(t *testing.T) {
 
 // TestNewRepoScopedFileStore_EmptyPath tests that empty path returns error.
 func TestNewRepoScopedFileStore_EmptyPath(t *testing.T) {
+	t.Parallel()
 	_, err := NewRepoScopedFileStore("")
 	require.Error(t, err)
 }
