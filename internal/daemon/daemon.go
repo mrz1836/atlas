@@ -114,6 +114,12 @@ func (d *Daemon) Start(ctx context.Context) error {
 	d.queue = NewRedisQueue(d.redis, keyPrefix)
 	d.events = NewEventPublisher(d.redis, "")
 
+	// Inject log writer into executor so step progress is streamed to Redis.
+	logWriter := NewLogWriter(d.redis, keyPrefix, d.cfg.Redis.LogStreamMaxLen)
+	if setter, ok := d.executor.(interface{ SetLogWriter(lw *LogWriter) }); ok {
+		setter.SetLogWriter(logWriter)
+	}
+
 	// 3. Create socket directory if needed and start the IPC server.
 	if d.cfg.Daemon.SocketPath != "" {
 		if err := d.startServer(ctx); err != nil {
@@ -128,6 +134,11 @@ func (d *Daemon) Start(ctx context.Context) error {
 
 	// 5. Start heartbeat goroutine.
 	d.startHeartbeat(ctx)
+
+	// Recover any orphaned tasks from a previous daemon run before accepting new work.
+	if recoverErr := d.RecoverOrphanedTasks(ctx); recoverErr != nil {
+		d.logger.Warn().Err(recoverErr).Msg("daemon: orphan recovery encountered errors (non-fatal)")
+	}
 
 	// Start worker pool.
 	d.runner = NewRunner(d.cfg, d.redis, d.queue, d.events, d.logger, d.executor)
