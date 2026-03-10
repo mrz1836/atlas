@@ -9,7 +9,6 @@ import (
 	"os"
 
 	"charm.land/lipgloss/v2"
-	"charm.land/lipgloss/v2/compat"
 	"github.com/spf13/cobra"
 
 	"github.com/mrz1836/atlas/internal/constants"
@@ -24,7 +23,7 @@ type tableStyles struct {
 	header       lipgloss.Style
 	cell         lipgloss.Style
 	dim          lipgloss.Style
-	statusColors map[constants.WorkspaceStatus]compat.AdaptiveColor
+	statusColors map[constants.WorkspaceStatus]tui.AdaptiveColor
 }
 
 // newTableStyles creates styles for the workspace list table.
@@ -32,12 +31,12 @@ func newTableStyles() *tableStyles {
 	return &tableStyles{
 		header: lipgloss.NewStyle().
 			Bold(true).
-			Foreground(compat.AdaptiveColor{Light: lipgloss.Color("#333333"), Dark: lipgloss.Color("#DDDDDD")}),
+			Foreground(tui.AdaptiveColor{Light: lipgloss.Color("#333333"), Dark: lipgloss.Color("#DDDDDD")}),
 		cell: lipgloss.NewStyle(),
 		dim: lipgloss.NewStyle().
-			Foreground(compat.AdaptiveColor{Light: lipgloss.Color("#666666"), Dark: lipgloss.Color("#888888")}),
+			Foreground(tui.AdaptiveColor{Light: lipgloss.Color("#666666"), Dark: lipgloss.Color("#888888")}),
 		// Semantic colors for workspace statuses (UX-6)
-		statusColors: map[constants.WorkspaceStatus]compat.AdaptiveColor{
+		statusColors: map[constants.WorkspaceStatus]tui.AdaptiveColor{
 			constants.WorkspaceStatusActive: {Light: lipgloss.Color("#0087AF"), Dark: lipgloss.Color("#00D7FF")}, // Blue
 			constants.WorkspaceStatusPaused: {Light: lipgloss.Color("#585858"), Dark: lipgloss.Color("#6C6C6C")}, // Gray
 			constants.WorkspaceStatusClosed: {Light: lipgloss.Color("#585858"), Dark: lipgloss.Color("#6C6C6C")}, // Dim
@@ -225,6 +224,6 @@ func outputWorkspacesTable(w io.Writer, workspaces []*domain.Workspace) error {
 
 // getStatusColors returns the semantic color definitions for workspace statuses.
 // Exported for testing purposes. Delegates to tui package.
-func getStatusColors() map[constants.WorkspaceStatus]compat.AdaptiveColor {
+func getStatusColors() map[constants.WorkspaceStatus]tui.AdaptiveColor {
 	return tui.StatusColors()
 }

@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"charm.land/lipgloss/v2"
-	"charm.land/lipgloss/v2/compat"
 	"github.com/spf13/cobra"
 
 	"github.com/mrz1836/atlas/internal/constants"
@@ -46,12 +45,12 @@ type logStyles struct {
 // newLogStyles creates styles for log output.
 func newLogStyles() *logStyles {
 	return &logStyles{
-		dim:      lipgloss.NewStyle().Foreground(compat.AdaptiveColor{Light: lipgloss.Color("#666666"), Dark: lipgloss.Color("#888888")}),
-		stepName: lipgloss.NewStyle().Foreground(compat.AdaptiveColor{Light: lipgloss.Color("#0087AF"), Dark: lipgloss.Color("#00D7FF")}).Bold(true),
-		info:     lipgloss.NewStyle().Foreground(compat.AdaptiveColor{Light: lipgloss.Color("#0087AF"), Dark: lipgloss.Color("#00D7FF")}),
-		warn:     lipgloss.NewStyle().Foreground(compat.AdaptiveColor{Light: lipgloss.Color("#AF8700"), Dark: lipgloss.Color("#FFD700")}),
-		errorSty: lipgloss.NewStyle().Foreground(compat.AdaptiveColor{Light: lipgloss.Color("#AF0000"), Dark: lipgloss.Color("#FF5F5F")}),
-		debug:    lipgloss.NewStyle().Foreground(compat.AdaptiveColor{Light: lipgloss.Color("#585858"), Dark: lipgloss.Color("#6C6C6C")}),
+		dim:      lipgloss.NewStyle().Foreground(tui.AdaptiveColor{Light: lipgloss.Color("#666666"), Dark: lipgloss.Color("#888888")}),
+		stepName: lipgloss.NewStyle().Foreground(tui.AdaptiveColor{Light: lipgloss.Color("#0087AF"), Dark: lipgloss.Color("#00D7FF")}).Bold(true),
+		info:     lipgloss.NewStyle().Foreground(tui.AdaptiveColor{Light: lipgloss.Color("#0087AF"), Dark: lipgloss.Color("#00D7FF")}),
+		warn:     lipgloss.NewStyle().Foreground(tui.AdaptiveColor{Light: lipgloss.Color("#AF8700"), Dark: lipgloss.Color("#FFD700")}),
+		errorSty: lipgloss.NewStyle().Foreground(tui.AdaptiveColor{Light: lipgloss.Color("#AF0000"), Dark: lipgloss.Color("#FF5F5F")}),
+		debug:    lipgloss.NewStyle().Foreground(tui.AdaptiveColor{Light: lipgloss.Color("#585858"), Dark: lipgloss.Color("#6C6C6C")}),
 	}
 }
 

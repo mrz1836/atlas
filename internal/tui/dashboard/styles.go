@@ -5,7 +5,6 @@ import (
 	"sync"
 
 	"charm.land/lipgloss/v2"
-	"charm.land/lipgloss/v2/compat"
 	"github.com/charmbracelet/colorprofile"
 
 	"github.com/mrz1836/atlas/internal/tui"
@@ -40,7 +39,7 @@ func hasColor() bool {
 // running=blue, queued=gray, approval=yellow, done=green, failed=red.
 //
 //nolint:gochecknoglobals // Intentional package-level styling constants
-var statusColors = map[TaskStatus]compat.AdaptiveColor{
+var statusColors = map[TaskStatus]tui.AdaptiveColor{
 	TaskStatusRunning:          tui.ColorPrimary, // blue — active
 	TaskStatusQueued:           tui.ColorMuted,   // gray — waiting
 	TaskStatusPaused:           tui.ColorMuted,   // gray — paused
@@ -52,7 +51,7 @@ var statusColors = map[TaskStatus]compat.AdaptiveColor{
 
 // StatusColor returns the AdaptiveColor for the given task status.
 // Falls back to ColorMuted for unknown statuses.
-func StatusColor(status TaskStatus) compat.AdaptiveColor {
+func StatusColor(status TaskStatus) tui.AdaptiveColor {
 	if c, ok := statusColors[status]; ok {
 		return c
 	}
@@ -149,6 +148,10 @@ type Styles struct {
 	HelpDesc lipgloss.Style
 	// HelpGroup is the style for group headings in the help overlay.
 	HelpGroup lipgloss.Style
+
+	// ContentBg is applied to every line of the final rendered output to ensure
+	// a consistent dark background across the entire dashboard.
+	ContentBg lipgloss.Style
 }
 
 // cachedStyles is the singleton Styles instance.
@@ -171,7 +174,7 @@ func GetStyles() *Styles {
 // NewStyles builds a new Styles set adapted to the current color profile.
 func NewStyles() *Styles {
 	// Border color: blue when color available, plain otherwise.
-	borderColor := compat.AdaptiveColor{
+	borderColor := tui.AdaptiveColor{
 		Light: lipgloss.Color("#0087AF"),
 		Dark:  lipgloss.Color("#00AFFF"),
 	}
@@ -237,7 +240,7 @@ func NewStyles() *Styles {
 		// Search highlight
 		Highlight: lipgloss.NewStyle().
 			Background(tui.ColorWarning).
-			Foreground(compat.AdaptiveColor{
+			Foreground(tui.AdaptiveColor{
 				Light: lipgloss.Color("#000000"),
 				Dark:  lipgloss.Color("#000000"),
 			}),
@@ -252,6 +255,9 @@ func NewStyles() *Styles {
 			Foreground(tui.ColorPrimary).
 			Bold(true).
 			Underline(true),
+
+		// Background wrapper
+		ContentBg: lipgloss.NewStyle().Background(tui.ColorBackground),
 	}
 
 	// Degrade gracefully when color is not available.
@@ -301,4 +307,5 @@ func (s *Styles) applyNoColor() {
 	s.HelpKey = lipgloss.NewStyle().Bold(true)
 	s.HelpDesc = plain
 	s.HelpGroup = lipgloss.NewStyle().Bold(true).Underline(true)
+	s.ContentBg = plain
 }
