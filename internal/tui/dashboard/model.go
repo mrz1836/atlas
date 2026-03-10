@@ -2,12 +2,25 @@ package dashboard
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
 	cache "github.com/mrz1836/go-cache"
 
 	"github.com/mrz1836/atlas/internal/daemon"
+)
+
+// notificationTTL is how long an action notification stays visible.
+const notificationTTL = 3 * time.Second
+
+// Sentinel errors for daemon action dispatching.
+var (
+	// errNoDaemonClient is returned when an action is triggered without a daemon client.
+	errNoDaemonClient = errors.New("no daemon client")
+	// errUnknownAction is returned when an unrecognized action name is dispatched.
+	errUnknownAction = errors.New("unknown action")
 )
 
 // Model is the top-level Bubble Tea model for the ATLAS dashboard.
@@ -60,6 +73,17 @@ type Model struct {
 	// lastLogID is the Redis stream ID of the last received log entry.
 	// Used as the cursor for the next Tail call.
 	lastLogID string
+
+	// ── Overlay state ─────────────────────────────────────────────────────────
+	// overlay holds the currently active modal (confirmation or feedback).
+	// Exactly one overlay is shown at a time; kind==OverlayNone when idle.
+	overlay overlayState
+
+	// ── Notification state ────────────────────────────────────────────────────
+	// notification holds the last action notification text.
+	notification notificationStyle
+	// notificationAt is the time the last notification was set.
+	notificationAt time.Time
 
 	// ── Display state ─────────────────────────────────────────────────────────
 	// connState is the current daemon/Redis connection state.
@@ -188,13 +212,35 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case ErrorMsg:
-		// Error display handled in View (status bar) — Phase 5 wires this up.
+		m.setNotification(notificationStyle{text: msg.Err.Error(), isError: true})
+		return m, nil
+
+	case ActionCanceledMsg:
+		m.overlay.dismiss()
+		return m, nil
+
+	case ActionConfirmedMsg:
+		m.overlay.dismiss()
+		return m, m.executeActionCmd(msg.Action, msg.TaskID, "")
+
+	case FeedbackSubmittedMsg:
+		m.overlay.dismiss()
+		return m, m.executeActionCmd("reject", msg.TaskID, msg.Feedback)
+
+	case actionSuccessMsg:
+		m.setNotification(notificationStyle{text: notificationForAction(msg.action)})
 		return m, nil
 
 	case taskListLoadedMsg:
 		m.processTaskListLoaded(msg.tasks)
 		// If a task was auto-selected, start its log stream.
 		return m, m.startLogStream(m.selectedTaskID)
+	}
+
+	// Route to active overlay (confirmation or feedback input).
+	if m.overlay.isActive() {
+		cmd := m.overlay.update(msg)
+		return m, cmd
 	}
 
 	return m, nil
@@ -235,10 +281,16 @@ func (m *Model) View() tea.View {
 	}
 
 	// ── Footer (status bar) ────────────────────────────────────────────────────
-	footerStr := m.statusBar.View(m.width)
+	footerStr := m.buildFooter()
 
 	// ── Assemble full screen ───────────────────────────────────────────────────
 	full := headerStr + "\n" + contentStr + "\n" + footerStr
+
+	// ── Overlay (confirmation / feedback) ─────────────────────────────────────
+	if m.overlay.isActive() {
+		overlayStr := m.overlay.view(m.width, m.height)
+		full = renderWithOverlay(full, overlayStr)
+	}
 
 	v := tea.NewView(full)
 	v.AltScreen = true
@@ -287,6 +339,29 @@ func (m *Model) SetCacheClientWithPrefix(c *cache.Client, keyPrefix string) {
 // LogPanel returns the log panel component (useful for testing).
 func (m *Model) LogPanel() *LogPanel { return m.logPanel }
 
+// buildFooter assembles the status bar, incorporating any active notification
+// or overlay hint above the keybinding hints.
+func (m *Model) buildFooter() string {
+	// Active overlay: show overlay hint in place of normal status bar.
+	if m.overlay.isActive() {
+		hint := overlayHintText(m.overlay.kind)
+		if hint != "" {
+			s := GetStyles()
+			return s.StatusBar.Render(hint)
+		}
+	}
+
+	// Active notification (within TTL).
+	if !m.notificationAt.IsZero() && time.Since(m.notificationAt) < notificationTTL {
+		rendered := m.notification.Render()
+		if rendered != "" {
+			return rendered
+		}
+	}
+
+	return m.statusBar.View(m.width)
+}
+
 // ── Internal message handlers (unexported, after exported methods per funcorder) ──
 
 // handleResize updates layout dimensions when the terminal is resized.
@@ -302,6 +377,29 @@ func (m *Model) handleResize(w, h int) (tea.Model, tea.Cmd) {
 func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 
+	// When an overlay is active, route ALL keys to it — suppress everything else.
+	// Execute the returned cmd inline so that ActionConfirmedMsg / ActionCanceledMsg
+	// is processed in the same Update cycle (avoids an extra round-trip for tests and
+	// ensures the overlay is visually dismissed immediately on the next render).
+	if m.overlay.isActive() {
+		cmd := m.overlay.update(msg)
+		if cmd != nil {
+			inlineMsg := cmd()
+			switch im := inlineMsg.(type) {
+			case ActionCanceledMsg:
+				m.overlay.dismiss()
+				return m, nil
+			case ActionConfirmedMsg:
+				m.overlay.dismiss()
+				return m, m.executeActionCmd(im.Action, im.TaskID, "")
+			default:
+				// Not a confirm/cancel message — re-emit it as a normal cmd.
+				return m, func() tea.Msg { return inlineMsg }
+			}
+		}
+		return m, nil
+	}
+
 	// Global quit.
 	if key == "q" || key == "ctrl+c" {
 		m.quitting = true
@@ -315,6 +413,10 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if handled := m.handleLogKey(key, msg); handled {
 		return m, nil
 	}
+	// Action keys — context-sensitive (status guards inside handleActionKey).
+	if cmd := m.handleActionKey(key); cmd != nil {
+		return m, cmd
+	}
 	// Task list navigation (list mode only).
 	if key == "up" || key == "k" || key == "down" || key == "j" {
 		updated, cmd := m.taskList.Update(msg)
@@ -322,6 +424,104 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 	return m, nil
+}
+
+// handleActionKey processes action keys (a/r/p/R/x/d) for the selected task.
+// Returns nil if the key is not an action key or the action is not applicable
+// for the current task status.
+func (m *Model) handleActionKey(key string) tea.Cmd {
+	task := m.currentTask()
+	if task == nil {
+		return nil
+	}
+
+	switch key {
+	case "a":
+		return m.handleApproveKey(task)
+	case "r":
+		return m.handleRejectKey(task)
+	case "p":
+		return m.handlePauseKey(task)
+	case "R":
+		return m.handleResumeKey(task)
+	case "x":
+		return m.handleAbandonKey(task)
+	case "d":
+		return m.handleDestroyKey(task)
+	}
+	return nil
+}
+
+// handleApproveKey fires the approve RPC when the task awaits approval.
+func (m *Model) handleApproveKey(task *TaskInfo) tea.Cmd {
+	if task.Status != TaskStatusAwaitingApproval {
+		return nil
+	}
+	return m.executeActionCmd("approve", task.ID, "")
+}
+
+// handleRejectKey opens the feedback overlay when the task awaits approval.
+func (m *Model) handleRejectKey(task *TaskInfo) tea.Cmd {
+	if task.Status != TaskStatusAwaitingApproval {
+		return nil
+	}
+	m.overlay.showFeedback(task.ID)
+	return nil
+}
+
+// handlePauseKey fires the pause RPC for running or queued tasks.
+func (m *Model) handlePauseKey(task *TaskInfo) tea.Cmd {
+	if task.Status != TaskStatusRunning && task.Status != TaskStatusQueued {
+		return nil
+	}
+	return m.executeActionCmd("pause", task.ID, "")
+}
+
+// handleResumeKey fires the resume RPC for paused or failed tasks.
+func (m *Model) handleResumeKey(task *TaskInfo) tea.Cmd {
+	if task.Status != TaskStatusPaused && task.Status != TaskStatusFailed {
+		return nil
+	}
+	return m.executeActionCmd("resume", task.ID, "")
+}
+
+// handleAbandonKey opens the confirmation dialog for running/queued/paused tasks.
+func (m *Model) handleAbandonKey(task *TaskInfo) tea.Cmd {
+	if task.Status != TaskStatusRunning && task.Status != TaskStatusQueued && task.Status != TaskStatusPaused {
+		return nil
+	}
+	subject := task.Description
+	if subject == "" {
+		subject = task.ID
+	}
+	m.overlay.showConfirm(ConfirmActionAbandon, task.ID, subject)
+	return nil
+}
+
+// handleDestroyKey opens the confirmation dialog for completed/failed/abandoned tasks.
+func (m *Model) handleDestroyKey(task *TaskInfo) tea.Cmd {
+	if task.Status != TaskStatusCompleted && task.Status != TaskStatusFailed && task.Status != TaskStatusAbandoned {
+		return nil
+	}
+	workspace := task.Workspace
+	if workspace == "" {
+		workspace = task.ID
+	}
+	// Pass workspace as taskID so executeActionCmd sends it to workspace.destroy.
+	m.overlay.showConfirm(ConfirmActionDestroy, workspace, workspace)
+	return nil
+}
+
+// currentTask returns a pointer to the currently selected TaskInfo, or nil.
+func (m *Model) currentTask() *TaskInfo {
+	if m.selectedTaskID == "" {
+		return nil
+	}
+	t, ok := m.tasks[m.selectedTaskID]
+	if !ok {
+		return nil
+	}
+	return &t
 }
 
 // handleModeKey handles mode-switching keys (help, esc, l).
@@ -684,6 +884,73 @@ type logStreamEntryMsg struct {
 	remaining []daemon.LogEntry
 	taskID    string
 	ctx       context.Context //nolint:containedctx // struct carries context for cmd re-queue
+}
+
+// setNotification records an action notification with the current time.
+func (m *Model) setNotification(n notificationStyle) {
+	m.notification = n
+	m.notificationAt = time.Now()
+}
+
+// actionSuccessMsg is an internal message fired after a daemon action RPC succeeds.
+type actionSuccessMsg struct {
+	action string
+}
+
+// executeActionCmd dispatches the appropriate daemon RPC for the given action.
+// feedback is only used for "reject". Returns a tea.Cmd that fires
+// actionSuccessMsg on success or ErrorMsg on failure.
+func (m *Model) executeActionCmd(action, taskID, feedback string) tea.Cmd {
+	if m.client == nil {
+		return func() tea.Msg {
+			return ErrorMsg{Err: errNoDaemonClient}
+		}
+	}
+	c := m.client
+	return func() tea.Msg {
+		if err := callDaemonAction(c, action, taskID, feedback); err != nil {
+			return ErrorMsg{Err: err}
+		}
+		return actionSuccessMsg{action: action}
+	}
+}
+
+// callDaemonAction performs the daemon JSON-RPC call for an action.
+// It is a pure function (no model state) to keep the goroutine-safe closure simple.
+func callDaemonAction(c *daemon.Client, action, taskID, feedback string) error {
+	ctx := context.Background()
+	var resp map[string]interface{}
+
+	switch action {
+	case "approve":
+		req := daemon.TaskApproveRequest{TaskID: taskID}
+		return c.Call(ctx, daemon.MethodTaskApprove, req, &resp)
+
+	case "reject":
+		req := daemon.TaskRejectRequest{TaskID: taskID, Feedback: feedback}
+		return c.Call(ctx, daemon.MethodTaskReject, req, &resp)
+
+	case "pause":
+		req := daemon.TaskPauseRequest{TaskID: taskID}
+		return c.Call(ctx, daemon.MethodTaskPause, req, &resp)
+
+	case "resume":
+		req := daemon.TaskResumeRequest{TaskID: taskID}
+		return c.Call(ctx, daemon.MethodTaskResume, req, &resp)
+
+	case "abandon":
+		req := daemon.TaskAbandonRequest{TaskID: taskID}
+		return c.Call(ctx, daemon.MethodTaskAbandon, req, &resp)
+
+	case "destroy":
+		// For workspace.destroy we need the workspace name, not the taskID.
+		// The caller (handleActionKey) passes task.Workspace as taskID for this action.
+		req := daemon.WorkspaceDestroyRequest{Workspace: taskID}
+		return c.Call(ctx, daemon.MethodWorkspaceDestroy, req, &resp)
+
+	default:
+		return fmt.Errorf("%w: %s", errUnknownAction, action)
+	}
 }
 
 // tickCmd returns a command that sends a TickMsg after 1 second.
