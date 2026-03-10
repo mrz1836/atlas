@@ -21,6 +21,7 @@ type Server struct {
 	logger     zerolog.Logger
 	conns      sync.WaitGroup
 	stopCh     chan struct{}
+	stopOnce   sync.Once
 	mu         sync.Mutex // guards listener
 }
 
@@ -70,12 +71,8 @@ func (s *Server) Start(ctx context.Context) error {
 
 // Stop closes the listener and waits for all active connections to drain.
 func (s *Server) Stop() {
-	// Signal stop once (channel may already be closed on re-entrant calls).
-	select {
-	case <-s.stopCh:
-	default:
-		close(s.stopCh)
-	}
+	// Signal stop once; concurrent callers are safe via sync.Once.
+	s.stopOnce.Do(func() { close(s.stopCh) })
 
 	s.mu.Lock()
 	ln := s.listener

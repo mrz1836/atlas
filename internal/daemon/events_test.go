@@ -67,6 +67,8 @@ func TestEventPublisher_Publish(t *testing.T) {
 		Status: "queued",
 	}
 
+	waitPubSubReady(ctx, t, subClient, defaultEventsChannel)
+
 	err = publisher.Publish(ctx, event)
 	require.NoError(t, err)
 
@@ -107,6 +109,8 @@ func TestEventPublisher_PublishSetsTime(t *testing.T) {
 	defer pub2Client.Close()
 
 	publisher := NewEventPublisher(pub2Client, "test:events")
+
+	waitPubSubReady(ctx, t, pub2Client, "test:events")
 
 	before := time.Now().UTC().Truncate(time.Second)
 	err = publisher.Publish(ctx, TaskEvent{Type: EventDaemonStarted, TaskID: "daemon"})
@@ -152,6 +156,8 @@ func TestEventPublisher_MultipleEvents(t *testing.T) {
 		{Type: EventTaskCompleted, TaskID: "t1"},
 	}
 
+	waitPubSubReady(ctx, t, subClient, defaultEventsChannel)
+
 	for _, ev := range events {
 		require.NoError(t, publisher.Publish(ctx, ev))
 	}
@@ -167,4 +173,26 @@ func TestEventPublisher_MultipleEvents(t *testing.T) {
 			t.Fatalf("timeout waiting for event %d", i)
 		}
 	}
+}
+
+// waitPubSubReady blocks until the given channel has ≥1 registered subscriber,
+// confirming that cache.Subscribe has registered with the Redis server before
+// any Publish call. Prevents SUBSCRIBE/PUBLISH ordering races under load.
+func waitPubSubReady(ctx context.Context, t *testing.T, client *cache.Client, channel string) {
+	t.Helper()
+	conn, err := client.GetConnectionWithContext(ctx)
+	require.NoError(t, err, "waitPubSubReady: get connection")
+	defer client.CloseConnection(conn)
+	require.Eventually(t, func() bool {
+		result, err := conn.Do("PUBSUB", "NUMSUB", channel)
+		if err != nil {
+			return false
+		}
+		pairs, ok := result.([]interface{})
+		if !ok || len(pairs) < 2 {
+			return false
+		}
+		count, ok := pairs[1].(int64)
+		return ok && count >= 1
+	}, 2*time.Second, 2*time.Millisecond)
 }
