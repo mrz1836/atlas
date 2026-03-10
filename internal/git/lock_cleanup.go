@@ -21,10 +21,10 @@ const (
 )
 
 // ErrLockNotStale indicates a lock file is not old enough to be considered stale.
-var ErrLockNotStale = errors.New("lock file is not stale")
-
-// ErrInvalidGitdirFormat indicates a .git file has an invalid format.
-var ErrInvalidGitdirFormat = errors.New("invalid gitdir file format")
+var (
+	ErrLockNotStale        = errors.New("lock file is not stale")
+	errInvalidGitdirFormat = errors.New("invalid gitdir file format")
+)
 
 // resolveGitDir resolves the actual git directory path.
 // In a normal repo, path points to a .git directory and is returned as-is.
@@ -42,7 +42,6 @@ func resolveGitDir(path string) (string, error) {
 	}
 
 	// It's a file - read the gitdir reference (worktree case)
-	// #nosec G304 -- path is from .git directory which is trusted
 	content, err := os.ReadFile(path)
 	if err != nil {
 		return "", err
@@ -54,7 +53,7 @@ func resolveGitDir(path string) (string, error) {
 		return strings.TrimPrefix(line, "gitdir: "), nil
 	}
 
-	return "", fmt.Errorf("%w: %s", ErrInvalidGitdirFormat, path)
+	return "", fmt.Errorf("%w: %s", errInvalidGitdirFormat, path)
 }
 
 // DetectStaleLockFile checks if a lock file is stale (safe to remove).

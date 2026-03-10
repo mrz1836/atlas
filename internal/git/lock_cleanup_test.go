@@ -190,38 +190,6 @@ func assertFileExists(t *testing.T, path string, shouldExist bool) {
 	}
 }
 
-// setupWorktreeGitStructure creates a worktree git structure for testing
-func setupWorktreeGitStructure(t *testing.T) (gitFilePath, lockPath string) {
-	t.Helper()
-	tmpDir := t.TempDir()
-
-	// Create the main repo's .git structure
-	mainGitDir := filepath.Join(tmpDir, "main-repo", ".git")
-	worktreeGitDir := filepath.Join(mainGitDir, "worktrees", "my-worktree")
-	if err := os.MkdirAll(worktreeGitDir, 0o750); err != nil {
-		t.Fatalf("failed to create worktree git dir: %v", err)
-	}
-
-	// Create a stale lock file in the worktree's git dir
-	lockPath = filepath.Join(worktreeGitDir, "index.lock")
-	createLockFileAt(t, lockPath, 2*time.Minute)
-
-	// Create the worktree directory with a .git file
-	worktreeDir := filepath.Join(tmpDir, "worktree-dir")
-	if err := os.MkdirAll(worktreeDir, 0o750); err != nil {
-		t.Fatalf("failed to create worktree dir: %v", err)
-	}
-
-	// Create the .git file that points to the actual git dir
-	gitFilePath = filepath.Join(worktreeDir, ".git")
-	gitFileContent := fmt.Sprintf("gitdir: %s\n", worktreeGitDir)
-	if err := os.WriteFile(gitFilePath, []byte(gitFileContent), 0o600); err != nil {
-		t.Fatalf("failed to create .git file: %v", err)
-	}
-
-	return gitFilePath, lockPath
-}
-
 func TestCleanupStaleLockFiles(t *testing.T) {
 	t.Run("NoLockFiles", func(t *testing.T) {
 		gitDir := setupGitDir(t)
@@ -302,11 +270,47 @@ func TestCleanupStaleLockFiles(t *testing.T) {
 	})
 
 	t.Run("WorktreeGitFile", func(t *testing.T) {
-		gitFilePath, lockPath := setupWorktreeGitStructure(t)
+		// Set up a structure mimicking a worktree:
+		// tmpDir/
+		//   main-repo/.git/           <- main repo's git directory
+		//     worktrees/
+		//       my-worktree/
+		//         index.lock          <- stale lock file to clean up
+		//   worktree-dir/
+		//     .git                    <- file containing "gitdir: .../worktrees/my-worktree"
+		tmpDir := t.TempDir()
+
+		// Create the main repo's .git structure
+		mainGitDir := filepath.Join(tmpDir, "main-repo", ".git")
+		worktreeGitDir := filepath.Join(mainGitDir, "worktrees", "my-worktree")
+		if err := os.MkdirAll(worktreeGitDir, 0o750); err != nil {
+			t.Fatalf("failed to create worktree git dir: %v", err)
+		}
+
+		// Create a stale lock file in the worktree's git dir
+		lockPath := filepath.Join(worktreeGitDir, "index.lock")
+		createLockFileAt(t, lockPath, 2*time.Minute)
+
+		// Create the worktree directory with a .git file
+		worktreeDir := filepath.Join(tmpDir, "worktree-dir")
+		if err := os.MkdirAll(worktreeDir, 0o750); err != nil {
+			t.Fatalf("failed to create worktree dir: %v", err)
+		}
+
+		// Create the .git file that points to the actual git dir
+		gitFilePath := filepath.Join(worktreeDir, ".git")
+		gitFileContent := fmt.Sprintf("gitdir: %s\n", worktreeGitDir)
+		if err := os.WriteFile(gitFilePath, []byte(gitFileContent), 0o600); err != nil {
+			t.Fatalf("failed to create .git file: %v", err)
+		}
+
+		// Call CleanupStaleLockFiles with the .git file path (not directory)
 		err := CleanupStaleLockFiles(context.Background(), gitFilePath, time.Minute, zerolog.Nop())
 		if err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}
+
+		// Verify the lock file was removed
 		assertFileExists(t, lockPath, false)
 	})
 }
