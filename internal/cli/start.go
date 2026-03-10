@@ -138,7 +138,7 @@ Examples:
 
 // tryDaemonSubmit attempts to submit the task to the daemon queue.
 // Returns a non-nil pointer with the result if the daemon handled it; nil means fall through to direct execution.
-func tryDaemonSubmit(ctx context.Context, cmd *cobra.Command, w io.Writer, description string, opts startOptions) *error {
+func tryDaemonSubmit(ctx context.Context, cmd *cobra.Command, w io.Writer, description string, opts startOptions, repoPath string) *error {
 	quickCfg, cfgErr := config.Load(ctx)
 	if cfgErr != nil {
 		return nil // no config; fall through
@@ -157,6 +157,7 @@ func tryDaemonSubmit(ctx context.Context, cmd *cobra.Command, w io.Writer, descr
 		Model:        opts.model,
 		Branch:       opts.baseBranch,
 		TargetBranch: opts.targetBranch,
+		RepoPath:     repoPath,
 		UseLocal:     opts.useLocal,
 		Verify:       opts.verify,
 		NoVerify:     opts.noVerify,
@@ -197,11 +198,18 @@ func runStart(ctx context.Context, cmd *cobra.Command, w io.Writer, description 
 		return err
 	}
 
+	// Discover the repo path early so we can pass it to the daemon submit request.
+	// The daemon needs this to locate the repository for task execution.
+	repoPath, repoErr := workflow.FindGitRepository(ctx)
+	if repoErr != nil {
+		return fmt.Errorf("not in a git repository: %w", repoErr)
+	}
+
 	// Daemon-aware path: when the daemon is running and this is not a dry-run,
 	// submit the task to the queue and return immediately.
 	// Falls through to direct (blocking) execution if the daemon is unavailable.
 	if !opts.dryRun {
-		if daemonResult := tryDaemonSubmit(ctx, cmd, w, description, opts); daemonResult != nil {
+		if daemonResult := tryDaemonSubmit(ctx, cmd, w, description, opts, repoPath); daemonResult != nil {
 			return *daemonResult
 		}
 	}
@@ -230,12 +238,8 @@ func runStart(ctx context.Context, cmd *cobra.Command, w io.Writer, description 
 		return err
 	}
 
-	// Setup orchestrator and find repository
+	// Setup orchestrator (reuse already-discovered repoPath)
 	orchestrator := workflow.NewOrchestrator(logger, out)
-	repoPath, err := orchestrator.Initializer().FindGitRepository(ctx) //nolint:contextcheck // context is properly checked and used
-	if err != nil {
-		return sc.handleError("", fmt.Errorf("not in a git repository: %w", err))
-	}
 	logger.Debug().Str("repo_path", repoPath).Msg("found git repository")
 
 	// Resolve --from-pr to a branch name using the GitHub CLI
