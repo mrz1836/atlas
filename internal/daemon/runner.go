@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -273,8 +274,12 @@ func (r *Runner) dispatchLoop(ctx context.Context) {
 //
 //nolint:contextcheck,gocognit // contextcheck: intentional independent task context; gocognit: inherent orchestration complexity.
 func (r *Runner) executeTask(_ context.Context, taskID string) {
+	taskTimeout := r.cfg.Daemon.TaskTimeout
+	if taskTimeout <= 0 {
+		taskTimeout = 45 * time.Minute
+	}
 	//nolint:gosec // G118: context.Background() is intentional — task context must be independent of dispatch loop lifetime.
-	taskCtx, cancel := context.WithCancel(context.Background()) //nolint:contextcheck // Intentional: independent task context; cancel is called in the deferred cleanup below.
+	taskCtx, cancel := context.WithTimeout(context.Background(), taskTimeout) //nolint:contextcheck // Intentional: independent task context; cancel is called in the deferred cleanup below.
 	r.taskCtxMu.Lock()
 	r.taskCtxs[taskID] = cancel
 	r.taskCtxMu.Unlock()
@@ -312,7 +317,11 @@ func (r *Runner) executeTask(_ context.Context, taskID string) {
 	lockKey := r.cfg.Redis.KeyPrefix + "lock:task:" + taskID
 	lockCtx, lockCancel := context.WithTimeout(taskCtx, 5*time.Second)
 	defer lockCancel()
-	locked, lockErr := cache.WriteLock(lockCtx, r.redis, lockKey, r.workerID, 60)
+	lockTTL := int64(r.cfg.Daemon.TaskTimeout.Seconds())
+	if lockTTL <= 0 {
+		lockTTL = 2700 // 45 minutes fallback
+	}
+	locked, lockErr := cache.WriteLock(lockCtx, r.redis, lockKey, r.workerID, lockTTL)
 	if lockErr != nil {
 		r.logger.Warn().Err(lockErr).Str("task_id", taskID).Msg("runner: lock check failed, skipping task")
 		return
@@ -411,9 +420,11 @@ func (r *Runner) executeTask(_ context.Context, taskID string) {
 	r.logger.Info().Str("task_id", taskID).Msg("runner: executing task")
 	engineTaskID, finalStatus, execErr := r.executor.Execute(taskCtx, job)
 
-	// If the task context was canceled (via CancelTask or AbandonRunningTask),
-	// read the intended final status from canceledTasks and update Redis.
+	// If the task context was canceled or timed out, handle accordingly.
 	if taskCtx.Err() != nil {
+		if r.handleTaskTimeout(taskCtx, taskID, taskTimeout) {
+			return
+		}
 		r.finalizeCanceledTask(taskID, hashKey)
 		return
 	}
@@ -444,6 +455,11 @@ func (r *Runner) executeTask(_ context.Context, taskID string) {
 		}
 	case "awaiting_approval":
 		r.markTaskStatus(taskCtx, taskID, "awaiting_approval")
+		// Remove from active set — worker is returning. RequeueForResume() re-adds on resume.
+		activeKey := r.cfg.Redis.KeyPrefix + "active"
+		if err := cache.SetRemoveMember(taskCtx, r.redis, activeKey, taskID); err != nil {
+			r.logger.Warn().Err(err).Str("task_id", taskID).Msg("runner: failed to remove awaiting_approval task from active set")
+		}
 		r.writeLog(taskCtx, taskID, LogEntry{Level: "info", Message: "task awaiting approval", Source: "runner"})
 		if r.events != nil {
 			if pubErr := r.events.Publish(taskCtx, TaskEvent{
@@ -464,6 +480,8 @@ func (r *Runner) executeTask(_ context.Context, taskID string) {
 		msg := "task execution failed"
 		if execErr != nil {
 			msg = execErr.Error()
+		} else if finalStatus != "" {
+			msg = fmt.Sprintf("task ended with status: %s", finalStatus)
 		}
 		r.markTaskFailed(taskCtx, taskID, msg)
 		r.writeLog(taskCtx, taskID, LogEntry{Level: "error", Message: "task failed: " + msg, Source: "runner"})
@@ -559,6 +577,34 @@ func (r *Runner) finalizeCanceledTask(taskID, hashKey string) {
 			r.logger.Warn().Err(pubErr).Str("task_id", taskID).Msg("runner: failed to publish cancel event")
 		}
 	}
+}
+
+// handleTaskTimeout checks whether a context error is a deadline-exceeded timeout
+// (not an explicit cancellation). If so, it marks the task failed and returns true.
+//
+//nolint:contextcheck // Intentional: taskCtx is expired, so we use background context for cleanup operations.
+func (r *Runner) handleTaskTimeout(taskCtx context.Context, taskID string, taskTimeout time.Duration) bool {
+	if !errors.Is(taskCtx.Err(), context.DeadlineExceeded) {
+		return false
+	}
+	if _, wasCanceled := r.canceledTasks.Load(taskID); wasCanceled {
+		return false
+	}
+	bgCtx := context.Background()
+	msg := fmt.Sprintf("task exceeded timeout of %s", taskTimeout)
+	r.markTaskFailed(bgCtx, taskID, msg)
+	r.writeLog(bgCtx, taskID, LogEntry{Level: "error", Message: msg, Source: "runner"})
+	if r.events != nil {
+		if pubErr := r.events.Publish(bgCtx, TaskEvent{
+			Type:    EventTaskFailed,
+			TaskID:  taskID,
+			Status:  "failed",
+			Message: msg,
+		}); pubErr != nil {
+			r.logger.Warn().Err(pubErr).Str("task_id", taskID).Msg("runner: failed to publish task.failed event")
+		}
+	}
+	return true
 }
 
 // writeLog writes a single LogEntry to the task's log stream.
