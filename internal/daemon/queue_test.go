@@ -36,17 +36,20 @@ func TestQueueSubmitAndPop(t *testing.T) {
 	time.Sleep(time.Millisecond)
 	require.NoError(t, q.Submit(ctx, "task-3", PriorityNormal))
 
-	got1, err := q.Pop(ctx)
+	got1, p1, err := q.Pop(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, "task-1", got1)
+	assert.Equal(t, PriorityNormal, p1)
 
-	got2, err := q.Pop(ctx)
+	got2, p2, err := q.Pop(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, "task-2", got2)
+	assert.Equal(t, PriorityNormal, p2)
 
-	got3, err := q.Pop(ctx)
+	got3, p3, err := q.Pop(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, "task-3", got3)
+	assert.Equal(t, PriorityNormal, p3)
 }
 
 func TestQueuePriorityOrder(t *testing.T) {
@@ -61,17 +64,20 @@ func TestQueuePriorityOrder(t *testing.T) {
 	require.NoError(t, q.Submit(ctx, "normal-task", PriorityNormal))
 	require.NoError(t, q.Submit(ctx, "urgent-task", PriorityUrgent))
 
-	got1, err := q.Pop(ctx)
+	got1, p1, err := q.Pop(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, "urgent-task", got1)
+	assert.Equal(t, PriorityUrgent, p1)
 
-	got2, err := q.Pop(ctx)
+	got2, p2, err := q.Pop(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, "normal-task", got2)
+	assert.Equal(t, PriorityNormal, p2)
 
-	got3, err := q.Pop(ctx)
+	got3, p3, err := q.Pop(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, "low-task", got3)
+	assert.Equal(t, PriorityLow, p3)
 }
 
 func TestQueueRemove(t *testing.T) {
@@ -88,14 +94,16 @@ func TestQueueRemove(t *testing.T) {
 	require.NoError(t, q.Remove(ctx, "task-A"))
 
 	// Only task-B should remain.
-	got, err := q.Pop(ctx)
+	got, p, err := q.Pop(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, "task-B", got)
+	assert.Equal(t, PriorityNormal, p)
 
 	// Queue should now be empty.
-	empty, err := q.Pop(ctx)
+	empty, pEmpty, err := q.Pop(ctx)
 	require.NoError(t, err)
 	assert.Empty(t, empty)
+	assert.Empty(t, pEmpty)
 }
 
 func TestQueueStats(t *testing.T) {
@@ -156,10 +164,10 @@ func TestQueueEmpty(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Pop from empty queue should return "" with no error.
-	got, err := q.Pop(ctx)
+	got, p, err := q.Pop(ctx)
 	require.NoError(t, err)
 	assert.Empty(t, got)
+	assert.Empty(t, p)
 }
 
 func TestQueueList(t *testing.T) {

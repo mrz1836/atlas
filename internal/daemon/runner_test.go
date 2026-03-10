@@ -28,16 +28,16 @@ func (m *mockQueue) Submit(_ context.Context, taskID string, _ Priority) error {
 	return nil
 }
 
-func (m *mockQueue) Pop(_ context.Context) (string, error) {
+func (m *mockQueue) Pop(_ context.Context) (string, Priority, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if len(m.tasks) == 0 {
-		return "", nil
+		return "", "", nil
 	}
 	id := m.tasks[0]
 	m.tasks = m.tasks[1:]
 	m.popped = append(m.popped, id)
-	return id, nil
+	return id, PriorityNormal, nil
 }
 
 func (m *mockQueue) Remove(_ context.Context, taskID string) error {
@@ -196,7 +196,7 @@ func TestRunnerGracefulDrain(t *testing.T) {
 			default:
 			}
 
-			taskID, _ := q.Pop(ctx)
+			taskID, _, _ := q.Pop(ctx)
 			if taskID == "" {
 				time.Sleep(10 * time.Millisecond)
 				continue

@@ -39,8 +39,8 @@ type Queue interface {
 	// Submit enqueues a task at the given priority.
 	Submit(ctx context.Context, taskID string, priority Priority) error
 	// Pop removes and returns the taskID of the highest-priority task.
-	// Returns ("", nil) when all queues are empty.
-	Pop(ctx context.Context) (string, error)
+	// Returns ("", "", nil) when all queues are empty.
+	Pop(ctx context.Context) (string, Priority, error)
 	// Remove removes a specific task from whichever priority queue it is in.
 	Remove(ctx context.Context, taskID string) error
 	// List returns all queued tasks, optionally filtered by priority.
@@ -69,22 +69,27 @@ func NewRedisQueue(client *cache.Client, keyPrefix string) *RedisQueue {
 // Lower scores are popped first (FIFO within the same priority).
 func (q *RedisQueue) Submit(ctx context.Context, taskID string, priority Priority) error {
 	score := float64(time.Now().UnixNano())
-	return cache.SortedSetAdd(ctx, q.client, q.queueKey(priority), score, taskID)
+	if err := cache.SortedSetAdd(ctx, q.client, q.queueKey(priority), score, taskID); err != nil {
+		return err
+	}
+	// Publish notification to unblock waiting dispatchLoops
+	_, _ = cache.Publish(ctx, q.client, q.keyPrefix+"queue:notify", "1")
+	return nil
 }
 
 // Pop removes and returns the highest-priority task (urgent > normal > low).
-// Returns ("", nil) if all queues are empty.
-func (q *RedisQueue) Pop(ctx context.Context) (string, error) {
+// Returns ("", "", nil) if all queues are empty.
+func (q *RedisQueue) Pop(ctx context.Context) (string, Priority, error) {
 	for _, p := range allPriorities() {
 		members, err := cache.SortedSetPopMin(ctx, q.client, q.queueKey(p), 1)
 		if err != nil {
-			return "", err
+			return "", "", err
 		}
 		if len(members) > 0 {
-			return members[0].Member.(string), nil
+			return members[0].Member.(string), p, nil
 		}
 	}
-	return "", nil
+	return "", "", nil
 }
 
 // Remove deletes a specific task from every priority queue it might appear in.
