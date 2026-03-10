@@ -507,9 +507,10 @@ func TestHandlerEventsSubscribe(t *testing.T) {
 	result, err := d.handleEventsSubscribe(context.Background(), nil)
 	require.NoError(t, err)
 
-	m, ok := result.(map[string]interface{})
+	resp, ok := result.(EventSubscribeResponse)
 	require.True(t, ok)
-	assert.Equal(t, true, m["accepted"])
+	assert.NotEmpty(t, resp.Channel)
+	assert.NotEmpty(t, resp.LogPrefix)
 }
 
 // -- stubHandler --
@@ -538,6 +539,7 @@ func TestSetupRouter(t *testing.T) {
 		MethodTaskList, MethodTaskApprove, MethodTaskReject,
 		MethodTaskResume, MethodTaskAbandon, MethodTaskCancel,
 		MethodQueueStats, MethodEventsSubscribe,
+		MethodWorkspaceDestroy, MethodTaskPause,
 	}
 	ctx := context.Background()
 	for _, m := range methods {

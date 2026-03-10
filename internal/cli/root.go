@@ -149,6 +149,7 @@ func newRootCmd(flags *GlobalFlags, info BuildInfo) *cobra.Command {
 	AddCleanupCommand(cmd)
 	AddBacklogCommand(cmd)
 	AddDaemonCommand(cmd)
+	AddUICommand(cmd)
 
 	return cmd
 }
