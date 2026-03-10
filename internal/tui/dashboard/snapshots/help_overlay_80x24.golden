@@ -1,0 +1,36 @@
+╭─────────────────────────────────╮
+│                                 │
+│  ── Navigation ──               │
+│    ↑/k          up              │
+│    ↓/j          down            │
+│    enter        select          │
+│    l            log view        │
+│    tab          switch panel    │
+│    esc          back            │
+│                                 │
+│  ── Actions ──                  │
+│    a            approve         │
+│    r            reject          │
+│    p            pause           │
+│    R            resume          │
+│    x            abandon         │
+│    d            destroy ws      │
+│                                 │
+│  ── Log ──                      │
+│    1            all levels      │
+│    2            info+           │
+│    3            warn+           │
+│    4            error only      │
+│    /            search          │
+│    n            next match      │
+│    N            prev match      │
+│    G            jump to bottom  │
+│    g            jump to top     │
+│                                 │
+│  ── General ──                  │
+│    ?            help            │
+│    q            quit            │
+│                                 │
+│  Press any key to close         │
+│                                 │
+╰─────────────────────────────────╯
