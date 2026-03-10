@@ -42,7 +42,7 @@ func resolveGitDir(path string) (string, error) {
 	}
 
 	// It's a file - read the gitdir reference (worktree case)
-	content, err := os.ReadFile(path)
+	content, err := os.ReadFile(path) //nolint:gosec // G304: path is the .git file resolved via os.Stat above
 	if err != nil {
 		return "", err
 	}

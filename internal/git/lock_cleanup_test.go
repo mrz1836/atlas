@@ -176,6 +176,22 @@ func createLockFileAt(t *testing.T, path string, age time.Duration) {
 	}
 }
 
+// Helper to create a directory tree (reduces cognitive complexity in callers).
+func mkdirAllTest(t *testing.T, path string) {
+	t.Helper()
+	if err := os.MkdirAll(path, 0o750); err != nil {
+		t.Fatalf("failed to create directory %s: %v", path, err)
+	}
+}
+
+// Helper to write a file (reduces cognitive complexity in callers).
+func writeFileTest(t *testing.T, path string, content []byte) {
+	t.Helper()
+	if err := os.WriteFile(path, content, 0o600); err != nil {
+		t.Fatalf("failed to write file %s: %v", path, err)
+	}
+}
+
 // Helper to verify if a file exists or not
 func assertFileExists(t *testing.T, path string, shouldExist bool) {
 	t.Helper()
@@ -217,12 +233,8 @@ func TestCleanupStaleLockFiles(t *testing.T) {
 
 		wt1Dir := filepath.Join(worktreesDir, "worktree1")
 		wt2Dir := filepath.Join(worktreesDir, "worktree2")
-		if err := os.MkdirAll(wt1Dir, 0o750); err != nil {
-			t.Fatalf("failed to create worktree1 dir: %v", err)
-		}
-		if err := os.MkdirAll(wt2Dir, 0o750); err != nil {
-			t.Fatalf("failed to create worktree2 dir: %v", err)
-		}
+		mkdirAllTest(t, wt1Dir)
+		mkdirAllTest(t, wt2Dir)
 
 		lock1 := filepath.Join(wt1Dir, "index.lock")
 		lock2 := filepath.Join(wt2Dir, "index.lock")
@@ -243,9 +255,7 @@ func TestCleanupStaleLockFiles(t *testing.T) {
 		createLockFileAt(t, staleLock, 2*time.Minute)
 
 		refsHeadsDir := filepath.Join(gitDir, "refs", "heads")
-		if err := os.MkdirAll(refsHeadsDir, 0o750); err != nil {
-			t.Fatalf("failed to create refs/heads dir: %v", err)
-		}
+		mkdirAllTest(t, refsHeadsDir)
 		freshLock := filepath.Join(refsHeadsDir, "branch.lock")
 		createLockFileAt(t, freshLock, 0)
 
@@ -283,9 +293,7 @@ func TestCleanupStaleLockFiles(t *testing.T) {
 		// Create the main repo's .git structure
 		mainGitDir := filepath.Join(tmpDir, "main-repo", ".git")
 		worktreeGitDir := filepath.Join(mainGitDir, "worktrees", "my-worktree")
-		if err := os.MkdirAll(worktreeGitDir, 0o750); err != nil {
-			t.Fatalf("failed to create worktree git dir: %v", err)
-		}
+		mkdirAllTest(t, worktreeGitDir)
 
 		// Create a stale lock file in the worktree's git dir
 		lockPath := filepath.Join(worktreeGitDir, "index.lock")
@@ -293,16 +301,12 @@ func TestCleanupStaleLockFiles(t *testing.T) {
 
 		// Create the worktree directory with a .git file
 		worktreeDir := filepath.Join(tmpDir, "worktree-dir")
-		if err := os.MkdirAll(worktreeDir, 0o750); err != nil {
-			t.Fatalf("failed to create worktree dir: %v", err)
-		}
+		mkdirAllTest(t, worktreeDir)
 
 		// Create the .git file that points to the actual git dir
 		gitFilePath := filepath.Join(worktreeDir, ".git")
 		gitFileContent := fmt.Sprintf("gitdir: %s\n", worktreeGitDir)
-		if err := os.WriteFile(gitFilePath, []byte(gitFileContent), 0o600); err != nil {
-			t.Fatalf("failed to create .git file: %v", err)
-		}
+		writeFileTest(t, gitFilePath, []byte(gitFileContent))
 
 		// Call CleanupStaleLockFiles with the .git file path (not directory)
 		err := CleanupStaleLockFiles(context.Background(), gitFilePath, time.Minute, zerolog.Nop())
