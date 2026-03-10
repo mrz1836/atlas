@@ -124,10 +124,34 @@ func (l *Layout) Render(left, right string) string {
 	return sb.String()
 }
 
+// SetSize updates the layout dimensions.
+// Call this in response to tea.WindowSizeMsg events.
+func (l *Layout) SetSize(width, height int) {
+	l.Width = width
+	l.Height = height
+}
+
+// IsNarrow returns true when the terminal width is below the narrow threshold (<80).
+// In narrow mode the dashboard renders as a single column (no right pane).
+func (l *Layout) IsNarrow() bool {
+	return l.isNarrow()
+}
+
+// IsWide returns true when the terminal width is at or above the wide threshold (≥120).
+// In wide mode the right pane receives a larger fraction of the available space.
+func (l *Layout) IsWide() bool {
+	return l.isWide()
+}
+
 // isNarrow returns true when the terminal is below the narrow threshold.
 // Unexported helper; must appear after all exported methods (funcorder).
 func (l *Layout) isNarrow() bool {
 	return l.Width < tui.TerminalWidthNarrow
+}
+
+// isWide returns true when the terminal is at or above the wide threshold.
+func (l *Layout) isWide() bool {
+	return l.Width >= tui.TerminalWidthWide
 }
 
 // splitLines splits a string by newlines into a slice of lines.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -14,6 +15,13 @@ import (
 
 // notificationTTL is how long an action notification stays visible.
 const notificationTTL = 3 * time.Second
+
+// Reconnect backoff constants.
+const (
+	reconnectInitialDelay = 500 * time.Millisecond
+	reconnectMaxDelay     = 10 * time.Second
+	daemonPingInterval    = 5 * time.Second
+)
 
 // Sentinel errors for daemon action dispatching.
 var (
@@ -85,15 +93,25 @@ type Model struct {
 	// notificationAt is the time the last notification was set.
 	notificationAt time.Time
 
+	// ── Reconnection state ────────────────────────────────────────────────────
+	// reconnectAttempts tracks how many consecutive reconnect attempts have been made.
+	reconnectAttempts int
+	// reconnectDelay is the next backoff delay to use.
+	reconnectDelay time.Duration
+
 	// ── Display state ─────────────────────────────────────────────────────────
 	// connState is the current daemon/Redis connection state.
 	connState ConnectionState
+	// startupError holds an error message shown at startup (daemon/Redis not available).
+	startupError string
 	// width and height track the current terminal dimensions.
 	width, height int
 	// quitting is set to true when the user requests exit.
 	quitting bool
 	// showHelp toggles the help overlay.
 	showHelp bool
+	// helpOverlay is the help keybinds overlay component.
+	helpOverlay *HelpOverlay
 }
 
 // New creates a new dashboard Model with sensible defaults.
@@ -101,15 +119,17 @@ type Model struct {
 func New() *Model {
 	km := DefaultKeyMap()
 	return &Model{
-		layout:     NewLayout(80, 24), // overridden by tea.WindowSizeMsg on launch
-		keys:       km,
-		taskList:   NewTaskList(),
-		taskDetail: NewTaskDetail(),
-		logPanel:   NewLogPanel(),
-		header:     NewHeader("ATLAS Dashboard"),
-		statusBar:  NewStatusBar(km),
-		tasks:      make(map[string]TaskInfo),
-		connState:  ConnectionStateReconnecting,
+		layout:         NewLayout(80, 24), // overridden by tea.WindowSizeMsg on launch
+		keys:           km,
+		taskList:       NewTaskList(),
+		taskDetail:     NewTaskDetail(),
+		logPanel:       NewLogPanel(),
+		header:         NewHeader("ATLAS Dashboard"),
+		statusBar:      NewStatusBar(km),
+		tasks:          make(map[string]TaskInfo),
+		connState:      ConnectionStateReconnecting,
+		reconnectDelay: reconnectInitialDelay,
+		helpOverlay:    NewHelpOverlay(km),
 	}
 }
 
@@ -204,9 +224,24 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case ReconnectedMsg:
 		m.connState = ConnectionStateConnected
 		m.header.SetConnection(ConnectionStateConnected)
-		return m, m.initialTaskListCmd()
+		m.reconnectAttempts = 0
+		m.reconnectDelay = reconnectInitialDelay
+		m.startupError = ""
+		return m, tea.Batch(m.initialTaskListCmd(), daemonPingCmd(m.client))
 
 	case DisconnectedMsg:
+		m.connState = ConnectionStateReconnecting
+		m.header.SetConnection(ConnectionStateReconnecting)
+		return m, m.reconnectCmd()
+
+	case reconnectAttemptMsg:
+		return m, m.doReconnect()
+
+	case daemonPingMsg:
+		return m, m.handleDaemonPing()
+
+	case startupErrorMsg:
+		m.startupError = msg.text
 		m.connState = ConnectionStateDisconnected
 		m.header.SetConnection(ConnectionStateDisconnected)
 		return m, nil
@@ -252,6 +287,13 @@ func (m *Model) View() tea.View {
 		return tea.NewView("")
 	}
 
+	// ── Startup error: show centered error message ──────────────────────────────
+	if m.startupError != "" {
+		v := tea.NewView(m.renderStartupError())
+		v.AltScreen = true
+		return v
+	}
+
 	// ── Header ────────────────────────────────────────────────────────────────
 	headerStr := m.header.View(m.width)
 
@@ -286,7 +328,15 @@ func (m *Model) View() tea.View {
 	// ── Assemble full screen ───────────────────────────────────────────────────
 	full := headerStr + "\n" + contentStr + "\n" + footerStr
 
-	// ── Overlay (confirmation / feedback) ─────────────────────────────────────
+	// ── Help overlay ──────────────────────────────────────────────────────────
+	if m.helpOverlay != nil && m.helpOverlay.IsVisible() {
+		overlayStr := m.helpOverlay.View(m.width, m.height)
+		if overlayStr != "" {
+			full = renderWithOverlay(full, overlayStr)
+		}
+	}
+
+	// ── Confirmation / feedback overlay ───────────────────────────────────────
 	if m.overlay.isActive() {
 		overlayStr := m.overlay.view(m.width, m.height)
 		full = renderWithOverlay(full, overlayStr)
@@ -338,6 +388,43 @@ func (m *Model) SetCacheClientWithPrefix(c *cache.Client, keyPrefix string) {
 
 // LogPanel returns the log panel component (useful for testing).
 func (m *Model) LogPanel() *LogPanel { return m.logPanel }
+
+// SetStartupError sets a startup-time error to display centrally in the view.
+// This is called from the CLI integration layer when daemon/Redis is unreachable.
+func (m *Model) SetStartupError(msg string) {
+	m.startupError = msg
+	m.connState = ConnectionStateDisconnected
+	m.header.SetConnection(ConnectionStateDisconnected)
+}
+
+// renderStartupError returns a full-screen centered error message.
+func (m *Model) renderStartupError() string {
+	s := GetStyles()
+	msg := s.LogError.Bold(true).Render(m.startupError)
+	hint := s.Dimmed.Render("Press q or Ctrl+C to exit")
+
+	lines := m.height
+	if lines < 3 {
+		return msg
+	}
+
+	topPad := (lines - 3) / 2
+	var sb strings.Builder
+	for i := 0; i < topPad; i++ {
+		sb.WriteByte('\n')
+	}
+	// Center each line horizontally.
+	for _, line := range []string{msg, "", hint} {
+		plain := stripANSI(line)
+		pad := (m.width - len([]rune(plain))) / 2
+		if pad > 0 {
+			sb.WriteString(strings.Repeat(" ", pad))
+		}
+		sb.WriteString(line)
+		sb.WriteByte('\n')
+	}
+	return sb.String()
+}
 
 // buildFooter assembles the status bar, incorporating any active notification
 // or overlay hint above the keybinding hints.
@@ -527,13 +614,34 @@ func (m *Model) currentTask() *TaskInfo {
 // handleModeKey handles mode-switching keys (help, esc, l).
 // Returns true if the key was consumed.
 func (m *Model) handleModeKey(key string) bool {
+	// When the help overlay is visible, any key dismisses it.
+	if m.helpOverlay != nil && m.helpOverlay.IsVisible() {
+		m.helpOverlay.Hide()
+		m.showHelp = false
+		m.layout.Mode = ViewModeList
+		return true
+	}
+
 	switch key {
 	case "?":
 		m.showHelp = !m.showHelp
-		m.layout.Mode = map[bool]ViewMode{true: ViewModeHelp, false: ViewModeList}[m.showHelp]
+		if m.helpOverlay != nil {
+			if m.showHelp {
+				m.helpOverlay.Show()
+				m.layout.Mode = ViewModeHelp
+			} else {
+				m.helpOverlay.Hide()
+				m.layout.Mode = ViewModeList
+			}
+		} else {
+			m.layout.Mode = map[bool]ViewMode{true: ViewModeHelp, false: ViewModeList}[m.showHelp]
+		}
 		return true
 	case "esc":
 		m.showHelp = false
+		if m.helpOverlay != nil {
+			m.helpOverlay.Hide()
+		}
 		m.layout.Mode = ViewModeList
 		return true
 	case "l":
@@ -957,5 +1065,83 @@ func callDaemonAction(c *daemon.Client, action, taskID, feedback string) error {
 func tickCmd() tea.Cmd {
 	return tea.Tick(time.Second, func(t time.Time) tea.Msg {
 		return TickMsg{Time: t}
+	})
+}
+
+// ── Reconnection internal messages ────────────────────────────────────────────
+
+// reconnectAttemptMsg triggers the next reconnect attempt after the backoff delay elapses.
+type reconnectAttemptMsg struct {
+	delay time.Duration
+}
+
+// startupErrorMsg carries a startup-time error message to display centrally.
+type startupErrorMsg struct {
+	text string
+}
+
+// daemonPingMsg is emitted by the periodic health-check ticker.
+type daemonPingMsg struct{}
+
+// reconnectCmd schedules the next reconnect attempt after the current backoff delay.
+func (m *Model) reconnectCmd() tea.Cmd {
+	delay := m.reconnectDelay
+	return tea.Tick(delay, func(_ time.Time) tea.Msg {
+		return reconnectAttemptMsg{delay: delay}
+	})
+}
+
+// doReconnect performs one reconnect attempt via the daemon status RPC.
+// On success → ReconnectedMsg; on failure → DisconnectedMsg (re-triggers reconnectCmd).
+func (m *Model) doReconnect() tea.Cmd {
+	if m.client == nil {
+		return func() tea.Msg {
+			return startupErrorMsg{
+				text: "Atlas daemon is not running. Start it with: atlas daemon start",
+			}
+		}
+	}
+
+	// Advance the exponential backoff counter.
+	m.reconnectAttempts++
+	next := m.reconnectDelay * 2
+	if next > reconnectMaxDelay {
+		next = reconnectMaxDelay
+	}
+	m.reconnectDelay = next
+
+	c := m.client
+	return func() tea.Msg {
+		var resp daemon.DaemonStatusResponse
+		if err := c.Call(context.Background(), daemon.MethodDaemonStatus, struct{}{}, &resp); err != nil {
+			return DisconnectedMsg{Err: err}
+		}
+		return ReconnectedMsg{}
+	}
+}
+
+// handleDaemonPing issues a fresh ping to the daemon and re-schedules the next one.
+// If the daemon is unreachable it triggers a DisconnectedMsg.
+func (m *Model) handleDaemonPing() tea.Cmd {
+	if m.client == nil || m.connState != ConnectionStateConnected {
+		return nil
+	}
+	c := m.client
+	return func() tea.Msg {
+		var resp daemon.DaemonStatusResponse
+		if err := c.Call(context.Background(), daemon.MethodDaemonStatus, struct{}{}, &resp); err != nil {
+			return DisconnectedMsg{Err: err}
+		}
+		return daemonPingMsg{}
+	}
+}
+
+// daemonPingCmd schedules the first periodic daemon ping after daemonPingInterval.
+func daemonPingCmd(client *daemon.Client) tea.Cmd {
+	if client == nil {
+		return nil
+	}
+	return tea.Tick(daemonPingInterval, func(_ time.Time) tea.Msg {
+		return daemonPingMsg{}
 	})
 }

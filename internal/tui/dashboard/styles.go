@@ -262,6 +262,19 @@ func NewStyles() *Styles {
 	return s
 }
 
+// StylesForProfile returns a Styles set tuned for the given color profile.
+// This is the explicit-profile variant of GetStyles (which auto-detects).
+//
+//   - TrueColor / ANSI256 / ANSI: full adaptive color palette (same as NewStyles).
+//   - Ascii (no color): structural formatting only, no color values.
+func StylesForProfile(profile colorprofile.Profile) *Styles {
+	s := NewStyles()
+	if profile == colorprofile.Ascii {
+		s.applyNoColor()
+	}
+	return s
+}
+
 // applyNoColor strips all color from styles, leaving only structural formatting.
 // Called automatically by NewStyles when the color profile is Ascii.
 func (s *Styles) applyNoColor() {
