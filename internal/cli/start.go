@@ -164,7 +164,8 @@ func tryDaemonSubmit(ctx context.Context, cmd *cobra.Command, w io.Writer, descr
 	}
 	var resp daemon.TaskSubmitResponse
 	if submitErr := c.Call(ctx, daemon.MethodTaskSubmit, req, &resp); submitErr != nil {
-		return nil // submit failed; fall through to direct execution
+		result := fmt.Errorf("daemon task submit failed: %w", submitErr)
+		return &result // daemon is alive but submit failed; surface the error
 	}
 	out := tui.NewOutput(w, cmd.Flag("output").Value.String())
 	out.Success(fmt.Sprintf("Task queued: %s", resp.TaskID))
