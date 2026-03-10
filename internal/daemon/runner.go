@@ -99,7 +99,9 @@ func (r *Runner) Stop() {
 func (r *Runner) CancelTask(ctx context.Context, taskID string) bool {
 	r.canceledTasks.Store(taskID, "canceled")
 	hashKey := r.cfg.Redis.KeyPrefix + "task:" + taskID
-	_ = cache.HashMapSet(ctx, r.redis, hashKey, [][2]interface{}{{"status", "canceled"}})
+	if err := cache.HashMapSet(ctx, r.redis, hashKey, [][2]interface{}{{"status", "canceled"}}); err != nil {
+		r.logger.Error().Err(err).Str("task_id", taskID).Msg("runner: failed to persist canceled status")
+	}
 
 	r.taskCtxMu.Lock()
 	cancel, ok := r.taskCtxs[taskID]
@@ -116,7 +118,9 @@ func (r *Runner) CancelTask(ctx context.Context, taskID string) bool {
 func (r *Runner) PauseRunningTask(ctx context.Context, taskID string) bool {
 	r.canceledTasks.Store(taskID, "paused")
 	hashKey := r.cfg.Redis.KeyPrefix + "task:" + taskID
-	_ = cache.HashMapSet(ctx, r.redis, hashKey, [][2]interface{}{{"status", "paused"}})
+	if err := cache.HashMapSet(ctx, r.redis, hashKey, [][2]interface{}{{"status", "paused"}}); err != nil {
+		r.logger.Error().Err(err).Str("task_id", taskID).Msg("runner: failed to persist paused status")
+	}
 
 	r.taskCtxMu.Lock()
 	cancel, ok := r.taskCtxs[taskID]
@@ -133,7 +137,9 @@ func (r *Runner) PauseRunningTask(ctx context.Context, taskID string) bool {
 func (r *Runner) AbandonRunningTask(ctx context.Context, taskID string) bool {
 	r.canceledTasks.Store(taskID, "abandoned")
 	hashKey := r.cfg.Redis.KeyPrefix + "task:" + taskID
-	_ = cache.HashMapSet(ctx, r.redis, hashKey, [][2]interface{}{{"status", "abandoned"}})
+	if err := cache.HashMapSet(ctx, r.redis, hashKey, [][2]interface{}{{"status", "abandoned"}}); err != nil {
+		r.logger.Error().Err(err).Str("task_id", taskID).Msg("runner: failed to persist abandoned status")
+	}
 
 	r.taskCtxMu.Lock()
 	cancel, ok := r.taskCtxs[taskID]
@@ -159,12 +165,19 @@ func (r *Runner) RequeueForResume(ctx context.Context, taskID, approvalChoice, r
 	if err := cache.HashMapSet(ctx, r.redis, hashKey, pairs); err != nil {
 		return fmt.Errorf("requeue: update task hash: %w", err)
 	}
+	// Fetch previous priority to prevent inversion
+	prio := PriorityNormal
+	if vals, err := cache.HashMapGet(ctx, r.redis, hashKey, "priority"); err == nil {
+		if p := safeIndex(vals, 0); p != "" {
+			prio = Priority(p)
+		}
+	}
 	// Ensure task is present in the active set (may have been removed on failure).
 	activeKey := r.cfg.Redis.KeyPrefix + "active"
 	if err := cache.SetAdd(ctx, r.redis, activeKey, taskID); err != nil {
 		r.logger.Warn().Err(err).Str("task_id", taskID).Msg("runner: failed to re-add task to active set on resume")
 	}
-	return r.queue.Submit(ctx, taskID, PriorityNormal)
+	return r.queue.Submit(ctx, taskID, prio)
 }
 
 // loadTaskJob reads all per-task metadata fields from the Redis hash and
@@ -406,6 +419,7 @@ func (r *Runner) executeTask(_ context.Context, taskID string) {
 			r.logger.Debug().Str("task_id", taskID).Str("status", s).
 				Msg("runner: task already terminal; skipping execution")
 			r.canceledTasks.Delete(taskID)
+			r.finalizeCanceledTask(taskID, hashKey)
 			return
 		}
 	}
