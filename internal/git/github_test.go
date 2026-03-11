@@ -328,7 +328,7 @@ func TestCLIGitHubRunner_CreatePR_ContextCancelledDuringRetry(t *testing.T) {
 		},
 	}
 
-	ctx, cancel := context.WithCancel(context.Background()) //nolint:gosec // G118: cancel is called via goroutine or defer
+	ctx, cancel := context.WithCancel(context.Background())
 
 	runner := NewCLIGitHubRunner("/test/dir",
 		WithGHCommandExecutor(mock),
@@ -1097,7 +1097,7 @@ func TestCLIGitHubRunner_WatchPRChecks_ContextCancellation(t *testing.T) {
 
 	runner := NewCLIGitHubRunner("/test/dir", WithGHCommandExecutor(mock))
 
-	ctx, cancel := context.WithCancel(context.Background()) //nolint:gosec // G118: cancel is called in goroutine below
+	ctx, cancel := context.WithCancel(context.Background())
 
 	go func() {
 		time.Sleep(30 * time.Millisecond)

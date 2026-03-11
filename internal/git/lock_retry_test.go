@@ -130,7 +130,7 @@ func TestRunWithLockRetry_ExhaustedRetries(t *testing.T) {
 }
 
 func TestRunWithLockRetry_ContextCancellation(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background()) //nolint:gosec // G118: cancel is called via goroutine or defer in test
+	ctx, cancel := context.WithCancel(context.Background())
 	config := LockRetryConfig{
 		MaxAttempts:  5,
 		InitialDelay: 100 * time.Millisecond,
