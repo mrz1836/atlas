@@ -302,7 +302,7 @@ func TestSpinner_RaceCondition_StartStopConcurrent(t *testing.T) {
 		buf := &safeSpinnerBuffer{}
 		spinner := tui.NewTerminalSpinner(buf)
 
-		ctx, cancel := context.WithCancel(context.Background()) //nolint:gosec // G118: cancel is called in goroutine below
+		ctx, cancel := context.WithCancel(context.Background())
 
 		// Start spinner
 		spinner.Start(ctx, "Test message")
