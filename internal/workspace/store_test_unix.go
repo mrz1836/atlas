@@ -95,7 +95,7 @@ func TestFileStore_ContextCancellationDuringLock(t *testing.T) {
 	defer func() { _ = syscall.Flock(int(lockFile.Fd()), syscall.LOCK_UN) }() //nolint:gosec // G115: uintptr->int for syscall, file descriptors fit in int on all supported platforms
 
 	// Create a context that will be canceled quickly
-	ctx, cancel := context.WithCancel(context.Background()) //nolint:gosec // G118: cancel is called in goroutine below
+	ctx, cancel := context.WithCancel(context.Background())
 
 	// Cancel after a short delay (before lock timeout would occur)
 	go func() {
