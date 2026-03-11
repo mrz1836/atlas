@@ -352,7 +352,6 @@ func (r *Runner) executeTask(_ context.Context, taskID string) {
 	if taskTimeout <= 0 {
 		taskTimeout = 45 * time.Minute
 	}
-	//nolint:gosec // G118: context.Background() is intentional — task context must be independent of dispatch loop lifetime.
 	taskCtx, cancel := context.WithTimeout(context.Background(), taskTimeout) //nolint:contextcheck // Intentional: independent task context; cancel is called in the deferred cleanup below.
 	r.taskCtxMu.Lock()
 	r.taskCtxs[taskID] = cancel
