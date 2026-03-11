@@ -79,10 +79,11 @@ func (e *DaemonTaskExecutor) Abandon(ctx context.Context, job daemon.TaskJob, re
 func (e *DaemonTaskExecutor) start(ctx context.Context, job daemon.TaskJob) (string, string, error) {
 	services := NewServiceFactory(e.logger).WithRepoPath(job.RepoPath)
 
-	taskStore, cfg, err := services.SetupTaskStoreAndConfig(ctx)
+	taskStore, err := services.CreateTaskStore()
 	if err != nil {
 		return "", "", fmt.Errorf("start: setup services: %w", err)
 	}
+	cfg := e.cfg
 
 	wsName := job.Workspace
 	if wsName == "" {
@@ -125,10 +126,11 @@ func (e *DaemonTaskExecutor) start(ctx context.Context, job daemon.TaskJob) (str
 func (e *DaemonTaskExecutor) resume(ctx context.Context, job daemon.TaskJob) (string, string, error) {
 	services := NewServiceFactory(e.logger).WithRepoPath(job.RepoPath)
 
-	taskStore, cfg, err := services.SetupTaskStoreAndConfig(ctx)
+	taskStore, err := services.CreateTaskStore()
 	if err != nil {
 		return "", "", fmt.Errorf("resume: setup services: %w", err)
 	}
+	cfg := e.cfg
 
 	t, err := taskStore.Get(ctx, job.Workspace, job.EngineTaskID)
 	if err != nil {

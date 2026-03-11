@@ -266,7 +266,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.reconnectAttempts = 0
 		m.reconnectDelay = reconnectInitialDelay
 		m.startupError = ""
-		reconnectCmds := []tea.Cmd{m.initialTaskListCmd(), daemonPingCmd(m.client), taskRefreshCmd(m.client)}
+		reconnectCmds := []tea.Cmd{m.initialTaskListCmd(), daemonPingCmd(m.client)}
 		if m.cacheClient != nil && m.eventSub == nil {
 			sub := daemon.NewEventSubscriber(m.cacheClient, "")
 			sCtx, sCancel := context.WithCancel(context.Background())
@@ -293,6 +293,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case daemonPingMsg:
 		return m, m.handleDaemonPing()
+
+	case DaemonStatusMsg:
+		m.connState = ConnectionStateConnected
+		m.header.SetConnection(ConnectionStateConnected)
+		return m, daemonPingCmd(m.client)
 
 	case startupErrorMsg:
 		m.startupError = msg.text
@@ -1255,7 +1260,7 @@ func (m *Model) handleDaemonPing() tea.Cmd {
 		if err := c.Call(context.Background(), daemon.MethodDaemonStatus, struct{}{}, &resp); err != nil {
 			return DisconnectedMsg{Err: err}
 		}
-		return daemonPingMsg{}
+		return DaemonStatusMsg{Status: resp}
 	}
 }
 

@@ -65,7 +65,7 @@ func NewRedisClient(ctx context.Context, cfg RedisConfig) (*cache.Client, error)
 	// go-cache Connect: (ctx, url, maxActive, idleConnections, maxConnLifetime, idleTimeout, dependencyMode, newRelicEnabled)
 	poolSize := cfg.PoolSize
 	if poolSize <= 0 {
-		poolSize = 10
+		poolSize = 100
 	}
 	idleConnections := poolSize / 2
 	if idleConnections < 1 {

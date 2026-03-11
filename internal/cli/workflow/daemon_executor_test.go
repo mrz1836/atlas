@@ -374,7 +374,10 @@ func TestDaemonTaskExecutor_Start_WithGitRepo(t *testing.T) {
 		RepoPath:    repoPath,
 	}
 
-	_, _, err := exec.Execute(context.Background(), job)
+	// Use a timed-out context so the real AI agent isn't invoked and the executor returns an error fast.
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Millisecond)
+	defer cancel()
+	_, _, err := exec.Execute(ctx, job)
 	// Error is expected (no real AI runner), but the start() path through
 	// provisionWorkspace → buildEngine → resolveTemplate → eng.Start is covered.
 	assert.Error(t, err)
@@ -429,7 +432,11 @@ func TestDaemonTaskExecutor_Start_WithExistingBranch(t *testing.T) {
 		Branch:      "feat/branch-override",
 	}
 
-	_, _, startErr := execE.Execute(context.Background(), job)
+	// Use a timed-out context to avoid hanging on actual Claude invocation
+	testCtx, cancel := context.WithTimeout(context.Background(), 1*time.Millisecond)
+	defer cancel()
+
+	_, _, startErr := execE.Execute(testCtx, job)
 	// Error expected (no AI runner), but the job.Branch != "" code path is covered.
 	assert.Error(t, startErr)
 }
@@ -468,7 +475,11 @@ func TestDaemonTaskExecutor_Resume_WithGitRepo(t *testing.T) {
 		Template:     "task",
 	}
 
-	_, _, resumeErr := exec.Execute(context.Background(), job)
+	// Use a timed-out context to avoid hanging on actual Claude invocation
+	testCtx, cancel := context.WithTimeout(context.Background(), 1*time.Millisecond)
+	defer cancel()
+
+	_, _, resumeErr := exec.Execute(testCtx, job)
 	// Error is expected (no AI runner), but resolveTemplate and eng.Resume are exercised.
 	assert.Error(t, resumeErr)
 }

@@ -601,7 +601,7 @@ func TestDefaultConfig_RedisDefaults(t *testing.T) {
 	assert.Equal(t, 0, cfg.Redis.DB, "default Redis DB")
 	assert.Empty(t, cfg.Redis.Password, "default Redis password should be empty")
 	assert.Equal(t, "atlas:", cfg.Redis.KeyPrefix, "default Redis key prefix")
-	assert.Equal(t, 10, cfg.Redis.PoolSize, "default Redis pool size")
+	assert.Equal(t, 100, cfg.Redis.PoolSize, "default Redis pool size")
 	assert.Equal(t, 3, cfg.Redis.MaxRetries, "default Redis max retries")
 	assert.Equal(t, 5*time.Second, cfg.Redis.DialTimeout, "default Redis dial timeout")
 	assert.Equal(t, 3*time.Second, cfg.Redis.ReadTimeout, "default Redis read timeout")

@@ -116,7 +116,9 @@ func runDaemonStop(cmd *cobra.Command, _ []string) error {
 	defer func() { _ = c.Close() }()
 
 	var result map[string]interface{}
-	if callErr := c.Call(cmd.Context(), daemon.MethodDaemonShutdown, nil, &result); callErr != nil {
+	callCtx, cancel := context.WithTimeout(cmd.Context(), 5*time.Second)
+	defer cancel()
+	if callErr := c.Call(callCtx, daemon.MethodDaemonShutdown, nil, &result); callErr != nil {
 		return fmt.Errorf("shutdown daemon: %w", callErr)
 	}
 
@@ -163,7 +165,9 @@ func runDaemonStatus(cmd *cobra.Command, _ []string) error {
 	defer func() { _ = c.Close() }()
 
 	var status daemon.DaemonStatusResponse
-	if callErr := c.Call(cmd.Context(), daemon.MethodDaemonStatus, nil, &status); callErr != nil {
+	callCtx, cancel := context.WithTimeout(cmd.Context(), 5*time.Second)
+	defer cancel()
+	if callErr := c.Call(callCtx, daemon.MethodDaemonStatus, nil, &status); callErr != nil {
 		return fmt.Errorf("get daemon status: %w", callErr)
 	}
 
@@ -204,7 +208,9 @@ func runDaemonPing(cmd *cobra.Command, _ []string) error {
 	defer func() { _ = c.Close() }()
 
 	var resp daemon.DaemonPingResponse
-	if callErr := c.Call(cmd.Context(), daemon.MethodDaemonPing, nil, &resp); callErr != nil {
+	callCtx, cancel := context.WithTimeout(cmd.Context(), 5*time.Second)
+	defer cancel()
+	if callErr := c.Call(callCtx, daemon.MethodDaemonPing, nil, &resp); callErr != nil {
 		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "pong: daemon not responding")
 		return nil
 	}

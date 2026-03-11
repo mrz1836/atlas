@@ -202,10 +202,14 @@ func (f *ServiceFactory) CreateGitServices(ctx context.Context, worktreePath str
 
 // CreateExecutorRegistry creates the step executor registry with all dependencies.
 func (f *ServiceFactory) CreateExecutorRegistry(deps RegistryDeps) *steps.ExecutorRegistry {
+	var notifier steps.Notifier
+	if deps.Notifier != nil {
+		notifier = deps.Notifier
+	}
 	return steps.NewDefaultRegistry(steps.ExecutorDeps{
 		WorkDir:                    deps.WorkDir,
 		ArtifactSaver:              deps.TaskStore,
-		Notifier:                   deps.Notifier,
+		Notifier:                   notifier,
 		AIRunner:                   deps.AIRunner,
 		Logger:                     deps.Logger,
 		SmartCommitter:             deps.GitServices.SmartCommitter,

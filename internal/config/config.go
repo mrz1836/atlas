@@ -556,7 +556,7 @@ type RedisConfig struct {
 	KeyPrefix string `yaml:"key_prefix" mapstructure:"key_prefix"`
 
 	// PoolSize is the maximum number of active Redis connections.
-	// Default: 10
+	// Default: 100
 	PoolSize int `yaml:"pool_size" mapstructure:"pool_size"`
 
 	// MaxRetries is the number of dial retry attempts before giving up.

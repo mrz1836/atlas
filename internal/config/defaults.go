@@ -240,8 +240,8 @@ func DefaultConfig() *Config {
 			// KeyPrefix: all Atlas keys live under this namespace.
 			KeyPrefix: "atlas:",
 
-			// PoolSize: 10 connections handles typical daemon workload.
-			PoolSize: 10,
+			// PoolSize: 100 connections handles typical daemon workload.
+			PoolSize: 100,
 
 			// MaxRetries: 3 attempts on transient connection failures.
 			MaxRetries: 3,

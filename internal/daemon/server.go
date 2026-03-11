@@ -179,10 +179,15 @@ func (s *Server) handleConn(ctx context.Context, conn net.Conn) {
 		if !scanner.Scan() {
 			break
 		}
-		// Clear deadline while the handler runs.
+		// Clear deadline while the handler runs, but enforce a timeout via context.
 		_ = conn.SetDeadline(time.Time{})
 
-		s.serveRequest(ctx, encoder, scanner.Bytes())
+		// C4: Derive a timeout context for the request handler.
+		// This prevents a single blocked handler (e.g. from an exhausted Redis pool)
+		// from leaking the connection goroutine indefinitely.
+		reqCtx, reqCancel := context.WithTimeout(ctx, 30*time.Second)
+		s.serveRequest(reqCtx, encoder, scanner.Bytes())
+		reqCancel()
 	}
 
 	if err := scanner.Err(); err != nil {
