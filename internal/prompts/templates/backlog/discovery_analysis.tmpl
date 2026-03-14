@@ -1,0 +1,78 @@
+Analyze this discovery and determine the best ATLAS task configuration:
+
+Title: {{.Title}}
+Category: {{.Category}}
+Severity: {{.Severity}}
+{{- if hasContent .Description}}
+Description: {{.Description}}
+{{- end}}
+{{- if hasContent .File}}
+Location: {{.File}}{{if gt .Line 0}}:{{.Line}}{{end}}
+{{- end}}
+{{- if .Tags}}
+Tags: {{join .Tags ", "}}
+{{- end}}
+{{- if or (hasContent .GitBranch) (hasContent .GitCommit)}}
+
+Discovery git context:
+{{- if hasContent .GitBranch}}
+  Found on branch: {{.GitBranch}}
+{{- end}}
+{{- if hasContent .GitCommit}}
+  Commit: {{.GitCommit}}
+{{- end}}
+{{- end}}
+
+Available templates: {{if .AvailableTemplates}}{{join .AvailableTemplates ", "}}{{else}}bugfix, feature, task, fix, hotfix, commit{{end}}
+
+Available 'atlas start' command options:
+  --template/-t    Template to use (bugfix, feature, commit, hotfix, task, fix)
+  --workspace/-w   Custom workspace name
+  --branch/-b      Base branch to create workspace from (fetches from remote)
+  --target         Existing branch to checkout (mutually exclusive with --branch)
+  --use-local      Prefer local branch over remote when both exist
+  --verify         Enable AI verification step (for critical changes)
+  --no-verify      Disable AI verification step (for simple changes)
+  --agent/-a       AI agent to use (claude, gemini, codex)
+  --model/-m       AI model to use
+  --from-backlog   Link to backlog discovery (auto-set)
+{{if .AvailableAgents}}
+Available agents and models:
+{{- range .AvailableAgents}}
+  {{capitalizeFirst .}}: sonnet, opus, haiku (default: sonnet)
+{{- end}}
+
+Model selection guidance:
+{{- if contains .AvailableAgents "claude"}}
+  Complex architecture, critical decisions → opus (deep reasoning for advanced tasks)
+  Standard development, most tasks → sonnet (best balance of capability and cost)
+  Simple changes, typos, minor fixes → haiku (fast and cost-effective)
+{{- end}}
+{{- if contains .AvailableAgents "gemini"}}
+{{- if contains .AvailableAgents "claude"}}
+  Commit messages, routine tasks → haiku or flash (speed over depth)
+{{- else}}
+  Standard development → pro (capable)
+  Simple changes, routine tasks → flash (fast and efficient)
+{{- end}}
+{{- end}}
+{{- if and (contains .AvailableAgents "codex") (not (contains .AvailableAgents "claude")) (not (contains .AvailableAgents "gemini"))}}
+  Complex tasks → max (most capable)
+  Standard development → codex (balanced)
+  Simple changes → mini (fast)
+{{- end}}
+{{end}}
+{{template "common/json_format" .}}
+{
+  "template": "best template name",
+  "description": "optimized task description",
+  "reasoning": "brief explanation of your choices",
+  "workspace_name": "suggested-workspace-name",
+  "priority": 1-5 where 1 is highest,
+  "base_branch": "optional: branch to base work from if not default",
+  "use_verify": "optional: true for critical/security, false for simple changes, omit for default"{{if .AvailableAgents}},
+  "agent": "optional: recommended agent ({{join .AvailableAgents ", "}}), omit to use default",
+  "model": "optional: recommended model based on task complexity"{{end}},
+  "file": "optional: relevant file path from discovery location",
+  "line": "optional: relevant line number if applicable"
+}

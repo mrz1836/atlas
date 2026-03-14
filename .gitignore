@@ -1,0 +1,70 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, build with `go test -c`
+*.test
+
+# Go List
+go.list
+
+# Output of the go coverage tool, specifically when used with LiteIDE
+*.out
+
+# OS files
+*.db
+*.DS_Store
+
+# Jetbrains
+.idea/
+
+# Eclipse
+.project
+
+# Notes
+todo.md
+
+# Distribution
+dist
+
+# Code coverage
+coverage.txt
+coverage.out
+coverage*.html
+
+# Fuzz Tests
+testdata
+
+# Test artifacts (created by unit tests)
+internal/template/steps/artifacts/
+
+# Node modules
+node_modules/
+
+# Pulumi
+.pulumi/
+
+# Environment files (legacy - now using Pulumi ESC)
+.env
+.env.*
+!.env.example
+!.github/env/*.env
+
+# Local tooling binaries
+bin/
+
+# AI / SDD files
+# Revisit these entries if you are intentionally committing files for these tools
+_bmad/
+_bmad_backup/
+.agent/
+.claude/
+.specify/scripts/
+.specify/templates
+
+# Atlas Files
+/atlas
+/artifacts

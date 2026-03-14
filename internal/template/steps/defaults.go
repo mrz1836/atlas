@@ -1,0 +1,274 @@
+// Package steps provides step execution implementations for the ATLAS task engine.
+package steps
+
+import (
+	"context"
+	"io"
+
+	"github.com/rs/zerolog"
+
+	"github.com/mrz1836/atlas/internal/ai"
+	"github.com/mrz1836/atlas/internal/config"
+	"github.com/mrz1836/atlas/internal/contracts"
+	"github.com/mrz1836/atlas/internal/git"
+	"github.com/mrz1836/atlas/internal/validation"
+)
+
+// ArtifactSaver abstracts artifact persistence for step executors.
+// This interface matches task.Store methods, allowing step executors to
+// save artifacts without direct dependency on the task package.
+type ArtifactSaver interface {
+	// SaveArtifact saves an artifact file for the task.
+	// The filename can include subdirectories (e.g., "ci_wait/ci-result.json").
+	SaveArtifact(ctx context.Context, workspaceName, taskID, filename string, data []byte) error
+
+	// SaveVersionedArtifact saves an artifact with version suffix (e.g., validation.1.json).
+	// Returns the actual filename used.
+	SaveVersionedArtifact(ctx context.Context, workspaceName, taskID, baseName string, data []byte) (string, error)
+}
+
+// Notifier abstracts user notifications.
+// This interface matches tui.Notifier, allowing the validation step
+// executor to emit notifications without direct dependency on tui.
+type Notifier interface {
+	Bell()
+}
+
+// RetryHandler abstracts retry operations for validation.
+// This interface matches validation.RetryHandler, allowing the validation
+// step executor to perform AI-assisted retries without direct dependency
+// on the validation package's concrete type.
+type RetryHandler interface {
+	CanRetry(attemptNum int) bool
+	MaxAttempts() int
+	IsEnabled() bool
+}
+
+// ExecutorDeps holds dependencies for creating executors.
+// Use this to inject dependencies when creating the default registry.
+type ExecutorDeps struct {
+	// AIRunner is the AI execution interface for AI and SDD steps.
+	AIRunner ai.Runner
+
+	// WorkDir is the working directory for validation and git commands.
+	WorkDir string
+
+	// ArtifactSaver is used to save step artifacts (validation, CI, git, SDD).
+	// If nil, artifact saving is skipped.
+	ArtifactSaver ArtifactSaver
+
+	// Notifier is used for user notifications (e.g., terminal bell).
+	// If nil, notifications are skipped.
+	Notifier Notifier
+
+	// RetryHandler is used for AI-assisted validation retry.
+	// If nil, retry capability is not available.
+	RetryHandler RetryHandler
+
+	// Logger is used for structured logging.
+	// If nil, a no-op logger is used.
+	Logger zerolog.Logger
+
+	// SmartCommitter is used for intelligent commit operations.
+	// If nil, commit operations will fail with a configuration error.
+	SmartCommitter git.SmartCommitService
+
+	// Pusher is used for push operations.
+	// If nil, push operations will fail with a configuration error.
+	Pusher git.PushService
+
+	// HubRunner is used for GitHub operations (PR creation).
+	// If nil, GitHub operations will fail with a configuration error.
+	HubRunner git.HubRunner
+
+	// PRDescriptionGenerator generates PR descriptions.
+	// If nil, PR operations will fail with a configuration error.
+	PRDescriptionGenerator git.PRDescriptionGenerator
+
+	// GitRunner is used for basic git operations.
+	// If nil, some git operations may fail.
+	GitRunner git.Runner
+
+	// CIFailureHandler is used for handling CI failures.
+	// If nil, CI failures return simple error without interactive options.
+	CIFailureHandler contracts.CIFailureHandler
+
+	// BaseBranch is the default base branch for PR creation.
+	// Falls back to "main" if not specified.
+	BaseBranch string
+
+	// CIConfig contains CI polling and timeout configuration from project config.
+	// If nil, CI executor will use default constant values.
+	CIConfig *config.CIConfig
+
+	// OperationsConfig contains per-operation AI settings.
+	// If nil, executors will use task defaults.
+	OperationsConfig *config.OperationsConfig
+
+	// Validation command configuration from project config.
+	// These commands override the defaults when running validation during task execution.
+	FormatCommands    []string
+	LintCommands      []string
+	TestCommands      []string
+	PreCommitCommands []string
+
+	// ProgressCallback is used for progress notifications (e.g., spinners, status updates).
+	// If nil, progress notifications are not sent.
+	ProgressCallback func(event interface{})
+
+	// ValidationProgressCallback is used for validation sub-step progress reporting.
+	// If nil, validation sub-step progress is not reported.
+	ValidationProgressCallback func(step, status string, info *validation.ProgressInfo)
+
+	// ValidationLiveOutput is an optional writer for streaming validation command output.
+	// If nil, live output streaming is not enabled.
+	ValidationLiveOutput io.Writer
+}
+
+// NewDefaultRegistry creates a registry with all built-in executors.
+// Pass nil for optional dependencies that aren't available yet.
+func NewDefaultRegistry(deps ExecutorDeps) *ExecutorRegistry {
+	r := NewExecutorRegistry()
+
+	registerAIExecutor(r, deps)
+	registerValidationExecutor(r, deps)
+	registerGitExecutor(r, deps)
+	r.Register(NewHumanExecutor())
+	registerSDDExecutor(r, deps)
+	registerCIExecutor(r, deps)
+	registerVerifyExecutor(r, deps)
+
+	return r
+}
+
+func registerAIExecutor(r *ExecutorRegistry, deps ExecutorDeps) {
+	if deps.AIRunner == nil {
+		return
+	}
+	aiOpts := []AIExecutorOption{WithAIWorkingDir(deps.WorkDir)}
+	if deps.OperationsConfig != nil {
+		aiOpts = append(aiOpts, WithAIOperationsConfig(deps.OperationsConfig))
+	}
+	r.Register(NewAIExecutor(deps.AIRunner, deps.ArtifactSaver, deps.Logger, aiOpts...))
+}
+
+func registerValidationExecutor(r *ExecutorRegistry, deps ExecutorDeps) {
+	validationOpts := []ValidationExecutorOption{
+		WithValidationArtifactSaver(deps.ArtifactSaver),
+		WithValidationNotifier(deps.Notifier),
+		WithValidationRetryHandler(deps.RetryHandler),
+		WithValidationCommands(ValidationCommands{
+			Format:    deps.FormatCommands,
+			Lint:      deps.LintCommands,
+			Test:      deps.TestCommands,
+			PreCommit: deps.PreCommitCommands,
+		}),
+	}
+	if deps.ValidationProgressCallback != nil {
+		validationOpts = append(validationOpts, WithValidationProgressCallback(deps.ValidationProgressCallback))
+	}
+	if deps.HubRunner != nil {
+		validationOpts = append(validationOpts, WithValidationHubRunner(deps.HubRunner))
+	}
+	if deps.ValidationLiveOutput != nil {
+		validationOpts = append(validationOpts, WithValidationLiveOutput(deps.ValidationLiveOutput))
+	}
+	r.Register(NewValidationExecutorWithOptions(deps.WorkDir, validationOpts...))
+}
+
+func registerGitExecutor(r *ExecutorRegistry, deps ExecutorDeps) {
+	gitExecutorOpts := []GitExecutorOption{WithGitLogger(deps.Logger)}
+	if deps.ArtifactSaver != nil {
+		gitExecutorOpts = append(gitExecutorOpts, WithGitArtifactSaver(deps.ArtifactSaver))
+	}
+	if deps.BaseBranch != "" {
+		gitExecutorOpts = append(gitExecutorOpts, WithBaseBranch(deps.BaseBranch))
+	}
+	if deps.SmartCommitter != nil {
+		gitExecutorOpts = append(gitExecutorOpts, WithSmartCommitter(deps.SmartCommitter))
+	}
+	if deps.Pusher != nil {
+		gitExecutorOpts = append(gitExecutorOpts, WithPusher(deps.Pusher))
+	}
+	if deps.HubRunner != nil {
+		gitExecutorOpts = append(gitExecutorOpts, WithHubRunner(deps.HubRunner))
+	}
+	if deps.PRDescriptionGenerator != nil {
+		gitExecutorOpts = append(gitExecutorOpts, WithPRDescriptionGenerator(deps.PRDescriptionGenerator))
+	}
+	if deps.GitRunner != nil {
+		gitExecutorOpts = append(gitExecutorOpts, WithGitRunner(deps.GitRunner))
+	}
+	r.Register(NewGitExecutor(deps.WorkDir, gitExecutorOpts...))
+}
+
+func registerSDDExecutor(r *ExecutorRegistry, deps ExecutorDeps) {
+	if deps.AIRunner == nil {
+		return
+	}
+	r.Register(NewSDDExecutorWithArtifactSaver(deps.AIRunner, deps.ArtifactSaver, deps.WorkDir, deps.Logger))
+}
+
+func registerCIExecutor(r *ExecutorRegistry, deps ExecutorDeps) {
+	ciExecutorOpts := []CIExecutorOption{WithCILogger(deps.Logger)}
+	if deps.ArtifactSaver != nil {
+		ciExecutorOpts = append(ciExecutorOpts, WithCIArtifactSaver(deps.ArtifactSaver))
+	}
+	if deps.HubRunner != nil {
+		ciExecutorOpts = append(ciExecutorOpts, WithCIHubRunner(deps.HubRunner))
+	}
+	if deps.CIFailureHandler != nil {
+		ciExecutorOpts = append(ciExecutorOpts, WithCIFailureHandler(deps.CIFailureHandler))
+	}
+	if deps.CIConfig != nil {
+		ciExecutorOpts = append(ciExecutorOpts, WithCIConfig(deps.CIConfig))
+	}
+	r.Register(NewCIExecutor(ciExecutorOpts...))
+}
+
+func registerVerifyExecutor(r *ExecutorRegistry, deps ExecutorDeps) {
+	if deps.AIRunner == nil {
+		return
+	}
+	garbageDetector := git.NewGarbageDetector(nil)
+	verifyOpts := []VerifyExecutorOption{WithVerifyWorkingDir(deps.WorkDir)}
+	if deps.ProgressCallback != nil {
+		verifyOpts = append(verifyOpts, WithVerifyProgressCallback(deps.ProgressCallback))
+	}
+	if deps.OperationsConfig != nil {
+		verifyOpts = append(verifyOpts, WithVerifyOperationsConfig(deps.OperationsConfig))
+	}
+	r.Register(NewVerifyExecutor(deps.AIRunner, garbageDetector, deps.ArtifactSaver, deps.Logger, verifyOpts...))
+}
+
+// NewMinimalRegistry creates a registry with only non-AI executors.
+// This is useful for testing or when AI is not available.
+func NewMinimalRegistry(workDir string) *ExecutorRegistry {
+	r := NewExecutorRegistry()
+
+	r.Register(NewValidationExecutor(workDir))
+	r.Register(NewGitExecutor(workDir))
+	r.Register(NewHumanExecutor())
+	r.Register(NewCIExecutor())
+
+	return r
+}
+
+// getIntFromAny extracts an int from various numeric types stored in interface{}.
+// This handles JSON unmarshaling which may produce int, int64, or float64.
+// Returns 0, false if the value is nil, not a number, or <= 0.
+func getIntFromAny(val any) (int, bool) {
+	if val == nil {
+		return 0, false
+	}
+	switch v := val.(type) {
+	case int:
+		return v, v > 0
+	case int64:
+		return int(v), v > 0
+	case float64:
+		return int(v), v > 0
+	default:
+		return 0, false
+	}
+}

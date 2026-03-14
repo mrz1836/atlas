@@ -1,0 +1,82 @@
+Generate a pull request title and body for the following changes.
+
+REQUIREMENTS:
+1. Title MUST follow conventional commits format: <type>(<scope>): <description>
+   - Types: feat, fix, docs, style, refactor, test, chore, build, ci
+   - Scope is optional but recommended (derived from changed files/packages)
+   - Description should be concise (50 chars max)
+
+2. Body MUST contain these exact sections (with ## headers):
+   ## Summary
+   Brief description of what changes were made and why.
+
+   ## Changes
+   List of changed files with brief descriptions.
+
+   ## Test Plan
+   How the changes were tested/validated.
+
+ACCURACY:
+3. Base your description on the actual commit messages and diff content provided below
+4. Be accurate and specific about what actually changed
+
+OUTPUT FORMAT - CRITICAL:
+5. TITLE: must appear FIRST, followed by title text on the same line
+6. BODY: must appear on a SEPARATE line AFTER the title
+7. Do NOT include any text before TITLE: or after the body content
+8. Do NOT use markdown code blocks around your response
+
+EXACT FORMAT (follow this precisely):
+TITLE: <type>(<scope>): <description>
+BODY:
+## Summary
+<summary text>
+
+## Changes
+<changes list>
+
+## Test Plan
+<test plan>
+
+## Task Description
+{{if hasContent .TaskDescription -}}
+{{.TaskDescription}}
+{{- else -}}
+(Not provided)
+{{- end}}
+
+## Commits
+{{if .CommitMessages -}}
+{{range .CommitMessages -}}
+- {{.}}
+{{end}}
+{{- else -}}
+(No commit messages provided)
+{{- end}}
+
+## Files Changed
+{{if .FilesChanged -}}
+{{range .FilesChanged -}}
+{{formatPRFileChange .}}
+{{end}}
+{{- else -}}
+(No file changes provided)
+{{- end}}
+{{if hasContent .DiffSummary}}
+## Diff Summary
+{{.DiffSummary}}
+{{end}}
+{{- if hasContent .ValidationResults}}
+## Validation Results
+{{.ValidationResults}}
+{{end}}
+## Template Type
+{{.TemplateName}}
+{{if hasContent .TaskID}}
+## Task ID
+{{.TaskID}}
+{{end}}
+{{- if hasContent .WorkspaceName}}
+## Workspace
+{{.WorkspaceName}}
+{{end}}

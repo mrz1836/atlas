@@ -1,0 +1,44 @@
+Please fix the following verification issues found in the code:
+
+## Task: {{.TaskDesc}}
+## Issues Found: {{.TotalIssues}}
+
+{{- if .ErrorIssues}}
+
+### Error Issues ({{len .ErrorIssues}})
+{{range .ErrorIssues -}}
+- **{{.File}}** (line {{.Line}}): {{.Message}}
+{{- if .Suggestion}}
+  Suggestion: {{.Suggestion}}
+{{- end}}
+{{end}}
+{{- end}}
+
+{{- if .WarningIssues}}
+
+### Warning Issues ({{len .WarningIssues}})
+{{range .WarningIssues -}}
+- **{{.File}}** (line {{.Line}}): {{.Message}}
+{{- if .Suggestion}}
+  Suggestion: {{.Suggestion}}
+{{- end}}
+{{end}}
+{{- end}}
+
+{{- if .InfoIssues}}
+
+### Info Issues ({{len .InfoIssues}})
+{{range .InfoIssues -}}
+- **{{.File}}** (line {{.Line}}): {{.Message}}
+{{- if .Suggestion}}
+  Suggestion: {{.Suggestion}}
+{{- end}}
+{{end}}
+{{- end}}
+
+
+## Instructions
+1. Fix each issue listed above
+2. Make minimal changes necessary
+3. Ensure all tests still pass after changes
+4. Do not introduce new issues

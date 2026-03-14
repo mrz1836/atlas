@@ -1,0 +1,718 @@
+// Package tui provides terminal user interface components for ATLAS.
+//
+// This package provides a centralized style system using Lip Gloss for consistent
+// TUI component styling. All colors use AdaptiveColor for light/dark terminal support.
+//
+// # Semantic Colors (UX-4)
+//
+// Five semantic colors are exported for use across TUI components:
+//   - ColorPrimary (Blue): Active states, links, primary actions
+//   - ColorSuccess (Green): Success states, completed items
+//   - ColorWarning (Yellow): Warning states, attention required
+//   - ColorError (Red): Error states, failed items
+//   - ColorMuted (Gray): Dim/inactive states, secondary text
+//
+// # Status Icons (UX-8)
+//
+// Triple redundancy is maintained for all status displays: icon + color + text.
+// See TaskStatusIcon and WorkspaceStatusIcon for icon mappings.
+//
+// # NO_COLOR Support (UX-7)
+//
+// Call CheckNoColor() at the start of commands to respect the NO_COLOR environment
+// variable. Colors are also disabled when TERM=dumb.
+package tui
+
+import (
+	"fmt"
+	"image/color"
+	"os"
+	"strings"
+	"sync"
+
+	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/colorprofile"
+	"github.com/mattn/go-runewidth"
+
+	"github.com/mrz1836/atlas/internal/constants"
+)
+
+// Terminal width thresholds for responsive layout decisions.
+// These constants define breakpoints for compact, standard, and wide layouts.
+const (
+	// TerminalWidthNarrow is the threshold for narrow/compact mode (< 80 columns).
+	// Below this width, abbreviated headers and compact layouts are used.
+	TerminalWidthNarrow = 80
+
+	// TerminalWidthWide is the threshold for wide/expanded mode (>= 120 columns).
+	// At or above this width, expanded layouts with more detail are used.
+	TerminalWidthWide = 120
+
+	// TerminalWidthDefault is the default terminal width used when detection fails.
+	TerminalWidthDefault = 80
+)
+
+// Layout constants for consistent spacing across TUI components.
+const (
+	// LabelWidthStandard is the label width for standard display mode.
+	LabelWidthStandard = 12
+
+	// LabelWidthExpanded is the label width for expanded display mode.
+	LabelWidthExpanded = 14
+
+	// TruncateMargin is the margin to reserve when truncating values in compact mode.
+	TruncateMargin = 15
+)
+
+//nolint:gochecknoglobals // Intentional package-level constants for TUI styling API
+var (
+	// ColorPrimary is blue, used for active states, links, and primary actions (UX-4).
+	ColorPrimary = AdaptiveColor{Light: lipgloss.Color("#0087AF"), Dark: lipgloss.Color("#00D7FF")}
+
+	// ColorSuccess is green, used for success states and completed items (UX-4).
+	ColorSuccess = AdaptiveColor{Light: lipgloss.Color("#008700"), Dark: lipgloss.Color("#00FF87")}
+
+	// ColorWarning is yellow, used for warning states and attention-required items (UX-4).
+	ColorWarning = AdaptiveColor{Light: lipgloss.Color("#AF8700"), Dark: lipgloss.Color("#FFD700")}
+
+	// ColorError is red, used for error states and failed items (UX-4).
+	ColorError = AdaptiveColor{Light: lipgloss.Color("#AF0000"), Dark: lipgloss.Color("#FF5F5F")}
+
+	// ColorMuted is gray, used for dim/inactive states and secondary text (UX-4).
+	ColorMuted = AdaptiveColor{Light: lipgloss.Color("#585858"), Dark: lipgloss.Color("#6C6C6C")}
+
+	// ColorBackground is the explicit background color for the dashboard content area.
+	// Prevents light grey "bleed-through" on terminals with non-default backgrounds.
+	ColorBackground = AdaptiveColor{Light: lipgloss.Color("#FFFFFF"), Dark: lipgloss.Color("#1A1A2E")}
+
+	// LogoGradientColors defines the gradient colors for the ASCII logo (top to bottom).
+	// Creates a 3D depth effect: bright cyan at top fading to deep blue at bottom.
+	LogoGradientColors = []AdaptiveColor{
+		{Light: lipgloss.Color("#00D7FF"), Dark: lipgloss.Color("#00FFFF")}, // Brightest cyan (top)
+		{Light: lipgloss.Color("#00AFFF"), Dark: lipgloss.Color("#00D7FF")},
+		{Light: lipgloss.Color("#0087FF"), Dark: lipgloss.Color("#00AFFF")},
+		{Light: lipgloss.Color("#005FD7"), Dark: lipgloss.Color("#0087FF")},
+		{Light: lipgloss.Color("#005FAF"), Dark: lipgloss.Color("#005FD7")},
+		{Light: lipgloss.Color("#00438B"), Dark: lipgloss.Color("#005FAF")}, // Deepest blue (bottom)
+	}
+
+	// StyleBold applies bold formatting to text (AC: #3).
+	StyleBold = lipgloss.NewStyle().Bold(true)
+
+	// StyleDim applies dim/faint formatting to text (AC: #3).
+	StyleDim = lipgloss.NewStyle().Faint(true)
+
+	// StyleUnderline applies underline formatting to text (AC: #3).
+	StyleUnderline = lipgloss.NewStyle().Underline(true)
+
+	// StyleReverse applies reverse video (inverted colors) formatting to text (AC: #3).
+	StyleReverse = lipgloss.NewStyle().Reverse(true)
+)
+
+// StatusColors returns the semantic color definitions for workspace statuses.
+// Uses AdaptiveColor for light/dark terminal support (UX-6).
+// References the package-level color constants for consistency.
+func StatusColors() map[constants.WorkspaceStatus]AdaptiveColor {
+	return map[constants.WorkspaceStatus]AdaptiveColor{
+		constants.WorkspaceStatusActive: ColorPrimary, // Blue - active state
+		constants.WorkspaceStatusPaused: ColorMuted,   // Gray - paused state
+		constants.WorkspaceStatusClosed: ColorMuted,   // Gray - closed state
+	}
+}
+
+// TableStyles holds lipgloss styles for table rendering.
+type TableStyles struct {
+	Header       lipgloss.Style
+	Cell         lipgloss.Style
+	Dim          lipgloss.Style
+	StatusColors map[constants.WorkspaceStatus]AdaptiveColor
+}
+
+// NewTableStyles creates styles for table rendering.
+func NewTableStyles() *TableStyles {
+	return &TableStyles{
+		Header: lipgloss.NewStyle().
+			Bold(true).
+			Foreground(AdaptiveColor{Light: lipgloss.Color("#333333"), Dark: lipgloss.Color("#DDDDDD")}),
+		Cell: lipgloss.NewStyle(),
+		Dim: lipgloss.NewStyle().
+			Foreground(AdaptiveColor{Light: lipgloss.Color("#666666"), Dark: lipgloss.Color("#888888")}),
+		StatusColors: StatusColors(),
+	}
+}
+
+// OutputStyles holds common output styles.
+type OutputStyles struct {
+	Success lipgloss.Style
+	Error   lipgloss.Style
+	Warning lipgloss.Style
+	Info    lipgloss.Style
+	Dim     lipgloss.Style
+}
+
+// cachedOutputStyles holds the singleton OutputStyles instance.
+//
+//nolint:gochecknoglobals // Intentional singleton pattern for performance
+var (
+	cachedOutputStyles     *OutputStyles
+	cachedOutputStylesOnce sync.Once
+)
+
+// GetOutputStyles returns a cached OutputStyles instance for performance.
+// The styles use AdaptiveColor which adapts at render time, so caching is safe.
+func GetOutputStyles() *OutputStyles {
+	cachedOutputStylesOnce.Do(func() {
+		cachedOutputStyles = NewOutputStyles()
+	})
+	return cachedOutputStyles
+}
+
+// NewOutputStyles creates common output styles using AdaptiveColor for light/dark terminal support.
+// For better performance in hot paths, use GetOutputStyles() to get a cached instance.
+func NewOutputStyles() *OutputStyles {
+	return &OutputStyles{
+		Success: lipgloss.NewStyle().
+			Foreground(ColorSuccess).
+			Bold(true),
+		Error: lipgloss.NewStyle().
+			Foreground(ColorError).
+			Bold(true),
+		Warning: lipgloss.NewStyle().
+			Foreground(ColorWarning),
+		Info: lipgloss.NewStyle().
+			Foreground(ColorPrimary),
+		Dim: lipgloss.NewStyle().
+			Foreground(ColorMuted),
+	}
+}
+
+// CheckNoColor respects the NO_COLOR environment variable (UX-7).
+// Call this at the start of commands that output styled text.
+func CheckNoColor() {
+	if !HasColorSupport() {
+		lipgloss.Writer.Profile = colorprofile.Ascii
+	}
+}
+
+// HasColorSupport returns true if the terminal supports colors.
+// Returns false if NO_COLOR is set (any value including empty string) or TERM=dumb.
+// This follows the NO_COLOR standard: https://no-color.org/
+func HasColorSupport() bool {
+	// NO_COLOR spec: If NO_COLOR exists in the environment (with any value, including empty),
+	// color should be disabled.
+	if _, exists := os.LookupEnv("NO_COLOR"); exists {
+		return false
+	}
+
+	// Also disable colors for dumb terminals
+	if os.Getenv("TERM") == "dumb" {
+		return false
+	}
+
+	return true
+}
+
+// TaskStatusColors returns the semantic color definitions for task statuses.
+// Uses AdaptiveColor for light/dark terminal support (UX-6).
+// References the package-level color constants for consistency.
+func TaskStatusColors() map[constants.TaskStatus]AdaptiveColor {
+	return map[constants.TaskStatus]AdaptiveColor{
+		// Active states - Blue
+		constants.TaskStatusPending:    ColorPrimary,
+		constants.TaskStatusRunning:    ColorPrimary,
+		constants.TaskStatusValidating: ColorPrimary,
+
+		// Warning states - Yellow
+		constants.TaskStatusValidationFailed: ColorWarning,
+		constants.TaskStatusAwaitingApproval: ColorWarning,
+		constants.TaskStatusGHFailed:         ColorWarning,
+		constants.TaskStatusCIFailed:         ColorWarning,
+		constants.TaskStatusCITimeout:        ColorWarning,
+
+		// Success state - Green
+		constants.TaskStatusCompleted: ColorSuccess,
+
+		// Terminal states - Gray/Dim
+		constants.TaskStatusRejected:  ColorMuted,
+		constants.TaskStatusAbandoned: ColorMuted,
+	}
+}
+
+// taskStatusIcons maps task statuses to their display icons.
+// Defined at package level for performance (created once, not on every call).
+// Icons follow the spec from epic-7-tui-components-from-scenarios.md Icon Reference.
+//
+//nolint:gochecknoglobals // Intentional package-level constant for TUI styling
+var taskStatusIcons = map[constants.TaskStatus]string{
+	constants.TaskStatusPending:          "○", // Empty circle - waiting (spec: ○ or [ ])
+	constants.TaskStatusRunning:          "●", // Filled circle - active (spec: ● or ⟳)
+	constants.TaskStatusValidating:       "⟳", // Rotating - in progress (spec: ● or ⟳)
+	constants.TaskStatusValidationFailed: "⚠", // Warning - needs attention
+	constants.TaskStatusAwaitingApproval: "✓", // Checkmark - ready for user (spec: ✓ or ⚠)
+	constants.TaskStatusCompleted:        "✓", // Checkmark - success
+	constants.TaskStatusRejected:         "✗", // X mark - failed
+	constants.TaskStatusAbandoned:        "✗", // X mark - failed/abandoned
+	constants.TaskStatusGHFailed:         "✗", // X mark - failed
+	constants.TaskStatusCIFailed:         "✗", // X mark - failed
+	constants.TaskStatusCITimeout:        "⚠", // Warning - needs attention
+}
+
+// TaskStatusIcon returns the icon/symbol for a given task status.
+// Used for visual status indicators in status displays.
+func TaskStatusIcon(status constants.TaskStatus) string {
+	if icon, ok := taskStatusIcons[status]; ok {
+		return icon
+	}
+	return "?"
+}
+
+// attentionStatuses defines task statuses that require user attention.
+// Defined at package level for performance (created once, not on every call).
+//
+//nolint:gochecknoglobals // Intentional package-level constant for TUI styling
+var attentionStatuses = map[constants.TaskStatus]bool{
+	constants.TaskStatusValidationFailed: true,
+	constants.TaskStatusAwaitingApproval: true,
+	constants.TaskStatusGHFailed:         true,
+	constants.TaskStatusCIFailed:         true,
+	constants.TaskStatusCITimeout:        true,
+}
+
+// IsAttentionStatus returns true if the task status requires user attention.
+// These statuses should be highlighted and sorted to the top of status lists.
+func IsAttentionStatus(status constants.TaskStatus) bool {
+	return attentionStatuses[status]
+}
+
+// suggestedActions maps task statuses to their suggested CLI commands.
+// Defined at package level for performance (created once, not on every call).
+//
+//nolint:gochecknoglobals // Intentional package-level constant for TUI styling
+var suggestedActions = map[constants.TaskStatus]string{
+	constants.TaskStatusValidationFailed: "atlas resume",
+	constants.TaskStatusAwaitingApproval: "atlas approve",
+	constants.TaskStatusGHFailed:         "atlas resume",
+	constants.TaskStatusCIFailed:         "atlas resume",
+	constants.TaskStatusCITimeout:        "atlas resume",
+}
+
+// SuggestedAction returns the suggested CLI command for a given task status.
+// Returns empty string if no action is needed or available.
+func SuggestedAction(status constants.TaskStatus) string {
+	if action, ok := suggestedActions[status]; ok {
+		return action
+	}
+	return ""
+}
+
+// ActionStyle returns a lipgloss.Style for action indicators in attention states.
+// Uses ColorWarning for visibility. Supports NO_COLOR via HasColorSupport().
+// For NO_COLOR mode, returns an unstyled style (plain text indicators handled by caller).
+func ActionStyle() lipgloss.Style {
+	if !HasColorSupport() {
+		return lipgloss.NewStyle() // Plain style for NO_COLOR mode
+	}
+	return lipgloss.NewStyle().Foreground(ColorWarning)
+}
+
+// workspaceStatusIcons maps workspace statuses to their display icons.
+// Defined at package level for performance (created once, not on every call).
+//
+//nolint:gochecknoglobals // Intentional package-level constant for TUI styling
+var workspaceStatusIcons = map[constants.WorkspaceStatus]string{
+	constants.WorkspaceStatusActive: "●", // Filled circle - active
+	constants.WorkspaceStatusPaused: "○", // Empty circle - paused
+	constants.WorkspaceStatusClosed: "◌", // Dashed circle - closed
+}
+
+// WorkspaceStatusIcon returns the icon/symbol for a given workspace status.
+// Used for visual status indicators in status displays.
+func WorkspaceStatusIcon(status constants.WorkspaceStatus) string {
+	if icon, ok := workspaceStatusIcons[status]; ok {
+		return icon
+	}
+	return "?"
+}
+
+// Status is an interface that both TaskStatus and WorkspaceStatus satisfy.
+// Used for generic status formatting functions.
+type Status interface {
+	String() string
+}
+
+// FormatStatusWithIcon formats a status with its icon and text for triple redundancy (UX-8).
+// This implements the icon + color + text pattern for accessibility.
+// Color is applied via Lip Gloss styles when rendering; this function provides icon + text.
+func FormatStatusWithIcon[S Status](status S, text string) string {
+	var icon string
+
+	// Type switch to get the appropriate icon
+	switch s := any(status).(type) {
+	case constants.TaskStatus:
+		icon = TaskStatusIcon(s)
+	case constants.WorkspaceStatus:
+		icon = WorkspaceStatusIcon(s)
+	default:
+		icon = "?"
+	}
+
+	return icon + " " + text
+}
+
+// StyleSystem consolidates all style configurations for TUI components.
+// Use NewStyleSystem() to create an instance with default values.
+type StyleSystem struct {
+	Colors     ColorPalette
+	Typography TypographyStyles
+	Icons      IconFunctions
+}
+
+// ColorPalette holds all semantic colors.
+type ColorPalette struct {
+	Primary AdaptiveColor
+	Success AdaptiveColor
+	Warning AdaptiveColor
+	Error   AdaptiveColor
+	Muted   AdaptiveColor
+}
+
+// TypographyStyles holds all text formatting styles.
+type TypographyStyles struct {
+	Bold      lipgloss.Style
+	Dim       lipgloss.Style
+	Underline lipgloss.Style
+	Reverse   lipgloss.Style
+}
+
+// IconFunctions holds icon-related helper functions.
+type IconFunctions struct {
+	TaskStatus      func(constants.TaskStatus) string
+	WorkspaceStatus func(constants.WorkspaceStatus) string
+	FormatWithIcon  func(status any, text string) string
+}
+
+// NewStyleSystem creates a new StyleSystem with default values.
+// This provides a convenient way to access all style configurations.
+func NewStyleSystem() *StyleSystem {
+	return &StyleSystem{
+		Colors: ColorPalette{
+			Primary: ColorPrimary,
+			Success: ColorSuccess,
+			Warning: ColorWarning,
+			Error:   ColorError,
+			Muted:   ColorMuted,
+		},
+		Typography: TypographyStyles{
+			Bold:      StyleBold,
+			Dim:       StyleDim,
+			Underline: StyleUnderline,
+			Reverse:   StyleReverse,
+		},
+		Icons: IconFunctions{
+			TaskStatus:      TaskStatusIcon,
+			WorkspaceStatus: WorkspaceStatusIcon,
+			// FormatWithIcon delegates to the generic FormatStatusWithIcon function
+			FormatWithIcon: formatStatusWithIconAny,
+		},
+	}
+}
+
+// formatStatusWithIconAny is a helper that wraps FormatStatusWithIcon for use with any type.
+// This avoids duplicating the switch logic in NewStyleSystem.
+func formatStatusWithIconAny(status any, text string) string {
+	switch s := status.(type) {
+	case constants.TaskStatus:
+		return FormatStatusWithIcon(s, text)
+	case constants.WorkspaceStatus:
+		return FormatStatusWithIcon(s, text)
+	default:
+		return "? " + text
+	}
+}
+
+// DefaultBoxWidth is the default width for TUI boxes.
+const DefaultBoxWidth = 100
+
+// BoxBorder defines the characters used for box borders.
+type BoxBorder struct {
+	TopLeft     string
+	TopRight    string
+	BottomLeft  string
+	BottomRight string
+	Top         string
+	Bottom      string
+	Left        string
+	Right       string
+	MiddleLeft  string // For divider lines
+	MiddleRight string
+}
+
+// DefaultBorder is the default border style with square corners per UX spec.
+// From epic-7-tui-components-from-scenarios.md: "Single-line box drawing characters (┌┐└┘─│├┤)"
+//
+//nolint:gochecknoglobals // Intentional package-level constant for TUI border styling
+var DefaultBorder = BoxBorder{
+	TopLeft:     "┌",
+	TopRight:    "┐",
+	BottomLeft:  "└",
+	BottomRight: "┘",
+	Top:         "─",
+	Bottom:      "─",
+	Left:        "│",
+	Right:       "│",
+	MiddleLeft:  "├",
+	MiddleRight: "┤",
+}
+
+// RoundedBorder is an alternative border style with rounded corners.
+// Use DefaultBorder for standard UX-compliant boxes.
+//
+//nolint:gochecknoglobals // Intentional package-level constant for TUI border styling
+var RoundedBorder = BoxBorder{
+	TopLeft:     "╭",
+	TopRight:    "╮",
+	BottomLeft:  "╰",
+	BottomRight: "╯",
+	Top:         "─",
+	Bottom:      "─",
+	Left:        "│",
+	Right:       "│",
+	MiddleLeft:  "├",
+	MiddleRight: "┤",
+}
+
+// BoxStyle holds configuration for rendering bordered boxes.
+type BoxStyle struct {
+	Width  int
+	Border *BoxBorder
+}
+
+// NewBoxStyle creates a new BoxStyle with defaults (square border per UX spec, 65 char width).
+func NewBoxStyle() *BoxStyle {
+	border := DefaultBorder // Make a copy - uses square corners per UX spec
+	return &BoxStyle{
+		Width:  DefaultBoxWidth,
+		Border: &border,
+	}
+}
+
+// WithWidth returns a new BoxStyle with the specified width.
+func (b *BoxStyle) WithWidth(width int) *BoxStyle {
+	return &BoxStyle{
+		Width:  width,
+		Border: b.Border,
+	}
+}
+
+// Render renders a box with the given title and content.
+// Supports multi-line content by splitting on newlines.
+func (b *BoxStyle) Render(title, content string) string {
+	innerWidth := b.Width - 2 // Account for left and right borders
+
+	// Build top line
+	topLine := b.Border.TopLeft + strings.Repeat(b.Border.Top, innerWidth) + b.Border.TopRight
+
+	// Build title line
+	titleLine := b.Border.Left + " " + padRight(title, innerWidth-1) + b.Border.Right
+
+	// Build divider line
+	dividerLine := b.Border.MiddleLeft + strings.Repeat(b.Border.Top, innerWidth) + b.Border.MiddleRight
+
+	// Build content lines (support multi-line content)
+	splitLines := strings.Split(content, "\n")
+	contentLines := make([]string, 0, len(splitLines))
+	for _, line := range splitLines {
+		contentLines = append(contentLines, b.Border.Left+" "+padRight(line, innerWidth-1)+b.Border.Right)
+	}
+
+	// Build bottom line
+	bottomLine := b.Border.BottomLeft + strings.Repeat(b.Border.Bottom, innerWidth) + b.Border.BottomRight
+
+	// Combine all parts
+	result := topLine + "\n" + titleLine + "\n" + dividerLine + "\n"
+	result += strings.Join(contentLines, "\n")
+	result += "\n" + bottomLine
+
+	return result
+}
+
+// stripANSI removes ANSI escape codes from a string.
+// Used to calculate visible character count (excluding color codes).
+// Handles both CSI sequences (\x1b[...letter) and OSC sequences (\x1b]...ST).
+func stripANSI(s string) string {
+	var result strings.Builder
+	runes := []rune(s)
+	i := 0
+	for i < len(runes) {
+		if newI := trySkipANSI(runes, i); newI != i {
+			i = newI
+			continue
+		}
+		result.WriteRune(runes[i])
+		i++
+	}
+	return result.String()
+}
+
+// trySkipANSI attempts to skip an ANSI escape sequence starting at position i.
+// Returns the new position after the sequence, or i if no sequence was found.
+func trySkipANSI(runes []rune, i int) int {
+	if i >= len(runes) || runes[i] != '\x1b' || i+1 >= len(runes) {
+		return i
+	}
+
+	next := runes[i+1]
+	if next == '[' {
+		return skipCSISequence(runes, i)
+	}
+	if next == ']' {
+		return skipOSCSequence(runes, i)
+	}
+	return i
+}
+
+// skipCSISequence skips a CSI sequence: \x1b[...letter
+func skipCSISequence(runes []rune, i int) int {
+	i += 2 // skip \x1b[
+	for i < len(runes) {
+		c := runes[i]
+		i++
+		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') {
+			break // CSI sequence ends with a letter
+		}
+	}
+	return i
+}
+
+// skipOSCSequence skips an OSC sequence: \x1b]...ST (where ST is \x1b\\ or \x07)
+func skipOSCSequence(runes []rune, i int) int {
+	i += 2 // skip \x1b]
+	for i < len(runes) {
+		c := runes[i]
+		if c == '\x07' {
+			i++ // skip BEL terminator
+			break
+		}
+		if c == '\x1b' && i+1 < len(runes) && runes[i+1] == '\\' {
+			i += 2 // skip ST (\x1b\\)
+			break
+		}
+		i++
+	}
+	return i
+}
+
+// padRight pads a string to the right to reach the target width.
+// Uses visible character count (excluding ANSI escape codes) for proper width calculation.
+func padRight(s string, width int) string {
+	// Strip ANSI codes to get visible character count
+	visible := stripANSI(s)
+	runeCount := runewidth.StringWidth(visible)
+	if runeCount >= width {
+		// Truncate to width runes (not bytes)
+		runes := []rune(s)
+		return string(runes[:width])
+	}
+	return s + strings.Repeat(" ", width-runeCount)
+}
+
+// HeaderStyle creates a styled header with the given color.
+// Used for consistent menu headers across TUI components.
+func HeaderStyle(c color.Color) lipgloss.Style {
+	return lipgloss.NewStyle().
+		Bold(true).
+		Foreground(c).
+		MarginBottom(1)
+}
+
+// RenderStyledHeader renders a styled header with icon and text.
+// This provides consistent header styling across menu components.
+func RenderStyledHeader(icon, text string, c color.Color) string {
+	style := HeaderStyle(c)
+	return style.Render(icon + " " + text)
+}
+
+// IsNarrowTerminal returns true if terminal width is below the narrow threshold.
+// Use this to adapt output format for narrow terminals.
+// Uses TerminalWidth() from header.go for actual terminal detection.
+func IsNarrowTerminal() bool {
+	width := TerminalWidth()
+	if width == 0 {
+		// Width 0 means detection failed - treat as narrow for safety
+		return true
+	}
+	return width < TerminalWidthNarrow
+}
+
+// TreeChars contains Unicode box-drawing characters for tree rendering.
+// Used to display hierarchical task relationships in status output.
+//
+//nolint:gochecknoglobals // Intentional package-level constant
+var TreeChars = struct {
+	Branch     string // ├─ for non-last items
+	LastBranch string // └─ for last item
+	Indent     string // spacing for alignment
+}{
+	Branch:     "├─ ",
+	LastBranch: "└─ ",
+	Indent:     "   ",
+}
+
+// RenderHyperlink wraps text in OSC 8 terminal hyperlink escape sequence.
+// When supported by the terminal, clicking the text opens the URL.
+// Falls back to plain text when colors/hyperlinks are disabled.
+//
+// OSC 8 format: \x1b]8;;URL\x07TEXT\x1b]8;;\x07
+// See: https://gist.github.com/egmontkob/eb114294efbcd5adb1944c9f3cb5feda
+func RenderHyperlink(text, url string) string {
+	if !HasColorSupport() {
+		return text
+	}
+	// OSC 8 hyperlink: ESC ] 8 ; ; URL BEL TEXT ESC ] 8 ; ; BEL
+	return fmt.Sprintf("\x1b]8;;%s\x07%s\x1b]8;;\x07", url, text)
+}
+
+// RenderFileHyperlink creates a clickable file:// URL for the given path.
+// Useful for opening folders/files in the system file manager.
+func RenderFileHyperlink(text, path string) string {
+	return RenderHyperlink(text, "file://"+path)
+}
+
+// FormatGitStats formats git statistics with colors for spinner display.
+// Returns format like "📄 1  ✏️ 3  +120/-45" with green additions and red deletions.
+// Respects NO_COLOR environment variable.
+func FormatGitStats(newFiles, modifiedFiles, deletedFiles, additions, deletions int) string {
+	var parts []string
+
+	// Build file parts with icons
+	var fileParts []string
+	if newFiles > 0 {
+		fileParts = append(fileParts, fmt.Sprintf("📄 %d", newFiles))
+	}
+	if modifiedFiles > 0 {
+		fileParts = append(fileParts, fmt.Sprintf("✏️ %d", modifiedFiles))
+	}
+	if deletedFiles > 0 {
+		fileParts = append(fileParts, fmt.Sprintf("🗑️ %d", deletedFiles))
+	}
+	if len(fileParts) > 0 {
+		parts = append(parts, strings.Join(fileParts, "  "))
+	}
+
+	// Line counts with colors
+	if additions > 0 || deletions > 0 {
+		addStr := fmt.Sprintf("+%d", additions)
+		delStr := fmt.Sprintf("-%d", deletions)
+
+		if HasColorSupport() {
+			addStr = lipgloss.NewStyle().Foreground(ColorSuccess).Render(addStr)
+			delStr = lipgloss.NewStyle().Foreground(ColorError).Render(delStr)
+		}
+		parts = append(parts, addStr+"/"+delStr)
+	}
+
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.Join(parts, "  ")
+}

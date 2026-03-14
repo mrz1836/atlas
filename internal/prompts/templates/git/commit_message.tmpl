@@ -1,0 +1,19 @@
+Generate a conventional commit message for these changes:
+
+Package: {{.Package}}
+Files changed:
+{{range .Files -}}
+{{formatFileChange .}}
+{{end}}
+{{- if hasContent .DiffSummary}}
+Change summary:
+{{.DiffSummary}}
+{{end}}
+{{template "common/conventional_commits" .}}
+{{- if hasContent .Scope}}
+10. Scope should be: {{.Scope}}
+{{end}}
+Return format (no extra formatting or explanations):
+<type>(<scope>): <description>
+
+<synopsis>

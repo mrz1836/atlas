@@ -1,0 +1,30 @@
+Review the following code changes for correctness against the task description.
+
+## Task Description
+{{.TaskDescription}}
+
+## Changed Files
+{{range .ChangedFiles -}}
+### {{.Path}}
+{{if hasContent .Language -}}
+```{{.Language}}
+{{.Content}}
+```
+{{- else -}}
+```
+{{.Content}}
+```
+{{- end}}
+
+{{end}}
+## Instructions
+Check if the implementation:
+1. Correctly addresses the task description
+2. Has any obvious bugs or logic errors
+3. Follows Go best practices (if Go code)
+4. Has proper error handling
+
+Respond with JSON array of issues found:
+[{"severity": "error|warning|info", "file": "path", "line": 0, "message": "description", "suggestion": "how to fix"}]
+
+If no issues, respond with: []

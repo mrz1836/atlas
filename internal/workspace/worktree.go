@@ -1,0 +1,658 @@
+// Package workspace provides workspace persistence and management for ATLAS.
+// This file implements Git worktree operations for isolated working directories.
+package workspace
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/rs/zerolog"
+
+	"github.com/mrz1836/atlas/internal/constants"
+	atlaserrors "github.com/mrz1836/atlas/internal/errors"
+	"github.com/mrz1836/atlas/internal/git"
+)
+
+// WorktreeRunner defines operations for Git worktree management.
+type WorktreeRunner interface {
+	// Create creates a new worktree with the given options.
+	// The worktree is created as a sibling to the repository.
+	Create(ctx context.Context, opts WorktreeCreateOptions) (*WorktreeInfo, error)
+
+	// List returns all worktrees in the repository.
+	List(ctx context.Context) ([]*WorktreeInfo, error)
+
+	// Remove removes a worktree. If force is true, removes even if dirty.
+	Remove(ctx context.Context, path string, force bool) error
+
+	// Prune removes stale worktree entries.
+	Prune(ctx context.Context) error
+
+	// BranchExists checks if a branch exists in the repository.
+	BranchExists(ctx context.Context, name string) (bool, error)
+
+	// DeleteBranch deletes a branch. If force is true, deletes even if not merged.
+	DeleteBranch(ctx context.Context, name string, force bool) error
+
+	// Fetch fetches from the specified remote.
+	// If remote is empty, defaults to "origin".
+	Fetch(ctx context.Context, remote string) error
+
+	// RemoteBranchExists checks if a branch exists on the specified remote.
+	// Returns true if refs/remotes/{remote}/{name} exists.
+	RemoteBranchExists(ctx context.Context, remote, name string) (bool, error)
+
+	// FindByBranch finds a worktree path by its branch name.
+	// Returns empty string if not found or on error.
+	FindByBranch(ctx context.Context, branch string) string
+
+	// RepoPath returns the main repository path.
+	RepoPath() string
+
+	// DetachBranch switches the main repository away from the given branch.
+	// If the main repo is currently on `branch`, it checks for a clean working tree
+	// and checks out `fallbackBranch` instead. No-op if already on a different branch.
+	// Returns ErrWorktreeDirty if the working tree has uncommitted changes.
+	DetachBranch(ctx context.Context, branch, fallbackBranch string) error
+}
+
+// WorktreeCreateOptions contains options for creating a worktree.
+type WorktreeCreateOptions struct {
+	RepoPath       string // Path to the main repository
+	WorkspaceName  string // Name of the workspace (used for path and branch)
+	BranchType     string // Branch type prefix (feat, fix, chore) - mutually exclusive with ExistingBranch
+	BaseBranch     string // Branch to create from (default: current branch)
+	ExistingBranch string // Existing branch to checkout (mutually exclusive with BranchType)
+}
+
+// WorktreeInfo contains information about a worktree.
+type WorktreeInfo struct {
+	Path       string    // Absolute path to the worktree
+	Branch     string    // Branch name (e.g., "feat/auth")
+	HeadCommit string    // HEAD commit SHA
+	IsPrunable bool      // True if worktree directory is missing
+	IsLocked   bool      // True if worktree has a lock file
+	CreatedAt  time.Time // When the worktree was created (if known)
+}
+
+// GitWorktreeRunner implements WorktreeRunner using git CLI.
+type GitWorktreeRunner struct {
+	repoPath string         // Path to the main repository
+	logger   zerolog.Logger // Logger for operations
+}
+
+// NewGitWorktreeRunner creates a new GitWorktreeRunner.
+func NewGitWorktreeRunner(ctx context.Context, repoPath string, logger zerolog.Logger) (*GitWorktreeRunner, error) {
+	// Detect repo root to ensure we're in a git repo
+	root, err := detectRepoRoot(ctx, repoPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to detect git repository: %w", err)
+	}
+	return &GitWorktreeRunner{repoPath: root, logger: logger}, nil
+}
+
+// Create creates a new worktree with the given options.
+// Supports two modes:
+//   - New branch mode (BranchType set): Creates a new branch from BaseBranch
+//   - Existing branch mode (ExistingBranch set): Checks out an existing branch
+func (r *GitWorktreeRunner) Create(ctx context.Context, opts WorktreeCreateOptions) (*WorktreeInfo, error) {
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+
+	if err := r.validateWorktreeOptions(opts); err != nil {
+		return nil, err
+	}
+
+	wtPath := siblingPath(r.repoPath, opts.WorkspaceName)
+	if err := r.cleanupOrphanedPath(ctx, wtPath); err != nil {
+		r.logger.Debug().Err(err).Str("path", wtPath).Msg("failed to cleanup orphaned path")
+	}
+
+	var err error
+	wtPath, err = ensureUniquePath(wtPath)
+	if err != nil {
+		return nil, err
+	}
+
+	branchName, args, err := r.buildWorktreeCommand(ctx, opts, wtPath)
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = git.RunCommand(ctx, r.repoPath, args...)
+	if err != nil {
+		_ = os.RemoveAll(wtPath)
+		r.logger.Error().
+			Err(err).
+			Str("branch_name", branchName).
+			Str("workspace_name", opts.WorkspaceName).
+			Str("base_branch", opts.BaseBranch).
+			Str("existing_branch", opts.ExistingBranch).
+			Str("base_branch_type", determineBranchType(opts.BaseBranch)).
+			Msg("failed to create worktree")
+		return nil, fmt.Errorf("failed to create worktree: %w", err)
+	}
+
+	gitDir := filepath.Join(wtPath, ".git")
+	if err := git.CleanupStaleLockFiles(ctx, gitDir, git.DefaultLockStalenessThreshold, r.logger); err != nil {
+		r.logger.Warn().Err(err).Str("path", wtPath).Msg("failed to cleanup stale locks")
+	}
+
+	logEvent := r.logger.Info().
+		Str("branch_name", branchName).
+		Str("workspace_name", opts.WorkspaceName).
+		Str("worktree_path", wtPath)
+
+	if opts.ExistingBranch != "" {
+		logEvent.Msg("worktree created for existing branch")
+	} else {
+		logEvent.
+			Str("base_branch", opts.BaseBranch).
+			Str("base_branch_type", determineBranchType(opts.BaseBranch)).
+			Msg("branch created")
+	}
+
+	return &WorktreeInfo{
+		Path:      wtPath,
+		Branch:    branchName,
+		CreatedAt: time.Now(),
+	}, nil
+}
+
+// List returns all worktrees in the repository.
+func (r *GitWorktreeRunner) List(ctx context.Context) ([]*WorktreeInfo, error) {
+	// Check for cancellation at entry
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+
+	output, err := git.RunCommand(ctx, r.repoPath, "worktree", "list", "--porcelain")
+	if err != nil {
+		return nil, fmt.Errorf("failed to list worktrees: %w", err)
+	}
+
+	return parseWorktreeList(output), nil
+}
+
+// Remove removes a worktree.
+func (r *GitWorktreeRunner) Remove(ctx context.Context, path string, force bool) error {
+	// Check for cancellation at entry
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
+	// Validate path is a worktree (not main repo)
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return fmt.Errorf("failed to resolve path: %w", err)
+	}
+
+	// Check if this is the main repo
+	if absPath == r.repoPath {
+		return fmt.Errorf("'%s' is the main repository, not a worktree: %w. "+
+			"Use 'git worktree list' to see valid worktrees",
+			path, atlaserrors.ErrNotAWorktree)
+	}
+
+	// Build remove command
+	args := []string{"worktree", "remove", absPath}
+	if force {
+		args = append(args, "--force")
+	}
+
+	_, err = git.RunCommand(ctx, r.repoPath, args...)
+	if err != nil {
+		// Check for dirty worktree error
+		errStr := err.Error()
+		if strings.Contains(errStr, "contains modified or untracked files") ||
+			strings.Contains(errStr, "is dirty") {
+			return fmt.Errorf("worktree at '%s' has uncommitted changes: %w. "+
+				"Commit or stash changes, or use force=true to remove anyway",
+				path, atlaserrors.ErrWorktreeDirty)
+		}
+		// Check for not a worktree error (includes main working tree)
+		if strings.Contains(errStr, "is not a working tree") ||
+			strings.Contains(errStr, "is a main working tree") {
+			return fmt.Errorf("'%s' is not a git worktree: %w. "+
+				"Use 'git worktree list' to see valid worktrees",
+				path, atlaserrors.ErrNotAWorktree)
+		}
+		return fmt.Errorf("failed to remove worktree: %w", err)
+	}
+
+	return nil
+}
+
+// Prune removes stale worktree entries.
+func (r *GitWorktreeRunner) Prune(ctx context.Context) error {
+	// Check for cancellation at entry
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
+	_, err := git.RunCommand(ctx, r.repoPath, "worktree", "prune")
+	if err != nil {
+		return fmt.Errorf("failed to prune worktrees: %w", err)
+	}
+
+	return nil
+}
+
+// BranchExists checks if a branch exists in the repository.
+func (r *GitWorktreeRunner) BranchExists(ctx context.Context, name string) (bool, error) {
+	// Check for cancellation at entry
+	select {
+	case <-ctx.Done():
+		return false, ctx.Err()
+	default:
+	}
+
+	_, err := git.RunCommand(ctx, r.repoPath, "show-ref", "--verify", "refs/heads/"+name)
+	if err != nil {
+		// Exit code 1 or "not a valid ref" means ref not found, which is expected
+		errStr := err.Error()
+		if strings.Contains(errStr, "exit status 1") || strings.Contains(errStr, "not a valid ref") {
+			return false, nil
+		}
+		return false, fmt.Errorf("failed to check branch existence: %w", err)
+	}
+
+	return true, nil
+}
+
+// DeleteBranch deletes a branch.
+func (r *GitWorktreeRunner) DeleteBranch(ctx context.Context, name string, force bool) error {
+	// Check for cancellation at entry
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
+	flag := "-d"
+	if force {
+		flag = "-D"
+	}
+
+	_, err := git.RunCommand(ctx, r.repoPath, "branch", flag, name)
+	if err != nil {
+		return fmt.Errorf("failed to delete branch '%s': %w", name, err)
+	}
+
+	return nil
+}
+
+// Fetch fetches from the specified remote.
+func (r *GitWorktreeRunner) Fetch(ctx context.Context, remote string) error {
+	// Check for cancellation at entry
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
+	if remote == "" {
+		remote = "origin"
+	}
+
+	_, err := git.RunCommand(ctx, r.repoPath, "fetch", remote)
+	if err != nil {
+		return fmt.Errorf("failed to fetch from %s: %w", remote, err)
+	}
+
+	return nil
+}
+
+// RemoteBranchExists checks if a branch exists on the specified remote.
+func (r *GitWorktreeRunner) RemoteBranchExists(ctx context.Context, remote, name string) (bool, error) {
+	// Check for cancellation at entry
+	select {
+	case <-ctx.Done():
+		return false, ctx.Err()
+	default:
+	}
+
+	if remote == "" {
+		remote = "origin"
+	}
+
+	// Check for refs/remotes/{remote}/{name}
+	ref := fmt.Sprintf("refs/remotes/%s/%s", remote, name)
+	_, err := git.RunCommand(ctx, r.repoPath, "show-ref", "--verify", ref)
+	if err != nil {
+		// Exit code 1 or "not a valid ref" means ref not found, which is expected
+		errStr := err.Error()
+		if strings.Contains(errStr, "exit status 1") || strings.Contains(errStr, "not a valid ref") {
+			return false, nil
+		}
+		return false, fmt.Errorf("failed to check remote branch existence: %w", err)
+	}
+
+	return true, nil
+}
+
+// FindByBranch finds a worktree path by branch name using List().
+// Returns empty string if not found or on error.
+func (r *GitWorktreeRunner) FindByBranch(ctx context.Context, branch string) string {
+	if branch == "" {
+		return ""
+	}
+
+	worktrees, err := r.List(ctx)
+	if err != nil {
+		r.logger.Debug().Err(err).Msg("failed to list worktrees for branch lookup")
+		return ""
+	}
+
+	for _, wt := range worktrees {
+		if wt.Branch == branch {
+			return wt.Path
+		}
+	}
+
+	return ""
+}
+
+// RepoPath returns the main repository path.
+func (r *GitWorktreeRunner) RepoPath() string {
+	return r.repoPath
+}
+
+// DetachBranch switches the main repository away from the given branch.
+// If the main repo is currently on `branch`, it verifies a clean working tree
+// and checks out `fallbackBranch`. No-op if already on a different branch.
+func (r *GitWorktreeRunner) DetachBranch(ctx context.Context, branch, fallbackBranch string) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
+	// Determine current branch of main repo
+	currentBranch, err := git.RunCommand(ctx, r.repoPath, "rev-parse", "--abbrev-ref", "HEAD")
+	if err != nil {
+		return fmt.Errorf("failed to determine current branch: %w", err)
+	}
+
+	if strings.TrimSpace(currentBranch) != branch {
+		return nil // Already on a different branch, nothing to do
+	}
+
+	// Check for clean working tree
+	status, err := git.RunCommand(ctx, r.repoPath, "status", "--porcelain")
+	if err != nil {
+		return fmt.Errorf("failed to check working tree status: %w", err)
+	}
+	if strings.TrimSpace(status) != "" {
+		return fmt.Errorf("main repository has uncommitted changes, cannot switch away from '%s': %w",
+			branch, atlaserrors.ErrWorktreeDirty)
+	}
+
+	// Switch to fallback branch
+	_, err = git.RunCommand(ctx, r.repoPath, "checkout", fallbackBranch)
+	if err != nil {
+		return fmt.Errorf("failed to checkout '%s' in main repository: %w", fallbackBranch, err)
+	}
+
+	r.logger.Info().
+		Str("from_branch", branch).
+		Str("to_branch", fallbackBranch).
+		Msg("switched main repository to fallback branch")
+
+	return nil
+}
+
+// CleanupLocks removes stale lock files from a worktree directory.
+// This is useful for cleaning up lock files left by crashed git processes.
+func (r *GitWorktreeRunner) CleanupLocks(ctx context.Context, path string) error {
+	gitDir := filepath.Join(path, ".git")
+	return git.CleanupStaleLockFiles(ctx, gitDir, git.DefaultLockStalenessThreshold, r.logger)
+}
+
+// validateWorktreeOptions validates the options for creating a worktree
+func (r *GitWorktreeRunner) validateWorktreeOptions(opts WorktreeCreateOptions) error {
+	if opts.WorkspaceName == "" {
+		return fmt.Errorf("workspace name cannot be empty: %w", atlaserrors.ErrEmptyValue)
+	}
+	if len(opts.WorkspaceName) > constants.MaxWorkspaceNameLength {
+		return fmt.Errorf("workspace name exceeds maximum length of %d characters: %w",
+			constants.MaxWorkspaceNameLength, atlaserrors.ErrEmptyValue)
+	}
+	if opts.ExistingBranch != "" && opts.BranchType != "" {
+		return fmt.Errorf("cannot specify both BranchType and ExistingBranch: %w", atlaserrors.ErrConflictingFlags)
+	}
+	if opts.ExistingBranch == "" && opts.BranchType == "" {
+		return fmt.Errorf("either BranchType or ExistingBranch must be specified: %w", atlaserrors.ErrEmptyValue)
+	}
+	return nil
+}
+
+// buildWorktreeCommandForExisting builds command for checking out an existing branch
+func (r *GitWorktreeRunner) buildWorktreeCommandForExisting(ctx context.Context, branch, wtPath string) ([]string, error) {
+	if err := r.ensureBranchExists(ctx, branch); err != nil {
+		return nil, err
+	}
+	existingPath := r.FindByBranch(ctx, branch)
+	if existingPath != "" {
+		return nil, fmt.Errorf("branch '%s' is already checked out at '%s': %w",
+			branch, existingPath, atlaserrors.ErrBranchExists)
+	}
+	return []string{"worktree", "add", wtPath, branch}, nil
+}
+
+// buildWorktreeCommandForNew builds command for creating a new branch
+func (r *GitWorktreeRunner) buildWorktreeCommandForNew(ctx context.Context, branchType, workspaceName, baseBranch, wtPath string) (string, []string, error) {
+	baseName := generateBranchName(branchType, workspaceName)
+	branchName, err := r.generateUniqueBranchName(ctx, baseName)
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to generate branch name: %w", err)
+	}
+	args := []string{"worktree", "add", wtPath, "-b", branchName}
+	if baseBranch != "" {
+		args = append(args, baseBranch)
+	}
+	return branchName, args, nil
+}
+
+// buildWorktreeCommand builds the git worktree add command for existing or new branch mode
+func (r *GitWorktreeRunner) buildWorktreeCommand(ctx context.Context, opts WorktreeCreateOptions, wtPath string) (string, []string, error) {
+	if opts.ExistingBranch != "" {
+		args, err := r.buildWorktreeCommandForExisting(ctx, opts.ExistingBranch, wtPath)
+		return opts.ExistingBranch, args, err
+	}
+	return r.buildWorktreeCommandForNew(ctx, opts.BranchType, opts.WorkspaceName, opts.BaseBranch, wtPath)
+}
+
+// ensureBranchExists validates that a branch exists locally or on remote.
+// If it only exists on remote, it fetches to ensure it's available.
+func (r *GitWorktreeRunner) ensureBranchExists(ctx context.Context, branch string) error {
+	// Check local first
+	localExists, err := r.BranchExists(ctx, branch)
+	if err != nil {
+		return fmt.Errorf("failed to check local branch '%s': %w", branch, err)
+	}
+	if localExists {
+		return nil
+	}
+
+	// Try fetching from remote
+	if fetchErr := r.Fetch(ctx, "origin"); fetchErr != nil {
+		r.logger.Debug().Err(fetchErr).Msg("fetch failed, continuing to check remote refs")
+	}
+
+	// Check remote
+	remoteExists, err := r.RemoteBranchExists(ctx, "origin", branch)
+	if err != nil {
+		return fmt.Errorf("failed to check remote branch '%s': %w", branch, err)
+	}
+	if !remoteExists {
+		return fmt.Errorf("branch '%s' does not exist locally or on remote 'origin': %w",
+			branch, atlaserrors.ErrBranchNotFound)
+	}
+
+	return nil
+}
+
+// generateUniqueBranchName ensures branch name is unique.
+// If the base name already exists, appends a timestamp suffix.
+// Delegates to the shared git.GenerateUniqueBranchNameWithChecker function.
+func (r *GitWorktreeRunner) generateUniqueBranchName(ctx context.Context, baseName string) (string, error) {
+	return git.GenerateUniqueBranchNameWithChecker(ctx, r, baseName)
+}
+
+// DetectRepoRoot finds the root of the git repository.
+// This is a public wrapper for detectRepoRoot.
+func DetectRepoRoot(ctx context.Context, path string) (string, error) {
+	return detectRepoRoot(ctx, path)
+}
+
+// SiblingPath computes the sibling worktree path.
+// This is a public wrapper for siblingPath.
+func SiblingPath(repoRoot, workspaceName string) string {
+	return siblingPath(repoRoot, workspaceName)
+}
+
+// detectRepoRoot finds the root of the git repository.
+func detectRepoRoot(ctx context.Context, path string) (string, error) {
+	output, err := git.RunCommand(ctx, path, "rev-parse", "--show-toplevel")
+	if err != nil {
+		return "", fmt.Errorf("%w: %w", atlaserrors.ErrNotGitRepo, err)
+	}
+	return output, nil
+}
+
+// siblingPath computes the sibling worktree path.
+// Given repo at /path/to/myrepo and workspace "auth":
+// Returns /path/to/myrepo-auth
+func siblingPath(repoRoot, workspaceName string) string {
+	repoDir := filepath.Dir(repoRoot)
+	repoName := filepath.Base(repoRoot)
+	return filepath.Join(repoDir, repoName+"-"+workspaceName)
+}
+
+// generateBranchName creates a branch name from type and workspace name.
+// This delegates to git.GenerateBranchName for centralized branch naming logic.
+func generateBranchName(branchType, workspaceName string) string {
+	return git.GenerateBranchName(branchType, workspaceName)
+}
+
+// maxPathRetries is the maximum number of numeric suffixes to try before using timestamp.
+const maxPathRetries = 100
+
+// cleanupOrphanedPath removes a directory if it exists but is not a registered git worktree.
+// This handles the case where a previous destroy failed to fully clean up, leaving an orphaned directory.
+func (r *GitWorktreeRunner) cleanupOrphanedPath(ctx context.Context, path string) error {
+	// Check if path exists
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return nil // Nothing to clean up
+	}
+
+	// Check if it's a registered worktree
+	worktrees, err := r.List(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to list worktrees: %w", err)
+	}
+
+	for _, wt := range worktrees {
+		if wt.Path == path {
+			return nil // It's an active worktree, don't touch it
+		}
+	}
+
+	// Path exists but isn't a worktree - it's orphaned
+	r.logger.Info().Str("path", path).Msg("removing orphaned worktree directory")
+	return os.RemoveAll(path)
+}
+
+// ensureUniquePath finds a unique worktree path, appending -2, -3, etc.
+// Returns the path and an error if no unique path could be found.
+// There is an inherent TOCTOU race between this check and actual worktree creation.
+// This is acceptable because git worktree add will fail atomically if the path exists,
+// and we clean up on failure.
+func ensureUniquePath(basePath string) (string, error) {
+	if _, err := os.Stat(basePath); os.IsNotExist(err) {
+		return basePath, nil
+	}
+
+	for i := 2; i < maxPathRetries; i++ {
+		path := fmt.Sprintf("%s-%d", basePath, i)
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			return path, nil
+		}
+	}
+
+	// Fallback to timestamp
+	timestampPath := fmt.Sprintf("%s-%d", basePath, time.Now().Unix())
+	if _, err := os.Stat(timestampPath); os.IsNotExist(err) {
+		return timestampPath, nil
+	}
+
+	// Extremely unlikely: all paths including timestamp exist
+	return "", fmt.Errorf("path '%s' and all variants already exist: %w", basePath, atlaserrors.ErrWorktreeExists)
+}
+
+// parseWorktreeList parses git worktree list --porcelain output.
+//
+//nolint:nestif // Parsing porcelain output requires nested conditionals
+func parseWorktreeList(output string) []*WorktreeInfo {
+	var worktrees []*WorktreeInfo
+	var current *WorktreeInfo
+
+	for _, line := range strings.Split(output, "\n") {
+		if strings.HasPrefix(line, "worktree ") {
+			if current != nil {
+				worktrees = append(worktrees, current)
+			}
+			current = &WorktreeInfo{
+				Path: strings.TrimPrefix(line, "worktree "),
+			}
+		} else if strings.HasPrefix(line, "HEAD ") && current != nil {
+			current.HeadCommit = strings.TrimPrefix(line, "HEAD ")
+		} else if strings.HasPrefix(line, "branch ") && current != nil {
+			// refs/heads/feat/auth -> feat/auth
+			branch := strings.TrimPrefix(line, "branch refs/heads/")
+			current.Branch = branch
+		} else if line == "prunable" && current != nil {
+			current.IsPrunable = true
+		} else if strings.HasPrefix(line, "locked") && current != nil {
+			current.IsLocked = true
+		}
+	}
+
+	if current != nil {
+		worktrees = append(worktrees, current)
+	}
+
+	return worktrees
+}
+
+// determineBranchType returns "remote" if the branch is a remote ref, "local" otherwise.
+// Remote branches are in the format "origin/branch" or "remotename/branch".
+func determineBranchType(branch string) string {
+	if branch == "" {
+		return "current"
+	}
+	if strings.Contains(branch, "/") {
+		parts := strings.SplitN(branch, "/", 2)
+		if len(parts) == 2 {
+			// Common remote names: origin, upstream, etc.
+			if parts[0] == "origin" || parts[0] == "upstream" {
+				return "remote"
+			}
+		}
+	}
+	return "local"
+}
