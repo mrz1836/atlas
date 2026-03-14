@@ -42,7 +42,7 @@
        &nbsp;&nbsp;&nbsp;&nbsp; <code>Community</code> &nbsp;&nbsp;
     </td>
     <td align="left">
-       <a href="https://github.com/mrz1836/atlas/graphs/contributors"><img src="https://img.shields.io/github/contributors/mrz1836/atlas?style=flat-square&color=orange" alt="Contributors"></a>
+       <a href="https://github.com/mrz1836/atlas/graphs/contributors"><img src="https://img.shields.io/github/contributors/mrz1836/atlas?style=flat-square&color=orange&v=2" alt="Contributors"></a>
        <a href="https://mrz1818.com/"><img src="https://img.shields.io/badge/donate-bitcoin-ff9900?style=flat-square&logo=bitcoin" alt="Bitcoin"></a>
     </td>
   </tr>
