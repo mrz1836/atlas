@@ -88,6 +88,10 @@ func (m *mockHubRunner) GetPRHeadBranch(_ context.Context, _ int) (string, error
 	return "", nil
 }
 
+func (m *mockHubRunner) GetPRHeadSHA(_ context.Context, _ int) (string, error) {
+	return "", nil
+}
+
 //nolint:nilnil // matches the (nil, nil) "no PR found" contract of the real interface
 func (m *mockHubRunner) FindPRForBranch(ctx context.Context, branch string) (*git.PRResult, error) {
 	if m.findPRForBranchFunc != nil {
@@ -702,8 +706,9 @@ func TestGitExecutor_ExecutePush_Success(t *testing.T) {
 			assert.Equal(t, "feat/test-branch", opts.Branch)
 			assert.True(t, opts.SetUpstream)
 			return &git.PushResult{
-				Success:  true,
-				Upstream: "origin/feat/test-branch",
+				Success:   true,
+				Upstream:  "origin/feat/test-branch",
+				CommitSHA: "abc123def456abc123def456abc123def456abcd",
 			}, nil
 		},
 	}
@@ -725,6 +730,45 @@ func TestGitExecutor_ExecutePush_Success(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "success", result.Status)
 	assert.Contains(t, result.Output, "origin")
+	// The pushed HEAD SHA must be written to task metadata so downstream
+	// ci_wait can anchor its polling to it.
+	require.NotNil(t, task.Metadata)
+	assert.Equal(t, "abc123def456abc123def456abc123def456abcd", task.Metadata["pushed_commit_sha"])
+}
+
+// TestGitExecutor_ExecutePush_EmptySHANotStored verifies that when the push
+// runner fails to resolve HEAD SHA (graceful degradation), we don't store an
+// empty string — legacy behavior is preserved and ci_wait falls back.
+func TestGitExecutor_ExecutePush_EmptySHANotStored(t *testing.T) {
+	ctx := context.Background()
+	pusher := &mockPusher{
+		pushFunc: func(_ context.Context, _ git.PushOptions) (*git.PushResult, error) {
+			return &git.PushResult{
+				Success:   true,
+				Upstream:  "origin/feat/test-branch",
+				CommitSHA: "", // SHA resolution failed
+			}, nil
+		},
+	}
+
+	executor := NewGitExecutor("/tmp/work", WithPusher(pusher))
+
+	task := &domain.Task{ID: "task-123", CurrentStep: 0}
+	step := &domain.StepDefinition{
+		Name: "git",
+		Type: domain.StepTypeGit,
+		Config: map[string]any{
+			"operation": "push",
+			"branch":    "feat/test-branch",
+		},
+	}
+
+	_, err := executor.Execute(ctx, task, step)
+	require.NoError(t, err)
+	if task.Metadata != nil {
+		_, present := task.Metadata["pushed_commit_sha"]
+		assert.False(t, present, "empty SHA should not be stored in metadata")
+	}
 }
 
 func TestGitExecutor_ExecutePush_AuthFailure(t *testing.T) {
@@ -1403,6 +1447,10 @@ func (m *mockRunner) DiffUnstaged(_ context.Context) (string, error) {
 
 func (m *mockRunner) DiffStagedNames(_ context.Context) ([]string, error) {
 	return nil, nil
+}
+
+func (m *mockRunner) HeadSHA(_ context.Context) (string, error) {
+	return "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef", nil
 }
 
 // Tests for new git operations: merge_pr, add_pr_review, add_pr_comment

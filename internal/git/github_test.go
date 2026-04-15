@@ -553,6 +553,96 @@ func TestCLIGitHubRunner_GetPRHeadBranch_EmptyBranch(t *testing.T) {
 	assert.ErrorIs(t, err, atlaserrors.ErrEmptyValue)
 }
 
+func TestCLIGitHubRunner_GetPRHeadSHA_Success(t *testing.T) {
+	mock := &mockCommandExecutor{
+		executeFunc: func(_ context.Context, _, _ string, args ...string) ([]byte, error) {
+			found := false
+			for _, arg := range args {
+				if arg == "headRefOid" {
+					found = true
+					break
+				}
+			}
+			assert.True(t, found, "expected headRefOid in args")
+			return []byte(`{"headRefOid":"abc123def456abc123def456abc123def456abcd"}`), nil
+		},
+	}
+
+	runner := NewCLIGitHubRunner("/test/dir", WithGHCommandExecutor(mock))
+
+	sha, err := runner.GetPRHeadSHA(context.Background(), 42)
+
+	require.NoError(t, err)
+	assert.Equal(t, "abc123def456abc123def456abc123def456abcd", sha)
+}
+
+func TestCLIGitHubRunner_GetPRHeadSHA_InvalidPRNumber(t *testing.T) {
+	runner := NewCLIGitHubRunner("/test/dir")
+
+	for _, n := range []int{0, -1, -100} {
+		t.Run(fmt.Sprintf("pr_number_%d", n), func(t *testing.T) {
+			_, err := runner.GetPRHeadSHA(context.Background(), n)
+			require.Error(t, err)
+			assert.ErrorIs(t, err, atlaserrors.ErrEmptyValue)
+		})
+	}
+}
+
+func TestCLIGitHubRunner_GetPRHeadSHA_ContextCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	runner := NewCLIGitHubRunner("/test/dir")
+
+	_, err := runner.GetPRHeadSHA(ctx, 42)
+	assert.ErrorIs(t, err, context.Canceled)
+}
+
+func TestCLIGitHubRunner_GetPRHeadSHA_NotFound(t *testing.T) {
+	mock := &mockCommandExecutor{
+		executeFunc: func(_ context.Context, _, _ string, _ ...string) ([]byte, error) {
+			return nil, fmt.Errorf("pull request not found: %w", atlaserrors.ErrGitHubOperation)
+		},
+	}
+
+	runner := NewCLIGitHubRunner("/test/dir", WithGHCommandExecutor(mock))
+
+	_, err := runner.GetPRHeadSHA(context.Background(), 999)
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, atlaserrors.ErrPRNotFound)
+}
+
+func TestCLIGitHubRunner_GetPRHeadSHA_InvalidJSON(t *testing.T) {
+	mock := &mockCommandExecutor{
+		executeFunc: func(_ context.Context, _, _ string, _ ...string) ([]byte, error) {
+			return []byte(`{not valid json`), nil
+		},
+	}
+
+	runner := NewCLIGitHubRunner("/test/dir", WithGHCommandExecutor(mock))
+
+	_, err := runner.GetPRHeadSHA(context.Background(), 42)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to parse PR head SHA")
+}
+
+func TestCLIGitHubRunner_GetPRHeadSHA_EmptySHA(t *testing.T) {
+	mock := &mockCommandExecutor{
+		executeFunc: func(_ context.Context, _, _ string, _ ...string) ([]byte, error) {
+			return []byte(`{"headRefOid":""}`), nil
+		},
+	}
+
+	runner := NewCLIGitHubRunner("/test/dir", WithGHCommandExecutor(mock))
+
+	_, err := runner.GetPRHeadSHA(context.Background(), 42)
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, atlaserrors.ErrEmptyValue)
+}
+
 func TestCLIGitHubRunner_FindPRForBranch_Success(t *testing.T) {
 	mock := &mockCommandExecutor{
 		executeFunc: func(_ context.Context, _, _ string, args ...string) ([]byte, error) {
@@ -1832,6 +1922,104 @@ func TestCLIGitHubRunner_WatchPRChecks_ElapsedTimeTracked(t *testing.T) {
 	// Elapsed time should be non-zero but very small
 	assert.Greater(t, result.ElapsedTime, time.Duration(0))
 	assert.Less(t, result.ElapsedTime, time.Second)
+}
+
+// argsContain reports whether the given ripgrep-style flag+value pair appears
+// consecutively in args. Used to distinguish `gh pr view --json headRefOid`
+// from `gh pr checks ...` in mock command executors.
+func argsContain(args []string, needle string) bool {
+	for _, a := range args {
+		if a == needle {
+			return true
+		}
+	}
+	return false
+}
+
+// TestCLIGitHubRunner_WatchPRChecks_WaitsForExpectedHeadSHA verifies that when
+// ExpectedHeadSHA is set, the watcher does NOT treat stale terminal-state
+// checks from a prior commit as the final result. Instead it waits for the
+// PR's head SHA on GitHub to match, then evaluates the new checks.
+func TestCLIGitHubRunner_WatchPRChecks_WaitsForExpectedHeadSHA(t *testing.T) {
+	const expectedSHA = "aaa111bbb222ccc333ddd444eee555fff666aaaa"
+	const staleSHA = "999000888777666555444333222111000ffffeee"
+
+	var (
+		headSHACalls int
+		checksCalls  int
+	)
+
+	mock := &mockCommandExecutor{
+		executeFunc: func(_ context.Context, _, _ string, args ...string) ([]byte, error) {
+			// `gh pr view --json headRefOid` → SHA probe
+			if argsContain(args, "view") && argsContain(args, "headRefOid") {
+				headSHACalls++
+				// First probe: stale. Second probe: matches expected.
+				if headSHACalls == 1 {
+					return []byte(`{"headRefOid":"` + staleSHA + `"}`), nil
+				}
+				return []byte(`{"headRefOid":"` + expectedSHA + `"}`), nil
+			}
+			// `gh pr checks` → check list
+			if argsContain(args, "checks") {
+				checksCalls++
+				// If this ever runs before the SHA matches, returning a
+				// failure would short-circuit the watcher — the whole point
+				// of the test is that it must NOT run until SHA matches.
+				return []byte(`[{"name":"CI","state":"SUCCESS","bucket":"pass"}]`), nil
+			}
+			t.Fatalf("unexpected gh invocation: %v", args)
+			return nil, nil
+		},
+	}
+
+	runner := NewCLIGitHubRunner("/test/dir", WithGHCommandExecutor(mock))
+
+	result, err := runner.WatchPRChecks(context.Background(), CIWatchOptions{
+		PRNumber:          42,
+		Interval:          10 * time.Millisecond,
+		Timeout:           2 * time.Second,
+		GracePollInterval: 5 * time.Millisecond,
+		ExpectedHeadSHA:   expectedSHA,
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, CIStatusSuccess, result.Status)
+	// Must have probed SHA at least twice (stale, then match).
+	assert.GreaterOrEqual(t, headSHACalls, 2, "expected waitForExpectedHeadSHA to re-poll after stale SHA")
+	// Checks must NOT have been fetched on poll 1 (stale SHA) — only after match.
+	assert.GreaterOrEqual(t, checksCalls, 1)
+}
+
+// TestCLIGitHubRunner_WatchPRChecks_TimesOutWhenSHANeverMatches verifies that
+// a never-matching SHA eventually honors the overall Timeout rather than
+// blocking indefinitely.
+func TestCLIGitHubRunner_WatchPRChecks_TimesOutWhenSHANeverMatches(t *testing.T) {
+	mock := &mockCommandExecutor{
+		executeFunc: func(_ context.Context, _, _ string, args ...string) ([]byte, error) {
+			if argsContain(args, "view") && argsContain(args, "headRefOid") {
+				return []byte(`{"headRefOid":"stale00000000000000000000000000000000000"}`), nil
+			}
+			if argsContain(args, "checks") {
+				t.Fatalf("checks should never be fetched when SHA never matches")
+			}
+			return nil, nil
+		},
+	}
+
+	runner := NewCLIGitHubRunner("/test/dir", WithGHCommandExecutor(mock))
+
+	result, err := runner.WatchPRChecks(context.Background(), CIWatchOptions{
+		PRNumber:          42,
+		Interval:          5 * time.Millisecond,
+		Timeout:           40 * time.Millisecond,
+		GracePollInterval: 2 * time.Millisecond,
+		ExpectedHeadSHA:   "aaa111bbb222ccc333ddd444eee555fff666aaaa",
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, CIStatusTimeout, result.Status)
+	assert.ErrorIs(t, result.Error, atlaserrors.ErrCITimeout)
 }
 
 func TestCLIGitHubRunner_WatchPRChecks_CheckResultsPopulated(t *testing.T) {

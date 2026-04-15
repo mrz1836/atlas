@@ -74,6 +74,17 @@ type CIWatchOptions struct {
 	// This is typically faster than the normal Interval since we're waiting for checks to appear.
 	// Default: 10 seconds.
 	GracePollInterval time.Duration
+	// ExpectedHeadSHA, when non-empty, anchors CI evaluation to the PR's
+	// headRefOid matching this commit SHA. On each poll, the watcher first
+	// asks GitHub for the PR's current head SHA; if it doesn't match, the
+	// poll is treated as "not ready yet" and polling continues (at
+	// GracePollInterval cadence) regardless of what stale checks may be
+	// returned. This prevents ci_wait from trusting checks from a prior
+	// commit after pushing new commits to an existing PR.
+	//
+	// The overall Timeout still applies, so a never-matching SHA will
+	// eventually return CIStatusTimeout rather than block forever.
+	ExpectedHeadSHA string
 }
 
 // CIWatchResult contains the outcome of CI monitoring.
@@ -123,6 +134,7 @@ func (r *CLIGitHubRunner) WatchPRChecks(ctx context.Context, opts CIWatchOptions
 		Dur("timeout", opts.Timeout).
 		Dur("grace_period", opts.InitialGracePeriod).
 		Strs("required_checks", opts.RequiredChecks).
+		Str("expected_head_sha", opts.ExpectedHeadSHA).
 		Msg("starting CI watch")
 
 	for {
@@ -183,6 +195,16 @@ func (r *CLIGitHubRunner) pollCIStatus(
 		return timeoutResult, nil
 	}
 
+	// If anchored to a specific commit, verify the PR's head on GitHub matches
+	// before trusting any check results. This prevents treating stale checks
+	// from a prior commit as the terminal state after a new push.
+	if opts.ExpectedHeadSHA != "" {
+		waitErr := r.waitForExpectedHeadSHA(ctx, elapsed, opts)
+		if waitErr != nil {
+			return nil, waitErr
+		}
+	}
+
 	// Fetch and process checks
 	checks, err := r.fetchPRChecksWithRetry(ctx, opts.PRNumber)
 	if err != nil {
@@ -216,6 +238,54 @@ func (r *CLIGitHubRunner) pollCIStatus(
 	}
 
 	return nil, errContinuePolling
+}
+
+// waitForExpectedHeadSHA verifies the PR's current headRefOid matches the
+// commit SHA the caller expects (typically the one we just pushed). If the PR
+// hasn't caught up yet, it sleeps for GracePollInterval and returns
+// errContinuePolling so the outer loop re-polls. If the call to GitHub fails,
+// it also backs off and retries — the overall Timeout guards against looping
+// forever.
+//
+// Returns nil when the SHAs match and the caller may proceed with normal
+// check evaluation.
+func (r *CLIGitHubRunner) waitForExpectedHeadSHA(
+	ctx context.Context,
+	elapsed time.Duration,
+	opts CIWatchOptions,
+) error {
+	currentSHA, err := r.GetPRHeadSHA(ctx, opts.PRNumber)
+	if err != nil {
+		r.logger.Warn().
+			Err(err).
+			Int("pr_number", opts.PRNumber).
+			Msg("failed to fetch PR head SHA; will retry")
+		return r.sleepAndContinuePolling(ctx, opts.GracePollInterval)
+	}
+
+	if currentSHA != opts.ExpectedHeadSHA {
+		r.logger.Info().
+			Str("expected_sha", opts.ExpectedHeadSHA).
+			Str("current_pr_sha", currentSHA).
+			Dur("elapsed", elapsed).
+			Msg("PR head not yet updated to pushed commit; waiting for new CI run")
+		return r.sleepAndContinuePolling(ctx, opts.GracePollInterval)
+	}
+
+	return nil
+}
+
+// sleepAndContinuePolling waits for the given duration (respecting ctx
+// cancellation) and returns errContinuePolling to signal the outer loop to
+// re-poll. Used by helpers that need to defer evaluation without advancing to
+// a terminal state.
+func (r *CLIGitHubRunner) sleepAndContinuePolling(ctx context.Context, wait time.Duration) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(wait):
+		return errContinuePolling
+	}
 }
 
 // checkCITimeout checks if the timeout has been exceeded and returns a timeout result if so.

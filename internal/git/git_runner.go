@@ -315,6 +315,24 @@ func (r *CLIRunner) ResetFiles(ctx context.Context, paths []string) error {
 	return nil
 }
 
+// HeadSHA returns the full SHA of the current HEAD commit.
+func (r *CLIRunner) HeadSHA(ctx context.Context) (string, error) {
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return "", err
+	}
+
+	output, err := r.runGitCommand(ctx, "rev-parse", "HEAD")
+	if err != nil {
+		return "", fmt.Errorf("failed to get HEAD SHA: %w", err)
+	}
+
+	sha := strings.TrimSpace(output)
+	if sha == "" {
+		return "", fmt.Errorf("HEAD SHA is empty: %w", atlaserrors.ErrEmptyValue)
+	}
+	return sha, nil
+}
+
 // DiffStagedNames returns the file names of staged (cached) changes.
 func (r *CLIRunner) DiffStagedNames(ctx context.Context) ([]string, error) {
 	if err := ctxutil.Canceled(ctx); err != nil {

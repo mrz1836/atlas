@@ -58,4 +58,7 @@ type Runner interface {
 	// DiffStagedNames returns the file names of staged (cached) changes.
 	// Returns nil if no files are staged.
 	DiffStagedNames(ctx context.Context) ([]string, error)
+
+	// HeadSHA returns the full SHA of the current HEAD commit.
+	HeadSHA(ctx context.Context) (string, error)
 }

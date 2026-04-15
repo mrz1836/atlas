@@ -38,6 +38,10 @@ func (m *mockHubRunner) GetPRHeadBranch(_ context.Context, _ int) (string, error
 	return "", nil
 }
 
+func (m *mockHubRunner) GetPRHeadSHA(_ context.Context, _ int) (string, error) {
+	return "", nil
+}
+
 //nolint:nilnil // matches the (nil, nil) "no PR found" contract of the real interface
 func (m *mockHubRunner) FindPRForBranch(_ context.Context, _ string) (*git.PRResult, error) {
 	return nil, nil

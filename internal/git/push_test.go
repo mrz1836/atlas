@@ -54,6 +54,7 @@ type MockRunner struct {
 	ResetFunc           func(ctx context.Context) error
 	ResetFilesFunc      func(ctx context.Context, paths []string) error
 	DiffStagedNamesFunc func(ctx context.Context) ([]string, error)
+	HeadSHAFunc         func(ctx context.Context) (string, error)
 }
 
 func (m *MockRunner) Push(ctx context.Context, remote, branch string, setUpstream bool) error {
@@ -162,6 +163,13 @@ func (m *MockRunner) DiffUnstaged(ctx context.Context) (string, error) {
 	return m.Diff(ctx, false)
 }
 
+func (m *MockRunner) HeadSHA(ctx context.Context) (string, error) {
+	if m.HeadSHAFunc != nil {
+		return m.HeadSHAFunc(ctx)
+	}
+	return "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef", nil
+}
+
 func TestPushErrorType_String(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -254,6 +262,7 @@ func TestNewPushRunner(t *testing.T) {
 func TestPushRunner_Push_Success(t *testing.T) {
 	t.Run("successful push without upstream", func(t *testing.T) {
 		pushCalled := false
+		headSHACalled := false
 		mockRunner := &MockRunner{
 			PushFunc: func(_ context.Context, remote, branch string, setUpstream bool) error {
 				pushCalled = true
@@ -261,6 +270,10 @@ func TestPushRunner_Push_Success(t *testing.T) {
 				assert.Equal(t, "feat/test", branch)
 				assert.False(t, setUpstream)
 				return nil
+			},
+			HeadSHAFunc: func(_ context.Context) (string, error) {
+				headSHACalled = true
+				return "cafebabecafebabecafebabecafebabecafebabe", nil
 			},
 		}
 
@@ -274,9 +287,32 @@ func TestPushRunner_Push_Success(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, result)
 		assert.True(t, pushCalled)
+		assert.True(t, headSHACalled, "HeadSHA should be captured post-push")
 		assert.True(t, result.Success)
 		assert.Empty(t, result.Upstream)
 		assert.Equal(t, 1, result.Attempts)
+		assert.Equal(t, "cafebabecafebabecafebabecafebabecafebabe", result.CommitSHA)
+	})
+
+	t.Run("successful push tolerates HeadSHA failure", func(t *testing.T) {
+		mockRunner := &MockRunner{
+			PushFunc: func(_ context.Context, _, _ string, _ bool) error { return nil },
+			HeadSHAFunc: func(_ context.Context) (string, error) {
+				return "", errTestUnknown
+			},
+		}
+
+		pr := NewPushRunner(mockRunner)
+		result, err := pr.Push(context.Background(), PushOptions{
+			Remote:      "origin",
+			Branch:      "feat/test",
+			SetUpstream: false,
+		})
+
+		require.NoError(t, err)
+		require.NotNil(t, result)
+		assert.True(t, result.Success)
+		assert.Empty(t, result.CommitSHA, "CommitSHA stays empty when HeadSHA fails (graceful degradation)")
 	})
 
 	t.Run("successful push with upstream", func(t *testing.T) {

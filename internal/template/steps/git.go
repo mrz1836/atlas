@@ -454,6 +454,17 @@ func (e *GitExecutor) executePush(ctx context.Context, step *domain.StepDefiniti
 	// Save push result artifact
 	artifactPath := e.savePushResultJSON(ctx, task, step.Name, result)
 
+	// Record the pushed HEAD SHA in task metadata so downstream steps
+	// (notably ci_wait) can anchor CI monitoring to the exact commit that
+	// was just pushed and avoid trusting stale checks from a prior run.
+	// Empty CommitSHA (fallback) is not written, preserving legacy behavior.
+	if result.CommitSHA != "" {
+		if task.Metadata == nil {
+			task.Metadata = make(map[string]any)
+		}
+		task.Metadata["pushed_commit_sha"] = result.CommitSHA
+	}
+
 	output := fmt.Sprintf("Pushed to %s/%s", pushOpts.Remote, branch)
 	if result.Upstream != "" {
 		output = fmt.Sprintf("Pushed to %s (tracking: %s)", pushOpts.Remote, result.Upstream)

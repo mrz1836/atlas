@@ -183,6 +183,10 @@ func (e *CIExecutor) Execute(ctx context.Context, task *domain.Task, step *domai
 	}
 	workflows := extractStringSlice(step.Config, "workflows")
 
+	// Anchor CI monitoring to the commit the push step recorded (if any).
+	// Empty string preserves legacy behavior for flows that don't push.
+	expectedHeadSHA, _ := task.Metadata["pushed_commit_sha"].(string)
+
 	e.logger.Debug().
 		Dur("resolved_poll_interval", pollInterval).
 		Dur("resolved_grace_period", gracePeriod).
@@ -198,6 +202,7 @@ func (e *CIExecutor) Execute(ctx context.Context, task *domain.Task, step *domai
 		BellEnabled:        true, // Always enable bell for CI completion
 		InitialGracePeriod: gracePeriod,
 		GracePollInterval:  gracePollInterval,
+		ExpectedHeadSHA:    expectedHeadSHA,
 		ProgressCallback: func(elapsed time.Duration, checks []git.CheckResult) {
 			// Calculate start time for display
 			startTime := time.Now().Add(-elapsed).Format("3:04PM")
@@ -245,6 +250,7 @@ func (e *CIExecutor) Execute(ctx context.Context, task *domain.Task, step *domai
 		Dur("timeout", timeout).
 		Dur("grace_period", gracePeriod).
 		Strs("workflows", workflows).
+		Str("expected_head_sha", expectedHeadSHA).
 		Msg("starting CI monitoring")
 
 	// Execute CI monitoring

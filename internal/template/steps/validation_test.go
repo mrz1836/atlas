@@ -1068,6 +1068,10 @@ func (m *validationMockHubRunner) GetPRHeadBranch(_ context.Context, _ int) (str
 	return "", nil
 }
 
+func (m *validationMockHubRunner) GetPRHeadSHA(_ context.Context, _ int) (string, error) {
+	return "", nil
+}
+
 func (m *validationMockHubRunner) FetchPRChecks(_ context.Context, _ int) ([]git.CheckResult, error) {
 	return m.fetchChecksResult, m.fetchChecksErr
 }

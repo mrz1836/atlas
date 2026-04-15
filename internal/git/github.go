@@ -44,6 +44,10 @@ type PRStatusReader interface {
 	// GetPRHeadBranch returns the head branch name for a given PR number.
 	GetPRHeadBranch(ctx context.Context, prNumber int) (string, error)
 
+	// GetPRHeadSHA returns the current headRefOid (commit SHA) for the PR.
+	// Used by CI monitoring to anchor polling to a specific pushed commit.
+	GetPRHeadSHA(ctx context.Context, prNumber int) (string, error)
+
 	// FindPRForBranch returns the open PR for the given head branch, or
 	// (nil, nil) if no open PR exists. A non-nil error is returned only
 	// for gh/network failures, not for the "no PR" case.

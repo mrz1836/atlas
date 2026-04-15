@@ -74,6 +74,11 @@ type PushResult struct {
 	Success bool
 	// Upstream is the upstream tracking reference (e.g., "origin/feat/new-feature").
 	Upstream string
+	// CommitSHA is the full HEAD SHA captured immediately after a successful push.
+	// Downstream steps (e.g., ci_wait) use this to anchor CI monitoring to the
+	// commit that was actually pushed, avoiding stale results from prior runs.
+	// May be empty if SHA resolution failed (graceful degradation).
+	CommitSHA string
 	// ErrorType classifies the error if push failed.
 	ErrorType PushErrorType
 	// Attempts is the number of push attempts made.
@@ -227,7 +232,7 @@ func (p *PushRunner) executePushWithRetry(ctx context.Context, opts PushOptions)
 
 	result := &PushResult{Attempts: attempts}
 	if err == nil && attemptResult.success {
-		return p.buildSuccessResult(result, opts, attempts), nil
+		return p.buildSuccessResult(ctx, result, opts, attempts), nil
 	}
 
 	// Handle context cancellation directly without wrapping.
@@ -280,15 +285,28 @@ func (p *PushRunner) attemptPush(ctx context.Context, opts PushOptions, attempt 
 }
 
 // buildSuccessResult builds the success result.
-func (p *PushRunner) buildSuccessResult(result *PushResult, opts PushOptions, attempts int) *PushResult {
+func (p *PushRunner) buildSuccessResult(ctx context.Context, result *PushResult, opts PushOptions, attempts int) *PushResult {
 	result.Success = true
 	if opts.SetUpstream {
 		result.Upstream = fmt.Sprintf("%s/%s", opts.Remote, opts.Branch)
 	}
 
+	// Capture the HEAD SHA post-push so downstream CI monitoring can anchor
+	// itself to the exact commit that was just pushed. A failure here is
+	// non-fatal: we log a warning and leave CommitSHA empty, which makes
+	// ci_wait fall back to its legacy behavior.
+	if sha, shaErr := p.runner.HeadSHA(ctx); shaErr != nil {
+		p.logger.Warn().
+			Err(shaErr).
+			Msg("push succeeded but failed to resolve HEAD SHA; CI monitoring will not be SHA-anchored")
+	} else {
+		result.CommitSHA = sha
+	}
+
 	p.logger.Info().
 		Int("attempts", attempts).
 		Str("upstream", result.Upstream).
+		Str("commit_sha", result.CommitSHA).
 		Msg("push succeeded")
 
 	if opts.ProgressCallback != nil {

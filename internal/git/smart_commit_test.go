@@ -1068,6 +1068,10 @@ func (m *LockRetryMockRunner) DiffStagedNames(_ context.Context) ([]string, erro
 	return []string{"test.go"}, nil
 }
 
+func (m *LockRetryMockRunner) HeadSHA(_ context.Context) (string, error) {
+	return "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef", nil
+}
+
 // Compile-time interface check
 var _ Runner = (*LockRetryMockRunner)(nil)
 

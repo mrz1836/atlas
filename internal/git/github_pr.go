@@ -83,6 +83,11 @@ type ghPRInfoResponse struct {
 	HeadRefName string `json:"headRefName"`
 }
 
+// ghPRHeadSHAResponse represents the JSON response from gh pr view for head SHA.
+type ghPRHeadSHAResponse struct {
+	HeadRefOid string `json:"headRefOid"`
+}
+
 // ghStatusCheckEntry represents a single status check in the rollup.
 type ghStatusCheckEntry struct {
 	Conclusion string `json:"conclusion"`
@@ -162,6 +167,40 @@ func (r *CLIGitHubRunner) GetPRHeadBranch(ctx context.Context, prNumber int) (st
 	}
 
 	return resp.HeadRefName, nil
+}
+
+// GetPRHeadSHA returns the current head commit SHA (headRefOid) of a pull request.
+// This is used by CI monitoring to verify that the PR's head on GitHub matches
+// the commit that was just pushed locally, preventing evaluation of stale checks
+// from a previous CI run.
+func (r *CLIGitHubRunner) GetPRHeadSHA(ctx context.Context, prNumber int) (string, error) {
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return "", err
+	}
+
+	if prNumber <= 0 {
+		return "", fmt.Errorf("invalid PR number %d: %w", prNumber, atlaserrors.ErrEmptyValue)
+	}
+
+	args := []string{"pr", "view", strconv.Itoa(prNumber), "--json", "headRefOid"}
+	output, err := r.cmdExec.Execute(ctx, r.workDir, "gh", args...)
+	if err != nil {
+		if classifyGHError(err) == PRErrorNotFound {
+			return "", fmt.Errorf("PR #%d not found: %w", prNumber, atlaserrors.ErrPRNotFound)
+		}
+		return "", fmt.Errorf("failed to get PR #%d head SHA: %w", prNumber, err)
+	}
+
+	var resp ghPRHeadSHAResponse
+	if err := json.Unmarshal(output, &resp); err != nil {
+		return "", fmt.Errorf("failed to parse PR head SHA response: %w", err)
+	}
+
+	if resp.HeadRefOid == "" {
+		return "", fmt.Errorf("PR #%d returned empty head SHA: %w", prNumber, atlaserrors.ErrEmptyValue)
+	}
+
+	return resp.HeadRefOid, nil
 }
 
 // ghPRListEntry represents a single entry returned by `gh pr list --json ...`.

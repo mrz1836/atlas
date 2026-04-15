@@ -40,6 +40,10 @@ func (m *ciMockHubRunner) GetPRHeadBranch(_ context.Context, _ int) (string, err
 	return "", nil
 }
 
+func (m *ciMockHubRunner) GetPRHeadSHA(_ context.Context, _ int) (string, error) {
+	return "", nil
+}
+
 //nolint:nilnil // matches the (nil, nil) "no PR found" contract of the real interface
 func (m *ciMockHubRunner) FindPRForBranch(_ context.Context, _ string) (*git.PRResult, error) {
 	return nil, nil
@@ -149,6 +153,81 @@ func TestCIExecutor_Execute_Success(t *testing.T) {
 	assert.Contains(t, result.Output, "CI passed")
 	assert.Contains(t, result.Output, "2 checks")
 	assert.Equal(t, 1, mockRunner.callCount)
+}
+
+// TestCIExecutor_Execute_ForwardsExpectedHeadSHA verifies that when the task
+// metadata contains pushed_commit_sha (set by an earlier git_push step), the
+// CI executor forwards it to the watcher as ExpectedHeadSHA so polling can
+// anchor to the commit that was just pushed.
+func TestCIExecutor_Execute_ForwardsExpectedHeadSHA(t *testing.T) {
+	var capturedSHA string
+	mockRunner := &ciMockHubRunner{
+		watchFn: func(_ context.Context, opts git.CIWatchOptions) (*git.CIWatchResult, error) {
+			capturedSHA = opts.ExpectedHeadSHA
+			return &git.CIWatchResult{
+				Status:      git.CIStatusSuccess,
+				ElapsedTime: time.Second,
+				CheckResults: []git.CheckResult{
+					{Name: "CI", Bucket: "pass", State: "SUCCESS"},
+				},
+			}, nil
+		},
+	}
+
+	executor := NewCIExecutor(WithCIHubRunner(mockRunner))
+
+	task := &domain.Task{
+		ID:          "task-with-pushed-sha",
+		CurrentStep: 0,
+		Metadata: map[string]any{
+			"pr_number":         42,
+			"pushed_commit_sha": "feedfacefeedfacefeedfacefeedfacefeedface",
+		},
+	}
+	step := &domain.StepDefinition{
+		Name:    "ci-wait",
+		Type:    domain.StepTypeCI,
+		Timeout: 30 * time.Minute,
+	}
+
+	_, err := executor.Execute(context.Background(), task, step)
+
+	require.NoError(t, err)
+	assert.Equal(t, "feedfacefeedfacefeedfacefeedfacefeedface", capturedSHA)
+}
+
+// TestCIExecutor_Execute_EmptyExpectedHeadSHA verifies backward compatibility:
+// when no pushed_commit_sha is present in metadata, ExpectedHeadSHA is empty
+// and the watcher behaves as before.
+func TestCIExecutor_Execute_EmptyExpectedHeadSHA(t *testing.T) {
+	var capturedSHA string
+	mockRunner := &ciMockHubRunner{
+		watchFn: func(_ context.Context, opts git.CIWatchOptions) (*git.CIWatchResult, error) {
+			capturedSHA = opts.ExpectedHeadSHA
+			return &git.CIWatchResult{
+				Status:      git.CIStatusSuccess,
+				ElapsedTime: time.Second,
+			}, nil
+		},
+	}
+
+	executor := NewCIExecutor(WithCIHubRunner(mockRunner))
+
+	task := &domain.Task{
+		ID:          "task-no-pushed-sha",
+		CurrentStep: 0,
+		Metadata:    map[string]any{"pr_number": 42},
+	}
+	step := &domain.StepDefinition{
+		Name:    "ci-wait",
+		Type:    domain.StepTypeCI,
+		Timeout: 30 * time.Minute,
+	}
+
+	_, err := executor.Execute(context.Background(), task, step)
+
+	require.NoError(t, err)
+	assert.Empty(t, capturedSHA, "ExpectedHeadSHA should be empty when metadata has no pushed_commit_sha")
 }
 
 func TestCIExecutor_Execute_Failure_NoHandler(t *testing.T) {
