@@ -38,7 +38,7 @@ func (r *CLIGitHubRunner) ConvertToDraft(ctx context.Context, prNumber int) erro
 		case PRErrorNoChecksYet:
 			// Not applicable for draft conversion, treat as other error
 			return fmt.Errorf("failed to convert PR to draft: %w", err)
-		case PRErrorRateLimit, PRErrorNetwork, PRErrorOther:
+		case PRErrorRateLimit, PRErrorNetwork, PRErrorAlreadyExists, PRErrorOther:
 			// Check if already draft or merged (not an error for our use case)
 			errStr := strings.ToLower(err.Error())
 			if strings.Contains(errStr, "already a draft") {

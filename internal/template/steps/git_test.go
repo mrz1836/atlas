@@ -3,6 +3,7 @@ package steps
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -19,7 +20,11 @@ import (
 	"github.com/mrz1836/atlas/internal/git"
 )
 
-var errGitResetFailed = atlaserrors.ErrGitOperation
+var (
+	errGitResetFailed  = atlaserrors.ErrGitOperation
+	errPRAlreadyExists = errors.New(`a pull request for branch "foo" into branch "main" already exists`)
+	errTestUnreachable = errors.New("unreachable: t.Fatal should have stopped the test")
+)
 
 // mockSmartCommitter is a mock implementation of git.SmartCommitService.
 type mockSmartCommitter struct {
@@ -55,13 +60,14 @@ func (m *mockPusher) Push(ctx context.Context, opts git.PushOptions) (*git.PushR
 
 // mockHubRunner is a mock implementation of git.HubRunner.
 type mockHubRunner struct {
-	createPRFunc     func(ctx context.Context, opts git.PRCreateOptions) (*git.PRResult, error)
-	getPRStatusFunc  func(ctx context.Context, prNumber int) (*git.PRStatus, error)
-	watchPRFunc      func(ctx context.Context, opts git.CIWatchOptions) (*git.CIWatchResult, error)
-	convertDraftFunc func(ctx context.Context, prNumber int) error
-	mergePRFunc      func(ctx context.Context, prNumber int, mergeMethod string, adminBypass, deleteBranch bool) error
-	addPRReviewFunc  func(ctx context.Context, prNumber int, body, event string) error
-	addPRCommentFunc func(ctx context.Context, prNumber int, body string) error
+	createPRFunc        func(ctx context.Context, opts git.PRCreateOptions) (*git.PRResult, error)
+	getPRStatusFunc     func(ctx context.Context, prNumber int) (*git.PRStatus, error)
+	watchPRFunc         func(ctx context.Context, opts git.CIWatchOptions) (*git.CIWatchResult, error)
+	convertDraftFunc    func(ctx context.Context, prNumber int) error
+	mergePRFunc         func(ctx context.Context, prNumber int, mergeMethod string, adminBypass, deleteBranch bool) error
+	addPRReviewFunc     func(ctx context.Context, prNumber int, body, event string) error
+	addPRCommentFunc    func(ctx context.Context, prNumber int, body string) error
+	findPRForBranchFunc func(ctx context.Context, branch string) (*git.PRResult, error)
 }
 
 func (m *mockHubRunner) CreatePR(ctx context.Context, opts git.PRCreateOptions) (*git.PRResult, error) {
@@ -80,6 +86,14 @@ func (m *mockHubRunner) GetPRStatus(ctx context.Context, prNumber int) (*git.PRS
 
 func (m *mockHubRunner) GetPRHeadBranch(_ context.Context, _ int) (string, error) {
 	return "", nil
+}
+
+//nolint:nilnil // matches the (nil, nil) "no PR found" contract of the real interface
+func (m *mockHubRunner) FindPRForBranch(ctx context.Context, branch string) (*git.PRResult, error) {
+	if m.findPRForBranchFunc != nil {
+		return m.findPRForBranchFunc(ctx, branch)
+	}
+	return nil, nil
 }
 
 func (m *mockHubRunner) FetchPRChecks(_ context.Context, _ int) ([]git.CheckResult, error) {
@@ -858,6 +872,120 @@ func TestGitExecutor_ExecuteCreatePR_Success(t *testing.T) {
 	assert.Equal(t, "success", result.Status)
 	assert.Contains(t, result.Output, "PR #42")
 	assert.Contains(t, result.Output, "https://github.com/test/repo/pull/42")
+}
+
+func TestGitExecutor_ExecuteCreatePR_SkipsWhenPRExists(t *testing.T) {
+	ctx := context.Background()
+
+	// Description generator should NEVER be called — the step must short-circuit
+	// before wasting an AI call.
+	prDescGen := &mockPRDescriptionGenerator{
+		generateFunc: func(_ context.Context, _ git.PRDescOptions) (*git.PRDescription, error) {
+			t.Fatal("generatePRDescription must not be called when an existing PR is found")
+			return nil, errTestUnreachable
+		},
+	}
+
+	hubRunner := &mockHubRunner{
+		findPRForBranchFunc: func(_ context.Context, branch string) (*git.PRResult, error) {
+			assert.Equal(t, "dependabot/go_modules/foo", branch)
+			return &git.PRResult{
+				Number: 231,
+				URL:    "https://github.com/owner/repo/pull/231",
+				State:  "OPEN",
+			}, nil
+		},
+		createPRFunc: func(_ context.Context, _ git.PRCreateOptions) (*git.PRResult, error) {
+			t.Fatal("CreatePR must not be called when an existing PR is found")
+			return nil, errTestUnreachable
+		},
+	}
+
+	executor := NewGitExecutor("/tmp/work",
+		WithHubRunner(hubRunner),
+		WithPRDescriptionGenerator(prDescGen),
+	)
+
+	task := &domain.Task{
+		ID:          "task-from-pr",
+		TemplateID:  "bug",
+		Description: "Work on existing PR",
+		CurrentStep: 0,
+	}
+	step := &domain.StepDefinition{
+		Name: "git_pr",
+		Type: domain.StepTypeGit,
+		Config: map[string]any{
+			"operation": "create_pr",
+			"branch":    "dependabot/go_modules/foo",
+		},
+	}
+
+	result, err := executor.Execute(ctx, task, step)
+
+	require.NoError(t, err)
+	assert.Equal(t, constants.StepStatusSkipped, result.Status)
+	assert.Contains(t, result.Output, "PR already exists")
+	assert.Contains(t, result.Output, "#231")
+	assert.Contains(t, result.Output, "https://github.com/owner/repo/pull/231")
+
+	// Downstream steps (ci_wait) must be able to read the existing PR number.
+	require.NotNil(t, task.Metadata)
+	assert.Equal(t, 231, task.Metadata["pr_number"])
+	assert.Equal(t, "https://github.com/owner/repo/pull/231", task.Metadata["pr_url"])
+}
+
+func TestGitExecutor_ExecuteCreatePR_RaceConditionRecovery(t *testing.T) {
+	// Pre-check sees no PR, but a PR appears before CreatePR runs.
+	// handlePRCreationError must recover by looking up the existing PR and
+	// returning a skipped result.
+	ctx := context.Background()
+
+	var findCallCount int
+	hubRunner := &mockHubRunner{
+		//nolint:nilnil // matches the (nil, nil) "no PR found" contract of the real interface
+		findPRForBranchFunc: func(_ context.Context, _ string) (*git.PRResult, error) {
+			findCallCount++
+			if findCallCount == 1 {
+				// Pre-check: no PR exists yet
+				return nil, nil
+			}
+			// Recovery lookup: PR now exists (race window)
+			return &git.PRResult{
+				Number: 231,
+				URL:    "https://github.com/owner/repo/pull/231",
+				State:  "OPEN",
+			}, nil
+		},
+		createPRFunc: func(_ context.Context, _ git.PRCreateOptions) (*git.PRResult, error) {
+			return &git.PRResult{ErrorType: git.PRErrorAlreadyExists}, errPRAlreadyExists
+		},
+	}
+
+	executor := NewGitExecutor("/tmp/work",
+		WithHubRunner(hubRunner),
+		WithPRDescriptionGenerator(&mockPRDescriptionGenerator{}),
+	)
+
+	task := &domain.Task{ID: "task-race", CurrentStep: 0}
+	step := &domain.StepDefinition{
+		Name: "git_pr",
+		Type: domain.StepTypeGit,
+		Config: map[string]any{
+			"operation": "create_pr",
+			"branch":    "dependabot/go_modules/foo",
+		},
+	}
+
+	result, err := executor.Execute(ctx, task, step)
+
+	require.NoError(t, err)
+	assert.Equal(t, constants.StepStatusSkipped, result.Status)
+	assert.Contains(t, result.Output, "#231")
+	assert.Equal(t, 2, findCallCount, "FindPRForBranch should be called twice (pre-check + recovery)")
+
+	require.NotNil(t, task.Metadata)
+	assert.Equal(t, 231, task.Metadata["pr_number"])
 }
 
 func TestGitExecutor_ExecuteCreatePR_RateLimited(t *testing.T) {

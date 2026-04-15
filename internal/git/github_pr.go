@@ -164,6 +164,64 @@ func (r *CLIGitHubRunner) GetPRHeadBranch(ctx context.Context, prNumber int) (st
 	return resp.HeadRefName, nil
 }
 
+// ghPRListEntry represents a single entry returned by `gh pr list --json ...`.
+type ghPRListEntry struct {
+	Number      int    `json:"number"`
+	URL         string `json:"url"`
+	Title       string `json:"title"`
+	HeadRefName string `json:"headRefName"`
+	State       string `json:"state"`
+}
+
+// FindPRForBranch returns the open PR for the given head branch, or (nil, nil)
+// if no open PR exists. A non-nil error is returned only for gh/network failures.
+//
+// This lets callers (such as the `git_pr` step) make PR creation idempotent by
+// detecting an existing PR before attempting to create a new one.
+//
+//nolint:nilnil // (nil, nil) is a deliberate contract: "no PR found" is a valid non-error result.
+func (r *CLIGitHubRunner) FindPRForBranch(ctx context.Context, branch string) (*PRResult, error) {
+	if err := ctxutil.Canceled(ctx); err != nil {
+		return nil, err
+	}
+
+	if branch == "" {
+		return nil, fmt.Errorf("branch cannot be empty: %w", atlaserrors.ErrEmptyValue)
+	}
+
+	args := []string{
+		"pr", "list",
+		"--head", branch,
+		"--state", "open",
+		"--json", "number,url,title,headRefName,state",
+		"--limit", "1",
+	}
+	output, err := r.cmdExec.Execute(ctx, r.workDir, "gh", args...)
+	if err != nil {
+		if classifyGHError(err) == PRErrorNotFound {
+			// Repo/branch not found — treat as "no PR" rather than an error.
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to list PRs for branch %q: %w", branch, err)
+	}
+
+	var entries []ghPRListEntry
+	if err := json.Unmarshal(output, &entries); err != nil {
+		return nil, fmt.Errorf("failed to parse PR list for branch %q: %w", branch, err)
+	}
+
+	if len(entries) == 0 {
+		return nil, nil
+	}
+
+	entry := entries[0]
+	return &PRResult{
+		Number: entry.Number,
+		URL:    entry.URL,
+		State:  entry.State,
+	}, nil
+}
+
 // validatePROptions validates PR creation options and sets defaults.
 func validatePROptions(opts *PRCreateOptions, logger zerolog.Logger) error {
 	if opts.Title == "" {

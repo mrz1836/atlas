@@ -482,6 +482,14 @@ func (e *GitExecutor) executeCreatePR(ctx context.Context, step *domain.StepDefi
 		return result, nil
 	}
 
+	// Pre-check: if the head branch already has an open PR, skip creation
+	// and reuse it so downstream steps (ci_wait) can watch it. This makes
+	// the step idempotent for --from-pr, resume, and other re-runs, and
+	// avoids a wasted AI call to generate a PR description we won't use.
+	if result := e.checkForExistingPR(ctx, task, headBranch); result != nil {
+		return result, nil
+	}
+
 	// Generate PR description
 	description, err := e.generatePRDescription(ctx, task, baseBranch, headBranch)
 	if err != nil {
@@ -493,7 +501,7 @@ func (e *GitExecutor) executeCreatePR(ctx context.Context, step *domain.StepDefi
 
 	prResult, err := e.createPR(ctx, description, baseBranch, headBranch)
 	if err != nil {
-		return e.handlePRCreationError(prResult, err)
+		return e.handlePRCreationError(ctx, task, headBranch, prResult, err)
 	}
 
 	// Save PR result artifact
@@ -556,6 +564,35 @@ func (e *GitExecutor) checkForCommits(ctx context.Context, baseBranch string) *d
 	return nil
 }
 
+// checkForExistingPR looks up whether the head branch already has an open PR.
+// If one exists, the existing PR's number/URL are stored in task metadata so
+// downstream steps (e.g. ci_wait) can reuse them, and a skipped StepResult is
+// returned. If lookup fails, the error is logged and nil is returned so PR
+// creation proceeds normally — a transient lookup failure should not block the
+// workflow.
+func (e *GitExecutor) checkForExistingPR(ctx context.Context, task *domain.Task, headBranch string) *domain.StepResult {
+	existing, err := e.hubRunner.FindPRForBranch(ctx, headBranch)
+	if err != nil {
+		e.logger.Warn().Err(err).Str("branch", headBranch).Msg("failed to look up existing PR, proceeding with creation")
+		return nil
+	}
+	if existing == nil {
+		return nil
+	}
+
+	e.storePRMetadata(task, existing)
+	e.logger.Info().
+		Int("pr_number", existing.Number).
+		Str("pr_url", existing.URL).
+		Str("branch", headBranch).
+		Msg("PR already exists for branch, skipping creation")
+
+	return &domain.StepResult{
+		Status: constants.StepStatusSkipped,
+		Output: fmt.Sprintf("PR already exists for %s: #%d\n%s", headBranch, existing.Number, existing.URL),
+	}
+}
+
 // generatePRDescription creates the PR description using the configured generator.
 func (e *GitExecutor) generatePRDescription(ctx context.Context, task *domain.Task, baseBranch, headBranch string) (*git.PRDescription, error) {
 	descOpts := git.PRDescOptions{
@@ -595,7 +632,27 @@ func (e *GitExecutor) createPR(ctx context.Context, description *git.PRDescripti
 }
 
 // handlePRCreationError handles errors from PR creation, converting known errors to step results.
-func (e *GitExecutor) handlePRCreationError(prResult *git.PRResult, err error) (*domain.StepResult, error) {
+// When the error indicates a PR already exists for the branch, it recovers by
+// looking up the existing PR and returning a skipped result — this closes the
+// race window between the pre-check in executeCreatePR and the actual gh call.
+func (e *GitExecutor) handlePRCreationError(ctx context.Context, task *domain.Task, headBranch string, prResult *git.PRResult, err error) (*domain.StepResult, error) {
+	// Race-window recovery: a PR appeared between pre-check and create.
+	if prResult != nil && prResult.ErrorType == git.PRErrorAlreadyExists {
+		if existing, lookupErr := e.hubRunner.FindPRForBranch(ctx, headBranch); lookupErr == nil && existing != nil {
+			e.storePRMetadata(task, existing)
+			e.logger.Info().
+				Int("pr_number", existing.Number).
+				Str("pr_url", existing.URL).
+				Str("branch", headBranch).
+				Msg("PR already exists (detected after create attempt), skipping creation")
+			return &domain.StepResult{
+				Status: constants.StepStatusSkipped,
+				Output: fmt.Sprintf("PR already exists for %s: #%d\n%s", headBranch, existing.Number, existing.URL),
+			}, nil
+		}
+		e.logger.Warn().Err(err).Str("branch", headBranch).Msg("PR reported as already existing but lookup failed")
+	}
+
 	// Check for rate limit or auth errors
 	if prResult != nil && (prResult.ErrorType == git.PRErrorRateLimit || prResult.ErrorType == git.PRErrorAuth) {
 		return &domain.StepResult{

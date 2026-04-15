@@ -1072,6 +1072,11 @@ func (m *validationMockHubRunner) FetchPRChecks(_ context.Context, _ int) ([]git
 	return m.fetchChecksResult, m.fetchChecksErr
 }
 
+//nolint:nilnil // matches the (nil, nil) "no PR found" contract of the real interface
+func (m *validationMockHubRunner) FindPRForBranch(_ context.Context, _ string) (*git.PRResult, error) {
+	return nil, nil
+}
+
 func TestValidationExecutor_DetectOnly_EnrichesWithCIFailures(t *testing.T) {
 	ctx := context.Background()
 	runner := newMockCommandRunner()

@@ -28,6 +28,9 @@ const (
 	// PRErrorNoChecksYet indicates CI checks haven't been registered yet - transient, retry.
 	// This occurs immediately after PR creation before GitHub Actions workflows start.
 	PRErrorNoChecksYet
+	// PRErrorAlreadyExists indicates a PR already exists for the branch - don't retry.
+	// Callers should treat this as idempotent success and reuse the existing PR.
+	PRErrorAlreadyExists
 	// PRErrorOther indicates an unknown error - don't retry.
 	PRErrorOther
 )
@@ -47,6 +50,8 @@ func (t PRErrorType) String() string {
 		return "not_found"
 	case PRErrorNoChecksYet:
 		return "no_checks_yet"
+	case PRErrorAlreadyExists:
+		return "already_exists"
 	case PRErrorOther:
 		return "other"
 	}
@@ -109,6 +114,8 @@ func buildPRFinalError(result *PRResult) error {
 		return fmt.Errorf("resource not found: %w", atlaserrors.ErrPRCreationFailed)
 	case PRErrorNoChecksYet:
 		return fmt.Errorf("no checks reported yet: %w", atlaserrors.ErrPRCreationFailed)
+	case PRErrorAlreadyExists:
+		return fmt.Errorf("PR already exists for branch: %w", result.FinalErr)
 	case PRErrorOther:
 		return fmt.Errorf("failed to create PR: %w", result.FinalErr)
 	}
@@ -161,7 +168,24 @@ func classifyGHError(err error) PRErrorType {
 		return PRErrorNoChecksYet
 	}
 
+	// Check for "already exists" before falling through to PRErrorOther.
+	// `gh pr create` emits this when the head branch already has an open PR.
+	// It is not retryable — callers should reuse the existing PR instead.
+	if isGHPRAlreadyExistsError(errStr) {
+		return PRErrorAlreadyExists
+	}
+
 	return PRErrorOther
+}
+
+// isGHPRAlreadyExistsError detects the `gh pr create` error emitted when the
+// head branch already has an open pull request. Example error text:
+//
+//	a pull request for branch "foo" into branch "main" already exists:
+//	https://github.com/owner/repo/pull/123
+func isGHPRAlreadyExistsError(errStr string) bool {
+	return strings.Contains(errStr, "a pull request for branch") &&
+		strings.Contains(errStr, "already exists")
 }
 
 // isGHNoChecksReportedError checks if the error indicates CI checks haven't been registered yet.

@@ -50,6 +50,7 @@ func TestPRErrorType_String(t *testing.T) {
 		{PRErrorRateLimit, "rate_limit"},
 		{PRErrorNetwork, "network"},
 		{PRErrorNotFound, "not_found"},
+		{PRErrorAlreadyExists, "already_exists"},
 		{PRErrorOther, "other"},
 		{PRErrorType(99), "other"}, // Unknown type
 	}
@@ -552,6 +553,119 @@ func TestCLIGitHubRunner_GetPRHeadBranch_EmptyBranch(t *testing.T) {
 	assert.ErrorIs(t, err, atlaserrors.ErrEmptyValue)
 }
 
+func TestCLIGitHubRunner_FindPRForBranch_Success(t *testing.T) {
+	mock := &mockCommandExecutor{
+		executeFunc: func(_ context.Context, _, _ string, args ...string) ([]byte, error) {
+			// Verify expected args: `gh pr list --head <branch> --state open --json ... --limit 1`
+			assert.Contains(t, args, "list")
+			assert.Contains(t, args, "--head")
+			assert.Contains(t, args, "dependabot/foo")
+			assert.Contains(t, args, "--state")
+			assert.Contains(t, args, "open")
+			assert.Contains(t, args, "--limit")
+			return []byte(`[{"number":231,"url":"https://github.com/owner/repo/pull/231","title":"chore: deps","headRefName":"dependabot/foo","state":"OPEN"}]`), nil
+		},
+	}
+
+	runner := NewCLIGitHubRunner("/test/dir", WithGHCommandExecutor(mock))
+
+	result, err := runner.FindPRForBranch(context.Background(), "dependabot/foo")
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, 231, result.Number)
+	assert.Equal(t, "https://github.com/owner/repo/pull/231", result.URL)
+	assert.Equal(t, "OPEN", result.State)
+}
+
+func TestCLIGitHubRunner_FindPRForBranch_NoPRFound(t *testing.T) {
+	mock := &mockCommandExecutor{
+		executeFunc: func(_ context.Context, _, _ string, _ ...string) ([]byte, error) {
+			return []byte(`[]`), nil
+		},
+	}
+
+	runner := NewCLIGitHubRunner("/test/dir", WithGHCommandExecutor(mock))
+
+	result, err := runner.FindPRForBranch(context.Background(), "feat/new-feature")
+
+	require.NoError(t, err)
+	assert.Nil(t, result)
+}
+
+func TestCLIGitHubRunner_FindPRForBranch_EmptyBranch(t *testing.T) {
+	runner := NewCLIGitHubRunner("/test/dir")
+
+	_, err := runner.FindPRForBranch(context.Background(), "")
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, atlaserrors.ErrEmptyValue)
+}
+
+func TestCLIGitHubRunner_FindPRForBranch_ContextCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	runner := NewCLIGitHubRunner("/test/dir")
+
+	_, err := runner.FindPRForBranch(ctx, "feat/new-feature")
+	assert.ErrorIs(t, err, context.Canceled)
+}
+
+func TestCLIGitHubRunner_FindPRForBranch_InvalidJSON(t *testing.T) {
+	mock := &mockCommandExecutor{
+		executeFunc: func(_ context.Context, _, _ string, _ ...string) ([]byte, error) {
+			return []byte(`{not an array`), nil
+		},
+	}
+
+	runner := NewCLIGitHubRunner("/test/dir", WithGHCommandExecutor(mock))
+
+	_, err := runner.FindPRForBranch(context.Background(), "feat/foo")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to parse PR list")
+}
+
+func TestCLIGitHubRunner_FindPRForBranch_NotFoundTreatedAsNoPR(t *testing.T) {
+	// A "not found" gh error (e.g. repo can't be resolved) should surface as
+	// (nil, nil) rather than a hard error, so callers don't block PR creation
+	// on a lookup miss.
+	mock := &mockCommandExecutor{
+		executeFunc: func(_ context.Context, _, _ string, _ ...string) ([]byte, error) {
+			return nil, fmt.Errorf("repository not found: %w", atlaserrors.ErrGitHubOperation)
+		},
+	}
+
+	runner := NewCLIGitHubRunner("/test/dir", WithGHCommandExecutor(mock))
+
+	result, err := runner.FindPRForBranch(context.Background(), "feat/foo")
+
+	require.NoError(t, err)
+	assert.Nil(t, result)
+}
+
+func TestCLIGitHubRunner_FindPRForBranch_OtherError(t *testing.T) {
+	mock := &mockCommandExecutor{
+		executeFunc: func(_ context.Context, _, _ string, _ ...string) ([]byte, error) {
+			return nil, fmt.Errorf("network error: %w", atlaserrors.ErrGitHubOperation)
+		},
+	}
+
+	runner := NewCLIGitHubRunner("/test/dir", WithGHCommandExecutor(mock))
+
+	_, err := runner.FindPRForBranch(context.Background(), "feat/foo")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to list PRs for branch")
+}
+
+func TestShouldRetryPR_AlreadyExistsNotRetried(t *testing.T) {
+	// PRErrorAlreadyExists must NEVER be retried — the branch already has
+	// a PR and retrying wastes API budget / pagination.
+	assert.False(t, shouldRetryPR(PRErrorAlreadyExists))
+}
+
 //nolint:err113 // test table uses dynamic errors to test error message pattern matching
 func TestClassifyGHError(t *testing.T) {
 	tests := []struct {
@@ -579,6 +693,11 @@ func TestClassifyGHError(t *testing.T) {
 		{"not found", errors.New("pull request not found"), PRErrorNotFound},
 		{"repository not found", errors.New("repository not found"), PRErrorNotFound},
 		{"does not exist", errors.New("branch does not exist"), PRErrorNotFound},
+		{
+			"pr already exists",
+			errors.New(`gh failed [a pull request for branch "dependabot/foo" into branch "master" already exists: https://github.com/owner/repo/pull/231]: github operation failed`),
+			PRErrorAlreadyExists,
+		},
 		{"unknown error", errors.New("some random error"), PRErrorOther},
 	}
 
@@ -782,7 +901,8 @@ func TestShouldRetryPR(t *testing.T) {
 		{PRErrorRateLimit, true},
 		{PRErrorNetwork, true},
 		{PRErrorNotFound, false},
-		{PRErrorOther, true}, // PRErrorOther is now retryable since unknown gh errors may be transient
+		{PRErrorAlreadyExists, false}, // Reuse existing PR — never retry creation
+		{PRErrorOther, true},          // PRErrorOther is now retryable since unknown gh errors may be transient
 	}
 
 	for _, tt := range tests {
@@ -828,6 +948,11 @@ func TestBuildPRFinalError(t *testing.T) {
 			name:        "other error with FinalErr",
 			result:      &PRResult{ErrorType: PRErrorOther, Attempts: 1, FinalErr: errors.New("custom error")}, //nolint:err113 // test uses dynamic error
 			errContains: "custom error",
+		},
+		{
+			name:        "already exists error",
+			result:      &PRResult{ErrorType: PRErrorAlreadyExists, Attempts: 1, FinalErr: errors.New("a pull request for branch already exists")}, //nolint:err113 // test uses dynamic error
+			errContains: "PR already exists for branch",
 		},
 		{
 			name:        "unknown error type defaults to other",

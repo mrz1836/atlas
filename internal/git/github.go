@@ -44,6 +44,11 @@ type PRStatusReader interface {
 	// GetPRHeadBranch returns the head branch name for a given PR number.
 	GetPRHeadBranch(ctx context.Context, prNumber int) (string, error)
 
+	// FindPRForBranch returns the open PR for the given head branch, or
+	// (nil, nil) if no open PR exists. A non-nil error is returned only
+	// for gh/network failures, not for the "no PR" case.
+	FindPRForBranch(ctx context.Context, branch string) (*PRResult, error)
+
 	// FetchPRChecks fetches the current CI check results for a PR without polling.
 	// Returns individual check names, statuses, and URLs.
 	FetchPRChecks(ctx context.Context, prNumber int) ([]CheckResult, error)

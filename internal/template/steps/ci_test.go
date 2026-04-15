@@ -40,6 +40,11 @@ func (m *ciMockHubRunner) GetPRHeadBranch(_ context.Context, _ int) (string, err
 	return "", nil
 }
 
+//nolint:nilnil // matches the (nil, nil) "no PR found" contract of the real interface
+func (m *ciMockHubRunner) FindPRForBranch(_ context.Context, _ string) (*git.PRResult, error) {
+	return nil, nil
+}
+
 func (m *ciMockHubRunner) FetchPRChecks(_ context.Context, _ int) ([]git.CheckResult, error) {
 	return nil, nil
 }
