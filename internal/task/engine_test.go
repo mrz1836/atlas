@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/domain"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
@@ -4417,6 +4418,8 @@ func TestResolveStepAgentModel(t *testing.T) {
 		name          string
 		taskAgent     domain.Agent
 		taskModel     string
+		stepName      string
+		opsConfig     *config.OperationsConfig
 		stepAgent     string
 		stepModel     string
 		expectedAgent domain.Agent
@@ -4467,6 +4470,29 @@ func TestResolveStepAgentModel(t *testing.T) {
 			expectedAgent: domain.AgentClaude,
 			expectedModel: "opus", // Keeps task model since agent didn't change
 		},
+		{
+			name:      "ops_config_overrides_task_model_when_step_config_empty",
+			taskAgent: domain.AgentClaude,
+			taskModel: "sonnet",
+			stepName:  "analyze",
+			opsConfig: &config.OperationsConfig{
+				Analyze: config.OperationAIConfig{Model: "opus"},
+			},
+			expectedAgent: domain.AgentClaude,
+			expectedModel: "opus",
+		},
+		{
+			name:      "step_config_model_beats_ops_config_model",
+			taskAgent: domain.AgentClaude,
+			taskModel: "sonnet",
+			stepName:  "analyze",
+			opsConfig: &config.OperationsConfig{
+				Analyze: config.OperationAIConfig{Model: "opus"},
+			},
+			stepModel:     "haiku",
+			expectedAgent: domain.AgentClaude,
+			expectedModel: "haiku",
+		},
 	}
 
 	for _, tt := range tests {
@@ -4490,10 +4516,11 @@ func TestResolveStepAgentModel(t *testing.T) {
 			}
 
 			step := &domain.StepDefinition{
+				Name:   tt.stepName,
 				Config: stepConfig,
 			}
 
-			agent, model := ResolveStepAgentModel(task, step)
+			agent, model := ResolveStepAgentModel(task, step, tt.opsConfig)
 
 			assert.Equal(t, tt.expectedAgent, agent, "agent mismatch")
 			assert.Equal(t, tt.expectedModel, model, "model mismatch")

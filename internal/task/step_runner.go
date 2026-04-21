@@ -14,6 +14,7 @@ import (
 	"github.com/rs/zerolog"
 	"golang.org/x/sync/errgroup"
 
+	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/ctxutil"
 	"github.com/mrz1836/atlas/internal/domain"
@@ -63,7 +64,7 @@ func (e *Engine) buildStepLogEvent(task *domain.Task, step *domain.StepDefinitio
 	}
 
 	if step.Type == domain.StepTypeAI || step.Type == domain.StepTypeVerify {
-		agent, model := ResolveStepAgentModel(task, step)
+		agent, model := ResolveStepAgentModel(task, step, e.operationsConfig)
 		event = event.Str("agent", string(agent)).Str("model", model)
 	}
 
@@ -71,32 +72,48 @@ func (e *Engine) buildStepLogEvent(task *domain.Task, step *domain.StepDefinitio
 }
 
 // ResolveStepAgentModel returns the resolved agent and model for a step,
-// applying step-level config overrides to task defaults.
+// applying the same three-tier precedence the AI executor uses at runtime:
+// task defaults < operations config < step-level config. opsConfig may be nil
+// (e.g., tests or engine paths that don't execute steps).
 // Exported for use by other packages.
-func ResolveStepAgentModel(task *domain.Task, step *domain.StepDefinition) (agent domain.Agent, model string) {
-	// Start with task defaults
-	agent = task.Config.Agent
-	model = task.Config.Model
+func ResolveStepAgentModel(task *domain.Task, step *domain.StepDefinition, opsConfig *config.OperationsConfig) (domain.Agent, string) {
+	agent := task.Config.Agent
+	model := task.Config.Model
 
-	// Apply step-level overrides if present
-	if step.Config == nil {
-		return agent, model
+	// Operations config layer: per-step-type overrides from user config.
+	if opsConfig != nil {
+		opConfig := opsConfig.GetForStep(step.Name, string(step.Type))
+		if !opConfig.IsEmpty() {
+			agent, model = applyAgentModelOverride(agent, model, opConfig.Agent, opConfig.Model)
+		}
 	}
 
+	// Step-level config layer: highest precedence.
+	if step.Config != nil {
+		stepAgent, _ := step.Config["agent"].(string)
+		stepModel, _ := step.Config["model"].(string)
+		agent, model = applyAgentModelOverride(agent, model, stepAgent, stepModel)
+	}
+
+	return agent, model
+}
+
+// applyAgentModelOverride applies a single layer of agent/model overrides.
+// If the override switches agents without specifying a model, the new agent's
+// default model is used.
+func applyAgentModelOverride(agent domain.Agent, model, overrideAgent, overrideModel string) (domain.Agent, string) {
 	agentChanged := false
-	if stepAgent, ok := step.Config["agent"].(string); ok && stepAgent != "" {
-		newAgent := domain.Agent(stepAgent)
-		// Only consider it a change if it's actually different
+	if overrideAgent != "" {
+		newAgent := domain.Agent(overrideAgent)
 		if newAgent != agent {
 			agent = newAgent
 			agentChanged = true
 		}
 	}
 
-	if stepModel, ok := step.Config["model"].(string); ok && stepModel != "" {
-		model = stepModel
+	if overrideModel != "" {
+		model = overrideModel
 	} else if agentChanged {
-		// Use new agent's default model when agent changed but model wasn't specified
 		model = agent.DefaultModel()
 	}
 

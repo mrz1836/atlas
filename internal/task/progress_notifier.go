@@ -39,7 +39,7 @@ func (e *Engine) notifyStepStart(task *domain.Task, step *domain.StepDefinition,
 
 	// Add agent/model for AI steps
 	if step.Type == domain.StepTypeAI || step.Type == domain.StepTypeVerify {
-		agent, model := ResolveStepAgentModel(task, step)
+		agent, model := ResolveStepAgentModel(task, step, e.operationsConfig)
 		event.Agent = string(agent)
 		event.Model = model
 	}
@@ -67,7 +67,7 @@ func (e *Engine) notifyStepComplete(task *domain.Task, step *domain.StepDefiniti
 
 	// Add agent/model for AI steps
 	if step.Type == domain.StepTypeAI || step.Type == domain.StepTypeVerify {
-		agent, model := ResolveStepAgentModel(task, step)
+		agent, model := ResolveStepAgentModel(task, step, e.operationsConfig)
 		event.Agent = string(agent)
 		event.Model = model
 	}

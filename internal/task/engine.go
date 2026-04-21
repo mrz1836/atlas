@@ -29,6 +29,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/mrz1836/atlas/internal/backlog"
+	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/ctxutil"
 	"github.com/mrz1836/atlas/internal/domain"
@@ -169,6 +170,11 @@ type Engine struct {
 	metrics                Metrics
 	hookManager            HookManager
 
+	// operationsConfig provides per-operation AI overrides (e.g. analyze → opus).
+	// Used by step logging and progress events so they report the same agent/model
+	// the AI executor will actually use.
+	operationsConfig *config.OperationsConfig
+
 	// Validation command configuration
 	formatCommands    []string
 	lintCommands      []string
@@ -219,6 +225,16 @@ func WithMetrics(m Metrics) EngineOption {
 func WithHookManager(hm HookManager) EngineOption {
 	return func(e *Engine) {
 		e.hookManager = hm
+	}
+}
+
+// WithOperationsConfig sets the per-operation AI overrides used for step
+// logging and progress events. When set, the engine reports the same
+// agent/model the AI executor will actually use (task defaults < ops config
+// < step config).
+func WithOperationsConfig(cfg *config.OperationsConfig) EngineOption {
+	return func(e *Engine) {
+		e.operationsConfig = cfg
 	}
 }
 

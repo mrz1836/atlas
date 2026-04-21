@@ -473,7 +473,10 @@ func createResumeEngine(ctx context.Context, ws *domain.Workspace, taskStore *ta
 
 	engineCfg := task.DefaultEngineConfig()
 	engineCfg.ProgressCallback = progressCallback
-	engineOpts := []task.EngineOption{task.WithNotifier(stateNotifier)}
+	engineOpts := []task.EngineOption{
+		task.WithNotifier(stateNotifier),
+		task.WithOperationsConfig(&cfg.Operations),
+	}
 	if validationRetryHandler != nil {
 		engineOpts = append(engineOpts, task.WithValidationRetryHandler(validationRetryHandler))
 	}

@@ -249,6 +249,7 @@ func (f *ServiceFactory) CreateEngine(deps EngineDeps, cfg *config.Config) *task
 
 	opts := []task.EngineOption{
 		task.WithNotifier(deps.StateNotifier),
+		task.WithOperationsConfig(&cfg.Operations),
 	}
 	if deps.ValidationRetryHandler != nil {
 		opts = append(opts, task.WithValidationRetryHandler(deps.ValidationRetryHandler))
