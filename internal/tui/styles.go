@@ -228,6 +228,7 @@ func TaskStatusColors() map[constants.TaskStatus]AdaptiveColor {
 		constants.TaskStatusGHFailed:         ColorWarning,
 		constants.TaskStatusCIFailed:         ColorWarning,
 		constants.TaskStatusCITimeout:        ColorWarning,
+		constants.TaskStatusInterrupted:      ColorWarning,
 
 		// Success state - Green
 		constants.TaskStatusCompleted: ColorSuccess,
@@ -255,6 +256,7 @@ var taskStatusIcons = map[constants.TaskStatus]string{
 	constants.TaskStatusGHFailed:         "✗", // X mark - failed
 	constants.TaskStatusCIFailed:         "✗", // X mark - failed
 	constants.TaskStatusCITimeout:        "⚠", // Warning - needs attention
+	constants.TaskStatusInterrupted:      "⚠", // Warning - user interrupted, needs resume or abandon
 }
 
 // TaskStatusIcon returns the icon/symbol for a given task status.
@@ -276,6 +278,7 @@ var attentionStatuses = map[constants.TaskStatus]bool{
 	constants.TaskStatusGHFailed:         true,
 	constants.TaskStatusCIFailed:         true,
 	constants.TaskStatusCITimeout:        true,
+	constants.TaskStatusInterrupted:      true,
 }
 
 // IsAttentionStatus returns true if the task status requires user attention.
@@ -294,6 +297,7 @@ var suggestedActions = map[constants.TaskStatus]string{
 	constants.TaskStatusGHFailed:         "atlas resume",
 	constants.TaskStatusCIFailed:         "atlas resume",
 	constants.TaskStatusCITimeout:        "atlas resume",
+	constants.TaskStatusInterrupted:      "atlas resume",
 }
 
 // SuggestedAction returns the suggested CLI command for a given task status.

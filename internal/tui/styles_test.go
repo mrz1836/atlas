@@ -104,6 +104,7 @@ func TestTaskStatusColors(t *testing.T) {
 		constants.TaskStatusGHFailed,
 		constants.TaskStatusCIFailed,
 		constants.TaskStatusCITimeout,
+		constants.TaskStatusInterrupted,
 	}
 
 	for _, status := range statuses {
@@ -133,6 +134,7 @@ func TestTaskStatusIcon(t *testing.T) {
 		{constants.TaskStatusGHFailed, "✗"},         // X mark - failed
 		{constants.TaskStatusCIFailed, "✗"},         // X mark - failed
 		{constants.TaskStatusCITimeout, "⚠"},        // Warning - needs attention
+		{constants.TaskStatusInterrupted, "⚠"},      // Warning - user interrupted
 	}
 
 	for _, tc := range tests {
@@ -156,6 +158,7 @@ func TestIsAttentionStatus(t *testing.T) {
 		constants.TaskStatusGHFailed,
 		constants.TaskStatusCIFailed,
 		constants.TaskStatusCITimeout,
+		constants.TaskStatusInterrupted,
 	}
 
 	nonAttentionStatuses := []constants.TaskStatus{
@@ -190,6 +193,7 @@ func TestSuggestedAction(t *testing.T) {
 		{constants.TaskStatusGHFailed, "atlas resume"},
 		{constants.TaskStatusCIFailed, "atlas resume"},
 		{constants.TaskStatusCITimeout, "atlas resume"},
+		{constants.TaskStatusInterrupted, "atlas resume"},
 		{constants.TaskStatusRunning, ""},
 		{constants.TaskStatusCompleted, ""},
 	}
@@ -873,4 +877,43 @@ func TestFormatGitStats_WithColors(t *testing.T) {
 	stripped := stripANSI(result)
 	assert.Contains(t, stripped, "+100")
 	assert.Contains(t, stripped, "-50")
+}
+
+// TestAdaptiveColor_RGBA_Nil guards against the regression where a status not
+// present in TaskStatusColors produced an AdaptiveColor{nil, nil} and panicked
+// inside lipgloss.Style.Render via color.RGBA().
+func TestAdaptiveColor_RGBA_Nil(t *testing.T) {
+	t.Run("both_nil_returns_zero", func(t *testing.T) {
+		assert.NotPanics(t, func() {
+			r, g, b, a := AdaptiveColor{}.RGBA()
+			assert.Equal(t, uint32(0), r)
+			assert.Equal(t, uint32(0), g)
+			assert.Equal(t, uint32(0), b)
+			assert.Equal(t, uint32(0), a)
+		})
+	})
+
+	t.Run("light_only_falls_back", func(t *testing.T) {
+		want := lipgloss.Color("#008700")
+		wr, wg, wb, wa := want.RGBA()
+		assert.NotPanics(t, func() {
+			r, g, b, a := AdaptiveColor{Light: want}.RGBA()
+			assert.Equal(t, wr, r)
+			assert.Equal(t, wg, g)
+			assert.Equal(t, wb, b)
+			assert.Equal(t, wa, a)
+		})
+	})
+
+	t.Run("dark_only_falls_back", func(t *testing.T) {
+		want := lipgloss.Color("#00FF87")
+		wr, wg, wb, wa := want.RGBA()
+		assert.NotPanics(t, func() {
+			r, g, b, a := AdaptiveColor{Dark: want}.RGBA()
+			assert.Equal(t, wr, r)
+			assert.Equal(t, wg, g)
+			assert.Equal(t, wb, b)
+			assert.Equal(t, wa, a)
+		})
+	})
 }

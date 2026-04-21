@@ -62,9 +62,20 @@ type AdaptiveColor struct {
 }
 
 // RGBA implements the color.Color interface.
+// If the preferred variant for the current background is nil, falls back to
+// the other variant. If both are nil, returns a transparent color rather
+// than panicking, so a missing entry in a status→color map degrades to an
+// uncolored cell instead of crashing the CLI.
 func (ac AdaptiveColor) RGBA() (r, g, b, a uint32) {
-	if isDarkBackground() {
-		return ac.Dark.RGBA()
+	primary, fallback := ac.Dark, ac.Light
+	if !isDarkBackground() {
+		primary, fallback = ac.Light, ac.Dark
 	}
-	return ac.Light.RGBA()
+	if primary != nil {
+		return primary.RGBA()
+	}
+	if fallback != nil {
+		return fallback.RGBA()
+	}
+	return 0, 0, 0, 0
 }
