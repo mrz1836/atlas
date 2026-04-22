@@ -2127,6 +2127,27 @@ func TestGitExecutor_HasCommitsBetweenBranches_RemoteOnlyFallback(t *testing.T) 
 		require.NoError(t, err)
 		assert.True(t, has)
 	})
+
+	t.Run("handles_already_qualified_input_no_double_prefix", func(t *testing.T) {
+		cloneDir := setupRemoteOnlyWorkdir(t)
+		runGit(t, cloneDir, "commit", "--allow-empty", "-m", "feature commit")
+
+		executor := NewGitExecutor(cloneDir)
+		has, err := executor.hasCommitsBetweenBranches(context.Background(), "origin/master")
+		require.NoError(t, err)
+		assert.True(t, has)
+	})
+
+	t.Run("returns_true_no_error_when_no_ref_resolves", func(t *testing.T) {
+		cloneDir := setupRemoteOnlyWorkdir(t)
+		// Remove origin so neither `master` nor `origin/master` resolves.
+		runGit(t, cloneDir, "remote", "remove", "origin")
+
+		executor := NewGitExecutor(cloneDir)
+		has, err := executor.hasCommitsBetweenBranches(context.Background(), "master")
+		require.NoError(t, err)
+		assert.True(t, has, "should proceed optimistically when base ref cannot be resolved")
+	})
 }
 
 // Helper functions for tests

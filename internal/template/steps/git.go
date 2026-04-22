@@ -1068,18 +1068,32 @@ func joinArtifactPaths(paths []string) string {
 // hasCommitsBetweenBranches checks if there are any commits between the base branch and HEAD.
 // Returns true if there are commits to create a PR for, false otherwise.
 //
-// Worktrees created from a remote-only base branch (e.g. `origin/master`) don't
-// materialize a local `refs/heads/<baseBranch>`, so we transparently retry
-// against `origin/<baseBranch>` when the first attempt fails.
+// Probes candidate refs (the input as-is, then `origin/<input>` only if the
+// input is not already qualified with a `/`) using `git rev-parse --verify`
+// before running `rev-list`, so worktrees with no local `refs/heads/<branch>`
+// transparently fall back to the remote-tracking ref. If no candidate
+// resolves, returns (true, nil) and logs at debug — the caller proceeds and
+// downstream PR-create / lookup logic will handle the real outcome.
 func (e *GitExecutor) hasCommitsBetweenBranches(ctx context.Context, baseBranch string) (bool, error) {
-	output, err := git.RunCommand(ctx, e.workDir, "rev-list", "--count", baseBranch+"..HEAD")
-	if err != nil {
-		remoteRef := "origin/" + baseBranch
-		output, err = git.RunCommand(ctx, e.workDir, "rev-list", "--count", remoteRef+"..HEAD")
+	candidates := []string{baseBranch}
+	if !strings.Contains(baseBranch, "/") {
+		candidates = append(candidates, "origin/"+baseBranch)
+	}
+
+	for _, ref := range candidates {
+		if _, err := git.RunCommand(ctx, e.workDir, "rev-parse", "--verify", "--quiet", ref); err != nil {
+			continue
+		}
+		output, err := git.RunCommand(ctx, e.workDir, "rev-list", "--count", ref+"..HEAD")
 		if err != nil {
 			return false, fmt.Errorf("failed to check commits: %w", err)
 		}
+		count := strings.TrimSpace(output)
+		return count != "" && count != "0", nil
 	}
-	count := strings.TrimSpace(output)
-	return count != "" && count != "0", nil
+
+	e.logger.Debug().
+		Str("base_branch", baseBranch).
+		Msg("no resolvable base ref for commit check, proceeding optimistically")
+	return true, nil
 }
