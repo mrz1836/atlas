@@ -1067,14 +1067,19 @@ func joinArtifactPaths(paths []string) string {
 
 // hasCommitsBetweenBranches checks if there are any commits between the base branch and HEAD.
 // Returns true if there are commits to create a PR for, false otherwise.
+//
+// Worktrees created from a remote-only base branch (e.g. `origin/master`) don't
+// materialize a local `refs/heads/<baseBranch>`, so we transparently retry
+// against `origin/<baseBranch>` when the first attempt fails.
 func (e *GitExecutor) hasCommitsBetweenBranches(ctx context.Context, baseBranch string) (bool, error) {
-	// Use git rev-list to count commits between base branch and HEAD
 	output, err := git.RunCommand(ctx, e.workDir, "rev-list", "--count", baseBranch+"..HEAD")
 	if err != nil {
-		return false, fmt.Errorf("failed to check commits: %w", err)
+		remoteRef := "origin/" + baseBranch
+		output, err = git.RunCommand(ctx, e.workDir, "rev-list", "--count", remoteRef+"..HEAD")
+		if err != nil {
+			return false, fmt.Errorf("failed to check commits: %w", err)
+		}
 	}
-
-	// Parse the count - if it's 0 or empty, there are no commits
 	count := strings.TrimSpace(output)
 	return count != "" && count != "0", nil
 }

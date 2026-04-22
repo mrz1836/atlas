@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
@@ -2066,6 +2067,65 @@ func TestGitExecutor_CleanupOnPause(t *testing.T) {
 		// Verify lock file is removed
 		_, statErr := statFile(lockPath)
 		assert.True(t, isNotExist(statErr), "lock file should be removed")
+	})
+}
+
+func TestGitExecutor_HasCommitsBetweenBranches_RemoteOnlyFallback(t *testing.T) {
+	runGit := func(t *testing.T, dir string, args ...string) {
+		t.Helper()
+		cmd := exec.CommandContext(context.Background(), "git", args...) // #nosec G204
+		cmd.Dir = dir
+		out, err := cmd.CombinedOutput()
+		require.NoErrorf(t, err, "git %v failed: %s", args, string(out))
+	}
+
+	setupRemoteOnlyWorkdir := func(t *testing.T) string {
+		t.Helper()
+
+		bareDir := filepath.Join(t.TempDir(), "remote.git")
+		require.NoError(t, os.Mkdir(bareDir, 0o750))
+		runGit(t, bareDir, "init", "--bare", "-b", "master")
+
+		sourceDir := t.TempDir()
+		runGit(t, sourceDir, "init", "-b", "master")
+		runGit(t, sourceDir, "config", "user.email", "test@example.com")
+		runGit(t, sourceDir, "config", "user.name", "Test")
+		runGit(t, sourceDir, "commit", "--allow-empty", "-m", "initial")
+		runGit(t, sourceDir, "remote", "add", "origin", bareDir)
+		runGit(t, sourceDir, "push", "origin", "master")
+
+		cloneDir := t.TempDir()
+		runGit(t, cloneDir, "clone", bareDir, ".")
+		runGit(t, cloneDir, "config", "user.email", "test@example.com")
+		runGit(t, cloneDir, "config", "user.name", "Test")
+		runGit(t, cloneDir, "checkout", "-b", "feature", "origin/master")
+		runGit(t, cloneDir, "branch", "-D", "master")
+
+		// Sanity: local "master" must not resolve — this is what reproduces the bug.
+		sanity := exec.CommandContext(context.Background(), "git", "rev-parse", "--verify", "refs/heads/master")
+		sanity.Dir = cloneDir
+		require.Error(t, sanity.Run(), "setup: local master should be absent")
+
+		return cloneDir
+	}
+
+	t.Run("returns_false_when_no_commits_via_origin_fallback", func(t *testing.T) {
+		cloneDir := setupRemoteOnlyWorkdir(t)
+		executor := NewGitExecutor(cloneDir)
+
+		has, err := executor.hasCommitsBetweenBranches(context.Background(), "master")
+		require.NoError(t, err)
+		assert.False(t, has)
+	})
+
+	t.Run("returns_true_when_commits_via_origin_fallback", func(t *testing.T) {
+		cloneDir := setupRemoteOnlyWorkdir(t)
+		runGit(t, cloneDir, "commit", "--allow-empty", "-m", "feature commit")
+
+		executor := NewGitExecutor(cloneDir)
+		has, err := executor.hasCommitsBetweenBranches(context.Background(), "master")
+		require.NoError(t, err)
+		assert.True(t, has)
 	})
 }
 
