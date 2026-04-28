@@ -622,34 +622,33 @@ func TestIntegration_ConcurrentCheckpoints(t *testing.T) {
 	err = store.Save(ctx, h)
 	require.NoError(t, err)
 
-	// Start interval checkpointer
-	// Use longer intervals under race detection due to significant overhead
-	interval := 100 * time.Millisecond
-	waitTime := 350 * time.Millisecond
-
-	// Race detector adds ~10x overhead, so adjust timing accordingly
 	if testing.Short() {
 		t.Skip("Skipping timing-sensitive test in short mode")
 	}
 
+	// Start interval checkpointer with a fast tick. Rather than sleeping for a
+	// fixed duration (which is flaky under heavy CI load and race detection),
+	// poll until at least one checkpoint has been persisted.
+	interval := 50 * time.Millisecond
+
 	intervalChkpt := hook.NewIntervalCheckpointer(checkpointer, taskID, store, interval, zerolog.Nop())
 	intervalChkpt.Start(ctx)
 
-	// Let it run for a bit - give extra time for race detector overhead
-	time.Sleep(waitTime)
+	require.Eventually(t, func() bool {
+		got, getErr := store.Get(ctx, taskID)
+		if getErr != nil {
+			return false
+		}
+		return len(got.Checkpoints) >= 1
+	}, 10*time.Second, 25*time.Millisecond, "Should have created at least 1 interval checkpoint")
 
 	// Stop the checkpointer
 	intervalChkpt.Stop()
 
-	// Verify checkpoints were created
+	// Verify all checkpoints are interval type
 	h, err = store.Get(ctx, taskID)
 	require.NoError(t, err)
-
-	// Under race detection, timing can be very unpredictable
-	// Just verify at least 1 checkpoint was created
-	require.GreaterOrEqual(t, len(h.Checkpoints), 1, "Should have created at least 1 interval checkpoint")
-
-	// Verify all checkpoints are interval type
+	require.GreaterOrEqual(t, len(h.Checkpoints), 1)
 	for _, cp := range h.Checkpoints {
 		require.Equal(t, domain.CheckpointTriggerInterval, cp.Trigger)
 	}
