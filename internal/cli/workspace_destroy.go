@@ -280,7 +280,7 @@ var terminalCheck = isTerminal
 
 // isTerminal returns true if stdin is a terminal.
 func isTerminal() bool {
-	return term.IsTerminal(int(os.Stdin.Fd())) //nolint:gosec // G115: uintptr->int for term.IsTerminal, file descriptors fit in int on all supported platforms
+	return term.IsTerminal(int(os.Stdin.Fd()))
 }
 
 // detectRepoPath finds the git repository root from the current working directory.

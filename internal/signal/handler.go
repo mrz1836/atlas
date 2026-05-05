@@ -43,7 +43,7 @@ type Handler struct {
 //	default:
 //	}
 func NewHandler(parent context.Context) *Handler {
-	ctx, cancel := context.WithCancel(parent) //nolint:gosec // G118: cancel is stored in Handler and called via Stop/cleanup
+	ctx, cancel := context.WithCancel(parent)
 	h := &Handler{
 		ctx:         ctx,
 		cancel:      cancel,

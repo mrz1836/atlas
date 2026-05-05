@@ -122,7 +122,7 @@ func isPromoteInteractiveMode(id string, opts promoteOptions) bool {
 	if opts.jsonOutput {
 		return false // JSON = non-interactive
 	}
-	return term.IsTerminal(int(os.Stdin.Fd())) //nolint:gosec // G115: uintptr->int for term.IsTerminal, file descriptors fit in int on all supported platforms
+	return term.IsTerminal(int(os.Stdin.Fd()))
 }
 
 // runBacklogPromote executes the backlog promote command.

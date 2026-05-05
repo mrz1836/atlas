@@ -290,7 +290,7 @@ func selectLevel(verbose, quiet bool) zerolog.Level {
 // terminal capabilities and environment settings.
 func selectOutput() io.Writer {
 	// Use console writer for TTY without NO_COLOR
-	if term.IsTerminal(int(os.Stderr.Fd())) && os.Getenv("NO_COLOR") == "" { //nolint:gosec // G115: uintptr->int for term.IsTerminal, file descriptors fit in int on all supported platforms
+	if term.IsTerminal(int(os.Stderr.Fd())) && os.Getenv("NO_COLOR") == "" {
 		// ConsoleWriter parses JSON from zerolog and formats it for human reading.
 		// Its output goes to spinnerAwareWriter which clears the spinner line before
 		// writing, preventing log/spinner line collisions.

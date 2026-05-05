@@ -185,7 +185,7 @@ func runApprove(ctx context.Context, cmd *cobra.Command, w io.Writer, opts appro
 	out := tui.NewOutput(w, outputFormat)
 
 	// Detect non-interactive mode
-	isNonInteractive := outputFormat == OutputJSON || !term.IsTerminal(int(os.Stdin.Fd())) //nolint:gosec // G115: uintptr->int for term.IsTerminal, file descriptors fit in int on all supported platforms
+	isNonInteractive := outputFormat == OutputJSON || !term.IsTerminal(int(os.Stdin.Fd()))
 
 	// JSON mode requires workspace argument (no interactive selection)
 	if outputFormat == OutputJSON && opts.workspace == "" {

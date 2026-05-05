@@ -48,7 +48,7 @@ func (p *Prompter) SelectTemplate(ctx context.Context, registry *template.Regist
 	}
 
 	// Non-interactive mode or JSON output requires template flag
-	if noInteractive || outputFormat == "json" || !term.IsTerminal(int(os.Stdin.Fd())) { //nolint:gosec // G115: uintptr->int for term.IsTerminal, file descriptors fit in int on all supported platforms
+	if noInteractive || outputFormat == "json" || !term.IsTerminal(int(os.Stdin.Fd())) {
 		return nil, atlaserrors.NewExitCode2Error(
 			fmt.Errorf("use --template to specify template: %w", atlaserrors.ErrTemplateRequired))
 	}
@@ -84,7 +84,7 @@ func (p *Prompter) ResolveWorkspaceConflict(ctx context.Context, mgr *workspace.
 	}
 
 	// Check if we're in a terminal
-	if !term.IsTerminal(int(os.Stdin.Fd())) { //nolint:gosec // G115: uintptr->int for term.IsTerminal, file descriptors fit in int on all supported platforms
+	if !term.IsTerminal(int(os.Stdin.Fd())) {
 		return "", fmt.Errorf("workspace '%s': %w (use --workspace to specify a different name)", wsName, atlaserrors.ErrWorkspaceExists)
 	}
 
