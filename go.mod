@@ -36,10 +36,10 @@ require (
 	github.com/charmbracelet/bubbles v1.0.0 // indirect
 	github.com/charmbracelet/bubbletea v1.3.10 // indirect
 	github.com/charmbracelet/harmonica v0.2.0 // indirect
-	github.com/charmbracelet/ultraviolet v0.0.0-20260428153724-66037269d7be // indirect
+	github.com/charmbracelet/ultraviolet v0.0.0-20260511121909-c840852527f3 // indirect
 	github.com/charmbracelet/x/ansi v0.11.7 // indirect
 	github.com/charmbracelet/x/cellbuf v0.0.15 // indirect
-	github.com/charmbracelet/x/exp/slice v0.0.0-20260510005209-39224119bc89 // indirect
+	github.com/charmbracelet/x/exp/slice v0.0.0-20260511125431-fe5d686e0c99 // indirect
 	github.com/charmbracelet/x/exp/strings v0.1.0 // indirect
 	github.com/charmbracelet/x/term v0.2.2 // indirect
 	github.com/charmbracelet/x/termios v0.1.1 // indirect
@@ -79,7 +79,7 @@ require (
 	github.com/yuin/gopher-lua v1.1.2 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
 	golang.org/x/net v0.54.0 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20260504160031-60b97b32f348 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20260511170946-3700d4141b60 // indirect
 	google.golang.org/grpc v1.81.0 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 )
