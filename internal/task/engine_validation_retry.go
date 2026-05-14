@@ -164,7 +164,7 @@ func (e *Engine) attemptValidationRetry(
 				Str("agent", string(task.Config.Agent)).
 				Str("model", task.Config.Model).
 				Int("attempt", attempt).
-				Int("files_changed", len(lastResult.AIResult.FilesChanged)).
+				Int("files_changed", retryFilesChangedCount(lastResult)).
 				Msg("validation retry succeeded")
 
 			// Update attempt counter in task metadata
@@ -285,10 +285,7 @@ func (e *Engine) convertRetryResultToStepResult(
 	now := time.Now()
 	startTime := now.Add(-time.Duration(retryResult.PipelineResult.DurationMs) * time.Millisecond)
 
-	filesChanged := 0
-	if retryResult.AIResult != nil {
-		filesChanged = len(retryResult.AIResult.FilesChanged)
-	}
+	filesChanged := retryFilesChangedCount(retryResult)
 
 	// Build validation checks from pipeline result for display in approval summary
 	validationChecks := retryResult.PipelineResult.BuildChecksAsMap()
@@ -383,4 +380,21 @@ func (e *Engine) notifyRetryValidationStart(task *domain.Task, attempt, maxAttem
 	}
 
 	e.config.ProgressCallback(event)
+}
+
+// retryFilesChangedCount returns the count of files actually changed during the
+// retry, preferring the validation pipeline's StagedFiles (which captures files
+// modified by format/lint auto-fixes after the AI agent runs) and falling back
+// to the AI-reported FilesChanged when the pipeline didn't stage anything.
+func retryFilesChangedCount(retryResult *validation.RetryResult) int {
+	if retryResult == nil {
+		return 0
+	}
+	if retryResult.PipelineResult != nil && len(retryResult.PipelineResult.StagedFiles) > 0 {
+		return len(retryResult.PipelineResult.StagedFiles)
+	}
+	if retryResult.AIResult != nil {
+		return len(retryResult.AIResult.FilesChanged)
+	}
+	return 0
 }

@@ -836,14 +836,24 @@ func (e *Engine) handleStepExecutionResult(
 		return result, nil
 	}
 
-	// Notify step complete even on error (with error status)
-	if result != nil {
+	// If a validation retry will run, defer the complete notification — the
+	// retry path will emit exactly one (success on retry-success, failure on
+	// retry-exhaustion). Without this, both the initial failure AND the retry
+	// success emit complete events, producing a duplicate UI line.
+	willRetry := step.Type == domain.StepTypeValidation && e.shouldAttemptValidationRetry(result)
+
+	if result != nil && !willRetry {
 		e.notifyStepComplete(task, step, result, totalSteps)
 	}
 
 	// Attempt automatic validation retry before error handling
 	result, err = e.tryValidationRetry(ctx, task, step, result, err, totalSteps)
 	if err != nil {
+		// Retry didn't succeed (or wasn't attempted). Emit the deferred
+		// complete event now so consumers see the final failed state exactly once.
+		if willRetry && result != nil {
+			e.notifyStepComplete(task, step, result, totalSteps)
+		}
 		return result, e.handleExecutionError(ctx, task, step, result, err)
 	}
 	return result, nil

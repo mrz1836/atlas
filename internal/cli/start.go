@@ -949,6 +949,13 @@ func handleProgressComplete(out tui.Output, event task.StepProgressEvent, state 
 		return
 	}
 
+	// Suppress the success line for failed steps. The retry-start event (or
+	// final failure handling) provides the appropriate UI feedback; rendering
+	// "✓ Step X/Y: ... completed" after a failure is misleading.
+	if event.Status == constants.StepStatusFailed {
+		return
+	}
+
 	// Display completion message
 	statusMsg := fmt.Sprintf("Step %d/%d: %s completed", event.StepIndex+1, event.TotalSteps, event.StepName)
 	out.Success(statusMsg)
