@@ -218,21 +218,24 @@ func (w *taskLogWriter) persistToTaskLog(p []byte) {
 	_ = w.store.AppendLog(ctx, fields.WorkspaceName, fields.TaskID, p)
 }
 
+// spinnerManager is the subset of *tui.SpinnerManager that spinnerAwareWriter
+// depends on. Defined locally so tests can inject a mock.
+type spinnerManager interface {
+	GetActive() *tui.TerminalSpinner
+	WriteLocked(w io.Writer, p []byte) (int, error)
+}
+
 // spinnerAwareWriter wraps an io.Writer and clears the spinner line before writing.
-// This prevents log messages from appearing on the same line as the spinner animation.
+// All writes go through manager.WriteLocked, sharing a mutex with the spinner's
+// own writes so log lines and spinner frames never interleave on the TTY.
 type spinnerAwareWriter struct {
 	target  io.Writer
-	manager interface {
-		GetActive() *tui.TerminalSpinner
-	}
+	manager spinnerManager
 }
 
 // newSpinnerAwareWriter creates a spinner-aware writer that clears the active
 // spinner line before writing log messages.
-func newSpinnerAwareWriter(target io.Writer, manager interface {
-	GetActive() *tui.TerminalSpinner
-},
-) *spinnerAwareWriter {
+func newSpinnerAwareWriter(target io.Writer, manager spinnerManager) *spinnerAwareWriter {
 	return &spinnerAwareWriter{
 		target:  target,
 		manager: manager,
@@ -240,29 +243,24 @@ func newSpinnerAwareWriter(target io.Writer, manager interface {
 }
 
 // Write implements io.Writer. If a spinner is active, it clears the spinner line
-// before writing the log message.
+// before writing the log message. The clear sequence and payload are issued in a
+// single locked write so the spinner cannot redraw between them.
 func (w *spinnerAwareWriter) Write(p []byte) (n int, err error) {
-	// Check if a spinner is currently active
 	if activeSpinner := w.manager.GetActive(); activeSpinner != nil {
-		// Combine clear sequence and log message into single write for atomicity
-		// This prevents the spinner from writing between clear and log
 		combined := make([]byte, 0, len("\r\033[K")+len(p))
 		combined = append(combined, "\r\033[K"...)
 		combined = append(combined, p...)
-		written, err := w.target.Write(combined)
-		// Return original length since caller expects len(p) on success
+		written, err := w.manager.WriteLocked(w.target, combined)
 		if err == nil {
 			return len(p), nil
 		}
-		// Adjust written count if partial write occurred
 		if written > len("\r\033[K") {
 			return written - len("\r\033[K"), err
 		}
 		return 0, err
 	}
 
-	// Write the actual log message
-	return w.target.Write(p)
+	return w.manager.WriteLocked(w.target, p)
 }
 
 // CloseLogFile closes the global log file writer if it was opened.

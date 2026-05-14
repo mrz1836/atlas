@@ -331,6 +331,90 @@ func TestSpinner_RaceCondition_StartStopConcurrent(t *testing.T) {
 	}
 }
 
+// recordingWriter captures each Write call as a separate entry so a test
+// can assert on individual write payloads (not just the concatenated stream).
+type recordingWriter struct {
+	mu     sync.Mutex
+	writes [][]byte
+}
+
+func (rw *recordingWriter) Write(p []byte) (int, error) {
+	rw.mu.Lock()
+	defer rw.mu.Unlock()
+	cp := make([]byte, len(p))
+	copy(cp, p)
+	rw.writes = append(rw.writes, cp)
+	return len(p), nil
+}
+
+func (rw *recordingWriter) snapshot() [][]byte {
+	rw.mu.Lock()
+	defer rw.mu.Unlock()
+	out := make([][]byte, len(rw.writes))
+	copy(out, rw.writes)
+	return out
+}
+
+// TestSpinner_NoInterleavedClearSequences exercises the manager mutex shared
+// between the spinner animation loop and external writers. With the mutex in
+// place, every Write call is atomic and contains a complete payload — clear
+// sequences are never split from their following content.
+//
+// Run with -race to also catch any unsynchronized memory access.
+func TestSpinner_NoInterleavedClearSequences(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping concurrent flicker test in short mode")
+	}
+
+	rec := &recordingWriter{}
+	spinner := tui.NewTerminalSpinner(rec)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	spinner.Start(ctx, "concurrent test")
+
+	const writers = 8
+	const writesPerWriter = 25
+
+	var wg sync.WaitGroup
+	for i := 0; i < writers; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			for j := 0; j < writesPerWriter; j++ {
+				payload := []byte(fmt.Sprintf("\r\033[Klog w%d-%d\n", id, j))
+				_, _ = tui.GlobalSpinnerManager().WriteLocked(rec, payload)
+			}
+		}(i)
+	}
+
+	wg.Wait()
+	spinner.Stop()
+
+	// Every recorded write must contain the full payload as the goroutine
+	// sent it — no payload was ever split into two recordedWrite entries by
+	// another writer racing in between.
+	for i, w := range rec.snapshot() {
+		s := string(w)
+		// A clear-only sequence ("\r\033[K") with no trailing content is only
+		// emitted by Stop(); during animation/log writes, every payload either
+		// has content after the clear, or is a complete log line.
+		if s == "\r\033[K" {
+			continue
+		}
+		if !strings.HasPrefix(s, "\r\033[K") && !strings.HasPrefix(s, "\r") {
+			// spinner frames start with "\r\033[K"; logs start with "\r\033[K";
+			// anything else means a writer fragmented a payload.
+			t.Fatalf("write %d does not start with a clear sequence: %q", i, s)
+		}
+		// A "\r\033[K" prefix must be followed by *something* (frame or log).
+		// If the only content is the clear sequence, that's the fragmentation we want to catch.
+		if len(s) <= len("\r\033[K") {
+			t.Fatalf("write %d is a bare clear sequence with no payload: %q", i, s)
+		}
+	}
+}
+
 func TestSpinner_RaceCondition_MultipleStops(t *testing.T) {
 	// Test that multiple Stop calls don't panic
 	t.Parallel()

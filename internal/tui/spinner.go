@@ -13,24 +13,25 @@ import (
 	"golang.org/x/term"
 )
 
-// safeWriter wraps an io.Writer with mutex protection for concurrent access.
-// This is necessary when the same writer is used by multiple goroutines,
-// such as a spinner animation and command output streaming.
+// safeWriter wraps an io.Writer and serializes all writes through the
+// SpinnerManager's shared mutex. This guarantees that spinner frames,
+// logger output, and streamed command output never interleave on the TTY.
 type safeWriter struct {
-	mu sync.Mutex
-	w  io.Writer
+	manager *SpinnerManager
+	w       io.Writer
 }
 
-// newSafeWriter creates a mutex-protected writer wrapper.
-func newSafeWriter(w io.Writer) *safeWriter {
-	return &safeWriter{w: w}
+// newSafeWriter creates a writer wrapper that serializes through the
+// given manager's write mutex.
+func newSafeWriter(w io.Writer, manager *SpinnerManager) *safeWriter {
+	return &safeWriter{manager: manager, w: w}
 }
 
-// Write implements io.Writer with mutex protection.
+// Write implements io.Writer, holding the manager's write mutex for the
+// duration of the underlying write so the payload is never split by another
+// terminal writer.
 func (sw *safeWriter) Write(p []byte) (n int, err error) {
-	sw.mu.Lock()
-	defer sw.mu.Unlock()
-	return sw.w.Write(p)
+	return sw.manager.WriteLocked(sw.w, p)
 }
 
 // flushWriter attempts to flush the writer if it supports flushing.
@@ -67,11 +68,22 @@ const SpinnerMessageThrottle = 200 * time.Millisecond
 var spinnerManager = &SpinnerManager{} //nolint:gochecknoglobals // Singleton for global spinner tracking
 
 // SpinnerManager tracks the currently active spinner to allow coordinated
-// line clearing before log writes. This prevents log messages from appearing
-// on the same line as the spinner animation.
+// line clearing before log writes, and serializes ALL terminal writes
+// through a single mutex so spinner frames, logger output, and command
+// live output never interleave on the TTY.
 type SpinnerManager struct {
-	mu     sync.Mutex
-	active *TerminalSpinner
+	mu      sync.Mutex // guards `active`
+	active  *TerminalSpinner
+	writeMu sync.Mutex // serializes all terminal writes
+}
+
+// WriteLocked writes p to w while holding the manager's terminal-write mutex.
+// All terminal writers (spinner animation, logger output, command live output)
+// MUST go through this method to prevent interleaving on the TTY.
+func (m *SpinnerManager) WriteLocked(w io.Writer, p []byte) (int, error) {
+	m.writeMu.Lock()
+	defer m.writeMu.Unlock()
+	return w.Write(p)
 }
 
 // SetActive registers the given spinner as the currently active spinner.
@@ -119,11 +131,12 @@ type TerminalSpinner struct {
 }
 
 // NewTerminalSpinner creates a new spinner that writes to w.
-// The writer is wrapped with mutex protection to prevent race conditions
-// when multiple goroutines write to it concurrently.
+// All writes are serialized through the global SpinnerManager's write mutex
+// so the spinner animation never interleaves with logger output or other
+// terminal writers.
 func NewTerminalSpinner(w io.Writer) *TerminalSpinner {
 	return &TerminalSpinner{
-		w:                newSafeWriter(w),
+		w:                newSafeWriter(w, spinnerManager),
 		styles:           NewOutputStyles(),
 		throttleInterval: SpinnerMessageThrottle,
 	}
@@ -233,6 +246,11 @@ func (s *TerminalSpinner) StopWithWarning(message string) {
 
 // animate runs the spinner animation loop.
 // The done channel is passed as a parameter to avoid race conditions with s.done field.
+//
+// Invariant: never hold s.mu across writes through s.w. The write acquires the
+// manager's writeMu, and holding s.mu across that would invert the lock order
+// used by other paths (UpdateMessage holds only s.mu; Stop releases s.mu before
+// writing). Keep s.mu strictly inside the field-mutation critical section.
 func (s *TerminalSpinner) animate(ctx context.Context, done <-chan struct{}) {
 	ticker := time.NewTicker(SpinnerInterval)
 	defer ticker.Stop()

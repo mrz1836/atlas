@@ -651,6 +651,11 @@ func (m *mockSpinnerManager) GetActive() *tui.TerminalSpinner {
 	return m.activeSpinner
 }
 
+// WriteLocked delegates straight to w; tests don't need real lock coordination.
+func (*mockSpinnerManager) WriteLocked(w io.Writer, p []byte) (int, error) {
+	return w.Write(p)
+}
+
 func TestSpinnerAwareWriter(t *testing.T) {
 	t.Parallel()
 
