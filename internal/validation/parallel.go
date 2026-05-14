@@ -45,15 +45,16 @@ func (d *DefaultToolChecker) IsGoPreCommitInstalled(ctx context.Context) (bool, 
 // Stager is an interface for staging modified files after validation.
 // This allows for dependency injection and testing.
 type Stager interface {
-	// StageModifiedFiles stages any files modified during validation.
-	StageModifiedFiles(ctx context.Context, workDir string) error
+	// StageModifiedFiles stages any files modified during validation and
+	// returns the list of files that were actually staged.
+	StageModifiedFiles(ctx context.Context, workDir string) ([]string, error)
 }
 
 // DefaultStager implements Stager using the staging package functions.
 type DefaultStager struct{}
 
 // StageModifiedFiles stages modified files using the default implementation.
-func (d *DefaultStager) StageModifiedFiles(ctx context.Context, workDir string) error {
+func (d *DefaultStager) StageModifiedFiles(ctx context.Context, workDir string) ([]string, error) {
 	return StageModifiedFiles(ctx, workDir)
 }
 
@@ -186,7 +187,9 @@ func (r *Runner) Run(ctx context.Context, workDir string) (*PipelineResult, erro
 	// Final staging - stage all files modified during validation (by pre-commit, format, etc.)
 	// Brief settle time ensures filesystem buffers are flushed before git status
 	time.Sleep(100 * time.Millisecond)
-	if stageErr := r.getStager().StageModifiedFiles(ctx, workDir); stageErr != nil {
+	staged, stageErr := r.getStager().StageModifiedFiles(ctx, workDir)
+	result.StagedFiles = staged
+	if stageErr != nil {
 		log.Warn().Err(stageErr).Msg("failed to stage modified files")
 		// Non-fatal - continue with success
 	}

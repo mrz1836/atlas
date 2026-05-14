@@ -101,19 +101,24 @@ func (r *DefaultGitRunner) Run(ctx context.Context, workDir string, args ...stri
 //   - Context is canceled
 //   - Lock retry is exhausted
 //   - No files could be staged despite fallback attempts
-func StageModifiedFiles(ctx context.Context, workDir string) error {
+func StageModifiedFiles(ctx context.Context, workDir string) ([]string, error) {
 	return StageModifiedFilesWithRunner(ctx, workDir, &DefaultGitRunner{})
 }
 
 // StageModifiedFilesWithRunner is the testable version of StageModifiedFiles.
 // See StageModifiedFiles for behavior documentation.
-func StageModifiedFilesWithRunner(ctx context.Context, workDir string, runner GitRunner) error {
+//
+// Returns the list of files that were staged so callers (e.g., the validation
+// retry log) can report an accurate count of what actually changed during the
+// pipeline — including files modified by format/lint auto-fixes, not just
+// files the AI agent touched directly.
+func StageModifiedFilesWithRunner(ctx context.Context, workDir string, runner GitRunner) ([]string, error) {
 	log := zerolog.Ctx(ctx)
 
 	// Check for context cancellation
 	select {
 	case <-ctx.Done():
-		return ctx.Err()
+		return nil, ctx.Err()
 	default:
 	}
 
@@ -122,14 +127,14 @@ func StageModifiedFilesWithRunner(ctx context.Context, workDir string, runner Gi
 		return runner.Run(ctx, workDir, "status", "--porcelain")
 	})
 	if err != nil {
-		return fmt.Errorf("failed to check git status: %w", err)
+		return nil, fmt.Errorf("failed to check git status: %w", err)
 	}
 
 	// Parse modified files (lines starting with " M" are modified but unstaged)
 	modified := parseModifiedFiles(output)
 	if len(modified) == 0 {
 		log.Debug().Msg("no modified files to stage")
-		return nil // Nothing to stage
+		return nil, nil // Nothing to stage
 	}
 
 	log.Info().
@@ -147,14 +152,16 @@ func StageModifiedFilesWithRunner(ctx context.Context, workDir string, runner Gi
 		return handleStagingError(ctx, workDir, runner, modified, err, *log)
 	}
 
-	return nil
+	return modified, nil
 }
 
 // handleStagingError processes batch staging failures and attempts individual file staging fallback.
-func handleStagingError(ctx context.Context, workDir string, runner GitRunner, modified []string, err error, log zerolog.Logger) error {
+// Returns the list of files that were actually staged (only meaningful on the
+// individual-fallback success path).
+func handleStagingError(ctx context.Context, workDir string, runner GitRunner, modified []string, err error, log zerolog.Logger) ([]string, error) {
 	// Check if this is a lock file error (already retried, should fail)
 	if git.MatchesLockFileError(err.Error()) {
-		return fmt.Errorf("failed to stage modified files (lock retry exhausted): %w", err)
+		return nil, fmt.Errorf("failed to stage modified files (lock retry exhausted): %w", err)
 	}
 
 	// Non-lock error: classify, log, and try individual staging fallback
@@ -168,7 +175,7 @@ func handleStagingError(ctx context.Context, workDir string, runner GitRunner, m
 	succeeded, failed, individualErr := stageFilesIndividually(ctx, workDir, runner, modified, log)
 
 	if individualErr != nil {
-		return fmt.Errorf("staging failed (batch + individual): %w", individualErr)
+		return succeeded, fmt.Errorf("staging failed (batch + individual): %w", individualErr)
 	}
 
 	// Log summary of individual staging results
@@ -185,11 +192,11 @@ func handleStagingError(ctx context.Context, workDir string, runner GitRunner, m
 				Int("failed_count", len(failed)).
 				Msg("partial staging success - some files could not be staged")
 		}
-		return nil
+		return succeeded, nil
 	}
 
 	// Total failure - no files could be staged
-	return fmt.Errorf("failed to stage any files (batch failed, all individual attempts failed): %w", err)
+	return nil, fmt.Errorf("failed to stage any files (batch failed, all individual attempts failed): %w", err)
 }
 
 // stageFilesIndividually attempts to stage files one by one when batch staging fails.

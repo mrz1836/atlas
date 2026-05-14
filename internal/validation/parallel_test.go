@@ -33,14 +33,15 @@ var _ validation.ToolChecker = (*MockToolChecker)(nil)
 type MockStager struct {
 	Called  bool
 	WorkDir string
+	Files   []string
 	Err     error
 }
 
 // StageModifiedFiles implements validation.Stager.
-func (m *MockStager) StageModifiedFiles(_ context.Context, workDir string) error {
+func (m *MockStager) StageModifiedFiles(_ context.Context, workDir string) ([]string, error) {
 	m.Called = true
 	m.WorkDir = workDir
-	return m.Err
+	return m.Files, m.Err
 }
 
 // Ensure MockStager implements Stager.
@@ -1053,7 +1054,7 @@ func TestDefaultStager_StageModifiedFiles(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Should return an error since tmpDir is not a git repo
-	err := stager.StageModifiedFiles(ctx, tmpDir)
+	_, err := stager.StageModifiedFiles(ctx, tmpDir)
 
 	// We expect an error because tmpDir is not a git repo
 	// This verifies the function is called and returns the expected error type

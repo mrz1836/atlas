@@ -97,7 +97,7 @@ func TestStageModifiedFiles_NoModifiedFiles(t *testing.T) {
 	mock.SetResponse("status", "", nil) // Empty status = no changes
 
 	ctx := stagingTestContext()
-	err := validation.StageModifiedFilesWithRunner(ctx, "/tmp", mock)
+	_, err := validation.StageModifiedFilesWithRunner(ctx, "/tmp", mock)
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"status"}, mock.calls)
@@ -110,7 +110,7 @@ func TestStageModifiedFiles_StagesUnstagedChanges(t *testing.T) {
 	mock.SetResponse("add", "", nil)
 
 	ctx := stagingTestContext()
-	err := validation.StageModifiedFilesWithRunner(ctx, "/tmp", mock)
+	_, err := validation.StageModifiedFilesWithRunner(ctx, "/tmp", mock)
 
 	require.NoError(t, err)
 	assert.Contains(t, mock.calls, "status")
@@ -125,7 +125,7 @@ func TestStageModifiedFiles_SkipsAlreadyStagedFiles(t *testing.T) {
 	mock.SetResponse("add", "", nil)
 
 	ctx := stagingTestContext()
-	err := validation.StageModifiedFilesWithRunner(ctx, "/tmp", mock)
+	_, err := validation.StageModifiedFilesWithRunner(ctx, "/tmp", mock)
 
 	require.NoError(t, err)
 	// Should only stage the file that needs staging
@@ -139,7 +139,7 @@ func TestStageModifiedFiles_HandlesBothIndexAndWorktreeChanges(t *testing.T) {
 	mock.SetResponse("add", "", nil)
 
 	ctx := stagingTestContext()
-	err := validation.StageModifiedFilesWithRunner(ctx, "/tmp", mock)
+	_, err := validation.StageModifiedFilesWithRunner(ctx, "/tmp", mock)
 
 	require.NoError(t, err)
 	// Should stage the worktree changes
@@ -153,7 +153,7 @@ func TestStageModifiedFiles_StagesUntrackedFiles(t *testing.T) {
 	mock.SetResponse("add", "", nil)
 
 	ctx := stagingTestContext()
-	err := validation.StageModifiedFilesWithRunner(ctx, "/tmp", mock)
+	_, err := validation.StageModifiedFilesWithRunner(ctx, "/tmp", mock)
 
 	require.NoError(t, err)
 	// Should stage the untracked files
@@ -168,7 +168,7 @@ func TestStageModifiedFiles_HandlesMixedStatusTypes(t *testing.T) {
 	mock.SetResponse("add", "", nil)
 
 	ctx := stagingTestContext()
-	err := validation.StageModifiedFilesWithRunner(ctx, "/tmp", mock)
+	_, err := validation.StageModifiedFilesWithRunner(ctx, "/tmp", mock)
 
 	require.NoError(t, err)
 	// Should stage modified, untracked, and both-modified files (but not already staged)
@@ -180,7 +180,7 @@ func TestStageModifiedFiles_GitStatusError(t *testing.T) {
 	mock.SetResponse("status", "", atlaserrors.ErrCommandFailed)
 
 	ctx := stagingTestContext()
-	err := validation.StageModifiedFilesWithRunner(ctx, "/tmp", mock)
+	_, err := validation.StageModifiedFilesWithRunner(ctx, "/tmp", mock)
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to check git status")
@@ -194,7 +194,7 @@ func TestStageModifiedFiles_GitAddError(t *testing.T) {
 	mock.SetAddErrorSequence([]error{atlaserrors.ErrCommandFailed, atlaserrors.ErrCommandFailed})
 
 	ctx := stagingTestContext()
-	err := validation.StageModifiedFilesWithRunner(ctx, "/tmp", mock)
+	_, err := validation.StageModifiedFilesWithRunner(ctx, "/tmp", mock)
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to stage any files")
@@ -206,7 +206,7 @@ func TestStageModifiedFiles_ContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(stagingTestContext())
 	cancel() // Cancel immediately
 
-	err := validation.StageModifiedFilesWithRunner(ctx, "/tmp", mock)
+	_, err := validation.StageModifiedFilesWithRunner(ctx, "/tmp", mock)
 
 	require.Error(t, err)
 	require.ErrorIs(t, err, context.Canceled)
@@ -247,7 +247,7 @@ func TestStageModifiedFiles_LockFileRetry_Success(t *testing.T) {
 	mock.SetAddErrorSequence([]error{lockErr, lockErr, nil})
 
 	ctx := stagingTestContext()
-	err := validation.StageModifiedFilesWithRunner(ctx, "/tmp", mock)
+	_, err := validation.StageModifiedFilesWithRunner(ctx, "/tmp", mock)
 
 	require.NoError(t, err)
 	// Should have retried 3 times total
@@ -263,7 +263,7 @@ func TestStageModifiedFiles_LockFileRetry_AnotherGitProcess(t *testing.T) {
 	mock.SetAddErrorSequence([]error{lockErr, nil})
 
 	ctx := stagingTestContext()
-	err := validation.StageModifiedFilesWithRunner(ctx, "/tmp", mock)
+	_, err := validation.StageModifiedFilesWithRunner(ctx, "/tmp", mock)
 
 	require.NoError(t, err)
 	assert.Equal(t, 2, mock.CallCount("add"))
@@ -280,7 +280,7 @@ func TestStageModifiedFiles_LockFileRetry_NonLockError_FallsBackToIndividual(t *
 	mock.SetAddErrorSequence([]error{nonLockErr, nil})
 
 	ctx := stagingTestContext()
-	err := validation.StageModifiedFilesWithRunner(ctx, "/tmp", mock)
+	_, err := validation.StageModifiedFilesWithRunner(ctx, "/tmp", mock)
 
 	require.NoError(t, err, "individual staging fallback should succeed")
 	// 1 batch call + 1 individual call = 2 total
@@ -296,7 +296,7 @@ func TestStageModifiedFiles_LockFileRetry_Exhausted(t *testing.T) {
 	mock.SetAddErrorSequence([]error{lockErr, lockErr, lockErr, lockErr, lockErr})
 
 	ctx := stagingTestContext()
-	err := validation.StageModifiedFilesWithRunner(ctx, "/tmp", mock)
+	_, err := validation.StageModifiedFilesWithRunner(ctx, "/tmp", mock)
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "lock retry exhausted")
@@ -316,7 +316,7 @@ func TestStageModifiedFiles_BatchFailure_IndividualSuccess(t *testing.T) {
 	mock.SetAddErrorSequence([]error{batchErr, nil, nil, nil})
 
 	ctx := stagingTestContext()
-	err := validation.StageModifiedFilesWithRunner(ctx, "/tmp", mock)
+	_, err := validation.StageModifiedFilesWithRunner(ctx, "/tmp", mock)
 
 	require.NoError(t, err, "should succeed when individual staging works")
 	// 1 batch attempt + 3 individual attempts = 4 total
@@ -333,7 +333,7 @@ func TestStageModifiedFiles_BatchFailure_PartialSuccess(t *testing.T) {
 	mock.SetAddErrorSequence([]error{batchErr, nil, fileErr, nil})
 
 	ctx := stagingTestContext()
-	err := validation.StageModifiedFilesWithRunner(ctx, "/tmp", mock)
+	_, err := validation.StageModifiedFilesWithRunner(ctx, "/tmp", mock)
 
 	// Partial success should be treated as success
 	require.NoError(t, err, "partial success should return nil")
@@ -350,7 +350,7 @@ func TestStageModifiedFiles_BatchFailure_TotalFailure(t *testing.T) {
 	mock.SetAddErrorSequence([]error{batchErr, fileErr, fileErr})
 
 	ctx := stagingTestContext()
-	err := validation.StageModifiedFilesWithRunner(ctx, "/tmp", mock)
+	_, err := validation.StageModifiedFilesWithRunner(ctx, "/tmp", mock)
 
 	require.Error(t, err, "should fail when no files can be staged")
 	assert.Contains(t, err.Error(), "failed to stage any files")
@@ -366,7 +366,7 @@ func TestStageModifiedFiles_BatchFailure_LockError_NoFallback(t *testing.T) {
 	mock.SetAddErrorSequence([]error{lockErr, lockErr, lockErr, lockErr, lockErr})
 
 	ctx := stagingTestContext()
-	err := validation.StageModifiedFilesWithRunner(ctx, "/tmp", mock)
+	_, err := validation.StageModifiedFilesWithRunner(ctx, "/tmp", mock)
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "lock retry exhausted")

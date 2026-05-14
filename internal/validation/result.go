@@ -46,6 +46,7 @@ type PipelineResult struct {
 	SkippedSteps     []string          `json:"skipped_steps,omitempty"`
 	SkipReasons      map[string]string `json:"skip_reasons,omitempty"`
 	VacuousTests     bool              `json:"vacuous_tests,omitempty"` // True when all test commands produced empty output quickly
+	StagedFiles      []string          `json:"staged_files,omitempty"`  // Files staged by the pipeline (post format/lint auto-fix)
 }
 
 // AllResults returns a flat list of all results from all steps.
