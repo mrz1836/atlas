@@ -402,15 +402,16 @@ func TestSpinner_NoInterleavedClearSequences(t *testing.T) {
 		if s == "\r\033[K" {
 			continue
 		}
-		if !strings.HasPrefix(s, "\r\033[K") && !strings.HasPrefix(s, "\r") {
-			// spinner frames start with "\r\033[K"; logs start with "\r\033[K";
-			// anything else means a writer fragmented a payload.
-			t.Fatalf("write %d does not start with a clear sequence: %q", i, s)
+		// Spinner frames now use paint-first, clear-trailing: "\r<frame> <msg>\033[K".
+		// Log writes use the prior clear-then-paint shape: "\r\033[K<text>\n".
+		// Both legitimate shapes start with "\r"; anything else means a writer
+		// fragmented a payload.
+		if !strings.HasPrefix(s, "\r") {
+			t.Fatalf("write %d does not start with a carriage return: %q", i, s)
 		}
-		// A "\r\033[K" prefix must be followed by *something* (frame or log).
-		// If the only content is the clear sequence, that's the fragmentation we want to catch.
-		if len(s) <= len("\r\033[K") {
-			t.Fatalf("write %d is a bare clear sequence with no payload: %q", i, s)
+		// A bare "\r" with no payload would indicate fragmentation.
+		if len(s) <= len("\r") {
+			t.Fatalf("write %d is a bare carriage return with no payload: %q", i, s)
 		}
 	}
 }

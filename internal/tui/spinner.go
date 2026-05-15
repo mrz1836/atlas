@@ -303,8 +303,12 @@ func (s *TerminalSpinner) animate(ctx context.Context, done <-chan struct{}) {
 			}
 			s.mu.Unlock()
 
-			// Write to output (protected by safeWriter)
-			_, _ = fmt.Fprintf(s.w, "\r\033[K%s %s", spinnerFrame, msg)
+			// Write to output (protected by safeWriter).
+			// Use paint-first, clear-trailing (\r<content>\033[K) instead of
+			// clear-then-paint (\r\033[K<content>) so the line is never blank
+			// between frames — eliminating the visible flicker that the
+			// clear-then-paint pattern causes during long-running spinners.
+			_, _ = fmt.Fprintf(s.w, "\r%s %s\033[K", spinnerFrame, msg)
 			flushWriter(s.w)
 
 			frame++
