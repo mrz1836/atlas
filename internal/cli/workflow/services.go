@@ -236,6 +236,7 @@ func (f *ServiceFactory) CreateExecutorRegistry(deps RegistryDeps) *steps.Execut
 		LintCommands:               deps.Config.Validation.Commands.Lint,
 		TestCommands:               deps.Config.Validation.Commands.Test,
 		PreCommitCommands:          deps.Config.Validation.Commands.PreCommit,
+		ValidationTimeout:          deps.Config.Validation.Timeout,
 		ProgressCallback:           deps.ProgressCallback,
 		ValidationProgressCallback: deps.ValidationProgressCallback,
 		ValidationLiveOutput:       deps.ValidationLiveOutput,

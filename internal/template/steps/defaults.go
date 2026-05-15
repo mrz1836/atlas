@@ -4,6 +4,7 @@ package steps
 import (
 	"context"
 	"io"
+	"time"
 
 	"github.com/rs/zerolog"
 
@@ -112,6 +113,10 @@ type ExecutorDeps struct {
 	TestCommands      []string
 	PreCommitCommands []string
 
+	// ValidationTimeout is the per-command timeout for validation execution.
+	// If zero, validation.DefaultTimeout is used.
+	ValidationTimeout time.Duration
+
 	// ProgressCallback is used for progress notifications (e.g., spinners, status updates).
 	// If nil, progress notifications are not sent.
 	ProgressCallback func(event interface{})
@@ -172,6 +177,9 @@ func registerValidationExecutor(r *ExecutorRegistry, deps ExecutorDeps) {
 	}
 	if deps.ValidationLiveOutput != nil {
 		validationOpts = append(validationOpts, WithValidationLiveOutput(deps.ValidationLiveOutput))
+	}
+	if deps.ValidationTimeout > 0 {
+		validationOpts = append(validationOpts, WithValidationTimeout(deps.ValidationTimeout))
 	}
 	r.Register(NewValidationExecutorWithOptions(deps.WorkDir, validationOpts...))
 }

@@ -1470,6 +1470,7 @@ func runDryRun(ctx context.Context, sc *startContext, tmpl *domain.Template, des
 		LintCommands:      cfg.Validation.Commands.Lint,
 		TestCommands:      cfg.Validation.Commands.Test,
 		PreCommitCommands: cfg.Validation.Commands.PreCommit,
+		ValidationTimeout: cfg.Validation.Timeout,
 		CIConfig:          &cfg.CI,
 		OperationsConfig:  &cfg.Operations,
 	})

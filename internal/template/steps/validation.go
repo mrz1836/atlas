@@ -30,6 +30,10 @@ type ValidationExecutor struct {
 	notifier      Notifier
 	retryHandler  RetryHandler
 
+	// timeout is the per-command timeout for validation execution.
+	// Zero means use validation.DefaultTimeout.
+	timeout time.Duration
+
 	// Progress callback for sub-step progress reporting (e.g., format, lint, test)
 	progressCallback func(step, status string, info *validation.ProgressInfo)
 
@@ -142,6 +146,16 @@ func WithValidationLiveOutput(w io.Writer) ValidationExecutorOption {
 	}
 }
 
+// WithValidationTimeout sets the per-command timeout for validation execution.
+// Zero or negative values are ignored; validation.DefaultTimeout is used instead.
+func WithValidationTimeout(d time.Duration) ValidationExecutorOption {
+	return func(e *ValidationExecutor) {
+		if d > 0 {
+			e.timeout = d
+		}
+	}
+}
+
 // Execute runs validation commands using the parallel pipeline runner.
 // Commands are retrieved from task.Config.ValidationCommands.
 // If no commands are configured, default commands are used.
@@ -243,7 +257,7 @@ func (e *ValidationExecutor) runPipeline(ctx context.Context, task *domain.Task,
 		Str("work_dir", e.workDir).
 		Msg("running validation pipeline")
 
-	executor := validation.NewExecutorWithRunner(validation.DefaultTimeout, e.runner)
+	executor := validation.NewExecutorWithRunner(e.timeout, e.runner)
 	if e.liveOutput != nil {
 		executor.SetLiveOutput(e.liveOutput)
 	}
