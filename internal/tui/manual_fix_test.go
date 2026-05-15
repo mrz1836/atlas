@@ -271,6 +271,96 @@ func TestExtractManualFixInfo_RetryContext(t *testing.T) {
 	// This is by design - retry_context is for AI retry, not manual fix display
 }
 
+func TestIsOutageErrorSummary(t *testing.T) {
+	cases := []struct {
+		name    string
+		summary string
+		want    bool
+	}{
+		{name: "empty", summary: "", want: false},
+		{name: "validation error - not outage", summary: "golangci-lint: undefined: foo", want: false},
+		{name: "explicit ai provider outage", summary: "AI provider outage: 529 overloaded", want: true},
+		{name: "all fallbacks exhausted", summary: "all AI fallback options exhausted", want: true},
+		{name: "529 with trailing space", summary: "claude returned 529 overloaded_error", want: true},
+		{name: "529 with colon", summary: "got 529: overloaded_error", want: true},
+		{name: "503 with trailing space", summary: "HTTP 503 service unavailable", want: true},
+		{name: "overloaded_error JSON", summary: `{"type":"error","error":{"type":"overloaded_error"}}`, want: true},
+		{name: "internal server error", summary: "internal server error from upstream", want: true},
+		{name: "case insensitive", summary: "INTERNAL SERVER ERROR", want: true},
+		{name: "incidental 503 in text without word boundary", summary: "tried 5031 times", want: false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, isOutageErrorSummary(tc.summary))
+		})
+	}
+}
+
+func TestDisplayManualFixInstructions_OutageBanner(t *testing.T) {
+	t.Run("renders outage banner when last_error indicates outage", func(t *testing.T) {
+		task := &domain.Task{
+			Status:      constants.TaskStatusValidationFailed,
+			CurrentStep: 1,
+			Steps: []domain.Step{
+				{Name: "ai_execute"},
+				{Name: "analyze"},
+			},
+			Metadata: map[string]any{
+				"last_error": "claude invocation failed: AI provider outage: 529 overloaded_error",
+			},
+		}
+		ws := &domain.Workspace{
+			Name:         "outage-ws",
+			WorktreePath: "/tmp/outage",
+		}
+
+		var buf bytes.Buffer
+		out := NewTTYOutput(&buf)
+		DisplayManualFixInstructions(out, task, ws)
+		output := buf.String()
+
+		// Outage-specific elements should appear
+		assert.Contains(t, output, "AI Provider Outage Detected")
+		assert.Contains(t, output, "not a code issue")
+		assert.Contains(t, output, "https://status.anthropic.com")
+		assert.Contains(t, output, "https://status.openai.com")
+		assert.Contains(t, output, "https://status.cloud.google.com")
+		assert.Contains(t, output, "Wait a few minutes for provider recovery")
+		assert.Contains(t, output, "atlas resume outage-ws")
+		assert.Contains(t, output, "atlas abandon outage-ws")
+
+		// Generic validation header MUST NOT appear — that would tell the user
+		// to fix code that has no problem.
+		assert.NotContains(t, output, "Validation Failed - Manual Fix Required")
+		assert.NotContains(t, output, "Fix the validation errors")
+	})
+
+	t.Run("non-outage error still uses validation banner", func(t *testing.T) {
+		task := &domain.Task{
+			Status:      constants.TaskStatusValidationFailed,
+			CurrentStep: 0,
+			Steps:       []domain.Step{{Name: "validate"}},
+			Metadata: map[string]any{
+				"last_error": "golangci-lint failed: undefined: foo",
+			},
+		}
+		ws := &domain.Workspace{
+			Name:         "lint-fail",
+			WorktreePath: "/tmp/lint",
+		}
+
+		var buf bytes.Buffer
+		out := NewTTYOutput(&buf)
+		DisplayManualFixInstructions(out, task, ws)
+		output := buf.String()
+
+		assert.Contains(t, output, "Validation Failed - Manual Fix Required")
+		assert.NotContains(t, output, "AI Provider Outage Detected")
+		assert.NotContains(t, output, "status.anthropic.com")
+	})
+}
+
 func TestExtractManualFixInfo_NonStringMetadata(t *testing.T) {
 	// Test handling of non-string last_error metadata
 	task := &domain.Task{
