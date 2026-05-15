@@ -42,6 +42,57 @@ func containsAny(s string, substrs ...string) bool {
 	return false
 }
 
+// providerOutagePatterns are substrings (case-insensitive, matched on lowercased
+// error message) that indicate the AI provider's API is degraded or unavailable.
+// These differ from generic transient errors: a different model on the same
+// provider almost certainly won't help, so callers should prefer a different
+// provider entirely.
+//
+//nolint:gochecknoglobals // Read-only pattern configuration
+var providerOutagePatterns = []string{
+	"overloaded_error",
+	"overloaded",
+	"service unavailable",
+	"internal server error",
+	"bad gateway",
+	"gateway timeout",
+	"upstream connect error",
+	"upstream connection error",
+	// Phrase + status combinations that only appear in API error output, to
+	// avoid false positives on incidental numbers like "took 503ms" or "500
+	// tokens".
+	"api error: 5",
+	"status code: 5",
+	"http 5",
+	// 529 is Anthropic's overload-specific code; collisions outside provider
+	// error messages are negligible.
+	"529 ",
+	"529:",
+	"529}",
+	"503 ",
+	"503:",
+}
+
+// isProviderOutage reports whether the error message indicates the AI provider's
+// API is currently degraded or unavailable (5xx, overloaded). When true, the
+// caller should treat this as a provider-level outage and prefer falling back
+// to a different agent/provider rather than retrying the same one.
+func isProviderOutage(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, atlaserrors.ErrProviderOutage) {
+		return true
+	}
+	errStr := strings.ToLower(err.Error())
+	return containsAny(errStr, providerOutagePatterns...)
+}
+
+// IsProviderOutage is the exported version of isProviderOutage.
+func IsProviderOutage(err error) bool {
+	return isProviderOutage(err)
+}
+
 // isRetryable determines whether an error should be retried.
 // Returns false for non-retryable errors (context errors, auth errors, parse errors).
 // Returns true for transient errors (network, rate limits).
@@ -84,6 +135,13 @@ func isFallbackTrigger(err error) bool {
 	// Format/content errors - a different model might produce valid output
 	if errors.Is(err, atlaserrors.ErrAIInvalidFormat) ||
 		errors.Is(err, atlaserrors.ErrAIEmptyResponse) {
+		return true
+	}
+
+	// Provider outage (5xx, overloaded) — a different model on the same provider
+	// won't help, but the FallbackRunner can use this signal to jump to the next
+	// agent in the chain.
+	if isProviderOutage(err) {
 		return true
 	}
 

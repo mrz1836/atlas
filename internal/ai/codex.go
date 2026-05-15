@@ -15,10 +15,11 @@ import (
 //
 //nolint:gochecknoglobals // Constant-like structure
 var codexCLIInfo = CLIInfo{
-	Name:        "codex",
-	InstallHint: "install with: npm install -g @openai/codex",
-	ErrType:     atlaserrors.ErrCodexInvocation,
-	EnvVar:      "OPENAI_API_KEY",
+	Name:          "codex",
+	InstallHint:   "install with: npm install -g @openai/codex",
+	ErrType:       atlaserrors.ErrCodexInvocation,
+	EnvVar:        "OPENAI_API_KEY",
+	StatusPageURL: "https://status.openai.com",
 }
 
 // CodexRunner implements Runner for OpenAI Codex CLI invocation.
@@ -47,9 +48,11 @@ func NewCodexRunner(cfg *config.AIConfig, executor CommandExecutor, opts ...Code
 	}
 	r := &CodexRunner{
 		base: BaseRunner{
-			Config:   cfg,
-			Executor: executor,
-			ErrType:  atlaserrors.ErrCodexInvocation,
+			Config:        cfg,
+			Executor:      executor,
+			ErrType:       atlaserrors.ErrCodexInvocation,
+			ProviderName:  codexCLIInfo.Name,
+			StatusPageURL: codexCLIInfo.StatusPageURL,
 		},
 	}
 	for _, opt := range opts {

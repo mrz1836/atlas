@@ -38,6 +38,17 @@ var (
 	errUnauthorized               = errors.New("request unauthorized")
 	errForbidden                  = errors.New("access forbidden")
 	errInvalidCreds               = errors.New("invalid credentials")
+
+	// Test errors for isProviderOutage testing — static to satisfy err113.
+	errTestOverloadedJSON        = errors.New(`{"type":"error","error":{"type":"overloaded_error"}}`)
+	errTestAPI529                = errors.New("api error: 529")
+	errTestHTTP503               = errors.New("HTTP 503 Service Unavailable")
+	errTestInternalServer        = errors.New("got Internal Server Error from upstream")
+	errTestUpstreamConnect       = errors.New("upstream connect error or disconnect/reset")
+	errTestAPI500                = errors.New("api error: 500 Internal")
+	errTestGatewayTimeout        = errors.New("504 Gateway Timeout")
+	errTestUppercaseOverloaded   = errors.New("OVERLOADED_ERROR returned")
+	errTestOutageForTriggerCheck = errors.New("HTTP 529 overloaded_error")
 )
 
 func TestContainsAny(t *testing.T) {
@@ -290,6 +301,108 @@ func TestIsFallbackTrigger(t *testing.T) {
 			assert.Equal(t, tt.expected, result)
 		})
 	}
+}
+
+func TestIsProviderOutage(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		expected bool
+	}{
+		{
+			name:     "nil error is not outage",
+			err:      nil,
+			expected: false,
+		},
+		{
+			name:     "explicit ErrProviderOutage sentinel matches",
+			err:      atlaserrors.ErrProviderOutage,
+			expected: true,
+		},
+		{
+			name:     "wrapped ErrProviderOutage matches",
+			err:      fmt.Errorf("claude invocation failed: %w: 529 overloaded", atlaserrors.ErrProviderOutage),
+			expected: true,
+		},
+		{
+			name:     "overloaded_error JSON marker matches",
+			err:      errTestOverloadedJSON,
+			expected: true,
+		},
+		{
+			name:     "529 status code matches",
+			err:      errTestAPI529,
+			expected: true,
+		},
+		{
+			name:     "503 service unavailable matches",
+			err:      errTestHTTP503,
+			expected: true,
+		},
+		{
+			name:     "internal server error matches",
+			err:      errTestInternalServer,
+			expected: true,
+		},
+		{
+			name:     "upstream connect error matches",
+			err:      errTestUpstreamConnect,
+			expected: true,
+		},
+		{
+			name:     "api error: 500 matches",
+			err:      errTestAPI500,
+			expected: true,
+		},
+		{
+			name:     "504 gateway timeout matches",
+			err:      errTestGatewayTimeout,
+			expected: true,
+		},
+		{
+			name:     "case insensitive match",
+			err:      errTestUppercaseOverloaded,
+			expected: true,
+		},
+		{
+			name:     "network reset is not outage",
+			err:      errNetworkReset,
+			expected: false,
+		},
+		{
+			name:     "rate limit is not outage",
+			err:      errRateLimit,
+			expected: false,
+		},
+		{
+			name:     "auth failure is not outage",
+			err:      errAuthFailed,
+			expected: false,
+		},
+		{
+			name:     "generic message is not outage",
+			err:      errGeneric,
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, isProviderOutage(tt.err))
+			// Exported wrapper should match the internal predicate.
+			assert.Equal(t, tt.expected, IsProviderOutage(tt.err))
+		})
+	}
+}
+
+func TestIsFallbackTrigger_IncludesOutage(t *testing.T) {
+	// Outage errors should also trigger fallback so the FallbackRunner moves
+	// off a degraded provider rather than spinning on the same model.
+	assert.True(t, isFallbackTrigger(errTestOutageForTriggerCheck), "outage errors should trigger fallback")
+
+	// Wrapped sentinel should also trigger.
+	wrapped := fmt.Errorf("claude invocation failed: %w", atlaserrors.ErrProviderOutage)
+	assert.True(t, isFallbackTrigger(wrapped), "wrapped ErrProviderOutage should trigger fallback")
 }
 
 func TestIsNonRecoverableError(t *testing.T) {

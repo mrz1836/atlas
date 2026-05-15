@@ -10,7 +10,10 @@ import (
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 )
 
-var errOriginal = errors.New("original error")
+var (
+	errOriginal           = errors.New("original error")
+	errOutageInStderrText = errors.New("anthropic api returned 529 overloaded_error")
+)
 
 func TestWrapCLIExecutionError(t *testing.T) {
 	t.Parallel()
@@ -144,6 +147,87 @@ func TestWrapCLIExecutionErrorWithOp(t *testing.T) {
 		require.ErrorIs(t, err, atlaserrors.ErrClaudeInvocation)
 		assert.NotContains(t, err.Error(), "while")
 	})
+}
+
+func TestWrapCLIExecutionError_OutageDetection(t *testing.T) {
+	t.Parallel()
+
+	claudeInfo := CLIInfo{
+		Name:          "claude",
+		InstallHint:   "please install claude code",
+		ErrType:       atlaserrors.ErrClaudeInvocation,
+		EnvVar:        "ANTHROPIC_API_KEY",
+		StatusPageURL: "https://status.anthropic.com",
+	}
+
+	cases := []struct {
+		name   string
+		stderr string
+	}{
+		{name: "overloaded_error JSON from claude", stderr: `{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}`},
+		{name: "529 status code", stderr: "API Error: 529 overloaded_error"},
+		{name: "503 service unavailable", stderr: "HTTP 503 Service Unavailable"},
+		{name: "500 internal server error", stderr: "Internal Server Error"},
+		{name: "upstream connect error", stderr: "upstream connect error or disconnect/reset before headers"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			err := WrapCLIExecutionErrorWithOp(claudeInfo, "analyze", errTestExitStatus1, []byte(tc.stderr))
+			require.ErrorIs(t, err, atlaserrors.ErrClaudeInvocation, "must preserve provider sentinel")
+			require.ErrorIs(t, err, atlaserrors.ErrProviderOutage, "must mark as provider outage")
+			assert.Contains(t, err.Error(), "while analyze")
+		})
+	}
+
+	t.Run("non-outage stderr does not get outage sentinel", func(t *testing.T) {
+		t.Parallel()
+		err := WrapCLIExecutionErrorWithOp(claudeInfo, "analyze", errTestExitStatus1, []byte("Bad Request: invalid prompt"))
+		require.ErrorIs(t, err, atlaserrors.ErrClaudeInvocation)
+		assert.NotErrorIs(t, err, atlaserrors.ErrProviderOutage)
+	})
+
+	t.Run("api key takes precedence over outage markers", func(t *testing.T) {
+		// If both API key and 5xx markers appear, treat as API key error so
+		// the user fixes their credentials rather than waiting for an outage.
+		t.Parallel()
+		err := WrapCLIExecutionErrorWithOp(claudeInfo, "analyze", errTestExitStatus1, []byte("Invalid API key, 503 returned"))
+		require.ErrorIs(t, err, atlaserrors.ErrClaudeInvocation)
+		assert.Contains(t, err.Error(), "API key error")
+		assert.NotErrorIs(t, err, atlaserrors.ErrProviderOutage)
+	})
+
+	t.Run("outage detected from err string when stderr empty", func(t *testing.T) {
+		t.Parallel()
+		err := WrapCLIExecutionErrorWithOp(claudeInfo, "analyze", errOutageInStderrText, nil)
+		require.ErrorIs(t, err, atlaserrors.ErrProviderOutage)
+	})
+}
+
+func TestIsOutageStderr(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name  string
+		input string
+		want  bool
+	}{
+		{name: "empty", input: "", want: false},
+		{name: "overloaded_error", input: "overloaded_error encountered", want: true},
+		{name: "529", input: "got 529 response", want: true},
+		{name: "503 Service Unavailable", input: "503 service unavailable", want: true},
+		{name: "uppercase outage marker", input: "INTERNAL SERVER ERROR", want: true},
+		{name: "non-outage 4xx", input: "bad request: 400", want: false},
+		{name: "neutral text", input: "all good", want: false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tc.want, isOutageStderr(tc.input))
+		})
+	}
 }
 
 func TestFormatOpContext(t *testing.T) {

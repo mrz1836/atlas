@@ -17,10 +17,11 @@ import (
 //
 //nolint:gochecknoglobals // Constant-like structure
 var geminiCLIInfo = CLIInfo{
-	Name:        "gemini",
-	InstallHint: "install with: npm install -g @google/gemini-cli",
-	ErrType:     atlaserrors.ErrGeminiInvocation,
-	EnvVar:      "GEMINI_API_KEY",
+	Name:          "gemini",
+	InstallHint:   "install with: npm install -g @google/gemini-cli",
+	ErrType:       atlaserrors.ErrGeminiInvocation,
+	EnvVar:        "GEMINI_API_KEY",
+	StatusPageURL: "https://status.cloud.google.com",
 }
 
 // GeminiRunner implements Runner for Gemini CLI invocation.
@@ -57,10 +58,12 @@ func NewGeminiRunner(cfg *config.AIConfig, executor CommandExecutor, opts ...Gem
 	}
 	r := &GeminiRunner{
 		base: BaseRunner{
-			Config:   cfg,
-			Executor: executor,
-			ErrType:  atlaserrors.ErrGeminiInvocation,
-			Logger:   zerolog.Nop(), // Will be updated if WithGeminiLogger is used
+			Config:        cfg,
+			Executor:      executor,
+			ErrType:       atlaserrors.ErrGeminiInvocation,
+			Logger:        zerolog.Nop(), // Will be updated if WithGeminiLogger is used
+			ProviderName:  geminiCLIInfo.Name,
+			StatusPageURL: geminiCLIInfo.StatusPageURL,
 		},
 		logger: zerolog.Nop(), // Default to no-op logger
 	}

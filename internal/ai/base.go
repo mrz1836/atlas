@@ -21,11 +21,21 @@ type ExecuteFunc func(ctx context.Context, req *domain.AIRequest) (*domain.AIRes
 // BaseRunner provides common functionality for AI runner implementations.
 // Embed this in provider-specific runners to share timeout, retry, and context handling logic.
 type BaseRunner struct {
-	Config   *config.AIConfig
-	Executor CommandExecutor
-	ErrType  error          // Provider-specific error type for wrapping
-	Logger   zerolog.Logger // Logger for retry/diagnostic logging (optional, uses nop if not set)
+	Config        *config.AIConfig
+	Executor      CommandExecutor
+	ErrType       error          // Provider-specific error type for wrapping
+	Logger        zerolog.Logger // Logger for retry/diagnostic logging (optional, uses nop if not set)
+	ProviderName  string         // Display name for retry/outage log messages (e.g., "claude", "gemini")
+	StatusPageURL string         // Provider status page surfaced in outage log messages
 }
+
+// outage backoff bounds applied when runWithRetry detects a provider outage
+// (5xx, overloaded). These widen the wait window vs. regular transient errors,
+// since outages typically last seconds-to-minutes.
+const (
+	outageMinBackoff = 30 * time.Second
+	outageMaxBackoff = 60 * time.Second
+)
 
 // ValidateWorkingDir checks if the working directory exists.
 // Returns nil if the directory exists or is empty (current dir).
@@ -119,6 +129,63 @@ func (b *BaseRunner) TerminateRunningProcess() error {
 	return nil // Executor doesn't support process termination
 }
 
+// logOutageWarn emits a user-facing warn log when a provider outage is detected
+// during retry. It prefers the provider's display name and status page URL when
+// configured, falling back to neutral language otherwise.
+func (b *BaseRunner) logOutageWarn(err error, attempt int, backoff time.Duration) {
+	provider := b.ProviderName
+	if provider == "" {
+		provider = "AI provider"
+	}
+	statusPage := b.StatusPageURL
+	if statusPage == "" {
+		statusPage = "(provider status page not configured)"
+	}
+	b.Logger.Warn().
+		Err(err).
+		Str("provider", provider).
+		Str("status_page", statusPage).
+		Int("attempt", attempt).
+		Int("max_attempts", constants.MaxRetryAttempts).
+		Dur("backoff", backoff).
+		Msgf("%s API appears degraded (5xx/overloaded) — retrying in %s. Status: %s",
+			provider, backoff, statusPage)
+}
+
+// computeRetryBackoff returns the sleep duration to use before the next retry
+// and the new value of the running backoff counter. Provider outages clamp the
+// sleep to [outageMinBackoff, outageMaxBackoff] and pin subsequent backoffs to
+// the ceiling; other transient errors use normal exponential growth.
+func computeRetryBackoff(err error, current time.Duration) (sleep, next time.Duration, outage bool) {
+	if isProviderOutage(err) {
+		sleep = current
+		if sleep < outageMinBackoff {
+			sleep = outageMinBackoff
+		}
+		if sleep > outageMaxBackoff {
+			sleep = outageMaxBackoff
+		}
+		return sleep, outageMaxBackoff, true
+	}
+	return current, current * constants.BackoffMultiplier, false
+}
+
+// logRetryDecision emits the appropriate log message for a retry attempt. An
+// outage gets a user-facing warn pointing at the status page; other transient
+// errors get the standard "will retry after backoff" warn.
+func (b *BaseRunner) logRetryDecision(err error, attempt int, sleep time.Duration, outage bool) {
+	if outage {
+		b.logOutageWarn(err, attempt, sleep)
+		return
+	}
+	b.Logger.Warn().
+		Err(err).
+		Int("attempt", attempt).
+		Int("max_attempts", constants.MaxRetryAttempts).
+		Dur("backoff", sleep).
+		Msg("AI request failed, will retry after backoff")
+}
+
 // runWithRetry executes the AI request with exponential backoff retry logic.
 // Only transient errors are retried; non-retryable errors return immediately.
 func (b *BaseRunner) runWithRetry(ctx context.Context, req *domain.AIRequest, execute ExecuteFunc) (*domain.AIResult, error) {
@@ -153,22 +220,20 @@ func (b *BaseRunner) runWithRetry(ctx context.Context, req *domain.AIRequest, ex
 		}
 
 		lastErr = err
-		if attempt < constants.MaxRetryAttempts {
-			b.Logger.Warn().
-				Err(err).
-				Int("attempt", attempt).
-				Int("max_attempts", constants.MaxRetryAttempts).
-				Dur("backoff", backoff).
-				Msg("AI request failed, will retry after backoff")
+		if attempt >= constants.MaxRetryAttempts {
+			continue
+		}
 
-			select {
-			case <-ctx.Done():
-				// Terminate any running process from previous attempt before returning
-				_ = b.TerminateRunningProcess()
-				return nil, ctx.Err()
-			case <-timeSleep(backoff):
-				backoff *= constants.BackoffMultiplier
-			}
+		sleep, next, outage := computeRetryBackoff(err, backoff)
+		b.logRetryDecision(err, attempt, sleep, outage)
+
+		select {
+		case <-ctx.Done():
+			// Terminate any running process from previous attempt before returning
+			_ = b.TerminateRunningProcess()
+			return nil, ctx.Err()
+		case <-timeSleep(sleep):
+			backoff = next
 		}
 	}
 

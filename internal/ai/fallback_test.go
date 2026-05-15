@@ -387,6 +387,118 @@ func TestFallbackRunner_Run(t *testing.T) {
 	})
 }
 
+func TestFallbackRunner_OutageSkipsRemainingModels(t *testing.T) {
+	t.Run("outage on claude skips sonnet+opus and jumps to codex", func(t *testing.T) {
+		reg := NewRunnerRegistry()
+		attempts := []string{}
+
+		reg.Register(domain.AgentClaude, &MockRunner{
+			RunFunc: func(_ context.Context, req *domain.AIRequest) (*domain.AIResult, error) {
+				attempts = append(attempts, "claude:"+req.Model)
+				// Provider-wide outage — every model returns the same error.
+				return nil, fmt.Errorf("claude invocation failed: %w: 529 overloaded_error",
+					atlaserrors.ErrProviderOutage)
+			},
+		})
+		reg.Register(domain.AgentCodex, &MockRunner{
+			RunFunc: func(_ context.Context, req *domain.AIRequest) (*domain.AIResult, error) {
+				attempts = append(attempts, "codex:"+req.Model)
+				return &domain.AIResult{Success: true, Output: "codex worked"}, nil
+			},
+		})
+		reg.Register(domain.AgentGemini, &MockRunner{
+			RunFunc: func(_ context.Context, req *domain.AIRequest) (*domain.AIResult, error) {
+				attempts = append(attempts, "gemini:"+req.Model)
+				return &domain.AIResult{Success: true, Output: "gemini worked"}, nil
+			},
+		})
+
+		cfg := DefaultFallbackConfig()
+		cfg.AgentFallbackOrder = []string{"claude", "codex", "gemini"}
+
+		runner := NewFallbackRunner(reg, cfg, zerolog.Nop())
+
+		req := &domain.AIRequest{Agent: domain.AgentClaude, Model: "haiku"}
+		result, err := runner.Run(context.Background(), req)
+
+		require.NoError(t, err)
+		assert.Equal(t, "codex worked", result.Output)
+		// Critical: only ONE claude attempt before jumping to codex. We must not
+		// burn sonnet+opus calls when the entire provider is down.
+		assert.Equal(t, []string{"claude:haiku", "codex:mini"}, attempts,
+			"outage should skip sibling models on the same provider")
+	})
+
+	t.Run("outage on claude and codex falls through to gemini", func(t *testing.T) {
+		reg := NewRunnerRegistry()
+		attempts := []string{}
+
+		outage := func(agent string) error {
+			return fmt.Errorf("%s invocation failed: %w: HTTP 503", agent, atlaserrors.ErrProviderOutage)
+		}
+
+		reg.Register(domain.AgentClaude, &MockRunner{
+			RunFunc: func(_ context.Context, req *domain.AIRequest) (*domain.AIResult, error) {
+				attempts = append(attempts, "claude:"+req.Model)
+				return nil, outage("claude")
+			},
+		})
+		reg.Register(domain.AgentCodex, &MockRunner{
+			RunFunc: func(_ context.Context, req *domain.AIRequest) (*domain.AIResult, error) {
+				attempts = append(attempts, "codex:"+req.Model)
+				return nil, outage("codex")
+			},
+		})
+		reg.Register(domain.AgentGemini, &MockRunner{
+			RunFunc: func(_ context.Context, req *domain.AIRequest) (*domain.AIResult, error) {
+				attempts = append(attempts, "gemini:"+req.Model)
+				return &domain.AIResult{Success: true, Output: "gemini recovered"}, nil
+			},
+		})
+
+		cfg := DefaultFallbackConfig()
+		cfg.AgentFallbackOrder = []string{"claude", "codex", "gemini"}
+
+		runner := NewFallbackRunner(reg, cfg, zerolog.Nop())
+
+		req := &domain.AIRequest{Agent: domain.AgentClaude, Model: "haiku"}
+		result, err := runner.Run(context.Background(), req)
+
+		require.NoError(t, err)
+		assert.Equal(t, "gemini recovered", result.Output)
+		// One attempt per provider before moving on (no sibling-model attempts).
+		assert.Equal(t, []string{"claude:haiku", "codex:mini", "gemini:flash"}, attempts)
+	})
+
+	t.Run("all providers down returns ErrAllFallbacksExhausted with ErrProviderOutage", func(t *testing.T) {
+		reg := NewRunnerRegistry()
+		outage := func() error {
+			return fmt.Errorf("invocation failed: %w: overloaded_error", atlaserrors.ErrProviderOutage)
+		}
+
+		for _, agent := range []domain.Agent{domain.AgentClaude, domain.AgentCodex, domain.AgentGemini} {
+			reg.Register(agent, &MockRunner{
+				RunFunc: func(_ context.Context, _ *domain.AIRequest) (*domain.AIResult, error) {
+					return nil, outage()
+				},
+			})
+		}
+
+		cfg := DefaultFallbackConfig()
+		cfg.AgentFallbackOrder = []string{"claude", "codex", "gemini"}
+
+		runner := NewFallbackRunner(reg, cfg, zerolog.Nop())
+
+		req := &domain.AIRequest{Agent: domain.AgentClaude, Model: "haiku"}
+		_, err := runner.Run(context.Background(), req)
+
+		require.Error(t, err)
+		require.ErrorIs(t, err, atlaserrors.ErrAllFallbacksExhausted)
+		require.ErrorIs(t, err, atlaserrors.ErrProviderOutage,
+			"outermost error must remain matchable as a provider outage so the TUI banner triggers")
+	})
+}
+
 func TestFallbackRunner_BuildExecutionChain(t *testing.T) {
 	t.Run("builds chain from model to end", func(t *testing.T) {
 		runner := NewFallbackRunner(NewRunnerRegistry(), DefaultFallbackConfig(), zerolog.Nop())

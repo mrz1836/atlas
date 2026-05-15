@@ -23,10 +23,11 @@ import (
 //
 //nolint:gochecknoglobals // Constant-like structure
 var claudeCLIInfo = CLIInfo{
-	Name:        "claude",
-	InstallHint: "please install claude code",
-	ErrType:     atlaserrors.ErrClaudeInvocation,
-	EnvVar:      "ANTHROPIC_API_KEY",
+	Name:          "claude",
+	InstallHint:   "please install claude code",
+	ErrType:       atlaserrors.ErrClaudeInvocation,
+	EnvVar:        "ANTHROPIC_API_KEY",
+	StatusPageURL: "https://status.anthropic.com",
 }
 
 // CommandExecutor abstracts command execution for testing.
@@ -173,10 +174,12 @@ func NewClaudeCodeRunner(cfg *config.AIConfig, executor CommandExecutor, opts ..
 	}
 	r := &ClaudeCodeRunner{
 		base: BaseRunner{
-			Config:   cfg,
-			Executor: executor,
-			ErrType:  atlaserrors.ErrClaudeInvocation,
-			Logger:   zerolog.Nop(), // Will be updated if WithClaudeLogger is used
+			Config:        cfg,
+			Executor:      executor,
+			ErrType:       atlaserrors.ErrClaudeInvocation,
+			Logger:        zerolog.Nop(), // Will be updated if WithClaudeLogger is used
+			ProviderName:  claudeCLIInfo.Name,
+			StatusPageURL: claudeCLIInfo.StatusPageURL,
 		},
 		logger: zerolog.Nop(), // Default to no-op logger
 	}

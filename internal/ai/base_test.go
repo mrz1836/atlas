@@ -23,6 +23,10 @@ var (
 	errTestOriginal         = errors.New("original error")
 	errTestWrapped          = errors.New("wrapped error")
 	errTestErrorType        = errors.New("test error type")
+
+	// Outage backoff tests use these static errors to satisfy err113.
+	errTestClaude529      = errors.New("claude api error: 529 overloaded_error")
+	errTest503Unavailable = errors.New("503 service unavailable")
 )
 
 func TestBaseRunner_ResolveTimeout(t *testing.T) {
@@ -138,6 +142,96 @@ func TestBaseRunner_RunWithTimeout(t *testing.T) {
 
 		require.Error(t, err)
 		assert.Equal(t, 1, attempts)
+	})
+}
+
+// withFakeSleep replaces the package-level timeSleep hook so tests can observe
+// the backoff durations passed to it without actually waiting. The original
+// hook is restored on cleanup.
+func withFakeSleep(t *testing.T) *[]time.Duration {
+	t.Helper()
+	original := timeSleep
+	durations := []time.Duration{}
+	timeSleep = func(d time.Duration) <-chan time.Time {
+		durations = append(durations, d)
+		ch := make(chan time.Time, 1)
+		ch <- time.Now()
+		return ch
+	}
+	t.Cleanup(func() { timeSleep = original })
+	return &durations
+}
+
+func TestBaseRunner_OutageBackoff(t *testing.T) {
+	// Sub-tests must not run in parallel — they mutate the package-level
+	// timeSleep hook installed via withFakeSleep.
+
+	t.Run("provider outage uses outage backoff floor (30s) and ceiling (60s)", func(t *testing.T) {
+		durations := withFakeSleep(t)
+
+		b := &BaseRunner{
+			Config:        &config.AIConfig{Timeout: 5 * time.Minute},
+			ErrType:       atlaserrors.ErrClaudeInvocation,
+			ProviderName:  "claude",
+			StatusPageURL: "https://status.anthropic.com",
+		}
+
+		_, err := b.RunWithTimeout(context.Background(), &domain.AIRequest{}, func(_ context.Context, _ *domain.AIRequest) (*domain.AIResult, error) {
+			return nil, errTestClaude529
+		})
+
+		require.Error(t, err)
+		require.ErrorIs(t, err, atlaserrors.ErrClaudeInvocation)
+		// MaxRetryAttempts retries → MaxRetryAttempts-1 sleeps in between.
+		require.Len(t, *durations, constants.MaxRetryAttempts-1,
+			"expected one sleep per retry boundary, got: %v", *durations)
+		// First sleep clamped UP to the outage floor.
+		assert.GreaterOrEqual(t, (*durations)[0], outageMinBackoff,
+			"first outage backoff must be at least %s", outageMinBackoff)
+		// Subsequent sleeps clamped to the outage ceiling, not exponentially growing past it.
+		for i, d := range *durations {
+			assert.LessOrEqual(t, d, outageMaxBackoff,
+				"outage backoff %d must not exceed %s, got %s", i, outageMaxBackoff, d)
+		}
+	})
+
+	t.Run("non-outage transient error uses normal exponential backoff", func(t *testing.T) {
+		durations := withFakeSleep(t)
+
+		b := &BaseRunner{
+			Config:  &config.AIConfig{Timeout: 5 * time.Minute},
+			ErrType: atlaserrors.ErrClaudeInvocation,
+		}
+
+		_, err := b.RunWithTimeout(context.Background(), &domain.AIRequest{}, func(_ context.Context, _ *domain.AIRequest) (*domain.AIResult, error) {
+			return nil, errTestTemporaryNetwork
+		})
+
+		require.Error(t, err)
+		require.Len(t, *durations, constants.MaxRetryAttempts-1)
+		// Normal backoff must NOT be clamped up to the outage floor.
+		assert.Less(t, (*durations)[0], outageMinBackoff,
+			"non-outage backoff should be smaller than outage floor (%s); got %s",
+			outageMinBackoff, (*durations)[0])
+	})
+
+	t.Run("outage error is wrapped with ErrProviderOutage matchable after retries", func(t *testing.T) {
+		_ = withFakeSleep(t)
+
+		b := &BaseRunner{
+			Config:  &config.AIConfig{Timeout: 5 * time.Minute},
+			ErrType: atlaserrors.ErrClaudeInvocation,
+		}
+
+		// Simulate a runner that returns an ErrProviderOutage-wrapped error
+		// (which is how production code paths produce it via WrapCLIExecutionError).
+		_, err := b.RunWithTimeout(context.Background(), &domain.AIRequest{}, func(_ context.Context, _ *domain.AIRequest) (*domain.AIResult, error) {
+			return nil, errors.Join(atlaserrors.ErrProviderOutage, errTest503Unavailable)
+		})
+
+		require.Error(t, err)
+		require.ErrorIs(t, err, atlaserrors.ErrClaudeInvocation)
+		require.ErrorIs(t, err, atlaserrors.ErrProviderOutage)
 	})
 }
 

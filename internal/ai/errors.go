@@ -3,14 +3,17 @@ package ai
 import (
 	"fmt"
 	"strings"
+
+	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 )
 
 // CLIInfo contains provider-specific information for error messages.
 type CLIInfo struct {
-	Name        string // CLI command name (e.g., "claude", "gemini", "codex")
-	InstallHint string // Installation instructions
-	ErrType     error  // Sentinel error type for this provider
-	EnvVar      string // API key environment variable name
+	Name          string // CLI command name (e.g., "claude", "gemini", "codex")
+	InstallHint   string // Installation instructions
+	ErrType       error  // Sentinel error type for this provider
+	EnvVar        string // API key environment variable name
+	StatusPageURL string // Provider status page (shown to user on outage)
 }
 
 // WrapCLIExecutionError wraps an execution error with provider-specific context.
@@ -39,12 +42,39 @@ func WrapCLIExecutionErrorWithOp(info CLIInfo, operation string, err error, stde
 		return fmt.Errorf("%w: API key error%s: %s", info.ErrType, opContext, stderrStr)
 	}
 
+	// Check for provider outage (5xx, overloaded). When matched, wrap with
+	// ErrProviderOutage so downstream code (FallbackRunner, retry backoff,
+	// TUI display) can detect it via errors.Is.
+	if isOutageStderr(stderrStr) || isOutageStderr(err.Error()) {
+		detail := stderrStr
+		if detail == "" {
+			detail = err.Error()
+		}
+		return fmt.Errorf("%w: %w%s: %s", info.ErrType, atlaserrors.ErrProviderOutage, opContext, detail)
+	}
+
 	// Default error wrapping
 	if stderrStr != "" {
 		return fmt.Errorf("%w%s: %s", info.ErrType, opContext, stderrStr)
 	}
 
 	return fmt.Errorf("%w%s: %s", info.ErrType, opContext, err.Error())
+}
+
+// isOutageStderr reports whether the given output text contains markers of an
+// AI provider outage (5xx, overloaded). Matched case-insensitively against the
+// shared providerOutagePatterns list defined in retry.go.
+func isOutageStderr(s string) bool {
+	if s == "" {
+		return false
+	}
+	lower := strings.ToLower(s)
+	for _, p := range providerOutagePatterns {
+		if strings.Contains(lower, p) {
+			return true
+		}
+	}
+	return false
 }
 
 // formatOpContext formats the operation context for error messages.

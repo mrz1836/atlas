@@ -94,8 +94,21 @@ func (r *FallbackRunner) Run(ctx context.Context, req *domain.AIRequest) (*domai
 		return nil, fmt.Errorf("%w: agent=%s model=%s", atlaserrors.ErrNoFallbackModels, req.Agent, req.Model)
 	}
 
+	// outageAgent tracks an agent whose provider has had a confirmed outage in
+	// this Run. When set, subsequent attempts on the same agent are skipped —
+	// trying another model on a degraded provider is unlikely to help.
+	var outageAgent domain.Agent
 	var lastErr error
 	for i, attempt := range chain {
+		if outageAgent != "" && attempt.Agent == outageAgent {
+			r.logger.Info().
+				Str("agent", string(attempt.Agent)).
+				Str("model", attempt.Model).
+				Int("fallback_index", i).
+				Msg("skipping model on provider with detected outage")
+			continue
+		}
+
 		// Try this attempt (with retries)
 		for retry := 0; retry < r.config.MaxRetriesPerModel; retry++ {
 			result, err := r.executeAttempt(ctx, req, attempt)
@@ -123,6 +136,20 @@ func (r *FallbackRunner) Run(ctx context.Context, req *domain.AIRequest) (*domai
 			}
 
 			lastErr = err
+
+			// Provider outage: skip remaining models on this agent and move to
+			// the next agent in the chain. Falling back opus → sonnet during an
+			// Anthropic outage is useless — all models share the same backend.
+			if isProviderOutage(err) {
+				outageAgent = attempt.Agent
+				r.logger.Warn().
+					Err(err).
+					Str("agent", string(attempt.Agent)).
+					Str("model", attempt.Model).
+					Int("fallback_index", i).
+					Msg("provider outage detected — skipping remaining models for this agent")
+				break // Exit retry loop; outer loop will skip same-agent attempts.
+			}
 
 			// Check if we should fallback or retry
 			if isFallbackTrigger(err) {

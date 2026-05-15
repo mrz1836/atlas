@@ -57,6 +57,11 @@ var (
 	// ErrNoFallbackModels indicates no fallback models are configured for the agent.
 	ErrNoFallbackModels = errors.New("no fallback models configured")
 
+	// ErrProviderOutage indicates the AI provider's API is degraded or unavailable
+	// (e.g., HTTP 5xx, "overloaded_error"). Falling back to a different model on the
+	// same provider is unlikely to help; callers should prefer a different provider.
+	ErrProviderOutage = errors.New("AI provider outage")
+
 	// ========== Validation & CI Errors ==========
 
 	// ErrValidationFailed indicates that one or more validation commands
