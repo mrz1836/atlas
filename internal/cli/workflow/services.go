@@ -132,6 +132,11 @@ func (f *ServiceFactory) CreateAIRunner(cfg *config.Config) ai.Runner {
 
 // CreateAIRunnerWithActivity creates an AI runner with optional activity streaming.
 // If activityOpts is nil, activity streaming is disabled.
+//
+// The returned runner is a FallbackRunner that wraps a registry of provider-specific
+// runners. This enables cross-model and cross-provider failover (e.g., claude →
+// codex → gemini) when a provider experiences an outage. Configuration lives on
+// cfg.AI (FallbackEnabled, FallbackModels, FallbackAgents, FallbackMaxRetriesPerModel).
 func (f *ServiceFactory) CreateAIRunnerWithActivity(cfg *config.Config, activityOpts *ai.ActivityOptions) ai.Runner {
 	runnerRegistry := ai.NewRunnerRegistry()
 
@@ -151,7 +156,13 @@ func (f *ServiceFactory) CreateAIRunnerWithActivity(cfg *config.Config, activity
 		runnerRegistry.Register(domain.AgentCodex, ai.NewCodexRunner(&cfg.AI, nil))
 	}
 
-	return ai.NewMultiRunner(runnerRegistry)
+	fbCfg := &ai.FallbackConfig{
+		Enabled:            cfg.AI.FallbackEnabled,
+		ModelChains:        cfg.AI.FallbackModels,
+		AgentFallbackOrder: cfg.AI.FallbackAgents,
+		MaxRetriesPerModel: cfg.AI.FallbackMaxRetriesPerModel,
+	}
+	return ai.NewFallbackRunner(runnerRegistry, fbCfg, f.logger)
 }
 
 // GitConfig holds resolved git configuration settings.

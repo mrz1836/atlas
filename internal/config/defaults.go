@@ -67,10 +67,14 @@ func DefaultConfig() *Config {
 				"codex":  {"mini", "codex", "max"},
 			},
 
-			// FallbackAgents: empty by default (no cross-agent fallback).
-			// Users can enable cross-agent fallback if they have multiple
-			// AI providers configured: e.g., ["claude", "gemini"]
-			FallbackAgents: nil,
+			// FallbackAgents: cross-provider failover order.
+			// When the primary provider (claude) has a confirmed outage or all of
+			// its models fail, the FallbackRunner moves to the next agent in this
+			// list. Order is claude → codex → gemini because codex (OpenAI) is the
+			// closest substitute for claude on coding tasks; gemini is the second
+			// fallback. Users without those CLIs installed will see them logged as
+			// unavailable and skipped automatically.
+			FallbackAgents: []string{"claude", "codex", "gemini"},
 
 			// FallbackMaxRetriesPerModel: 1 try per model before moving to next.
 			// This is intentionally low since format errors typically don't
