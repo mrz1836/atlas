@@ -130,7 +130,7 @@ and trust the system's behavior.
 
 ## Technology Stack
 
-ATLAS is a pure Go application targeting Go 1.25+ with minimal dependencies. Every
+ATLAS is a pure Go application targeting Go 1.26+ with minimal dependencies. Every
 dependency MUST justify its existence.
 
 ### Core Dependencies

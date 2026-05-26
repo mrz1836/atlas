@@ -89,7 +89,7 @@ Get running in 2 minutes:
 
 ```bash
 # 1. Check prerequisites
-go version        # Need 1.25+
+go version        # Need 1.26+
 git --version     # Need 2.20+
 gh --version      # Need 2.20+
 claude --version  # Need 2.0.76+ (if using claude agent)
@@ -119,10 +119,10 @@ atlas approve
 
 | Tool | Required Version | Purpose | Installation |
 |------|------------------|---------|--------------|
-| **Go** | 1.25+ | Runtime | [go.dev](https://go.dev/dl/) or `brew install go` |
+| **Go** | 1.26+ | Runtime | [go.dev](https://go.dev/dl/) or `brew install go` |
 | **Git** | 2.20+ | Version control | `brew install git` |
 | **GitHub CLI (gh)** | 2.20+ | PR operations | `brew install gh` |
-| **Claude CLI** | 2.0.76+ | AI execution (Claude) | [Claude Code](https://docs.anthropic.com/en/docs/claude-code) or `npm install -g @anthropic-ai/claude-code` |
+| **Claude CLI** | 2.1.1+ | AI execution (Claude) | [Claude Code](https://docs.anthropic.com/en/docs/claude-code) or `npm install -g @anthropic-ai/claude-code` |
 | **Gemini CLI** | 0.22.5+ | AI execution (Gemini) | `npm install -g @google/gemini-cli` |
 | **Codex CLI** | 0.77.0+ | AI execution (OpenAI) | `npm install -g @openai/codex` |
 | **uv** | 0.5.x | Python tool runner (for Speckit) | `brew install uv` |
