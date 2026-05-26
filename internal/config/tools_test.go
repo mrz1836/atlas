@@ -132,15 +132,15 @@ func TestToolDetector_DetectGo(t *testing.T) {
 	}{
 		{
 			name:            "installed and current",
-			versionOutput:   "go version go1.25.2 darwin/arm64",
+			versionOutput:   "go version go1.26.2 darwin/arm64",
 			expectedStatus:  ToolStatusInstalled,
-			expectedVersion: "1.25.2",
+			expectedVersion: "1.26.2",
 		},
 		{
 			name:            "installed exact minimum",
-			versionOutput:   "go version go1.25.0 linux/amd64",
+			versionOutput:   "go version go1.26.0 linux/amd64",
 			expectedStatus:  ToolStatusInstalled,
-			expectedVersion: "1.25.0",
+			expectedVersion: "1.26.0",
 		},
 		{
 			name:            "outdated version",
@@ -482,7 +482,7 @@ func TestFormatMissingToolsError(t *testing.T) {
 				Name:           "go",
 				Status:         ToolStatusOutdated,
 				CurrentVersion: "1.21.0",
-				MinVersion:     "1.25.0",
+				MinVersion:     "1.26.0",
 				InstallHint:    "Install Go from https://go.dev",
 			},
 		}
@@ -490,7 +490,7 @@ func TestFormatMissingToolsError(t *testing.T) {
 		assert.Contains(t, result, "go")
 		assert.Contains(t, result, "outdated")
 		assert.Contains(t, result, "1.21.0")
-		assert.Contains(t, result, "1.25.0")
+		assert.Contains(t, result, "1.26.0")
 	})
 }
 
@@ -518,7 +518,7 @@ func TestToolDetector_ParallelDetection(t *testing.T) {
 	}
 
 	// Set up version outputs
-	mock.SetRun("go version", "go version go1.25.2 darwin/arm64", nil)
+	mock.SetRun("go version", "go version go1.26.0 darwin/arm64", nil)
 	mock.SetRun("git --version", "git version 2.39.0", nil)
 	mock.SetRun("gh --version", "gh version 2.62.0", nil)
 	mock.SetRun("uv --version", "uv 0.5.14", nil)
@@ -627,7 +627,7 @@ func TestToolDetector_AllToolsPresent(t *testing.T) {
 
 	// Configure all tools as present with valid versions
 	mock.SetLookPath(constants.ToolGo, "/usr/local/go/bin/go", nil)
-	mock.SetRun("go version", "go version go1.25.2 darwin/arm64", nil)
+	mock.SetRun("go version", "go version go1.26.0 darwin/arm64", nil)
 
 	mock.SetLookPath(constants.ToolGit, "/usr/bin/git", nil)
 	mock.SetRun("git --version", "git version 2.39.0", nil)

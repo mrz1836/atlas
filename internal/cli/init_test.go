@@ -70,7 +70,7 @@ func TestDisplayToolTable(t *testing.T) {
 			{
 				Name:           "go",
 				Required:       true,
-				CurrentVersion: "1.25.2",
+				CurrentVersion: "1.26.0",
 				Status:         config.ToolStatusInstalled,
 			},
 			{
@@ -106,7 +106,7 @@ func TestDisplayToolTable(t *testing.T) {
 	assert.Contains(t, output, "go")
 	assert.Contains(t, output, "git")
 	assert.Contains(t, output, "magex")
-	assert.Contains(t, output, "1.25.2")
+	assert.Contains(t, output, "1.26.0")
 	assert.Contains(t, output, "2.39.0")
 
 	// Verify required tools show "yes"
@@ -542,7 +542,7 @@ func TestRunInitWithDetector_NonInteractive_Success(t *testing.T) {
 		result: &config.ToolDetectionResult{
 			HasMissingRequired: false,
 			Tools: []config.Tool{
-				{Name: "go", Required: true, Status: config.ToolStatusInstalled, CurrentVersion: "1.25.0"},
+				{Name: "go", Required: true, Status: config.ToolStatusInstalled, CurrentVersion: "1.26.0"},
 				{Name: "git", Required: true, Status: config.ToolStatusInstalled, CurrentVersion: "2.39.0"},
 				{Name: "gh", Required: true, Status: config.ToolStatusInstalled, CurrentVersion: "2.62.0"},
 				{Name: "uv", Required: true, Status: config.ToolStatusInstalled, CurrentVersion: "0.5.14"},
@@ -592,7 +592,7 @@ func TestRunInitWithDetector_MissingRequiredTools(t *testing.T) {
 		result: &config.ToolDetectionResult{
 			HasMissingRequired: true,
 			Tools: []config.Tool{
-				{Name: "go", Required: true, Status: config.ToolStatusInstalled, CurrentVersion: "1.25.0"},
+				{Name: "go", Required: true, Status: config.ToolStatusInstalled, CurrentVersion: "1.26.0"},
 				{Name: "git", Required: true, Status: config.ToolStatusMissing}, // Missing!
 			},
 		},
@@ -661,7 +661,7 @@ func TestRunInitWithDetector_WithManagedToolsMissing(t *testing.T) {
 		result: &config.ToolDetectionResult{
 			HasMissingRequired: false,
 			Tools: []config.Tool{
-				{Name: "go", Required: true, Status: config.ToolStatusInstalled, CurrentVersion: "1.25.0"},
+				{Name: "go", Required: true, Status: config.ToolStatusInstalled, CurrentVersion: "1.26.0"},
 				{Name: "git", Required: true, Status: config.ToolStatusInstalled, CurrentVersion: "2.39.0"},
 				{Name: constants.ToolMageX, Managed: true, Status: config.ToolStatusMissing},
 				{Name: constants.ToolGoPreCommit, Managed: true, Status: config.ToolStatusMissing},
@@ -985,7 +985,7 @@ func TestRunInitWithDetector_GlobalFlag_Success(t *testing.T) {
 		result: &config.ToolDetectionResult{
 			HasMissingRequired: false,
 			Tools: []config.Tool{
-				{Name: "go", Required: true, Status: config.ToolStatusInstalled, CurrentVersion: "1.25.0"},
+				{Name: "go", Required: true, Status: config.ToolStatusInstalled, CurrentVersion: "1.26.0"},
 				{Name: "git", Required: true, Status: config.ToolStatusInstalled, CurrentVersion: "2.39.0"},
 				{Name: "gh", Required: true, Status: config.ToolStatusInstalled, CurrentVersion: "2.62.0"},
 				{Name: "uv", Required: true, Status: config.ToolStatusInstalled, CurrentVersion: "0.5.14"},
@@ -1041,7 +1041,7 @@ func TestRunInitWithDetector_ProjectFlag_Success(t *testing.T) {
 		result: &config.ToolDetectionResult{
 			HasMissingRequired: false,
 			Tools: []config.Tool{
-				{Name: "go", Required: true, Status: config.ToolStatusInstalled, CurrentVersion: "1.25.0"},
+				{Name: "go", Required: true, Status: config.ToolStatusInstalled, CurrentVersion: "1.26.0"},
 				{Name: "git", Required: true, Status: config.ToolStatusInstalled, CurrentVersion: "2.39.0"},
 				{Name: "gh", Required: true, Status: config.ToolStatusInstalled, CurrentVersion: "2.62.0"},
 				{Name: "uv", Required: true, Status: config.ToolStatusInstalled, CurrentVersion: "0.5.14"},
