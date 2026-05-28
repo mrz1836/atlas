@@ -28,7 +28,7 @@ require (
 )
 
 require (
-	github.com/alecthomas/chroma/v2 v2.25.0 // indirect
+	github.com/alecthomas/chroma/v2 v2.26.0 // indirect
 	github.com/atotto/clipboard v0.1.4 // indirect
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
 	github.com/aymerick/douceur v0.2.0 // indirect
@@ -39,7 +39,7 @@ require (
 	github.com/charmbracelet/ultraviolet v0.0.0-20260525132238-948f4557a654 // indirect
 	github.com/charmbracelet/x/ansi v0.11.7 // indirect
 	github.com/charmbracelet/x/cellbuf v0.0.15 // indirect
-	github.com/charmbracelet/x/exp/slice v0.0.0-20260525135217-abeec2b8bf0b // indirect
+	github.com/charmbracelet/x/exp/slice v0.0.0-20260527151214-009e6338d40d // indirect
 	github.com/charmbracelet/x/exp/strings v0.1.0 // indirect
 	github.com/charmbracelet/x/term v0.2.2 // indirect
 	github.com/charmbracelet/x/termios v0.1.1 // indirect
