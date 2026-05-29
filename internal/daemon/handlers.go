@@ -57,6 +57,7 @@ func (d *Daemon) setupRouter(r *Router) {
 	r.Register(MethodWorkspaceDestroy, d.handleWorkspaceDestroy)
 	r.Register(MethodTaskPause, d.handleTaskPause)
 	r.Register(MethodHookRetry, d.handleHookRetry)
+	r.Register(MethodDaemonReconcile, d.handleDaemonReconcile)
 }
 
 // errNotImplemented is kept for test compatibility (stubHandler is used in tests).

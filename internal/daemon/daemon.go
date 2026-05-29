@@ -69,6 +69,10 @@ type Daemon struct {
 	server *Server
 	// runner is the worker pool that executes queued tasks (wired in Start).
 	runner *Runner
+
+	// workspaceLoader is an injectable function for listing filesystem workspaces
+	// during reconcile. Defaults to the production implementation; tests override it.
+	workspaceLoader func(atlasHome string) ([]*workspaceEntry, error)
 }
 
 // New creates a new Daemon instance.

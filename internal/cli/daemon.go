@@ -186,14 +186,26 @@ func newDaemonRestartCmd() *cobra.Command {
 
 // newDaemonStatusCmd creates `atlas daemon status`.
 func newDaemonStatusCmd() *cobra.Command {
-	return &cobra.Command{
+	var jsonOutput bool
+	var reconcile bool
+	cmd := &cobra.Command{
 		Use:   "status",
 		Short: "Show the Atlas daemon status",
-		RunE:  runDaemonStatus,
+		Long: `Show the current Atlas daemon status.
+
+Use --json for machine-readable output suitable for scripts and tooling.
+Use --reconcile to walk Redis, task-store files, and workspace files and
+report any drift between them.`,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return runDaemonStatus(cmd, jsonOutput, reconcile)
+		},
 	}
+	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Output in JSON format")
+	cmd.Flags().BoolVar(&reconcile, "reconcile", false, "Report drift between Redis and filesystem state")
+	return cmd
 }
 
-func runDaemonStatus(cmd *cobra.Command, _ []string) error {
+func runDaemonStatus(cmd *cobra.Command, jsonOutput, reconcile bool) error {
 	cfg, err := config.Load(cmd.Context())
 	if err != nil {
 		cfg = config.DefaultConfig()
@@ -202,6 +214,16 @@ func runDaemonStatus(cmd *cobra.Command, _ []string) error {
 	c, dialErr := daemon.DialFromConfigContext(cmd.Context(), cfg.Daemon.SocketPath)
 	if dialErr != nil {
 		out := cmd.OutOrStdout()
+
+		if jsonOutput {
+			b, _ := json.MarshalIndent(map[string]interface{}{
+				"running": false,
+				"error":   "daemon not running",
+			}, "", "  ")
+			_, _ = fmt.Fprintf(out, "%s\n", b)
+			return nil
+		}
+
 		_, _ = fmt.Fprintln(out, "Daemon is not running")
 
 		// Show Redis diagnostic when daemon is down.
@@ -228,6 +250,11 @@ func runDaemonStatus(cmd *cobra.Command, _ []string) error {
 	}
 	defer func() { _ = c.Close() }()
 
+	// Reconcile mode: walk Redis + filesystem and report drift.
+	if reconcile {
+		return runDaemonReconcile(cmd, c, jsonOutput)
+	}
+
 	var status daemon.DaemonStatusResponse
 	callCtx, cancel := context.WithTimeout(cmd.Context(), 5*time.Second)
 	defer cancel()
@@ -236,6 +263,16 @@ func runDaemonStatus(cmd *cobra.Command, _ []string) error {
 	}
 
 	out := cmd.OutOrStdout()
+
+	if jsonOutput {
+		b, marshalErr := json.MarshalIndent(status, "", "  ")
+		if marshalErr != nil {
+			return fmt.Errorf("marshal daemon status: %w", marshalErr)
+		}
+		_, _ = fmt.Fprintf(out, "%s\n", b)
+		return nil
+	}
+
 	_, _ = fmt.Fprintln(out, "Daemon Status")
 	_, _ = fmt.Fprintln(out, "─────────────────────────────")
 	_, _ = fmt.Fprintf(out, "  Version:      %s\n", status.Version)
@@ -246,6 +283,59 @@ func runDaemonStatus(cmd *cobra.Command, _ []string) error {
 	_, _ = fmt.Fprintf(out, "  Workers:      %d\n", status.Workers)
 	_, _ = fmt.Fprintf(out, "  Active tasks: %d\n", status.ActiveTasks)
 	_, _ = fmt.Fprintf(out, "  Queue depth:  %d\n", status.QueueDepth)
+	return nil
+}
+
+// runDaemonReconcile calls daemon.reconcile and renders the drift report.
+func runDaemonReconcile(cmd *cobra.Command, c *daemon.Client, jsonOutput bool) error {
+	var resp daemon.ReconcileResponse
+	callCtx, cancel := context.WithTimeout(cmd.Context(), 15*time.Second)
+	defer cancel()
+	if callErr := c.Call(callCtx, daemon.MethodDaemonReconcile, nil, &resp); callErr != nil {
+		return fmt.Errorf("reconcile: %w", callErr)
+	}
+
+	out := cmd.OutOrStdout()
+
+	if jsonOutput {
+		b, marshalErr := json.MarshalIndent(resp, "", "  ")
+		if marshalErr != nil {
+			return fmt.Errorf("marshal reconcile response: %w", marshalErr)
+		}
+		_, _ = fmt.Fprintf(out, "%s\n", b)
+		return nil
+	}
+
+	_, _ = fmt.Fprintln(out, "Reconciliation Report")
+	_, _ = fmt.Fprintln(out, "═══════════════════════════════════════")
+	_, _ = fmt.Fprintf(out, "  Atlas home:  %s\n", resp.AtlasHome)
+	_, _ = fmt.Fprintf(out, "  Drift items: %d\n", resp.Total)
+	_, _ = fmt.Fprintln(out)
+
+	if resp.Total == 0 {
+		_, _ = fmt.Fprintln(out, "✓ "+resp.Summary)
+		return nil
+	}
+
+	for i, item := range resp.DriftItems {
+		_, _ = fmt.Fprintf(out, "  [%d] type: %s\n", i+1, item.Type)
+		if item.TaskID != "" {
+			_, _ = fmt.Fprintf(out, "      task:       %s\n", item.TaskID)
+		}
+		if item.Workspace != "" {
+			_, _ = fmt.Fprintf(out, "      workspace:  %s\n", item.Workspace)
+		}
+		if item.RedisStatus != "" {
+			_, _ = fmt.Fprintf(out, "      redis:      %s\n", item.RedisStatus)
+		}
+		if item.FileStatus != "" {
+			_, _ = fmt.Fprintf(out, "      file:       %s\n", item.FileStatus)
+		}
+		_, _ = fmt.Fprintf(out, "      action:     %s\n", item.SuggestedAction)
+		_, _ = fmt.Fprintln(out)
+	}
+
+	_, _ = fmt.Fprintln(out, "⚠ "+resp.Summary)
 	return nil
 }
 

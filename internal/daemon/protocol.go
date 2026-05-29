@@ -65,6 +65,7 @@ const (
 	MethodTaskPause         = "task.pause"
 	MethodDaemonDoctor      = "daemon.doctor"
 	MethodHookRetry         = "hook.retry"
+	MethodDaemonReconcile   = "daemon.reconcile"
 )
 
 // TaskSubmitRequest is the params for task.submit.
