@@ -9,7 +9,7 @@
 ## Purpose
 
 This document maps the current (as of `origin/master` commit `f1de323`) daemon architecture for the
-Atlas project. Every pre-existing audit finding is named and phase-mapped in Section 12.
+Atlas project. Every pre-existing audit finding is named in Section 12.
 
 ---
 
@@ -52,7 +52,7 @@ During daemon-mode execution the source of truth transfers as follows:
 
 3. **After terminal state:** Redis status field (`completed` / `failed` / `canceled` / `abandoned`) reflects the final outcome. The engine task JSON on disk also reflects the terminal state. The two are written independently and can theoretically diverge if one write succeeds and the other fails — no atomic two-phase commit exists across Redis and filesystem. Recovery (Section 8) is Redis-centric and does not read filesystem state.
 
-**Practical contract:** Redis is authoritative for daemon task lifecycle (queued/running/terminal). The filesystem is authoritative for the engine task content (steps, results, step history) and workspace/workspace-files. For daily-driver use the two must be kept in sync; reconciliation tooling (Phase 6, Task 6.2) will detect and report drift.
+**Practical contract:** Redis is authoritative for daemon task lifecycle (queued/running/terminal). The filesystem is authoritative for the engine task content (steps, results, step history) and workspace/workspace-files. For daily-driver use the two must be kept in sync; planned reconciliation tooling (see Finding 9) will detect and report drift.
 
 ---
 
@@ -81,7 +81,7 @@ All keys produced by `internal/daemon/*.go`:
 - `daemonStateKey = "atlas:daemon:state"` in `health.go:23` — ignores `cfg.Redis.KeyPrefix`.
 - `defaultEventsChannel = "atlas:events"` in `events.go:11` — ignores `cfg.Redis.KeyPrefix`.
 
-These are addressed by Phase 4, Task 4.6.
+These are tracked as audit Finding 8.
 
 ---
 
@@ -121,7 +121,7 @@ atlas daemon start            (internal/cli/daemon.go:runDaemonStart)
       wait for SIGTERM/SIGINT or ctx.Done or stopCh
 ```
 
-**Audit Finding 2 (socket starts before full readiness):** In `daemon.go:Start`, `d.startServer` is step 3. At that point, the PID file has not been written (step 4), the heartbeat is not running (step 5), orphan recovery has not run (step 6), and the worker pool has not started (step 7). A client can submit work before any of those are complete. This is addressed by Phase 3, Task 3.1.
+**Audit Finding 2 (socket starts before full readiness):** In `daemon.go:Start`, `d.startServer` is step 3. At that point, the PID file has not been written (step 4), the heartbeat is not running (step 5), orphan recovery has not run (step 6), and the worker pool has not started (step 7). A client can submit work before any of those are complete. This is tracked as Finding 2.
 
 Once the socket is bound, the IPC path for a submitted task:
 
@@ -201,7 +201,7 @@ task.Engine.Start                   (task/engine.go — not read in full)
   → template steps executed sequentially via executor registry
 ```
 
-**Current behavior of `tryDaemonSubmit`:** `atlas start` currently auto-detects a running daemon and submits to it unless `--dry-run` is set. This is the "auto-prefer daemon" behavior that Phase 4, Task 4.1 inverts to "direct-first, daemon opt-in."
+**Current behavior of `tryDaemonSubmit`:** `atlas start` currently auto-detects a running daemon and submits to it unless `--dry-run` is set. This is the "auto-prefer daemon" behavior that the direct-first design inverts to "direct-first, daemon opt-in."
 
 When the daemon handles the submit, the executor path is:
 ```
@@ -233,7 +233,7 @@ DaemonTaskExecutor.Execute(taskCtx, job)       (workflow/daemon_executor.go:Exec
 
 **Audit Finding 3 (Redis-first, filesystem-later):** The task hash, tasks set, active set, and queue entry all exist in Redis before any workspace or engine task file exists on disk. The workspace and engine task file are created by `DaemonTaskExecutor.start` when a worker actually picks up the task. This is architecturally valid (Redis is the queue's source of truth) but the contract must be explicit and documented.
 
-**Audit Finding 4 (partial rollback):** On queue submit failure (step 4), the code rolls back only the active-set entry (`cache.SetRemoveMember(ctx, redis, activeKey, taskID)`). It does NOT roll back the hash (step 1) or the persistent tasks set (step 2). Those orphaned entries will appear in `task.list` responses with status "queued" but with no queue entry. A restart or status check will find a "queued" task that the worker will never pick up. Phase 4, Task 4.2 implements full rollback.
+**Audit Finding 4 (partial rollback):** On queue submit failure (step 4), the code rolls back only the active-set entry (`cache.SetRemoveMember(ctx, redis, activeKey, taskID)`). It does NOT roll back the hash (step 1) or the persistent tasks set (step 2). Those orphaned entries will appear in `task.list` responses with status "queued" but with no queue entry. A restart or status check will find a "queued" task that the worker will never pick up. Full rollback is planned (see Finding 4 in Section 12).
 
 ---
 
@@ -256,7 +256,7 @@ DaemonTaskExecutor.Execute(taskCtx, job)       (workflow/daemon_executor.go:Exec
 ### Log file path
 
 - **Derived from:** `cfg.Daemon.LogFile` (default `~/.atlas/logs/daemon.log`), `~` expanded at daemon start (`daemon.go:85`).
-- **Owned by:** The daemon process — the zerolog logger writes to this file when initialized with `InitLogger` in `cli/daemon.go:RunDaemonProcess`. The CLI parent (`newDaemonStartCmd`) does not read or write this file; it only prints the path in error diagnostics (when implemented per Task 3.3).
+- **Owned by:** The daemon process — the zerolog logger writes to this file when initialized with `InitLogger` in `cli/daemon.go:RunDaemonProcess`. The CLI parent (`newDaemonStartCmd`) does not read or write this file; it only prints the path in error diagnostics (when implemented).
 - **Note:** The child daemon process currently has `daemonCmd.Stdout = nil` and `daemonCmd.Stderr = nil` (`daemon.go:76–77`). Log visibility depends entirely on the daemon having initialized its file logger before any error. If Redis fails before logger init, the error is silently dropped.
 
 ### Heartbeat key
@@ -287,7 +287,7 @@ DaemonTaskExecutor.Execute(taskCtx, job)       (workflow/daemon_executor.go:Exec
 
 ### What happens when Redis is down
 
-UI/log streaming degrades gracefully per Q5 (accepted design decision). Task monitoring and all interactive actions still work via the daemon socket. Log streaming is silent. A banner is displayed to the user. This is the intended Phase 6 behavior; no additional Redis resilience is planned.
+UI/log streaming degrades gracefully (accepted design decision; see Decision D5 in Section 11). Task monitoring and all interactive actions still work via the daemon socket. Log streaming is silent. A banner is displayed to the user. This is the intended degraded behavior; no additional Redis resilience is planned.
 
 ### Redis data types backing log streaming
 
@@ -328,7 +328,7 @@ UI/log streaming degrades gracefully per Q5 (accepted design decision). Task mon
 - **Partial submit state:** Orphaned task hashes left by a failed submit (Finding 4) with status="queued" and no queue entry are not detected; they show up in `task.list` but are never executed and are never cleaned up.
 - **Hook/checkpoint state:** Recovery does not inspect `~/.atlas/hooks/`. Hook continuity across daemon restart is not reconciled.
 
-**Audit Finding 9 (Redis-centric recovery):** This is by design — Redis is the daemon source-of-truth. However, no reconciliation path exists to detect Redis ↔ filesystem drift. Phase 6, Task 6.2 adds `atlas daemon status --reconcile` to surface drift.
+**Audit Finding 9 (Redis-centric recovery):** This is by design — Redis is the daemon source-of-truth. However, no reconciliation path exists to detect Redis ↔ filesystem drift. Planned reconciliation tooling (`atlas daemon status --reconcile`) will surface drift.
 
 ---
 
@@ -368,53 +368,51 @@ From `.github/workflows/fortress-setup-config.yml:426`, the expected magex targe
 
 The `.mage.yaml` file specifies `timeout: 30m` for the `test` target (the base timeout that race variants inherit). The actual magex command dispatched is `magex test:race -timeout <TEST_TIMEOUT>`.
 
-**Assumption A3 confirmed:** `magex test:race` exists and runs the test suite with the `-race` flag. Falls back to `go test -race ./...` is documented as a safe alternative if magex is unavailable.
+**`magex test:race` confirmed:** it runs the test suite with the `-race` flag. A documented fallback is `go test -race ./...` if magex is unavailable.
 
 ---
 
-## 11. Clarifying-Answer Decisions (Q1–Q9)
+## 11. Design Decisions (D1–D9)
 
-These decisions are baked into the plan and must not be reversed without project-owner sign-off.
+These design decisions must not be reversed without project-owner sign-off.
 
-- **Q1 (direct-first default):** `atlas start` defaults to direct (foreground) mode. Daemon mode is opt-in via `--daemon` flag or `config.Daemon.Default = true`. The current auto-prefer-daemon behavior (`tryDaemonSubmit` at `start.go:213`) is inverted in Phase 4, Task 4.1.
+- **D1 (direct-first default):** `atlas start` defaults to direct (foreground) mode. Daemon mode is opt-in via `--daemon` flag or `config.Daemon.Default = true`. The current auto-prefer-daemon behavior (`tryDaemonSubmit` at `start.go:213`) is inverted to direct-first (see Section 4).
 
-- **Q2 (worktree-path exclusivity):** Exclusivity locking is keyed on the canonical absolute worktree path, not on the upstream git origin URL. Daemon mode uses a Redis lock `<prefix>lock:worktree:<sha256(abs_path)>`. Direct mode uses a filesystem lock. Multiple worktrees of the same origin can run in parallel.
+- **D2 (worktree-path exclusivity):** Exclusivity locking is keyed on the canonical absolute worktree path, not on the upstream git origin URL. Daemon mode uses a Redis lock `<prefix>lock:worktree:<sha256(abs_path)>`. Direct mode uses a filesystem lock. Multiple worktrees of the same origin can run in parallel.
 
-- **Q3 (Redis stays):** Redis remains as the daemon queue backend. No embedded alternative (e.g., SQLite, BoltDB) is introduced in this effort. Redis is an explicit daemon-mode prerequisite with first-class diagnostics.
+- **D3 (Redis stays):** Redis remains as the daemon queue backend. No embedded alternative (e.g., SQLite, BoltDB) is introduced in this design. Redis is an explicit daemon-mode prerequisite with first-class diagnostics.
 
-- **Q4 (auto-resume + verbose recovery):** On daemon restart, orphaned tasks are automatically re-queued (up to `maxRetryCount = 3`). `RecoverOrphanedTasks` emits a structured per-task recovery event to daemon logs and `atlas daemon status` output.
+- **D4 (auto-resume + verbose recovery):** On daemon restart, orphaned tasks are automatically re-queued (up to `maxRetryCount = 3`). `RecoverOrphanedTasks` emits a structured per-task recovery event to daemon logs and `atlas daemon status` output.
 
-- **Q5 (UI/log streaming may degrade):** When Redis is unavailable, `atlas ui` shows a degraded banner but task monitoring via the daemon socket continues. No additional Redis resilience work is in scope.
+- **D5 (UI/log streaming may degrade):** When Redis is unavailable, `atlas ui` shows a degraded banner but task monitoring via the daemon socket continues. No additional Redis resilience work is in scope.
 
-- **Q6 (all 8 phases in scope):** All 8 phases of the plan are in scope. No phases are deferred.
+- **D6 (hook failure = degraded state, not hard failure):** When `CreateHook` or `ReadyHook` fails, the daemon submit succeeds and the task hash gets `crash_recovery: degraded`. This is visible in `atlas status` and `atlas daemon status`. A `atlas hook retry <id>` command re-attempts init.
 
-- **Q7 (hook failure = degraded state, not hard failure):** When `CreateHook` or `ReadyHook` fails, the daemon submit succeeds and the task hash gets `crash_recovery: degraded`. This is visible in `atlas status` and `atlas daemon status`. A `atlas hook retry <id>` command re-attempts init.
+- **D7 (submit partial failure = full rollback):** On any Redis write failure during `handleTaskSubmit`, all prior writes are rolled back. The intended post-rollback state is identical to pre-submit state (see Finding 4).
 
-- **Q8 (submit partial failure = full rollback):** On any Redis write failure during `handleTaskSubmit`, all prior writes are rolled back. The intended post-rollback state is identical to pre-submit state. Implemented in Phase 4, Task 4.2.
-
-- **Q9 (direct mode permanently first-class):** Direct mode is not a temporary fallback. It remains a supported, tested, production execution path for all future Atlas versions. It is not deprecated.
+- **D8 (direct mode permanently first-class):** Direct mode is not a temporary fallback. It remains a supported, tested, production execution path for all future Atlas versions. It is not deprecated.
 
 ---
 
 ## 12. Audit Finding Map
 
-Map of all 16 pre-existing audit findings to the phase that addresses them.
+Map of all 16 pre-existing audit findings and their remediation status.
 
-| Finding | Description (brief) | Addressed In |
+| Finding | Description (brief) | Remediation |
 |---|---|---|
-| 1 | Daemon child fails silently — parent prints "not yet responding" instead of real error | Phase 3: Task 3.1 (readiness contract) + Task 3.3 (child error surfacing) |
-| 2 | Socket starts before full readiness (PID/heartbeat/recovery/pool not yet done) | Phase 3: Task 3.1 — reorder Start to: Redis → PID → heartbeat → recovery → pool → socket |
-| 3 | Submit is Redis-first, filesystem-later (workspace/engine task created later by executor) | Phase 4: Task 4.2 — explicit transactional contract; documented here in Section 5 |
-| 4 | Submit rollback is partial — only active-set rolled back; hash and tasks-set orphaned | Phase 4: Task 4.2 — full rollback with defer-rollback pattern |
-| 5 | Queue comment says nanosecond, code uses `UnixMicro()` — FIFO stability unclear | Phase 4: Task 4.4 — pick nanosecond precision; update code and tests |
-| 6 | `Queue.MaxSize` config field not enforced in `RedisQueue.Submit` | Phase 4: Task 4.3 — enforce or remove with `ErrQueueFull` |
-| 7 | Cancel/abandon may leave queue entries until popped; status/queue-depth UX confusion | Phase 4: Task 4.3 / Phase 6: Task 6.1 — clarify UX contract; verify queue depth does not count canceled tasks as actionable |
-| 8 | `heartbeatKey` and `daemonStateKey` hardcoded as `atlas:*`, not using `cfg.Redis.KeyPrefix` | Phase 4: Task 4.6 — thread prefix through health.go |
-| 9 | Recovery is Redis-centric; does not reconcile from filesystem task/workspace state | Phase 6: Task 6.2 — `atlas daemon status --reconcile` detects Redis ↔ filesystem drift |
-| 10 | `DaemonTaskExecutor` is heavy and requires real AI/GitHub/git for any test | Phase 2: Task 2.4 — testfakes harness (fake AI runner, fake git, miniredis) |
-| 11 | `atlas ui` intentionally degrades when Redis is down; needs explicit tests and user copy | Phase 6: Task 6.3 — degraded UI banner tested explicitly |
-| 12 | Engine persistence ordering: `store.Create` may fail after in-memory task is `running` | Phase 2: Task 2.2 characterization + Phase 5: Task 5.4 — lock down intended behavior in tests |
-| 13 | Hooks/checkpoints are best-effort; `CreateHook`/`ReadyHook` failure is silent warning | Phase 5: Task 5.3 — degrade to `crash_recovery: degraded` state visible in status |
-| 14 | Hook checkpoint loop is in-memory + task-path keyed; daemon restart behavior unverified | Phase 5: Task 5.3 — add tests for checkpoint loop stop/start on restart |
-| 15 | Direct workflow `StartTask` returns partial task on failure; may not be resumable | Phase 6: Task 6.1 — lifecycle vocabulary unification; CLI preserves task ID in error output |
-| 16 | Local checkout drift is a process risk before implementation | Phase 1: Task 1.1 — create fresh worktree from `origin/master`; already done |
+| 1 | Daemon child fails silently — parent prints "not yet responding" instead of real error | Readiness contract + child error surfacing |
+| 2 | Socket starts before full readiness (PID/heartbeat/recovery/pool not yet done) | Reorder Start to: Redis → PID → heartbeat → recovery → pool → socket |
+| 3 | Submit is Redis-first, filesystem-later (workspace/engine task created later by executor) | Explicit transactional contract; documented in Section 5 |
+| 4 | Submit rollback is partial — only active-set rolled back; hash and tasks-set orphaned | Full rollback with defer-rollback pattern |
+| 5 | Queue comment says nanosecond, code uses `UnixMicro()` — FIFO stability unclear | Pick nanosecond precision; update code and tests |
+| 6 | `Queue.MaxSize` config field not enforced in `RedisQueue.Submit` | Enforce or remove with `ErrQueueFull` |
+| 7 | Cancel/abandon may leave queue entries until popped; status/queue-depth UX confusion | Clarify UX contract; verify queue depth does not count canceled tasks as actionable |
+| 8 | `heartbeatKey` and `daemonStateKey` hardcoded as `atlas:*`, not using `cfg.Redis.KeyPrefix` | Thread prefix through health.go |
+| 9 | Recovery is Redis-centric; does not reconcile from filesystem task/workspace state | `atlas daemon status --reconcile` detects Redis ↔ filesystem drift |
+| 10 | `DaemonTaskExecutor` is heavy and requires real AI/GitHub/git for any test | Testfakes harness (fake AI runner, fake git, miniredis) |
+| 11 | `atlas ui` intentionally degrades when Redis is down; needs explicit tests and user copy | Degraded UI banner tested explicitly |
+| 12 | Engine persistence ordering: `store.Create` may fail after in-memory task is `running` | Characterization tests; lock down intended behavior |
+| 13 | Hooks/checkpoints are best-effort; `CreateHook`/`ReadyHook` failure is silent warning | Degrade to `crash_recovery: degraded` state visible in status |
+| 14 | Hook checkpoint loop is in-memory + task-path keyed; daemon restart behavior unverified | Add tests for checkpoint loop stop/start on restart |
+| 15 | Direct workflow `StartTask` returns partial task on failure; may not be resumable | Lifecycle vocabulary unification; CLI preserves task ID in error output |
+| 16 | Local checkout drift is a process risk before implementation | Create fresh worktree from `origin/master`; already done |
