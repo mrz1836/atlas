@@ -164,25 +164,29 @@ func connectRedisClient(ctx context.Context, cfg *config.Config) (*cache.Client,
 
 	client, err := daemon.NewRedisClient(ctx, redisCfg)
 	if err != nil {
-		return nil, fmt.Errorf("connect to Redis: %w", err)
+		return nil, fmt.Errorf("connect to Redis at %s: %w", redisCfg.Addr, err)
 	}
 
 	if err := daemon.PingRedis(ctx, client); err != nil {
 		client.Close()
-		return nil, fmt.Errorf("redis ping failed: %w", err)
+		return nil, fmt.Errorf("redis at %s not responding: %w", redisCfg.Addr, err)
 	}
 
 	return client, nil
 }
 
 // buildStartupError constructs a user-friendly startup error message.
+// When Redis is unavailable, it appends diagnostic text with fix commands.
 func buildStartupError(daemonErr, redisErr error) string {
 	msg := fmt.Sprintf(
 		"Cannot connect to Atlas daemon: %v\n\nRun: atlas daemon start\n\nPress q to quit.",
 		daemonErr,
 	)
 	if redisErr != nil {
-		msg += fmt.Sprintf("\n\n(Redis also unavailable: %v)", redisErr)
+		msg += fmt.Sprintf(
+			"\n\nRedis unavailable: %v\n  Fix: brew services start redis  (macOS)\n       sudo systemctl start redis   (Linux)",
+			redisErr,
+		)
 	}
 	return msg
 }

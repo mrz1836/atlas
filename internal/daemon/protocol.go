@@ -63,6 +63,7 @@ const (
 	MethodEventsUnsubscribe = "events.unsubscribe"
 	MethodWorkspaceDestroy  = "workspace.destroy"
 	MethodTaskPause         = "task.pause"
+	MethodDaemonDoctor      = "daemon.doctor"
 )
 
 // TaskSubmitRequest is the params for task.submit.
@@ -208,6 +209,38 @@ type DaemonStatusResponse struct {
 	Workers     int    `json:"workers"`
 	ActiveTasks int    `json:"active_tasks"`
 	QueueDepth  int    `json:"queue_depth"`
+}
+
+// QueuePriorityStats holds queue depth per priority level.
+type QueuePriorityStats struct {
+	Urgent int `json:"urgent"`
+	Normal int `json:"normal"`
+	Low    int `json:"low"`
+	Total  int `json:"total"`
+}
+
+// DaemonDoctorResponse is the result for daemon.doctor — a full diagnostic report.
+//
+//nolint:revive // DaemonDoctorResponse is intentionally prefixed; it disambiguates across packages.
+type DaemonDoctorResponse struct {
+	Version     string `json:"version,omitempty"`
+	PID         int    `json:"pid"`
+	Uptime      string `json:"uptime"`
+	StartedAt   string `json:"started_at"`
+	RedisAlive  bool   `json:"redis_alive"`
+	Workers     int    `json:"workers"`
+	ActiveTasks int    `json:"active_tasks"`
+
+	// Extended fields.
+	RedisAddr       string             `json:"redis_addr"`
+	HeartbeatAge    string             `json:"heartbeat_age,omitempty"`
+	SocketPath      string             `json:"socket_path"`
+	SocketExists    bool               `json:"socket_exists"`
+	PIDFile         string             `json:"pid_file"`
+	PIDFileExists   bool               `json:"pid_file_exists"`
+	LogFile         string             `json:"log_file,omitempty"`
+	QueueByPriority QueuePriorityStats `json:"queue_by_priority"`
+	DegradedReasons []string           `json:"degraded_reasons"`
 }
 
 // DaemonShutdownRequest is the params for daemon.shutdown.

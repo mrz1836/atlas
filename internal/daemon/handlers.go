@@ -33,6 +33,7 @@ func (d *Daemon) setupRouter(r *Router) {
 	r.Register(MethodDaemonPing, d.handleDaemonPing)
 	r.Register(MethodDaemonStatus, d.handleDaemonStatus)
 	r.Register(MethodDaemonShutdown, d.handleDaemonShutdown)
+	r.Register(MethodDaemonDoctor, d.handleDaemonDoctor)
 
 	r.Register(MethodTaskSubmit, d.handleTaskSubmit)
 	r.Register(MethodTaskStatus, d.handleTaskStatus)
@@ -72,6 +73,10 @@ func (d *Daemon) handleDaemonPing(_ context.Context, _ json.RawMessage) (interfa
 
 func (d *Daemon) handleDaemonStatus(ctx context.Context, _ json.RawMessage) (interface{}, error) {
 	return d.Health(ctx)
+}
+
+func (d *Daemon) handleDaemonDoctor(ctx context.Context, _ json.RawMessage) (interface{}, error) {
+	return d.Doctor(ctx)
 }
 
 func (d *Daemon) handleDaemonShutdown(_ context.Context, _ json.RawMessage) (interface{}, error) {
