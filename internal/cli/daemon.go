@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -19,6 +20,14 @@ import (
 
 // Compile-time check: DaemonTaskExecutor implements daemon.TaskExecutor.
 var _ daemon.TaskExecutor = (*workflow.DaemonTaskExecutor)(nil)
+
+// Sentinel errors for daemon startup failures.
+var (
+	errDaemonFailedToStart     = errors.New("daemon failed to start")
+	errDaemonExitedBeforeReady = errors.New("daemon process exited before signaling readiness")
+	errDaemonStartTimedOut     = errors.New("daemon start timed out after 30s")
+	errDaemonModeUnavailable   = errors.New("daemon mode requested (--daemon) but daemon is not running or unreachable; start the daemon with 'atlas daemon start' or omit --daemon to run direct mode")
+)
 
 // AddDaemonCommand adds the daemon command group to the root command.
 func AddDaemonCommand(root *cobra.Command) {
@@ -125,13 +134,13 @@ func runDaemonStart(cmd *cobra.Command, _ []string) error {
 			return nil
 		case strings.HasPrefix(msg, "error:"):
 			reason := strings.TrimPrefix(msg, "error:")
-			return fmt.Errorf("daemon failed to start: %s\n  Logs: %s", reason, logPath)
+			return fmt.Errorf("%w: %s\n  Logs: %s", errDaemonFailedToStart, reason, logPath)
 		default:
 			// Child exited without signaling — likely a very early failure.
-			return fmt.Errorf("daemon process exited before signaling readiness\n  Logs: %s", logPath)
+			return fmt.Errorf("%w\n  Logs: %s", errDaemonExitedBeforeReady, logPath)
 		}
 	case <-time.After(30 * time.Second):
-		return fmt.Errorf("daemon start timed out after 30s\n  Logs: %s", logPath)
+		return fmt.Errorf("%w\n  Logs: %s", errDaemonStartTimedOut, logPath)
 	}
 }
 
@@ -212,14 +221,17 @@ func runDaemonStatus(cmd *cobra.Command, jsonOutput, reconcile bool) error {
 	}
 
 	c, dialErr := daemon.DialFromConfigContext(cmd.Context(), cfg.Daemon.SocketPath)
-	if dialErr != nil {
+	if dialErr != nil { //nolint:nestif // nested ifs are needed for JSON vs text output with Redis diagnostics
 		out := cmd.OutOrStdout()
 
 		if jsonOutput {
-			b, _ := json.MarshalIndent(map[string]interface{}{
+			b, err := json.MarshalIndent(map[string]interface{}{
 				"running": false,
 				"error":   "daemon not running",
 			}, "", "  ")
+			if err != nil {
+				return fmt.Errorf("marshal status: %w", err)
+			}
 			_, _ = fmt.Fprintf(out, "%s\n", b)
 			return nil
 		}
@@ -410,7 +422,10 @@ func runDaemonDoctor(cmd *cobra.Command, jsonOutput bool) error {
 				"error":  "daemon not running",
 				"detail": dialErr.Error(),
 			}
-			b, _ := json.MarshalIndent(out, "", "  ")
+			b, marshalErr := json.MarshalIndent(out, "", "  ")
+			if marshalErr != nil {
+				return fmt.Errorf("marshal doctor: %w", marshalErr)
+			}
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s\n", b)
 			return nil
 		}

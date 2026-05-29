@@ -112,7 +112,7 @@ func (d *Daemon) Start(ctx context.Context) error {
 }
 
 // doStart performs the ordered startup sequence and signals ready on success.
-func (d *Daemon) doStart(ctx context.Context) error {
+func (d *Daemon) doStart(ctx context.Context) error { //nolint:funcorder // called by Start before Run is defined
 	d.startedAt = time.Now().UTC()
 
 	// 0. Expand ~ in all path config fields.
@@ -226,7 +226,7 @@ func (d *Daemon) doStart(ctx context.Context) error {
 
 // signalReady writes the ready status to the parent process via the ready pipe.
 // It is a no-op when ATLAS_READY_FD is not set.
-func (d *Daemon) signalReady(err error) {
+func (d *Daemon) signalReady(err error) { //nolint:funcorder // called by Start/doStart before Run is defined
 	fdStr := os.Getenv(readyEnvVar)
 	if fdStr == "" {
 		return
@@ -250,7 +250,7 @@ func (d *Daemon) signalReady(err error) {
 // checkStalePID inspects the PID file and handles stale state.
 // Returns errDaemonAlreadyRunning if a live daemon is detected.
 // Removes and logs stale PID files (dead process or invalid content).
-func (d *Daemon) checkStalePID() error {
+func (d *Daemon) checkStalePID() error { //nolint:funcorder // called by doStart before Run is defined
 	pidFile := d.cfg.Daemon.PIDFile
 	if pidFile == "" {
 		return nil
@@ -281,7 +281,7 @@ func (d *Daemon) checkStalePID() error {
 }
 
 // ensureLogDir creates the log file's parent directory if it does not exist.
-func (d *Daemon) ensureLogDir() error {
+func (d *Daemon) ensureLogDir() error { //nolint:funcorder // called by doStart before Run is defined
 	logDir := socketDir(d.cfg.Daemon.LogFile)
 	if logDir == "" {
 		return nil

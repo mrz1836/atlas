@@ -12,7 +12,7 @@ import (
 )
 
 // snapshotKeys returns the set of all Redis keys matching the given prefix in miniredis.
-func snapshotKeys(t *testing.T, mr *miniredis.Miniredis, prefix string) map[string]struct{} {
+func snapshotKeys(t *testing.T, mr *miniredis.Miniredis, _ string) map[string]struct{} {
 	t.Helper()
 	keys := mr.Keys()
 	snap := make(map[string]struct{}, len(keys))
@@ -36,7 +36,7 @@ func TestSubmitRollback_HashWriteFailure(t *testing.T) {
 
 	// Inject a write error on the task hash key by making the key an incompatible type.
 	// We use a Set key where the handler expects a Hash — this causes HMSet to fail.
-	mr.Set("atlas:task:injected-fail", "notahash") //nolint:errcheck // test injection
+	mr.Set("atlas:task:injected-fail", "notahash") //nolint:errcheck,gosec // test injection
 
 	req, err := json.Marshal(TaskSubmitRequest{
 		Description: "test rollback task",
@@ -46,7 +46,7 @@ func TestSubmitRollback_HashWriteFailure(t *testing.T) {
 	require.NoError(t, err)
 
 	// The submit should fail because the hash write will conflict.
-	// NOTE: We can't control the generated UUID so we seed a fixed key conflict manually.
+	// We can't control the generated UUID so we seed a fixed key conflict manually.
 	// Instead we'll verify the clean rollback path by fault-injecting via error middleware.
 	// Since miniredis doesn't provide per-command hooks, we use a different injection:
 	// stop miniredis so ALL Redis ops fail, triggering the hash write step immediately.
@@ -75,7 +75,7 @@ func TestSubmitRollback_TasksSetFailure(t *testing.T) {
 
 	// Poison the "tasks" key with an incompatible type (string instead of set).
 	// When the handler tries SADD to atlas:tasks, Redis returns WRONGTYPE error.
-	mr.Set("atlas:tasks", "notaset")
+	mr.Set("atlas:tasks", "notaset") //nolint:errcheck,gosec // test injection
 
 	req, err := json.Marshal(TaskSubmitRequest{
 		Description: "test tasks set rollback",
@@ -85,7 +85,7 @@ func TestSubmitRollback_TasksSetFailure(t *testing.T) {
 	require.NoError(t, err)
 
 	_, submitErr := d.handleTaskSubmit(ctx, req)
-	assert.Error(t, submitErr, "submit must fail when tasks set write fails")
+	require.Error(t, submitErr, "submit must fail when tasks set write fails")
 	assert.Contains(t, submitErr.Error(), "track in tasks set", "error should mention tasks set step")
 
 	// After rollback: no new task hash keys should exist beyond what was there before.
@@ -115,7 +115,7 @@ func TestSubmitRollback_ActiveSetFailure(t *testing.T) {
 	before := snapshotKeys(t, mr, "atlas:")
 
 	// Poison the "active" set key so SADD to it fails with WRONGTYPE.
-	mr.Set("atlas:active", "notaset")
+	mr.Set("atlas:active", "notaset") //nolint:errcheck,gosec // test injection
 
 	req, err := json.Marshal(TaskSubmitRequest{
 		Description: "test active set rollback",
@@ -125,7 +125,7 @@ func TestSubmitRollback_ActiveSetFailure(t *testing.T) {
 	require.NoError(t, err)
 
 	_, submitErr := d.handleTaskSubmit(ctx, req)
-	assert.Error(t, submitErr, "submit must fail when active set write fails")
+	require.Error(t, submitErr, "submit must fail when active set write fails")
 	assert.Contains(t, submitErr.Error(), "track in active set", "error must identify the failing step")
 
 	// After rollback: no new task hash keys beyond baseline.
@@ -181,7 +181,7 @@ func TestSubmitRollback_QueueSubmitFailure(t *testing.T) {
 	})
 	require.NoError(t, err)
 	_, submitErr := d.handleTaskSubmit(ctx, req2)
-	assert.Error(t, submitErr, "submit must fail when queue is full")
+	require.Error(t, submitErr, "submit must fail when queue is full")
 	assert.Contains(t, submitErr.Error(), "queue is full", "error must mention ErrQueueFull")
 
 	// After rollback, key snapshot should be identical to before the second submit
@@ -199,9 +199,9 @@ func TestSubmitRollback_QueueSubmitFailure(t *testing.T) {
 	// Active and tasks sets should have the same member count as before the failed submit.
 	activeAfter, _ := cache.SetMembers(ctx, d.redis, "atlas:active")
 	tasksAfter, _ := cache.SetMembers(ctx, d.redis, "atlas:tasks")
-	assert.Equal(t, len(activeCountBefore), len(activeAfter),
+	assert.Len(t, activeAfter, len(activeCountBefore),
 		"active set must not grow after failed submit rollback")
-	assert.Equal(t, len(tasksCountBefore), len(tasksAfter),
+	assert.Len(t, tasksAfter, len(tasksCountBefore),
 		"tasks set must not grow after failed submit rollback")
 }
 

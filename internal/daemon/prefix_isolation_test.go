@@ -94,7 +94,7 @@ func TestPrefixIsolation_HeartbeatKeys(t *testing.T) {
 
 	// beta: heartbeat key must NOT exist yet (daemon-B has not written its heartbeat).
 	_, errB := mr.Get(hbKeyB)
-	assert.Error(t, errB, "daemon-B heartbeat key must not exist before daemon-B writes it")
+	require.Error(t, errB, "daemon-B heartbeat key must not exist before daemon-B writes it")
 
 	// Write daemon-B heartbeat.
 	dB.refreshHeartbeat(ctx)
@@ -116,8 +116,8 @@ func TestPrefixIsolation_HeartbeatKeys(t *testing.T) {
 
 	// Both PIDs point to the same process (test process) — that's fine; what matters
 	// is that the keys are different and both daemons wrote to their own namespace.
-	assert.Equal(t, stateKeyA[:len("alpha")], "alpha", "state key A must start with alpha prefix")
-	assert.Equal(t, stateKeyB[:len("beta")], "beta", "state key B must start with beta prefix")
+	assert.Equal(t, "alpha", stateKeyA[:len("alpha")], "state key A must start with alpha prefix")
+	assert.Equal(t, "beta", stateKeyB[:len("beta")], "state key B must start with beta prefix")
 }
 
 // TestPrefixIsolation_QueueKeys verifies that two daemons with different prefixes

@@ -15,7 +15,7 @@ import (
 )
 
 // seedActiveTaskForReconcile adds a task to the Redis active set and sets its hash fields.
-func seedActiveTaskForReconcile(t *testing.T, mr *miniredis.Miniredis, prefix, taskID, status, wsName string) {
+func seedActiveTaskForReconcile(t *testing.T, mr *miniredis.Miniredis, prefix, taskID, status, wsName string) { //nolint:unparam // prefix is configurable for future tests
 	t.Helper()
 	_, err := mr.SAdd(prefix+"active", taskID)
 	require.NoError(t, err)

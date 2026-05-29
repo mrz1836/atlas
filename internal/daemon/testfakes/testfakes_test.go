@@ -155,7 +155,7 @@ func TestFakeExecutor_Execute_DefaultStatus(t *testing.T) {
 
 func TestFakeExecutor_Execute_Error(t *testing.T) {
 	t.Parallel()
-	execErr := errors.New("fake engine error")
+	execErr := errors.New("fake engine error") //nolint:err113 // test-local sentinel
 	exec := &testfakes.FakeExecutor{ExecErr: execErr}
 
 	_, _, err := exec.Execute(context.Background(), daemon.TaskJob{TaskID: "task-err"})
@@ -170,7 +170,7 @@ func TestFakeExecutor_Execute_BlockAndCancel(t *testing.T) {
 	defer cancel()
 
 	_, _, err := exec.Execute(ctx, daemon.TaskJob{TaskID: "task-cancel"})
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.ErrorIs(t, err, context.DeadlineExceeded)
 }
 
@@ -195,7 +195,7 @@ func TestFakeExecutor_Abandon(t *testing.T) {
 
 func TestFakeExecutor_Abandon_Error(t *testing.T) {
 	t.Parallel()
-	abandonErr := errors.New("abandon failed")
+	abandonErr := errors.New("abandon failed") //nolint:err113 // test-local sentinel
 	exec := &testfakes.FakeExecutor{AbandonErr: abandonErr}
 
 	err := exec.Abandon(context.Background(), daemon.TaskJob{TaskID: "err-task"}, "reason")

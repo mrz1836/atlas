@@ -65,7 +65,7 @@ func WriteFilesystemLock(worktreePath, ownerID string) error {
 		return fmt.Errorf("create lock dir %q: %w", lockDir, err)
 	}
 	content := fmt.Sprintf("%d\n%s\n", os.Getpid(), ownerID)
-	return os.WriteFile(FilesystemLockPath(worktreePath), []byte(content), 0o600) //nolint:gosec // content is PID + ownerID
+	return os.WriteFile(FilesystemLockPath(worktreePath), []byte(content), 0o600)
 }
 
 // RemoveFilesystemLock removes the filesystem lock. Errors are silently ignored

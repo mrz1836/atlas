@@ -4,6 +4,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -23,6 +24,9 @@ import (
 	"github.com/mrz1836/atlas/internal/tui"
 	"github.com/mrz1836/atlas/internal/workspace"
 )
+
+// errDaemonNotRunningRetry is returned when a hook retry is requested but no daemon is running.
+var errDaemonNotRunningRetry = errors.New("daemon is not running; cannot retry hook for daemon task")
 
 // AddHookCommand adds the hook command group to the root command.
 func AddHookCommand(root *cobra.Command) {
@@ -437,11 +441,10 @@ func runHookRetry(ctx context.Context, cmd *cobra.Command, w io.Writer, taskID s
 
 	c := tryDaemonClient(ctx, cfg)
 	if c == nil {
-		errMsg := "daemon is not running; cannot retry hook for daemon task"
 		if outputFormat == OutputJSON {
-			return outputHookErrorJSON(w, "retry", errMsg)
+			return outputHookErrorJSON(w, "retry", errDaemonNotRunningRetry.Error())
 		}
-		return fmt.Errorf("%s", errMsg)
+		return errDaemonNotRunningRetry
 	}
 	defer func() { _ = c.Close() }()
 

@@ -98,7 +98,7 @@ func (d *Daemon) handleDaemonShutdown(_ context.Context, _ json.RawMessage) (int
 
 // -- task.* --
 
-func (d *Daemon) handleTaskSubmit(ctx context.Context, params json.RawMessage) (interface{}, error) {
+func (d *Daemon) handleTaskSubmit(ctx context.Context, params json.RawMessage) (interface{}, error) { //nolint:gocognit // complexity is inherent to multi-step transactional submit with rollback
 	var req TaskSubmitRequest
 	if err := json.Unmarshal(params, &req); err != nil {
 		return nil, fmt.Errorf("invalid params: %w", err)
@@ -145,7 +145,7 @@ func (d *Daemon) handleTaskSubmit(ctx context.Context, params json.RawMessage) (
 	// One active Atlas task per worktree path. Daemon mode uses a Redis lock
 	// keyed on sha256(repo_path). Before acquiring it, check the filesystem lock
 	// in case direct mode is running in the same repo.
-	if req.RepoPath != "" {
+	if req.RepoPath != "" { //nolint:nestif // worktree lock acquisition requires nested checks for TTL and conflict detection
 		if lifecycle.IsFilesystemLocked(req.RepoPath) {
 			return nil, fmt.Errorf("%w: %q is locked by a direct-mode task; use 'atlas status' to check", errWorktreeLocked, req.RepoPath)
 		}

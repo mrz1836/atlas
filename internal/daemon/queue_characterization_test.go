@@ -3,7 +3,6 @@ package daemon
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -72,7 +71,7 @@ func TestSubmit_HappyPath(t *testing.T) {
 // TestQueue_FIFO pins the current FIFO ordering of tasks within the same priority
 // level. Tasks submitted in order A → B → C must pop in the same order A → B → C.
 //
-// Note on timestamp precision: the implementation currently uses UnixMicro() as the
+// Timestamp precision note: the implementation currently uses UnixMicro() as the
 // sort score while the QueueEntry comment says "nanosecond timestamp". The test uses
 // time.Sleep between submissions to ensure distinct scores under the current UnixMicro
 // implementation.
@@ -171,7 +170,7 @@ func TestQueue_MaxSize_Enforcement(t *testing.T) {
 	// Third submit must fail with ErrQueueFull.
 	err := q.Submit(ctx, "ms-task-3", PriorityNormal)
 	require.Error(t, err, "third submit must fail")
-	assert.True(t, errors.Is(err, ErrQueueFull), "error must wrap ErrQueueFull; got: %v", err)
+	require.ErrorIs(t, err, ErrQueueFull, "error must wrap ErrQueueFull; got: %v", err)
 
 	// Queue depth must still be 2 (third task was not enqueued).
 	stats, statsErr := q.Stats(ctx)

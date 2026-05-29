@@ -200,7 +200,7 @@ func printDaemonAvailableNote(ctx context.Context, w io.Writer) {
 		return
 	}
 	_ = c.Close()
-	fmt.Fprintln(w, "mode: direct (daemon available — pass --daemon to opt in)")
+	_, _ = fmt.Fprintln(w, "mode: direct (daemon available — pass --daemon to opt in)")
 }
 
 // startContext holds shared state for the start command execution.
@@ -212,7 +212,7 @@ type startContext struct {
 }
 
 // runStart executes the start command.
-func runStart(ctx context.Context, cmd *cobra.Command, w io.Writer, description string, opts startOptions) error {
+func runStart(ctx context.Context, cmd *cobra.Command, w io.Writer, description string, opts startOptions) error { //nolint:gocognit // complexity is inherent to the start command routing logic
 	// Check context cancellation at entry
 	select {
 	case <-ctx.Done():
@@ -242,7 +242,7 @@ func runStart(ctx context.Context, cmd *cobra.Command, w io.Writer, description 
 	//
 	// If neither is true and a daemon is running, print an informational note
 	// but still run in direct/foreground mode.
-	if !opts.dryRun {
+	if !opts.dryRun { //nolint:nestif // daemon routing requires multi-level config + flag checks
 		useDaemon := opts.daemon
 		if !useDaemon {
 			// Check config for daemon default (loads quickly; errors fall through to direct).
@@ -255,7 +255,7 @@ func runStart(ctx context.Context, cmd *cobra.Command, w io.Writer, description 
 				return *daemonResult
 			}
 			// Daemon was requested but submit failed (daemon unavailable). Surface a clear error.
-			return fmt.Errorf("daemon mode requested (--daemon) but daemon is not running or unreachable; start the daemon with 'atlas daemon start' or omit --daemon to run direct mode")
+			return errDaemonModeUnavailable
 		}
 		// Direct mode: detect if daemon is running and print informational note.
 		printDaemonAvailableNote(ctx, w)
@@ -331,7 +331,8 @@ func validateStartFlags(opts startOptions) error {
 	}
 	if opts.verify && opts.noVerify {
 		return atlaserrors.NewExitCode2Error(
-			fmt.Errorf("%w: cannot use both --verify and --no-verify", atlaserrors.ErrConflictingFlags))
+			fmt.Errorf("%w: cannot use both --verify and --no-verify", atlaserrors.ErrConflictingFlags),
+		)
 	}
 	exclusiveCount := 0
 	if opts.baseBranch != "" {
@@ -345,11 +346,13 @@ func validateStartFlags(opts startOptions) error {
 	}
 	if exclusiveCount > 1 {
 		return atlaserrors.NewExitCode2Error(
-			fmt.Errorf("%w: --branch, --target, and --from-pr are mutually exclusive", atlaserrors.ErrConflictingFlags))
+			fmt.Errorf("%w: --branch, --target, and --from-pr are mutually exclusive", atlaserrors.ErrConflictingFlags),
+		)
 	}
 	if opts.fromPRNumber < 0 {
 		return atlaserrors.NewExitCode2Error(
-			fmt.Errorf("%w: --from-pr must be a positive integer", atlaserrors.ErrInvalidArgument))
+			fmt.Errorf("%w: --from-pr must be a positive integer", atlaserrors.ErrInvalidArgument),
+		)
 	}
 	return nil
 }
@@ -368,7 +371,8 @@ func validateStartOptions(opts startOptions, sc *startContext) error {
 	// Validate verify flags - cannot use both
 	if opts.verify && opts.noVerify {
 		return sc.handleError("", atlaserrors.NewExitCode2Error(
-			fmt.Errorf("%w: cannot use both --verify and --no-verify", atlaserrors.ErrConflictingFlags)))
+			fmt.Errorf("%w: cannot use both --verify and --no-verify", atlaserrors.ErrConflictingFlags),
+		))
 	}
 
 	// Validate branch flags - --branch, --target, and --from-pr are mutually exclusive
@@ -384,11 +388,13 @@ func validateStartOptions(opts startOptions, sc *startContext) error {
 	}
 	if exclusiveCount > 1 {
 		return sc.handleError("", atlaserrors.NewExitCode2Error(
-			fmt.Errorf("%w: --branch, --target, and --from-pr are mutually exclusive", atlaserrors.ErrConflictingFlags)))
+			fmt.Errorf("%w: --branch, --target, and --from-pr are mutually exclusive", atlaserrors.ErrConflictingFlags),
+		))
 	}
 	if opts.fromPRNumber < 0 {
 		return sc.handleError("", atlaserrors.NewExitCode2Error(
-			fmt.Errorf("%w: --from-pr must be a positive integer", atlaserrors.ErrInvalidArgument)))
+			fmt.Errorf("%w: --from-pr must be a positive integer", atlaserrors.ErrInvalidArgument),
+		))
 	}
 
 	return nil
@@ -1314,7 +1320,8 @@ func validateAgent(agent string) error {
 	}
 	if !isValidAgent(agent) {
 		return atlaserrors.NewExitCode2Error(
-			fmt.Errorf("%w: '%s' (must be one of claude, gemini, codex)", atlaserrors.ErrAgentNotFound, agent))
+			fmt.Errorf("%w: '%s' (must be one of claude, gemini, codex)", atlaserrors.ErrAgentNotFound, agent),
+		)
 	}
 	return nil
 }
@@ -1349,14 +1356,16 @@ func validateModel(agent, model string) error {
 			return nil
 		}
 		return atlaserrors.NewExitCode2Error(
-			fmt.Errorf("%w: '%s' (must be sonnet, opus, haiku for claude or flash, pro for gemini)", atlaserrors.ErrInvalidModel, model))
+			fmt.Errorf("%w: '%s' (must be sonnet, opus, haiku for claude or flash, pro for gemini)", atlaserrors.ErrInvalidModel, model),
+		)
 	}
 
 	// Validate against specific agent
 	if !isValidModelForAgent(agent, model) {
 		a := domain.Agent(agent)
 		return atlaserrors.NewExitCode2Error(
-			fmt.Errorf("%w: '%s' is not valid for agent '%s' (valid models: %v)", atlaserrors.ErrInvalidModel, model, agent, a.ModelAliases()))
+			fmt.Errorf("%w: '%s' is not valid for agent '%s' (valid models: %v)", atlaserrors.ErrInvalidModel, model, agent, a.ModelAliases()),
+		)
 	}
 	return nil
 }

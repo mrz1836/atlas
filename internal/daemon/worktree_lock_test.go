@@ -58,7 +58,7 @@ func newTestDaemonForLock(t *testing.T, mr *miniredis.Miniredis) (*Daemon, *cach
 }
 
 // submitTaskWithRepoPath calls handleTaskSubmit with repo_path set.
-func submitTaskWithRepoPath(t *testing.T, d *Daemon, repoPath string) (string, error) {
+func submitTaskWithRepoPath(t *testing.T, d *Daemon, repoPath string) (string, error) { //nolint:unparam // taskID may be used by future callers
 	t.Helper()
 	params, err := json.Marshal(TaskSubmitRequest{
 		Description: "test task",

@@ -571,7 +571,7 @@ func TestDaemonDoctor_JSON(t *testing.T) {
 
 	// Verify all JSON-exported fields are present.
 	assert.NotEmpty(t, doc.Version)
-	assert.Greater(t, doc.PID, 0)
+	assert.Positive(t, doc.PID)
 	assert.NotEmpty(t, doc.Uptime)
 	assert.NotEmpty(t, doc.StartedAt)
 	assert.NotEmpty(t, doc.RedisAddr)

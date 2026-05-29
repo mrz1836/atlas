@@ -85,7 +85,7 @@ func (d *Daemon) RecoverOrphanedTasks(ctx context.Context) error {
 
 // recoverTask inspects a single task and applies the recovery contract.
 // Returns a RecoveryEvent describing the decision, or nil if no action was taken.
-func (d *Daemon) recoverTask(ctx context.Context, taskID, keyPrefix string) (*RecoveryEvent, error) {
+func (d *Daemon) recoverTask(ctx context.Context, taskID, keyPrefix string) (*RecoveryEvent, error) { //nolint:gocognit // complexity is inherent to multi-state recovery decision logic
 	fields, err := d.getTaskFields(ctx, taskID, keyPrefix)
 	if err != nil {
 		return nil, fmt.Errorf("get task fields: %w", err)
@@ -159,7 +159,7 @@ func (d *Daemon) recoverTask(ctx context.Context, taskID, keyPrefix string) (*Re
 	// Orphaned running task (no lock). Apply retry/fail logic.
 	retryCount, _ := strconv.Atoi(retryStr)
 
-	if retryCount >= maxRetryCount {
+	if retryCount >= maxRetryCount { //nolint:nestif // nested failure/retry paths are inherent to recovery state machine
 		d.logger.Warn().
 			Str("task_id", taskID).
 			Int("retry_count", retryCount).
@@ -233,12 +233,6 @@ func (d *Daemon) getTaskFields(ctx context.Context, taskID, keyPrefix string) (m
 		}
 	}
 	return result, nil
-}
-
-// getTaskStatus is kept for backward compatibility with existing tests.
-// New code should use getTaskFields.
-func (d *Daemon) getTaskStatus(ctx context.Context, taskID, keyPrefix string) (map[string]string, error) {
-	return d.getTaskFields(ctx, taskID, keyPrefix)
 }
 
 // setTaskField updates a single field in the task hash {prefix}task:{taskID}.

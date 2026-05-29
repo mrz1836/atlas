@@ -668,7 +668,7 @@ func copyBinaryFile(src, dst string, mode os.FileMode) error {
 	}
 
 	// Apply mode explicitly after close — os.OpenFile mode is subject to umask.
-	if err := os.Chmod(dst, mode); err != nil { //nolint:gosec // path from controlled source
+	if err := os.Chmod(dst, mode); err != nil {
 		return fmt.Errorf("chmod %s: %w", dst, err)
 	}
 

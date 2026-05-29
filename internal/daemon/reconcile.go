@@ -101,7 +101,7 @@ func (d *Daemon) loadWorkspaces(atlasHome string) ([]*workspaceEntry, error) {
 // then reports any drift with offending IDs and suggested remediation.
 //
 // It satisfies AC-PB-9 and AC-AI-7.
-func (d *Daemon) Reconcile(ctx context.Context, req ReconcileRequest) (ReconcileResponse, error) {
+func (d *Daemon) Reconcile(ctx context.Context, req ReconcileRequest) (ReconcileResponse, error) { //nolint:gocognit // complexity is inherent to multi-source drift detection logic
 	keyPrefix := d.cfg.Redis.KeyPrefix
 	if keyPrefix == "" {
 		keyPrefix = "atlas:"
@@ -149,7 +149,7 @@ func (d *Daemon) Reconcile(ctx context.Context, req ReconcileRequest) (Reconcile
 	}
 
 	// ── Step 2: scan filesystem workspaces ──────────────────────────────────
-	fsEntries, wsErr := d.loadWorkspaces(atlasHome)
+	fsEntries, wsErr := d.loadWorkspaces(atlasHome) //nolint:contextcheck // loadWorkspaces is filesystem-only, no context needed
 	if wsErr != nil {
 		d.logger.Warn().Err(wsErr).Msg("reconcile: failed to list filesystem workspaces")
 		fsEntries = nil
