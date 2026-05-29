@@ -15,15 +15,19 @@ const (
 	// so a 30s TTL gives three missed beats before expiry.
 	heartbeatTTL = 30 * time.Second
 
-	// heartbeatKey is the Redis key used for the daemon liveness heartbeat.
-	heartbeatKey = "atlas:daemon:heartbeat"
-
-	// daemonStateKey is the Redis hash key storing daemon state metadata.
-	daemonStateKey = "atlas:daemon:state"
-
 	// daemonVersion is the current Atlas daemon version string.
 	daemonVersion = "dev"
 )
+
+// heartbeatKey returns the Redis key for the daemon liveness heartbeat, namespaced by prefix.
+func heartbeatKey(prefix string) string {
+	return Key(prefix, "daemon", "heartbeat")
+}
+
+// daemonStateKey returns the Redis hash key for daemon state metadata, namespaced by prefix.
+func daemonStateKey(prefix string) string {
+	return Key(prefix, "daemon", "state")
+}
 
 // startHeartbeat writes the first heartbeat synchronously (so callers can rely on it
 // being present once startHeartbeat returns), then starts a goroutine for subsequent
@@ -69,8 +73,11 @@ func (d *Daemon) refreshHeartbeat(ctx context.Context) {
 	uptime := time.Since(d.startedAt).Round(time.Second).String()
 	now := time.Now().UTC().Format(time.RFC3339)
 
+	hbKey := heartbeatKey(d.cfg.Redis.KeyPrefix)
+	stateKey := daemonStateKey(d.cfg.Redis.KeyPrefix)
+
 	// Set heartbeat key with 30s TTL.
-	if err := cache.SetExp(ctx, d.redis, heartbeatKey, now, heartbeatTTL); err != nil {
+	if err := cache.SetExp(ctx, d.redis, hbKey, now, heartbeatTTL); err != nil {
 		d.logger.Warn().Err(err).Msg("daemon: failed to refresh heartbeat")
 	} else {
 		// Track last successful heartbeat time for doctor diagnostics.
@@ -87,7 +94,7 @@ func (d *Daemon) refreshHeartbeat(ctx context.Context) {
 		{"status", "running"},
 		{"updated_at", now},
 	}
-	if err := cache.HashMapSet(ctx, d.redis, daemonStateKey, pairs); err != nil {
+	if err := cache.HashMapSet(ctx, d.redis, stateKey, pairs); err != nil {
 		d.logger.Warn().Err(err).Msg("daemon: failed to update state hash")
 	}
 }

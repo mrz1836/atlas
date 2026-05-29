@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strings"
 	"time"
+	"unicode"
 
 	"github.com/google/uuid"
 	cache "github.com/mrz1836/go-cache"
@@ -115,7 +117,27 @@ func (d *Daemon) handleTaskSubmit(ctx context.Context, params json.RawMessage) (
 		return nil, fmt.Errorf("%w: got %q", errInvalidPriority, req.Priority)
 	}
 
-	// Store task metadata in a Redis hash.
+	// Resolve workspace name: use submitted name if provided, otherwise generate one.
+	wsName := req.Workspace
+	if wsName == "" {
+		wsName = daemonGenerateWorkspaceName(req.Description)
+	}
+
+	// --- Transactional submit with full rollback (Q8) ---
+	//
+	// Each Redis write appends its inverse to rollbacks. On any error,
+	// runRollbacks executes them in reverse to leave Redis in its pre-submit state.
+	// The queue.Submit call checks MaxSize and returns ErrQueueFull before writing,
+	// so no rollback is needed for a full-queue rejection.
+	var rollbacks []func()
+
+	rollback := func() {
+		for i := len(rollbacks) - 1; i >= 0; i-- {
+			rollbacks[i]()
+		}
+	}
+
+	// Step 1: Store task metadata in a Redis hash.
 	hashKey := d.cfg.Redis.KeyPrefix + "task:" + taskID
 	pairs := [][2]interface{}{
 		{"id", taskID},
@@ -124,9 +146,7 @@ func (d *Daemon) handleTaskSubmit(ctx context.Context, params json.RawMessage) (
 		{"status", "queued"},
 		{"priority", string(priority)},
 		{"submitted_at", time.Now().UTC().Format(time.RFC3339)},
-	}
-	if req.Workspace != "" {
-		pairs = append(pairs, [2]interface{}{"workspace", req.Workspace})
+		{"workspace", wsName},
 	}
 	if req.Branch != "" {
 		pairs = append(pairs, [2]interface{}{"branch", req.Branch})
@@ -155,36 +175,83 @@ func (d *Daemon) handleTaskSubmit(ctx context.Context, params json.RawMessage) (
 	if err := cache.HashMapSet(ctx, d.redis, hashKey, pairs); err != nil {
 		return nil, fmt.Errorf("store task hash: %w", err)
 	}
+	rollbacks = append(rollbacks, func() {
+		_, _ = cache.DeleteWithoutDependency(ctx, d.redis, hashKey)
+	})
 
-	// Track in persistent tasks set so the task remains visible in listings
-	// even after it reaches a terminal state (completed/failed/canceled).
+	// Step 2: Track in persistent tasks set so the task remains visible in listings.
 	tasksKey := d.cfg.Redis.KeyPrefix + "tasks"
 	if err := cache.SetAdd(ctx, d.redis, tasksKey, taskID); err != nil {
+		rollback()
 		return nil, fmt.Errorf("track in tasks set: %w", err)
 	}
+	rollbacks = append(rollbacks, func() {
+		_ = cache.SetRemoveMember(ctx, d.redis, tasksKey, taskID)
+	})
 
-	// Track in active set BEFORE queuing so the task is always visible once submitted.
+	// Step 3: Track in active set BEFORE queuing so the task is visible once submitted.
 	activeKey := d.cfg.Redis.KeyPrefix + "active"
 	if err := cache.SetAdd(ctx, d.redis, activeKey, taskID); err != nil {
+		rollback()
 		return nil, fmt.Errorf("track in active set: %w", err)
 	}
-
-	// Add to the priority queue; roll back the active-set entry on failure.
-	if err := d.queue.Submit(ctx, taskID, priority); err != nil {
+	rollbacks = append(rollbacks, func() {
 		_ = cache.SetRemoveMember(ctx, d.redis, activeKey, taskID)
+	})
+
+	// Step 4: Add to the priority queue.
+	if err := d.queue.Submit(ctx, taskID, priority); err != nil {
+		rollback()
 		return nil, fmt.Errorf("queue submit: %w", err)
 	}
 
-	// Publish event.
+	// Publish event (best-effort; non-fatal).
 	if err := d.events.Publish(ctx, TaskEvent{
-		Type:   EventTaskSubmitted,
-		TaskID: taskID,
-		Status: "queued",
+		Type:      EventTaskSubmitted,
+		TaskID:    taskID,
+		Status:    "queued",
+		Workspace: wsName,
+		Priority:  string(priority),
 	}); err != nil {
 		d.logger.Warn().Err(err).Str("task_id", taskID).Msg("handlers: failed to publish task.submitted event")
 	}
 
-	return TaskSubmitResponse{TaskID: taskID, Status: "queued"}, nil
+	return TaskSubmitResponse{TaskID: taskID, Status: "queued", Workspace: wsName}, nil
+}
+
+// daemonGenerateWorkspaceName converts a task description to a sanitized workspace
+// name using the same rules as workflow.GenerateWorkspaceName, replicated here to
+// avoid an import cycle (internal/cli/workflow imports internal/daemon).
+func daemonGenerateWorkspaceName(description string) string {
+	const maxLen = 50
+
+	// Lowercase and replace spaces with hyphens.
+	name := strings.ToLower(description)
+	name = strings.Map(func(r rune) rune {
+		if r == ' ' {
+			return '-'
+		}
+		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '-' {
+			return r
+		}
+		return -1 // drop
+	}, name)
+
+	// Collapse multiple hyphens into one.
+	for strings.Contains(name, "--") {
+		name = strings.ReplaceAll(name, "--", "-")
+	}
+	name = strings.Trim(name, "-")
+
+	if len(name) > maxLen {
+		name = name[:maxLen]
+		name = strings.TrimRight(name, "-")
+	}
+
+	if name == "" {
+		name = "task"
+	}
+	return name
 }
 
 func (d *Daemon) handleTaskStatus(ctx context.Context, params json.RawMessage) (interface{}, error) {

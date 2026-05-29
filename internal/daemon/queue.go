@@ -2,10 +2,15 @@ package daemon
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"time"
 
 	cache "github.com/mrz1836/go-cache"
 )
+
+// ErrQueueFull is returned by Submit when the queue has reached its MaxSize limit.
+var ErrQueueFull = errors.New("queue is full")
 
 // Priority levels for the task queue.
 type Priority string
@@ -24,6 +29,11 @@ type QueueEntry struct {
 	TaskID   string
 	Priority Priority
 	Score    float64 // Unix nanosecond timestamp — lower score = submitted earlier (FIFO within same priority)
+	// Score is time.Now().UnixNano() cast to float64. Redis sorted-set scores are
+	// float64 (IEEE 754 double), which gives exact integer representation up to 2^53.
+	// UnixNano values in 2024 are ~1.7×10^18 < 2^53 (~9×10^15), so collisions are
+	// possible for concurrent submits on the same nanosecond tick. In practice this
+	// is acceptable: the sort order within the same nanosecond is arbitrary but stable.
 }
 
 // QueueStats holds queue depth per priority level.
@@ -57,6 +67,7 @@ type Queue interface {
 type RedisQueue struct {
 	client    *cache.Client
 	keyPrefix string
+	maxSize   int // 0 = unlimited; positive = ErrQueueFull when total >= maxSize
 }
 
 // NewRedisQueue creates a new RedisQueue.
@@ -65,10 +76,33 @@ func NewRedisQueue(client *cache.Client, keyPrefix string) *RedisQueue {
 	return &RedisQueue{client: client, keyPrefix: keyPrefix}
 }
 
-// Submit adds a task to the priority queue with a nanosecond timestamp score.
-// Lower scores are popped first (FIFO within the same priority).
+// NewRedisQueueWithMaxSize creates a RedisQueue with a maximum size constraint.
+// When maxSize > 0, Submit returns ErrQueueFull once the total queue depth reaches maxSize.
+// maxSize 0 means unlimited.
+func NewRedisQueueWithMaxSize(client *cache.Client, keyPrefix string, maxSize int) *RedisQueue {
+	return &RedisQueue{client: client, keyPrefix: keyPrefix, maxSize: maxSize}
+}
+
+// Submit adds a task to the priority queue.
+//
+// Score: nanosecond Unix timestamp (float64). IEEE 754 doubles represent integers
+// exactly up to 2^53 ≈ 9×10^15; UnixNano values (~1.7×10^18) exceed this, so the
+// effective resolution is ~256 ns. Two submits within the same ~256 ns window receive
+// the same score and are ordered arbitrarily by Redis. In practice Redis + Go
+// goroutine scheduling overhead is measured in microseconds, so this is not a concern.
+//
+// Returns ErrQueueFull when maxSize > 0 and the total queue depth >= maxSize.
 func (q *RedisQueue) Submit(ctx context.Context, taskID string, priority Priority) error {
-	score := float64(time.Now().UnixMicro())
+	if q.maxSize > 0 {
+		stats, err := q.Stats(ctx)
+		if err != nil {
+			return fmt.Errorf("check queue size: %w", err)
+		}
+		if stats.Total >= int64(q.maxSize) {
+			return fmt.Errorf("%w: limit is %d", ErrQueueFull, q.maxSize)
+		}
+	}
+	score := float64(time.Now().UnixNano())
 	if err := cache.SortedSetAdd(ctx, q.client, q.queueKey(priority), score, taskID); err != nil {
 		return err
 	}

@@ -84,8 +84,9 @@ type TaskSubmitRequest struct {
 
 // TaskSubmitResponse is the result for task.submit.
 type TaskSubmitResponse struct {
-	TaskID string `json:"task_id"`
-	Status string `json:"status"`
+	TaskID    string `json:"task_id"`
+	Status    string `json:"status"`
+	Workspace string `json:"workspace,omitempty"` // generated or submitted workspace name
 }
 
 // TaskStatusRequest is the params for task.status.

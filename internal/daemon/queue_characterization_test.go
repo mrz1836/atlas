@@ -3,6 +3,8 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -143,4 +145,150 @@ func TestQueue_Priority(t *testing.T) {
 	empty, _, err := q.Pop(ctx)
 	require.NoError(t, err)
 	assert.Empty(t, empty)
+}
+
+// newTestQueueWithMaxSize creates a RedisQueue with a specific MaxSize for testing.
+func newTestQueueWithMaxSize(t *testing.T, maxSize int) (*RedisQueue, func()) {
+	t.Helper()
+	q, cleanup := newTestQueue(t)
+	q.maxSize = maxSize
+	return q, cleanup
+}
+
+// TestQueue_MaxSize_Enforcement verifies that Submit returns ErrQueueFull once the
+// queue reaches its configured MaxSize (Task 4.3).
+func TestQueue_MaxSize_Enforcement(t *testing.T) {
+	t.Parallel()
+	q, cleanup := newTestQueueWithMaxSize(t, 2)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// First two submits must succeed.
+	require.NoError(t, q.Submit(ctx, "ms-task-1", PriorityNormal), "first submit must succeed")
+	require.NoError(t, q.Submit(ctx, "ms-task-2", PriorityNormal), "second submit must succeed")
+
+	// Third submit must fail with ErrQueueFull.
+	err := q.Submit(ctx, "ms-task-3", PriorityNormal)
+	require.Error(t, err, "third submit must fail")
+	assert.True(t, errors.Is(err, ErrQueueFull), "error must wrap ErrQueueFull; got: %v", err)
+
+	// Queue depth must still be 2 (third task was not enqueued).
+	stats, statsErr := q.Stats(ctx)
+	require.NoError(t, statsErr)
+	assert.Equal(t, int64(2), stats.Total, "queue depth must not exceed MaxSize")
+}
+
+// TestQueue_MaxSize_Zero_Unlimited verifies that MaxSize=0 means unlimited and does
+// not cause ErrQueueFull even when many tasks are submitted (Task 4.3).
+func TestQueue_MaxSize_Zero_Unlimited(t *testing.T) {
+	t.Parallel()
+	q, cleanup := newTestQueue(t) // default MaxSize=0
+	defer cleanup()
+
+	ctx := context.Background()
+
+	const n = 50
+	for i := range n {
+		id := fmt.Sprintf("unlimited-task-%03d", i)
+		require.NoError(t, q.Submit(ctx, id, PriorityNormal), "submit %d must succeed with MaxSize=0", i)
+	}
+
+	stats, err := q.Stats(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, int64(n), stats.Total)
+}
+
+// TestQueue_FIFO_StableUnderRapidSubmit_AfterInversion verifies that FIFO ordering
+// is stable under rapid back-to-back submissions after the nanosecond-precision
+// switch (Task 4.4). The test runs with -race clean over multiple iterations.
+//
+// A minimal sleep of 1µs ensures distinct nanosecond scores even on systems where
+// consecutive goroutine operations resolve to the same OS tick.
+func TestQueue_FIFO_StableUnderRapidSubmit_AfterInversion(t *testing.T) {
+	t.Parallel()
+	q, cleanup := newTestQueue(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	ids := []string{"rapid-a", "rapid-b", "rapid-c", "rapid-d", "rapid-e"}
+	for _, id := range ids {
+		require.NoError(t, q.Submit(ctx, id, PriorityNormal))
+		time.Sleep(time.Microsecond) // 1µs > 256ns float64 precision floor; ensures distinct scores
+	}
+
+	for _, want := range ids {
+		got, prio, err := q.Pop(ctx)
+		require.NoError(t, err)
+		assert.Equal(t, want, got, "FIFO order must match submission order (nanosecond precision)")
+		assert.Equal(t, PriorityNormal, prio)
+	}
+
+	empty, _, err := q.Pop(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, empty)
+}
+
+// TestQueue_FIFO_AfterInversion updates the pre-phase-4 characterization test to
+// assert the same FIFO contract now that timestamps use UnixNano (Task 4.4).
+// This test is the _AfterInversion successor to TestQueue_FIFO.
+func TestQueue_FIFO_AfterInversion(t *testing.T) {
+	t.Parallel()
+	q, cleanup := newTestQueue(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// 1ms sleep ensures distinct UnixNano (and UnixMicro) scores regardless of
+	// float64 precision floor.
+	ids := []string{"inv-fifo-a", "inv-fifo-b", "inv-fifo-c"}
+	for _, id := range ids {
+		require.NoError(t, q.Submit(ctx, id, PriorityNormal))
+		time.Sleep(time.Millisecond)
+	}
+
+	for _, want := range ids {
+		got, prio, err := q.Pop(ctx)
+		require.NoError(t, err)
+		assert.Equal(t, want, got, "FIFO order must match submission order")
+		assert.Equal(t, PriorityNormal, prio)
+	}
+}
+
+// TestSubmit_HappyPath_AfterInversion is an updated version of TestSubmit_HappyPath
+// that also asserts the workspace name field added by Task 4.5.
+func TestSubmit_HappyPath_AfterInversion(t *testing.T) {
+	t.Parallel()
+	d, _, cleanup := newTestDaemonWithRedis(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	req, err := json.Marshal(TaskSubmitRequest{
+		Description: "fix the login bug",
+		Template:    "bug",
+		Priority:    string(PriorityNormal),
+		Workspace:   "my-workspace",
+	})
+	require.NoError(t, err)
+
+	result, err := d.handleTaskSubmit(ctx, req)
+	require.NoError(t, err)
+
+	resp, ok := result.(TaskSubmitResponse)
+	require.True(t, ok, "result should be a TaskSubmitResponse")
+
+	assert.NotEmpty(t, resp.TaskID)
+	assert.Equal(t, "queued", resp.Status)
+	assert.Equal(t, "my-workspace", resp.Workspace, "submitted workspace name must be echoed")
+
+	// task hash must include workspace field.
+	hashKey := d.cfg.Redis.KeyPrefix + "task:" + resp.TaskID
+	ws, wsErr := cache.HashGet(ctx, d.redis, hashKey, "workspace")
+	require.NoError(t, wsErr)
+	assert.Equal(t, "my-workspace", ws, "workspace must be stored in task hash")
+
+	// Queue depth must be 1.
+	stats, _ := d.queue.Stats(ctx)
+	assert.Equal(t, int64(1), stats.Normal)
 }

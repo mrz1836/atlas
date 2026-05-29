@@ -75,8 +75,9 @@ func TestReadiness_SocketBoundAfterPIDAndHeartbeat(t *testing.T) {
 	require.NoError(t, pidErr, "PID file must exist when Start returns")
 
 	// Heartbeat must be written (gate that precedes socket).
-	hbVal, hbErr := mr.Get(heartbeatKey)
-	require.NoError(t, hbErr, "heartbeat key must be written when Start returns")
+	hbKeyStr := heartbeatKey(cfg.Redis.KeyPrefix)
+	hbVal, hbErr := mr.Get(hbKeyStr)
+	require.NoError(t, hbErr, "heartbeat key %q must be written when Start returns", hbKeyStr)
 	assert.NotEmpty(t, hbVal, "heartbeat value must not be empty")
 
 	// Socket must be bound.

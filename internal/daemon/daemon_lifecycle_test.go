@@ -339,8 +339,9 @@ func TestDaemonStart_HappyPath(t *testing.T) {
 	require.NoError(t, err, "socket file should exist after Start")
 
 	// Redis heartbeat key must be written (verifies heartbeat goroutine ran).
-	hbVal, hbErr := mr.Get(heartbeatKey)
-	require.NoError(t, hbErr, "heartbeat key %q should be written to Redis", heartbeatKey)
+	hbKeyStr := heartbeatKey(cfg.Redis.KeyPrefix)
+	hbVal, hbErr := mr.Get(hbKeyStr)
+	require.NoError(t, hbErr, "heartbeat key %q should be written to Redis", hbKeyStr)
 	assert.NotEmpty(t, hbVal, "heartbeat value should not be empty")
 
 	// Worker pool and queue must be wired.
