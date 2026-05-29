@@ -108,7 +108,7 @@ func runUI(cmd *cobra.Command, _ []string) error {
 	} else if redisErr != nil {
 		// Daemon is up but Redis unavailable — log streaming disabled, task monitoring still works.
 		// Show an informational degraded banner (not a blocking error) so the user can still
-		// monitor tasks via the daemon socket. Satisfies AC-PB-3 / Q5 degraded mode.
+		// monitor tasks via the daemon socket.
 		model.SetStartupError(buildRedisDegradedBanner(redisErr))
 	}
 
@@ -176,8 +176,8 @@ func connectRedisClient(ctx context.Context, cfg *config.Config) (*cache.Client,
 
 // buildRedisDegradedBanner constructs the degraded-mode banner shown when the
 // daemon is reachable but Redis is not. Task monitoring continues via the daemon
-// socket; log streaming is unavailable until Redis is restored.
-// Satisfies AC-PB-3 (Q5: degraded mode must be visible) and AC-AI-8.
+// socket; log streaming is unavailable until Redis is restored. The degraded
+// mode must remain visible to the user.
 func buildRedisDegradedBanner(redisErr error) string {
 	return fmt.Sprintf(
 		"⚠ Degraded mode — log streaming unavailable\n\n"+

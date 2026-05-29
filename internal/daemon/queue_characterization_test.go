@@ -76,9 +76,8 @@ func TestSubmit_HappyPath(t *testing.T) {
 // time.Sleep between submissions to ensure distinct scores under the current UnixMicro
 // implementation.
 //
-// TODO(T-228 phase 4): Task 4.4 will fix this to use nanosecond precision and remove
-// the need for sleeps. Update this test to verify nanosecond-stable ordering at that
-// point.
+// TODO: A later change will switch this to nanosecond precision and remove the need
+// for sleeps. Update this test to verify nanosecond-stable ordering at that point.
 func TestQueue_FIFO(t *testing.T) {
 	t.Parallel()
 	q, cleanup := newTestQueue(t)

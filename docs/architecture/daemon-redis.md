@@ -2,8 +2,6 @@
 
 **Document:** `docs/architecture/daemon-redis.md`
 **Status:** Informational (read-only architecture note; no code changes here)
-**Branch:** `fix/daemon-daily-driver` (T-228)
-**Author:** Zai (T-228 Phase 1, Task 1.2)
 **Date:** 2026-05-28
 
 ---
@@ -11,8 +9,7 @@
 ## Purpose
 
 This document maps the current (as of `origin/master` commit `f1de323`) daemon architecture for the
-Atlas project. It is the required deliverable for T-228 Task 1.2 (AC-DR-3). Every audit finding
-from `todo.md §119–138` is named and phase-mapped in Section 12.
+Atlas project. Every pre-existing audit finding is named and phase-mapped in Section 12.
 
 ---
 
@@ -55,7 +52,7 @@ During daemon-mode execution the source of truth transfers as follows:
 
 3. **After terminal state:** Redis status field (`completed` / `failed` / `canceled` / `abandoned`) reflects the final outcome. The engine task JSON on disk also reflects the terminal state. The two are written independently and can theoretically diverge if one write succeeds and the other fails — no atomic two-phase commit exists across Redis and filesystem. Recovery (Section 8) is Redis-centric and does not read filesystem state.
 
-**Practical contract:** Redis is authoritative for daemon task lifecycle (queued/running/terminal). The filesystem is authoritative for the engine task content (steps, results, step history) and workspace/workspace-files. For daily-driver use the two must be kept in sync; reconciliation tooling (T-228 Phase 6, Task 6.2) will detect and report drift.
+**Practical contract:** Redis is authoritative for daemon task lifecycle (queued/running/terminal). The filesystem is authoritative for the engine task content (steps, results, step history) and workspace/workspace-files. For daily-driver use the two must be kept in sync; reconciliation tooling (Phase 6, Task 6.2) will detect and report drift.
 
 ---
 
@@ -84,7 +81,7 @@ All keys produced by `internal/daemon/*.go`:
 - `daemonStateKey = "atlas:daemon:state"` in `health.go:23` — ignores `cfg.Redis.KeyPrefix`.
 - `defaultEventsChannel = "atlas:events"` in `events.go:11` — ignores `cfg.Redis.KeyPrefix`.
 
-These are addressed by T-228 Phase 4, Task 4.6.
+These are addressed by Phase 4, Task 4.6.
 
 ---
 
@@ -124,7 +121,7 @@ atlas daemon start            (internal/cli/daemon.go:runDaemonStart)
       wait for SIGTERM/SIGINT or ctx.Done or stopCh
 ```
 
-**Audit Finding 2 (socket starts before full readiness):** In `daemon.go:Start`, `d.startServer` is step 3. At that point, the PID file has not been written (step 4), the heartbeat is not running (step 5), orphan recovery has not run (step 6), and the worker pool has not started (step 7). A client can submit work before any of those are complete. This is addressed by T-228 Phase 3, Task 3.1.
+**Audit Finding 2 (socket starts before full readiness):** In `daemon.go:Start`, `d.startServer` is step 3. At that point, the PID file has not been written (step 4), the heartbeat is not running (step 5), orphan recovery has not run (step 6), and the worker pool has not started (step 7). A client can submit work before any of those are complete. This is addressed by Phase 3, Task 3.1.
 
 Once the socket is bound, the IPC path for a submitted task:
 
@@ -204,7 +201,7 @@ task.Engine.Start                   (task/engine.go — not read in full)
   → template steps executed sequentially via executor registry
 ```
 
-**Current behavior of `tryDaemonSubmit`:** `atlas start` currently auto-detects a running daemon and submits to it unless `--dry-run` is set. This is the "auto-prefer daemon" behavior that T-228 Phase 4, Task 4.1 inverts to "direct-first, daemon opt-in."
+**Current behavior of `tryDaemonSubmit`:** `atlas start` currently auto-detects a running daemon and submits to it unless `--dry-run` is set. This is the "auto-prefer daemon" behavior that Phase 4, Task 4.1 inverts to "direct-first, daemon opt-in."
 
 When the daemon handles the submit, the executor path is:
 ```
@@ -236,7 +233,7 @@ DaemonTaskExecutor.Execute(taskCtx, job)       (workflow/daemon_executor.go:Exec
 
 **Audit Finding 3 (Redis-first, filesystem-later):** The task hash, tasks set, active set, and queue entry all exist in Redis before any workspace or engine task file exists on disk. The workspace and engine task file are created by `DaemonTaskExecutor.start` when a worker actually picks up the task. This is architecturally valid (Redis is the queue's source of truth) but the contract must be explicit and documented.
 
-**Audit Finding 4 (partial rollback):** On queue submit failure (step 4), the code rolls back only the active-set entry (`cache.SetRemoveMember(ctx, redis, activeKey, taskID)`). It does NOT roll back the hash (step 1) or the persistent tasks set (step 2). Those orphaned entries will appear in `task.list` responses with status "queued" but with no queue entry. A restart or status check will find a "queued" task that the worker will never pick up. T-228 Phase 4, Task 4.2 implements full rollback.
+**Audit Finding 4 (partial rollback):** On queue submit failure (step 4), the code rolls back only the active-set entry (`cache.SetRemoveMember(ctx, redis, activeKey, taskID)`). It does NOT roll back the hash (step 1) or the persistent tasks set (step 2). Those orphaned entries will appear in `task.list` responses with status "queued" but with no queue entry. A restart or status check will find a "queued" task that the worker will never pick up. Phase 4, Task 4.2 implements full rollback.
 
 ---
 
@@ -290,7 +287,7 @@ DaemonTaskExecutor.Execute(taskCtx, job)       (workflow/daemon_executor.go:Exec
 
 ### What happens when Redis is down
 
-UI/log streaming degrades gracefully per Q5 (accepted design decision). Task monitoring and all interactive actions still work via the daemon socket. Log streaming is silent. A banner is displayed to the user. This is the intended T-228 Phase 6 behavior; no additional Redis resilience is planned for T-228.
+UI/log streaming degrades gracefully per Q5 (accepted design decision). Task monitoring and all interactive actions still work via the daemon socket. Log streaming is silent. A banner is displayed to the user. This is the intended Phase 6 behavior; no additional Redis resilience is planned.
 
 ### Redis data types backing log streaming
 
@@ -331,7 +328,7 @@ UI/log streaming degrades gracefully per Q5 (accepted design decision). Task mon
 - **Partial submit state:** Orphaned task hashes left by a failed submit (Finding 4) with status="queued" and no queue entry are not detected; they show up in `task.list` but are never executed and are never cleaned up.
 - **Hook/checkpoint state:** Recovery does not inspect `~/.atlas/hooks/`. Hook continuity across daemon restart is not reconciled.
 
-**Audit Finding 9 (Redis-centric recovery):** This is by design — Redis is the daemon source-of-truth. However, no reconciliation path exists to detect Redis ↔ filesystem drift. T-228 Phase 6, Task 6.2 adds `atlas daemon status --reconcile` to surface drift.
+**Audit Finding 9 (Redis-centric recovery):** This is by design — Redis is the daemon source-of-truth. However, no reconciliation path exists to detect Redis ↔ filesystem drift. Phase 6, Task 6.2 adds `atlas daemon status --reconcile` to surface drift.
 
 ---
 
@@ -359,7 +356,7 @@ version = "dev"
 ```
 This is a package-level variable, not a `const`. GoReleaser's ldflags inject the actual version string at build time via `-X main.version=...`. At runtime `daemonVersion` in `health.go:25` is also hardcoded to `"dev"` and is not injected — it reports `"dev"` in all environments including production builds. That is a separate issue.
 
-**Current released tag:** `v0.20.10` (as of 2026-05-28, confirmed in plan.md A5).
+**Current released tag:** `v0.20.10` (as of 2026-05-28).
 
 ---
 
@@ -377,31 +374,31 @@ The `.mage.yaml` file specifies `timeout: 30m` for the `test` target (the base t
 
 ## 11. Clarifying-Answer Decisions (Q1–Q9)
 
-These decisions are baked into the T-228 plan and must not be reversed without surfacing to Z.
+These decisions are baked into the plan and must not be reversed without project-owner sign-off.
 
-- **Q1 (direct-first default):** `atlas start` defaults to direct (foreground) mode. Daemon mode is opt-in via `--daemon` flag or `config.Daemon.Default = true`. The current auto-prefer-daemon behavior (`tryDaemonSubmit` at `start.go:213`) is inverted in T-228 Phase 4, Task 4.1.
+- **Q1 (direct-first default):** `atlas start` defaults to direct (foreground) mode. Daemon mode is opt-in via `--daemon` flag or `config.Daemon.Default = true`. The current auto-prefer-daemon behavior (`tryDaemonSubmit` at `start.go:213`) is inverted in Phase 4, Task 4.1.
 
 - **Q2 (worktree-path exclusivity):** Exclusivity locking is keyed on the canonical absolute worktree path, not on the upstream git origin URL. Daemon mode uses a Redis lock `<prefix>lock:worktree:<sha256(abs_path)>`. Direct mode uses a filesystem lock. Multiple worktrees of the same origin can run in parallel.
 
-- **Q3 (Redis stays):** Redis remains as the daemon queue backend. No embedded alternative (e.g., SQLite, BoltDB) is introduced in T-228. Redis is an explicit daemon-mode prerequisite with first-class diagnostics.
+- **Q3 (Redis stays):** Redis remains as the daemon queue backend. No embedded alternative (e.g., SQLite, BoltDB) is introduced in this effort. Redis is an explicit daemon-mode prerequisite with first-class diagnostics.
 
 - **Q4 (auto-resume + verbose recovery):** On daemon restart, orphaned tasks are automatically re-queued (up to `maxRetryCount = 3`). `RecoverOrphanedTasks` emits a structured per-task recovery event to daemon logs and `atlas daemon status` output.
 
-- **Q5 (UI/log streaming may degrade):** When Redis is unavailable, `atlas ui` shows a degraded banner but task monitoring via the daemon socket continues. No additional Redis resilience work is in scope for T-228.
+- **Q5 (UI/log streaming may degrade):** When Redis is unavailable, `atlas ui` shows a degraded banner but task monitoring via the daemon socket continues. No additional Redis resilience work is in scope.
 
-- **Q6 (all 8 phases in scope):** All 8 phases of the T-228 plan are in scope. No phases are deferred.
+- **Q6 (all 8 phases in scope):** All 8 phases of the plan are in scope. No phases are deferred.
 
 - **Q7 (hook failure = degraded state, not hard failure):** When `CreateHook` or `ReadyHook` fails, the daemon submit succeeds and the task hash gets `crash_recovery: degraded`. This is visible in `atlas status` and `atlas daemon status`. A `atlas hook retry <id>` command re-attempts init.
 
-- **Q8 (submit partial failure = full rollback):** On any Redis write failure during `handleTaskSubmit`, all prior writes are rolled back. The intended post-rollback state is identical to pre-submit state. Implemented in T-228 Phase 4, Task 4.2.
+- **Q8 (submit partial failure = full rollback):** On any Redis write failure during `handleTaskSubmit`, all prior writes are rolled back. The intended post-rollback state is identical to pre-submit state. Implemented in Phase 4, Task 4.2.
 
-- **Q9 (direct mode permanently first-class):** Direct mode is not a temporary fallback. It remains a supported, tested, production execution path for all future Atlas versions. It is not deprecated in T-228.
+- **Q9 (direct mode permanently first-class):** Direct mode is not a temporary fallback. It remains a supported, tested, production execution path for all future Atlas versions. It is not deprecated.
 
 ---
 
 ## 12. Audit Finding Map
 
-Map of all 16 findings from `todo.md §119–138` to the T-228 phase that addresses them.
+Map of all 16 pre-existing audit findings to the phase that addresses them.
 
 | Finding | Description (brief) | Addressed In |
 |---|---|---|
@@ -420,4 +417,4 @@ Map of all 16 findings from `todo.md §119–138` to the T-228 phase that addres
 | 13 | Hooks/checkpoints are best-effort; `CreateHook`/`ReadyHook` failure is silent warning | Phase 5: Task 5.3 — degrade to `crash_recovery: degraded` state visible in status |
 | 14 | Hook checkpoint loop is in-memory + task-path keyed; daemon restart behavior unverified | Phase 5: Task 5.3 — add tests for checkpoint loop stop/start on restart |
 | 15 | Direct workflow `StartTask` returns partial task on failure; may not be resumable | Phase 6: Task 6.1 — lifecycle vocabulary unification; CLI preserves task ID in error output |
-| 16 | Local checkout drift is a process risk before implementation | Phase 1: Task 1.1 — create fresh worktree from `origin/master`; already done for T-228 |
+| 16 | Local checkout drift is a process risk before implementation | Phase 1: Task 1.1 — create fresh worktree from `origin/master`; already done |

@@ -63,7 +63,7 @@ func newTestDaemonWithPrefix(t *testing.T, mr *miniredis.Miniredis, prefix strin
 }
 
 // TestPrefixIsolation_HeartbeatKeys verifies that two daemons running with different
-// Redis key prefixes do not see each other's heartbeat (Task 4.6: AC-AI-6).
+// Redis key prefixes do not see each other's heartbeat.
 //
 // This test proves the contract: heartbeatKey and daemonStateKey are both namespaced
 // by cfg.Redis.KeyPrefix, so prefix-A and prefix-B daemons are fully isolated.
@@ -121,7 +121,7 @@ func TestPrefixIsolation_HeartbeatKeys(t *testing.T) {
 }
 
 // TestPrefixIsolation_QueueKeys verifies that two daemons with different prefixes
-// do not see each other's queued tasks (Task 4.6: AC-AI-6).
+// do not see each other's queued tasks.
 func TestPrefixIsolation_QueueKeys(t *testing.T) {
 	t.Parallel()
 	mr := miniredis.RunT(t)

@@ -10,7 +10,7 @@ import (
 )
 
 // TestBuildRedisDegradedBanner verifies the degraded banner contains required content.
-// Satisfies AC-PB-3: banner is visible and describes the degraded state.
+// The banner must be visible and describe the degraded state.
 func TestBuildRedisDegradedBanner(t *testing.T) {
 	t.Parallel()
 
@@ -31,7 +31,6 @@ func TestBuildRedisDegradedBanner(t *testing.T) {
 
 // TestDaemonStatusJSON_Schema validates that daemon status JSON output has
 // the documented fields expected by scripts and tooling.
-// Satisfies AC-MT-6.
 func TestDaemonStatusJSON_Schema(t *testing.T) {
 	t.Parallel()
 

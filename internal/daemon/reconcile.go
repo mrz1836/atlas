@@ -99,8 +99,6 @@ func (d *Daemon) loadWorkspaces(atlasHome string) ([]*workspaceEntry, error) {
 
 // Reconcile walks the Redis active set and the filesystem workspace store,
 // then reports any drift with offending IDs and suggested remediation.
-//
-// It satisfies AC-PB-9 and AC-AI-7.
 func (d *Daemon) Reconcile(ctx context.Context, req ReconcileRequest) (ReconcileResponse, error) { //nolint:gocognit // complexity is inherent to multi-source drift detection logic
 	keyPrefix := d.cfg.Redis.KeyPrefix
 	if keyPrefix == "" {

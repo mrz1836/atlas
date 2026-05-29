@@ -90,7 +90,7 @@ func New(cfg *config.Config, logger zerolog.Logger, opts ...Option) *Daemon {
 
 // Start runs the daemon readiness sequence and binds the IPC socket last.
 //
-// Readiness order (enforces AC-PB-2, AC-AI-5):
+// Readiness order:
 //  1. Expand path config fields
 //  2. Ensure log directory exists
 //  3. Redis connect + ping

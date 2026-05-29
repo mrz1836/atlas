@@ -1,8 +1,7 @@
-# Lifecycle Service: Package Home Decision (T-228 Phase 1, Task 1.3)
+# Lifecycle Service: Package Home Decision
 
 **Date:** 2026-05-28
-**Branch:** fix/daemon-daily-driver
-**Status:** Decision — ready for Phase 2 implementation
+**Status:** Decision — ready for implementation
 
 ---
 
@@ -40,7 +39,7 @@
 
 The `Orchestrator` struct itself is thin and has no direct import of `internal/task/engine` (the concrete engine type). However, its `StartTask` method takes `*task.Engine` as a parameter — a concrete type, not an interface. More significantly, `daemon_executor.go` is already in the `workflow` package and directly imports `internal/daemon`. The package is therefore already doing double duty: it serves the CLI adapter (Orchestrator + Initializer + Prompter) and the daemon adapter (DaemonTaskExecutor). The `ServiceFactory` in `services.go` is the genuine shared core — it wires the engine, AI runners, git services, and validation retry handler identically for both callers.
 
-The `workflow` package is not cleanly separable from the task engine. `ServiceFactory.CreateEngine` returns `*task.Engine` (concrete type) and `RegistryDeps` carries `*task.FileStore` (concrete type). These are deliberate choices that avoid premature interface abstraction, and they mean any attempt to extract a pure lifecycle service into a new package would require either duplicating `ServiceFactory` or making `internal/task` expose interfaces — work that is out of scope for T-228.
+The `workflow` package is not cleanly separable from the task engine. `ServiceFactory.CreateEngine` returns `*task.Engine` (concrete type) and `RegistryDeps` carries `*task.FileStore` (concrete type). These are deliberate choices that avoid premature interface abstraction, and they mean any attempt to extract a pure lifecycle service into a new package would require either duplicating `ServiceFactory` or making `internal/task` expose interfaces — work that is out of scope for this effort.
 
 ---
 
@@ -139,8 +138,8 @@ The `ProgressSink` interface is the seam. Its two implementations — the Redis 
 
 ---
 
-## Assumption A2 Resolution
+## Resolution
 
-Assumption A2 from plan.md is CONFIRMED — **Option A: extend `internal/cli/workflow/`**.
+**Option A: extend `internal/cli/workflow/`** is confirmed.
 
 The `workflow` package is already the shared implementation layer for both direct and daemon execution. `DaemonTaskExecutor` and `ServiceFactory` both live there, `internal/daemon` is already imported inside the package, and creating a new `internal/lifecycle/` package would require moving or duplicating `ServiceFactory` with no architectural benefit to justify the migration cost.

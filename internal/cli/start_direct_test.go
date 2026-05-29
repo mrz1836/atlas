@@ -19,9 +19,9 @@ import (
 // real workspace, AI runner, or network. Daemon mode is intentionally unavailable
 // (no running daemon in test environment).
 //
-// TODO(T-228 phase 4): After Phase 4.1 inverts the default to direct-first, this
-// test should be updated to assert the new "mode: direct (daemon available — pass
-// --daemon to opt in)" banner when a daemon IS running.
+// TODO: Once the default is inverted to direct-first, this test should be updated
+// to assert the new "mode: direct (daemon available — pass --daemon to opt in)"
+// banner when a daemon IS running.
 func TestStart_DirectMode(t *testing.T) {
 	// Uses os.Chdir — must not run in parallel with other dir-changing tests.
 	repoDir := initGitRepo(t)
