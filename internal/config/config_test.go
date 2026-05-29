@@ -648,3 +648,44 @@ func TestConfig_DaemonYAMLRoundTrip(t *testing.T) {
 	assert.Equal(t, 200, restored.Queue.MaxSize, "queue max size round-trip")
 	assert.Equal(t, "urgent", restored.Queue.DefaultPriority, "queue default priority round-trip")
 }
+
+// TestConfig_BackwardCompatOlderSnapshot verifies that a pre-T228 config snapshot
+// (without Daemon.Default) loads cleanly and keeps direct-first semantics.
+func TestConfig_BackwardCompatOlderSnapshot(t *testing.T) {
+	// This YAML mimics a config file from before Daemon.Default was introduced.
+	// The key "default:" is absent from the daemon section entirely.
+	olderYAML := `
+ai:
+  model: sonnet
+  timeout: 30m
+  max_turns: 10
+daemon:
+  enabled: true
+  socket_path: ~/.atlas/daemon.sock
+  pid_file: ~/.atlas/daemon.pid
+  log_file: ~/.atlas/logs/daemon.log
+  max_parallel_tasks: 3
+  task_timeout: 45m
+  shutdown_timeout: 30s
+  heartbeat_interval: 10s
+redis:
+  addr: localhost:6379
+  db: 0
+  key_prefix: "atlas:"
+queue:
+  max_size: 100
+  default_priority: normal
+`
+	var cfg Config
+	err := yaml.Unmarshal([]byte(olderYAML), &cfg)
+	require.NoError(t, err, "older config snapshot should unmarshal without error")
+
+	// Daemon.Default must be false (zero value) — direct-first is the safe default.
+	assert.False(t, cfg.Daemon.Default,
+		"Daemon.Default must default to false for backward-compat (direct-first)")
+
+	// Other daemon fields should round-trip correctly.
+	assert.True(t, cfg.Daemon.Enabled)
+	assert.Equal(t, "~/.atlas/daemon.sock", cfg.Daemon.SocketPath)
+	assert.Equal(t, 3, cfg.Daemon.MaxParallelTasks)
+}

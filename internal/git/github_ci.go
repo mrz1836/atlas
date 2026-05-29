@@ -323,7 +323,8 @@ func (r *CLIGitHubRunner) handleCIFetchError(
 
 	if errType == PRErrorNoChecksYet {
 		handledResult, shouldContinue, handleErr := r.handleNoChecksError(
-			ctx, inGracePeriod, elapsed, opts, result, bellEmitted)
+			ctx, inGracePeriod, elapsed, opts, result, bellEmitted,
+		)
 		if handleErr != nil {
 			return nil, handleErr
 		}

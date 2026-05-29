@@ -94,7 +94,8 @@ func (p *DryRunPresenter) planAI(plan *DryRunPlan, task *domain.Task, step *doma
 	plan.Config["prompt"] = task.Description
 	plan.Config["working_directory"] = p.deps.WorkDir
 
-	plan.WouldDo = append(plan.WouldDo,
+	plan.WouldDo = append(
+		plan.WouldDo,
 		fmt.Sprintf("Execute AI with model: %s", model),
 		fmt.Sprintf("Prompt: %q", task.Description),
 		"AI output is non-deterministic and cannot be predicted",
@@ -160,14 +161,16 @@ func (p *DryRunPresenter) planGit(plan *DryRunPlan, task *domain.Task, step *dom
 
 	switch operation {
 	case "commit":
-		plan.WouldDo = append(plan.WouldDo,
+		plan.WouldDo = append(
+			plan.WouldDo,
 			"Analyze staged and unstaged changes",
 			"Group changes by semantic meaning",
 			"Generate commit message(s) via AI",
 			"Create git commit(s)",
 		)
 	case "push":
-		plan.WouldDo = append(plan.WouldDo,
+		plan.WouldDo = append(
+			plan.WouldDo,
 			fmt.Sprintf("Push branch '%s' to remote 'origin'", branch),
 			"Set upstream tracking",
 		)
@@ -178,7 +181,8 @@ func (p *DryRunPresenter) planGit(plan *DryRunPlan, task *domain.Task, step *dom
 		if baseBranch == "" {
 			baseBranch = "main"
 		}
-		plan.WouldDo = append(plan.WouldDo,
+		plan.WouldDo = append(
+			plan.WouldDo,
 			fmt.Sprintf("Create pull request: %s -> %s", branch, baseBranch),
 			"Generate PR description via AI",
 		)
@@ -197,7 +201,8 @@ func (p *DryRunPresenter) planHuman(plan *DryRunPlan, _ *domain.Task, step *doma
 	}
 
 	plan.Config["message"] = message
-	plan.WouldDo = append(plan.WouldDo,
+	plan.WouldDo = append(
+		plan.WouldDo,
 		"Pause task execution",
 		fmt.Sprintf("Display: %q", message),
 		"Wait for user to approve/reject",
@@ -221,7 +226,8 @@ func (p *DryRunPresenter) planCI(plan *DryRunPlan, _ *domain.Task, _ *domain.Ste
 	plan.Config["poll_interval"] = pollInterval.String()
 	plan.Config["timeout"] = timeout.String()
 
-	plan.WouldDo = append(plan.WouldDo,
+	plan.WouldDo = append(
+		plan.WouldDo,
 		"Wait for CI pipeline to complete",
 		fmt.Sprintf("Poll interval: %s", pollInterval),
 		fmt.Sprintf("Timeout: %s", timeout),
@@ -237,7 +243,8 @@ func (p *DryRunPresenter) planVerify(plan *DryRunPlan, _ *domain.Task, step *dom
 	}
 
 	plan.Config["model"] = model
-	plan.WouldDo = append(plan.WouldDo,
+	plan.WouldDo = append(
+		plan.WouldDo,
 		fmt.Sprintf("Run AI verification with model: %s", model),
 		"Check code correctness",
 		"Review test coverage",
@@ -249,7 +256,8 @@ func (p *DryRunPresenter) planVerify(plan *DryRunPlan, _ *domain.Task, step *dom
 // planSDD generates a plan for SDD step execution.
 func (p *DryRunPresenter) planSDD(plan *DryRunPlan, task *domain.Task, _ *domain.StepDefinition) {
 	plan.Config["prompt"] = task.Description
-	plan.WouldDo = append(plan.WouldDo,
+	plan.WouldDo = append(
+		plan.WouldDo,
 		"Generate SDD specification via AI",
 		"Save SDD artifacts",
 		"SDD output is non-deterministic",
@@ -280,7 +288,8 @@ func (p *DryRunPresenter) planLoop(plan *DryRunPlan, _ *domain.Task, step *domai
 	plan.Config["until_signal"] = untilSignal
 	plan.Config["until"] = until
 
-	plan.WouldDo = append(plan.WouldDo,
+	plan.WouldDo = append(
+		plan.WouldDo,
 		"Execute inner steps iteratively",
 	)
 

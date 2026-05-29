@@ -28,6 +28,7 @@
       - [atlas hook verify-receipt](#atlas-hook-verify-receipt)
       - [atlas hook regenerate](#atlas-hook-regenerate)
       - [atlas hook export](#atlas-hook-export)
+      - [atlas hook retry](#atlas-hook-retry)
    - [atlas checkpoint](#atlas-checkpoint)
    - [atlas backlog](#atlas-backlog)
       - [atlas backlog add](#atlas-backlog-add)
@@ -279,6 +280,7 @@ atlas start "fix null pointer" --template bug --dry-run --output json
 | `--no-interactive` | | Disable interactive prompts | |
 | `--dry-run` | | Show what would happen without executing | |
 | `--from-backlog` | | Link task to backlog discovery (auto-promotes the discovery) | Discovery ID |
+| `--daemon` | | Submit to daemon queue and return immediately (daemon must be running) | |
 
 **Dry-Run Mode:**
 
@@ -611,6 +613,9 @@ atlas hook export > hook-debug.json
 
 # Show instructions for installing git hooks
 atlas hook install
+
+# Re-attempt hook initialization for a task in crash-recovery degraded state
+atlas hook retry <workspace>
 ```
 
 #### atlas hook status
@@ -680,6 +685,14 @@ Export the full hook state as JSON for debugging.
 
 ```bash
 atlas hook export > hook-debug.json
+```
+
+#### atlas hook retry
+
+Re-attempt hook initialization for a task in crash-recovery degraded state.
+
+```bash
+atlas hook retry <workspace>
 ```
 
 <br>
@@ -1352,9 +1365,9 @@ redis-cli ping
 atlas daemon start
 # → Daemon started (PID 12345)
 
-# Submit tasks instantly — returns in <1s
-atlas start "fix authentication bug" -t bug
-# → Task queued: task-abc123 (status: queued)
+# Submit tasks to daemon queue — must pass --daemon
+atlas start "fix authentication bug" -t bug --daemon
+# → Task queued: task-abc123 (mode: daemon)
 
 # Check daemon health
 atlas daemon status
@@ -1396,23 +1409,33 @@ Daemon: alive (PID 12345)
 
 ### Daemon vs. Direct Mode
 
-When the daemon is running, `atlas start` submits the task to the queue and returns immediately (< 1 second), printing the task ID:
+By default, `atlas start` runs in **direct/foreground mode** — it blocks until the task completes.
+This is the safe default: no daemon or Redis required.
+
+**To use daemon mode** (non-blocking, returns in <1s), you must explicitly opt in:
 
 ```bash
-# With daemon running:
-atlas start "fix authentication bug" -t bug
-# → Task queued: task-abc123 (status: queued)
+# Option 1: Pass --daemon flag
+atlas start "fix authentication bug" -t bug --daemon
+# → Task queued: task-abc123 (mode: daemon)
+
+# Option 2: Set daemon as your default in ~/.atlas/config.yaml
+# daemon:
+#   default: true
 ```
 
-When the daemon is **not** running, `atlas start` behaves exactly as before — blocking until the task completes:
-
-```bash
-# Without daemon:
-atlas start "fix authentication bug" -t bug
-# (blocks until complete)
+When the daemon is running but --daemon is not passed, atlas start prints an informational note:
+```
+mode: direct (daemon available — pass --daemon to opt in)
 ```
 
-Zero configuration required — the switch is **automatic**. ATLAS detects whether the daemon is running and routes accordingly.
+**Summary:**
+| | Direct mode | Daemon mode |
+|--|--|--|
+| Activation | Default | --daemon flag or daemon.default: true |
+| Blocks | Yes (until complete) | No (returns <1s) |
+| Redis required | No | Yes |
+| Resume command | Ctrl+C then atlas resume | atlas status / atlas workspace logs |
 
 <a name="daemon-configuration"></a>
 
@@ -1423,6 +1446,7 @@ The daemon is configured via `.atlas/config.yaml` (project) or `~/.atlas/config.
 ```yaml
 daemon:
   enabled: true
+  default: false    # When true, atlas start uses daemon mode without --daemon flag
   socket_path: ~/.atlas/daemon.sock
   pid_file: ~/.atlas/daemon.pid
   log_file: ~/.atlas/logs/daemon.log
@@ -1465,6 +1489,10 @@ queue:
 **Task submitted but not executing**
 - Ensure `daemon.enabled: true` in config
 - Verify `queue.max_size` hasn't been reached: `atlas daemon status`
+
+**atlas start runs in foreground when I want daemon mode**
+- Pass `--daemon` explicitly: `atlas start "..." -t bug --daemon`
+- Or set `daemon.default: true` in `~/.atlas/config.yaml`
 
 <br>
 

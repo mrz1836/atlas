@@ -11,7 +11,7 @@ import (
 // TestSignerImplementsVerifier verifies that Signer interface embeds Verifier behavior.
 func TestSignerImplementsVerifier(_ *testing.T) {
 	// This is a compile-time check that any Signer can be used as a Verifier
-	var _ Verifier = (Signer)(nil)
+	var _ Verifier = Signer(nil)
 }
 
 // mockSigner is a simple mock implementation for testing the interface contract.

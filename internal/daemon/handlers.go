@@ -6,11 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strings"
 	"time"
+	"unicode"
 
 	"github.com/google/uuid"
 	cache "github.com/mrz1836/go-cache"
 
+	"github.com/mrz1836/atlas/internal/lifecycle"
 	"github.com/mrz1836/atlas/internal/workspace"
 )
 
@@ -26,6 +29,7 @@ var (
 	errWorkspaceRequired    = errors.New("workspace is required")
 	errRepoPathRequired     = errors.New("repo_path is required")
 	errInvalidTemplateName  = errors.New("invalid template name requested")
+	errWorktreeLocked       = errors.New("worktree already has an active Atlas task")
 )
 
 // setupRouter registers all JSON-RPC method handlers on the given Router.
@@ -33,6 +37,7 @@ func (d *Daemon) setupRouter(r *Router) {
 	r.Register(MethodDaemonPing, d.handleDaemonPing)
 	r.Register(MethodDaemonStatus, d.handleDaemonStatus)
 	r.Register(MethodDaemonShutdown, d.handleDaemonShutdown)
+	r.Register(MethodDaemonDoctor, d.handleDaemonDoctor)
 
 	r.Register(MethodTaskSubmit, d.handleTaskSubmit)
 	r.Register(MethodTaskStatus, d.handleTaskStatus)
@@ -51,6 +56,8 @@ func (d *Daemon) setupRouter(r *Router) {
 
 	r.Register(MethodWorkspaceDestroy, d.handleWorkspaceDestroy)
 	r.Register(MethodTaskPause, d.handleTaskPause)
+	r.Register(MethodHookRetry, d.handleHookRetry)
+	r.Register(MethodDaemonReconcile, d.handleDaemonReconcile)
 }
 
 // errNotImplemented is kept for test compatibility (stubHandler is used in tests).
@@ -74,6 +81,10 @@ func (d *Daemon) handleDaemonStatus(ctx context.Context, _ json.RawMessage) (int
 	return d.Health(ctx)
 }
 
+func (d *Daemon) handleDaemonDoctor(ctx context.Context, _ json.RawMessage) (interface{}, error) {
+	return d.Doctor(ctx)
+}
+
 func (d *Daemon) handleDaemonShutdown(_ context.Context, _ json.RawMessage) (interface{}, error) {
 	go func() { //nolint:gosec,contextcheck // G118: background ctx is intentional — request ctx will be canceled before shutdown completes
 		// Brief delay so the response can be flushed to the client before shutdown.
@@ -87,7 +98,7 @@ func (d *Daemon) handleDaemonShutdown(_ context.Context, _ json.RawMessage) (int
 
 // -- task.* --
 
-func (d *Daemon) handleTaskSubmit(ctx context.Context, params json.RawMessage) (interface{}, error) {
+func (d *Daemon) handleTaskSubmit(ctx context.Context, params json.RawMessage) (interface{}, error) { //nolint:gocognit // complexity is inherent to multi-step transactional submit with rollback
 	var req TaskSubmitRequest
 	if err := json.Unmarshal(params, &req); err != nil {
 		return nil, fmt.Errorf("invalid params: %w", err)
@@ -110,7 +121,52 @@ func (d *Daemon) handleTaskSubmit(ctx context.Context, params json.RawMessage) (
 		return nil, fmt.Errorf("%w: got %q", errInvalidPriority, req.Priority)
 	}
 
-	// Store task metadata in a Redis hash.
+	// Resolve workspace name: use submitted name if provided, otherwise generate one.
+	wsName := req.Workspace
+	if wsName == "" {
+		wsName = daemonGenerateWorkspaceName(req.Description)
+	}
+
+	// --- Transactional submit with full rollback (Q8) ---
+	//
+	// Each Redis write appends its inverse to rollbacks. On any error,
+	// runRollbacks executes them in reverse to leave Redis in its pre-submit state.
+	// The queue.Submit call checks MaxSize and returns ErrQueueFull before writing,
+	// so no rollback is needed for a full-queue rejection.
+	var rollbacks []func()
+
+	rollback := func() {
+		for i := len(rollbacks) - 1; i >= 0; i-- {
+			rollbacks[i]()
+		}
+	}
+
+	// Step 0: Worktree exclusivity lock (Q2).
+	// One active Atlas task per worktree path. Daemon mode uses a Redis lock
+	// keyed on sha256(repo_path). Before acquiring it, check the filesystem lock
+	// in case direct mode is running in the same repo.
+	if req.RepoPath != "" { //nolint:nestif // worktree lock acquisition requires nested checks for TTL and conflict detection
+		if lifecycle.IsFilesystemLocked(req.RepoPath) {
+			return nil, fmt.Errorf("%w: %q is locked by a direct-mode task; use 'atlas status' to check", errWorktreeLocked, req.RepoPath)
+		}
+		wtLockTTL := int64(d.cfg.Daemon.TaskTimeout.Seconds())
+		if wtLockTTL <= 0 {
+			wtLockTTL = 2700 // 45-minute fallback
+		}
+		wtLocked, wtLockErr := lifecycle.AcquireWorktreeRedisLock(ctx, d.redis, d.cfg.Redis.KeyPrefix, req.RepoPath, taskID, wtLockTTL)
+		if wtLockErr != nil {
+			return nil, fmt.Errorf("acquire worktree lock: %w", wtLockErr)
+		}
+		if !wtLocked {
+			return nil, fmt.Errorf("%w: %q; use 'atlas status' to check existing task", errWorktreeLocked, req.RepoPath)
+		}
+		capturedRepoPath := req.RepoPath
+		rollbacks = append(rollbacks, func() {
+			_ = lifecycle.ReleaseWorktreeRedisLock(ctx, d.redis, d.cfg.Redis.KeyPrefix, capturedRepoPath, taskID)
+		})
+	}
+
+	// Step 1: Store task metadata in a Redis hash.
 	hashKey := d.cfg.Redis.KeyPrefix + "task:" + taskID
 	pairs := [][2]interface{}{
 		{"id", taskID},
@@ -119,9 +175,7 @@ func (d *Daemon) handleTaskSubmit(ctx context.Context, params json.RawMessage) (
 		{"status", "queued"},
 		{"priority", string(priority)},
 		{"submitted_at", time.Now().UTC().Format(time.RFC3339)},
-	}
-	if req.Workspace != "" {
-		pairs = append(pairs, [2]interface{}{"workspace", req.Workspace})
+		{"workspace", wsName},
 	}
 	if req.Branch != "" {
 		pairs = append(pairs, [2]interface{}{"branch", req.Branch})
@@ -150,36 +204,83 @@ func (d *Daemon) handleTaskSubmit(ctx context.Context, params json.RawMessage) (
 	if err := cache.HashMapSet(ctx, d.redis, hashKey, pairs); err != nil {
 		return nil, fmt.Errorf("store task hash: %w", err)
 	}
+	rollbacks = append(rollbacks, func() {
+		_, _ = cache.DeleteWithoutDependency(ctx, d.redis, hashKey)
+	})
 
-	// Track in persistent tasks set so the task remains visible in listings
-	// even after it reaches a terminal state (completed/failed/canceled).
+	// Step 2: Track in persistent tasks set so the task remains visible in listings.
 	tasksKey := d.cfg.Redis.KeyPrefix + "tasks"
 	if err := cache.SetAdd(ctx, d.redis, tasksKey, taskID); err != nil {
+		rollback()
 		return nil, fmt.Errorf("track in tasks set: %w", err)
 	}
+	rollbacks = append(rollbacks, func() {
+		_ = cache.SetRemoveMember(ctx, d.redis, tasksKey, taskID)
+	})
 
-	// Track in active set BEFORE queuing so the task is always visible once submitted.
+	// Step 3: Track in active set BEFORE queuing so the task is visible once submitted.
 	activeKey := d.cfg.Redis.KeyPrefix + "active"
 	if err := cache.SetAdd(ctx, d.redis, activeKey, taskID); err != nil {
+		rollback()
 		return nil, fmt.Errorf("track in active set: %w", err)
 	}
-
-	// Add to the priority queue; roll back the active-set entry on failure.
-	if err := d.queue.Submit(ctx, taskID, priority); err != nil {
+	rollbacks = append(rollbacks, func() {
 		_ = cache.SetRemoveMember(ctx, d.redis, activeKey, taskID)
+	})
+
+	// Step 4: Add to the priority queue.
+	if err := d.queue.Submit(ctx, taskID, priority); err != nil {
+		rollback()
 		return nil, fmt.Errorf("queue submit: %w", err)
 	}
 
-	// Publish event.
+	// Publish event (best-effort; non-fatal).
 	if err := d.events.Publish(ctx, TaskEvent{
-		Type:   EventTaskSubmitted,
-		TaskID: taskID,
-		Status: "queued",
+		Type:      EventTaskSubmitted,
+		TaskID:    taskID,
+		Status:    "queued",
+		Workspace: wsName,
+		Priority:  string(priority),
 	}); err != nil {
 		d.logger.Warn().Err(err).Str("task_id", taskID).Msg("handlers: failed to publish task.submitted event")
 	}
 
-	return TaskSubmitResponse{TaskID: taskID, Status: "queued"}, nil
+	return TaskSubmitResponse{TaskID: taskID, Status: "queued", Workspace: wsName}, nil
+}
+
+// daemonGenerateWorkspaceName converts a task description to a sanitized workspace
+// name using the same rules as workflow.GenerateWorkspaceName, replicated here to
+// avoid an import cycle (internal/cli/workflow imports internal/daemon).
+func daemonGenerateWorkspaceName(description string) string {
+	const maxLen = 50
+
+	// Lowercase and replace spaces with hyphens.
+	name := strings.ToLower(description)
+	name = strings.Map(func(r rune) rune {
+		if r == ' ' {
+			return '-'
+		}
+		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '-' {
+			return r
+		}
+		return -1 // drop
+	}, name)
+
+	// Collapse multiple hyphens into one.
+	for strings.Contains(name, "--") {
+		name = strings.ReplaceAll(name, "--", "-")
+	}
+	name = strings.Trim(name, "-")
+
+	if len(name) > maxLen {
+		name = name[:maxLen]
+		name = strings.TrimRight(name, "-")
+	}
+
+	if name == "" {
+		name = "task"
+	}
+	return name
 }
 
 func (d *Daemon) handleTaskStatus(ctx context.Context, params json.RawMessage) (interface{}, error) {
@@ -195,7 +296,7 @@ func (d *Daemon) handleTaskStatus(ctx context.Context, params json.RawMessage) (
 
 	fields := []interface{}{
 		"id", "status", "priority", "submitted_at", "started_at", "completed_at", "error",
-		"description", "workspace", "agent", "model", "branch", "template",
+		"description", "workspace", "agent", "model", "branch", "template", "crash_recovery",
 	}
 	vals, err := cache.HashMapGet(ctx, d.redis, hashKey, fields...)
 	if err != nil {
@@ -204,19 +305,20 @@ func (d *Daemon) handleTaskStatus(ctx context.Context, params json.RawMessage) (
 
 	// HashMapGet returns values in the same order as keys.
 	resp := TaskStatusResponse{
-		TaskID:      safeIndex(vals, 0),
-		Status:      safeIndex(vals, 1),
-		Priority:    safeIndex(vals, 2),
-		SubmittedAt: safeIndex(vals, 3),
-		StartedAt:   safeIndex(vals, 4),
-		CompletedAt: safeIndex(vals, 5),
-		Error:       safeIndex(vals, 6),
-		Description: safeIndex(vals, 7),
-		Workspace:   safeIndex(vals, 8),
-		Agent:       safeIndex(vals, 9),
-		Model:       safeIndex(vals, 10),
-		Branch:      safeIndex(vals, 11),
-		Template:    safeIndex(vals, 12),
+		TaskID:        safeIndex(vals, 0),
+		Status:        safeIndex(vals, 1),
+		Priority:      safeIndex(vals, 2),
+		SubmittedAt:   safeIndex(vals, 3),
+		StartedAt:     safeIndex(vals, 4),
+		CompletedAt:   safeIndex(vals, 5),
+		Error:         safeIndex(vals, 6),
+		Description:   safeIndex(vals, 7),
+		Workspace:     safeIndex(vals, 8),
+		Agent:         safeIndex(vals, 9),
+		Model:         safeIndex(vals, 10),
+		Branch:        safeIndex(vals, 11),
+		Template:      safeIndex(vals, 12),
+		CrashRecovery: safeIndex(vals, 13),
 	}
 	if resp.TaskID == "" {
 		return nil, fmt.Errorf("task %s: %w", req.TaskID, errTaskNotFound)
@@ -256,7 +358,7 @@ func (d *Daemon) handleTaskList(ctx context.Context, params json.RawMessage) (in
 		hashKey := d.cfg.Redis.KeyPrefix + "task:" + taskID
 		fields := []interface{}{
 			"id", "status", "priority", "submitted_at", "started_at", "completed_at", "error",
-			"description", "workspace", "agent", "model", "branch", "template",
+			"description", "workspace", "agent", "model", "branch", "template", "crash_recovery",
 		}
 		vals, err := cache.HashMapGet(ctx, d.redis, hashKey, fields...)
 		if err != nil {
@@ -264,19 +366,20 @@ func (d *Daemon) handleTaskList(ctx context.Context, params json.RawMessage) (in
 			continue
 		}
 		t := TaskStatusResponse{
-			TaskID:      safeIndex(vals, 0),
-			Status:      safeIndex(vals, 1),
-			Priority:    safeIndex(vals, 2),
-			SubmittedAt: safeIndex(vals, 3),
-			StartedAt:   safeIndex(vals, 4),
-			CompletedAt: safeIndex(vals, 5),
-			Error:       safeIndex(vals, 6),
-			Description: safeIndex(vals, 7),
-			Workspace:   safeIndex(vals, 8),
-			Agent:       safeIndex(vals, 9),
-			Model:       safeIndex(vals, 10),
-			Branch:      safeIndex(vals, 11),
-			Template:    safeIndex(vals, 12),
+			TaskID:        safeIndex(vals, 0),
+			Status:        safeIndex(vals, 1),
+			Priority:      safeIndex(vals, 2),
+			SubmittedAt:   safeIndex(vals, 3),
+			StartedAt:     safeIndex(vals, 4),
+			CompletedAt:   safeIndex(vals, 5),
+			Error:         safeIndex(vals, 6),
+			Description:   safeIndex(vals, 7),
+			Workspace:     safeIndex(vals, 8),
+			Agent:         safeIndex(vals, 9),
+			Model:         safeIndex(vals, 10),
+			Branch:        safeIndex(vals, 11),
+			Template:      safeIndex(vals, 12),
+			CrashRecovery: safeIndex(vals, 13),
 		}
 		if req.Status == "" || t.Status == req.Status {
 			tasks = append(tasks, t)
@@ -623,6 +726,43 @@ func (d *Daemon) handleWorkspaceDestroy(ctx context.Context, params json.RawMess
 		return nil, fmt.Errorf("destroy workspace: %w", err)
 	}
 	return map[string]interface{}{"ok": true}, nil
+}
+
+// -- hook.* --
+
+// handleHookRetry clears the crash_recovery: degraded flag on a task.
+// The caller (CLI) is responsible for re-initializing hooks via the local hook manager.
+// The daemon simply clears the flag so the task no longer appears degraded in status.
+func (d *Daemon) handleHookRetry(ctx context.Context, params json.RawMessage) (interface{}, error) {
+	var req HookRetryRequest
+	if err := json.Unmarshal(params, &req); err != nil {
+		return nil, fmt.Errorf("invalid params: %w", err)
+	}
+	if req.TaskID == "" {
+		return nil, errTaskIDRequired
+	}
+
+	hashKey := d.cfg.Redis.KeyPrefix + "task:" + req.TaskID
+
+	// Verify the task exists.
+	vals, err := cache.HashMapGet(ctx, d.redis, hashKey, "id", "crash_recovery")
+	if err != nil {
+		return nil, fmt.Errorf("read task hash: %w", err)
+	}
+	if safeIndex(vals, 0) == "" {
+		return nil, fmt.Errorf("task %s: %w", req.TaskID, errTaskNotFound)
+	}
+
+	// Clear crash_recovery flag.
+	pairs := [][2]interface{}{
+		{"crash_recovery", ""},
+		{"crash_recovery_reason", ""},
+	}
+	if err := cache.HashMapSet(ctx, d.redis, hashKey, pairs); err != nil {
+		return nil, fmt.Errorf("clear crash_recovery flag: %w", err)
+	}
+
+	return map[string]interface{}{"ok": true, "task_id": req.TaskID}, nil
 }
 
 // -- helpers --

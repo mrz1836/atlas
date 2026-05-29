@@ -24,6 +24,13 @@ var errInvalidPID = errors.New("invalid pid in pid file")
 // errShutdownTimeout is returned from Stop when goroutines do not drain within ShutdownTimeout.
 var errShutdownTimeout = errors.New("shutdown timeout exceeded: goroutines still running")
 
+// errDaemonAlreadyRunning is returned when a live daemon is detected at startup.
+var errDaemonAlreadyRunning = errors.New("daemon already running")
+
+// readyEnvVar is the env variable the parent passes the write-end fd number through.
+// When set, the daemon writes "ready\n" (success) or "error:<msg>\n" (failure) to that fd.
+const readyEnvVar = "ATLAS_READY_FD"
+
 // Option configures a Daemon.
 type Option func(*Daemon)
 
@@ -46,6 +53,15 @@ type Daemon struct {
 	wg        sync.WaitGroup
 	startedAt time.Time
 
+	// lastHeartbeatAt tracks when the heartbeat was last refreshed (for doctor diagnostics).
+	lastHeartbeatAt time.Time
+	heartbeatMu     sync.RWMutex
+
+	// recoveryEvents holds the most recent per-task recovery decisions from startup.
+	// Protected by recoveryMu; capped at maxStoredRecoveryEvents.
+	recoveryEvents []RecoveryEvent
+	recoveryMu     sync.RWMutex
+
 	// executor is the task engine bridge; injected via WithExecutor.
 	executor TaskExecutor
 
@@ -53,6 +69,10 @@ type Daemon struct {
 	server *Server
 	// runner is the worker pool that executes queued tasks (wired in Start).
 	runner *Runner
+
+	// workspaceLoader is an injectable function for listing filesystem workspaces
+	// during reconcile. Defaults to the production implementation; tests override it.
+	workspaceLoader func(atlasHome string) ([]*workspaceEntry, error)
 }
 
 // New creates a new Daemon instance.
@@ -68,12 +88,31 @@ func New(cfg *config.Config, logger zerolog.Logger, opts ...Option) *Daemon {
 	return d
 }
 
-// Start connects Redis, starts the heartbeat, writes the PID file, and
-// publishes the daemon.started event.
+// Start runs the daemon readiness sequence and binds the IPC socket last.
 //
-// Unix-socket binding and worker-pool startup are deferred to Phase 4
-// (server.go and runner.go). Those call-sites are marked with TODO comments below.
+// Readiness order (enforces AC-PB-2, AC-AI-5):
+//  1. Expand path config fields
+//  2. Ensure log directory exists
+//  3. Redis connect + ping
+//  4. Create queue and event publisher
+//  5. Check/remove stale PID file
+//  6. Write PID file
+//  7. Start heartbeat goroutine
+//  8. Orphan recovery
+//  9. Start worker pool
+//  10. Start IPC server (last — no submit can be accepted before all gates above pass)
+//  11. Signal ready to parent
+//  12. Publish daemon.started event
 func (d *Daemon) Start(ctx context.Context) error {
+	err := d.doStart(ctx)
+	if err != nil {
+		d.signalReady(err) // notify parent of failure before returning
+	}
+	return err
+}
+
+// doStart performs the ordered startup sequence and signals ready on success.
+func (d *Daemon) doStart(ctx context.Context) error { //nolint:funcorder // called by Start before Run is defined
 	d.startedAt = time.Now().UTC()
 
 	// 0. Expand ~ in all path config fields.
@@ -85,6 +124,13 @@ func (d *Daemon) Start(ctx context.Context) error {
 	}
 	if expanded, err := ExpandSocketPath(d.cfg.Daemon.LogFile); err == nil {
 		d.cfg.Daemon.LogFile = expanded
+	}
+
+	// 0b. Ensure log directory exists before anything can fail.
+	if d.cfg.Daemon.LogFile != "" {
+		if err := d.ensureLogDir(); err != nil {
+			return err
+		}
 	}
 
 	// 1. Connect to Redis.
@@ -102,9 +148,17 @@ func (d *Daemon) Start(ctx context.Context) error {
 
 	client, err := NewRedisClient(ctx, redisCfg)
 	if err != nil {
-		return fmt.Errorf("start: connect redis: %w", err)
+		return fmt.Errorf("start: %w", err)
 	}
 	d.redis = client
+
+	// 1b. Verify Redis is responsive (catches lazy-connect pool successes).
+	if pingErr := PingRedis(ctx, d.redis); pingErr != nil {
+		d.redis.Close()
+		d.redis = nil
+		return fmt.Errorf("start: redis not responding at %s: %w\n  Diagnose: redis-cli ping %s\n  macOS:    brew services start redis",
+			redisCfg.Addr, pingErr, redisCfg.Addr)
+	}
 
 	// 2. Create queue and event publisher.
 	keyPrefix := d.cfg.Redis.KeyPrefix
@@ -120,11 +174,9 @@ func (d *Daemon) Start(ctx context.Context) error {
 		setter.SetLogWriter(logWriter)
 	}
 
-	// 3. Create socket directory if needed and start the IPC server.
-	if d.cfg.Daemon.SocketPath != "" {
-		if err := d.startServer(ctx); err != nil {
-			return err
-		}
+	// 3. Check for stale PID file; return error if a live daemon is already running.
+	if err := d.checkStalePID(); err != nil {
+		return err
 	}
 
 	// 4. Write PID file.
@@ -135,23 +187,32 @@ func (d *Daemon) Start(ctx context.Context) error {
 	// 5. Start heartbeat goroutine.
 	d.startHeartbeat(ctx)
 
-	// Recover any orphaned tasks from a previous daemon run before accepting new work.
+	// 6. Recover any orphaned tasks from a previous daemon run before accepting new work.
 	if recoverErr := d.RecoverOrphanedTasks(ctx); recoverErr != nil {
 		d.logger.Warn().Err(recoverErr).Msg("daemon: orphan recovery encountered errors (non-fatal)")
 	}
 
-	// Start worker pool.
+	// 7. Start worker pool.
 	d.runner = NewRunner(d.cfg, d.redis, d.queue, d.events, d.logger, d.executor)
 	d.runner.Start(ctx)
 
-	// 6. Publish daemon.started event.
+	// 8. Start IPC server last — a client cannot submit until all readiness gates above pass.
+	if d.cfg.Daemon.SocketPath != "" {
+		if err := d.startServer(ctx); err != nil {
+			return err
+		}
+	}
+
+	// Signal ready to the parent process (no-op if ATLAS_READY_FD is not set).
+	d.signalReady(nil)
+
+	// 9. Publish daemon.started event (non-fatal).
 	evt := TaskEvent{
 		Type:   "daemon.started",
 		TaskID: "",
 		Status: "running",
 	}
 	if pubErr := d.events.Publish(ctx, evt); pubErr != nil {
-		// Non-fatal — log and continue.
 		d.logger.Warn().Err(pubErr).Msg("daemon: failed to publish started event")
 	}
 
@@ -160,6 +221,74 @@ func (d *Daemon) Start(ctx context.Context) error {
 		Str("socket", d.cfg.Daemon.SocketPath).
 		Msg("daemon: started")
 
+	return nil
+}
+
+// signalReady writes the ready status to the parent process via the ready pipe.
+// It is a no-op when ATLAS_READY_FD is not set.
+func (d *Daemon) signalReady(err error) { //nolint:funcorder // called by Start/doStart before Run is defined
+	fdStr := os.Getenv(readyEnvVar)
+	if fdStr == "" {
+		return
+	}
+	fd, parseErr := strconv.Atoi(fdStr)
+	if parseErr != nil || fd <= 2 { // guard stdin/stdout/stderr
+		return
+	}
+	f := os.NewFile(uintptr(fd), "atlas-ready-pipe")
+	if f == nil {
+		return
+	}
+	defer func() { _ = f.Close() }()
+	if err != nil {
+		_, _ = fmt.Fprintf(f, "error:%s\n", err.Error())
+	} else {
+		_, _ = fmt.Fprint(f, "ready\n")
+	}
+}
+
+// checkStalePID inspects the PID file and handles stale state.
+// Returns errDaemonAlreadyRunning if a live daemon is detected.
+// Removes and logs stale PID files (dead process or invalid content).
+func (d *Daemon) checkStalePID() error { //nolint:funcorder // called by doStart before Run is defined
+	pidFile := d.cfg.Daemon.PIDFile
+	if pidFile == "" {
+		return nil
+	}
+
+	// No PID file — nothing stale.
+	if _, statErr := os.Stat(pidFile); os.IsNotExist(statErr) {
+		return nil
+	}
+
+	running, existingPID, checkErr := IsRunning(pidFile)
+	if checkErr != nil {
+		// Invalid PID content — log and remove.
+		d.logger.Warn().Err(checkErr).Str("path", pidFile).Msg("daemon: removing stale PID file with invalid content")
+		_ = os.Remove(pidFile)
+		return nil
+	}
+	if running {
+		return fmt.Errorf("%w with PID %d; run: atlas daemon stop", errDaemonAlreadyRunning, existingPID)
+	}
+
+	// PID file exists but process is dead — remove it and log the decision.
+	d.logger.Info().Str("path", pidFile).Msg("daemon: removing stale PID file (process no longer running)")
+	if rmErr := os.Remove(pidFile); rmErr != nil && !os.IsNotExist(rmErr) {
+		d.logger.Warn().Err(rmErr).Str("path", pidFile).Msg("daemon: failed to remove stale PID file")
+	}
+	return nil
+}
+
+// ensureLogDir creates the log file's parent directory if it does not exist.
+func (d *Daemon) ensureLogDir() error { //nolint:funcorder // called by doStart before Run is defined
+	logDir := socketDir(d.cfg.Daemon.LogFile)
+	if logDir == "" {
+		return nil
+	}
+	if err := os.MkdirAll(logDir, 0o700); err != nil {
+		return fmt.Errorf("start: create log dir %q: %w", logDir, err)
+	}
 	return nil
 }
 
@@ -327,6 +456,35 @@ func (d *Daemon) startServer(ctx context.Context) error {
 		return fmt.Errorf("start: bind unix socket: %w", srvErr)
 	}
 	return nil
+}
+
+// maxStoredRecoveryEvents is the maximum number of recovery events retained in memory
+// for doctor/status output. Older events are dropped.
+const maxStoredRecoveryEvents = 50
+
+// storeRecoveryEvents saves recovery events for later access via Doctor/Health.
+func (d *Daemon) storeRecoveryEvents(events []RecoveryEvent) {
+	if len(events) == 0 {
+		return
+	}
+	d.recoveryMu.Lock()
+	defer d.recoveryMu.Unlock()
+	d.recoveryEvents = append(d.recoveryEvents, events...)
+	if len(d.recoveryEvents) > maxStoredRecoveryEvents {
+		d.recoveryEvents = d.recoveryEvents[len(d.recoveryEvents)-maxStoredRecoveryEvents:]
+	}
+}
+
+// getRecoveryEvents returns a snapshot of the stored recovery events.
+func (d *Daemon) getRecoveryEvents() []RecoveryEvent {
+	d.recoveryMu.RLock()
+	defer d.recoveryMu.RUnlock()
+	if len(d.recoveryEvents) == 0 {
+		return nil
+	}
+	out := make([]RecoveryEvent, len(d.recoveryEvents))
+	copy(out, d.recoveryEvents)
+	return out
 }
 
 // socketDir returns the directory part of a socket/PID path.

@@ -21,6 +21,10 @@ import (
 // DaemonTaskExecutor implements daemon.TaskExecutor using the task engine layer.
 // It bridges daemon TaskJob metadata to the full workspace / git / engine setup
 // that is normally done by the CLI start and resume commands.
+//
+// It also implements daemon.HookInitializer so the runner can call InitHooks
+// before Execute and mark the task degraded (crash_recovery=degraded) if hook
+// init fails rather than hard-failing the submit.
 type DaemonTaskExecutor struct {
 	logger    zerolog.Logger
 	cfg       *config.Config
@@ -76,7 +80,7 @@ func (e *DaemonTaskExecutor) Abandon(ctx context.Context, job daemon.TaskJob, re
 }
 
 // start creates a new workspace and begins task execution.
-func (e *DaemonTaskExecutor) start(ctx context.Context, job daemon.TaskJob) (string, string, error) {
+func (e *DaemonTaskExecutor) start(ctx context.Context, job daemon.TaskJob) (string, string, error) { //nolint:funcorder // unexported helper called by exported Execute
 	services := NewServiceFactory(e.logger).WithRepoPath(job.RepoPath)
 
 	taskStore, err := services.CreateTaskStore()
@@ -123,7 +127,7 @@ func (e *DaemonTaskExecutor) start(ctx context.Context, job daemon.TaskJob) (str
 }
 
 // resume continues a paused or error-state task.
-func (e *DaemonTaskExecutor) resume(ctx context.Context, job daemon.TaskJob) (string, string, error) {
+func (e *DaemonTaskExecutor) resume(ctx context.Context, job daemon.TaskJob) (string, string, error) { //nolint:funcorder // unexported helper called by exported Execute
 	services := NewServiceFactory(e.logger).WithRepoPath(job.RepoPath)
 
 	taskStore, err := services.CreateTaskStore()
@@ -209,6 +213,8 @@ func (w *logStreamWriter) Write(p []byte) (int, error) {
 var _ io.Writer = (*logStreamWriter)(nil)
 
 // buildEngine creates a fully-wired task engine for the given worktree path.
+//
+//nolint:funcorder // unexported helper placed here for logical grouping
 func (e *DaemonTaskExecutor) buildEngine(
 	ctx context.Context,
 	services *ServiceFactory,
@@ -259,7 +265,7 @@ func (e *DaemonTaskExecutor) buildEngine(
 
 // makeProgressCallback returns a StepProgressCallback that writes step events to Redis.
 // Returns nil when no logWriter is configured.
-func (e *DaemonTaskExecutor) makeProgressCallback(ctx context.Context, taskID string) task.StepProgressCallback {
+func (e *DaemonTaskExecutor) makeProgressCallback(ctx context.Context, taskID string) task.StepProgressCallback { //nolint:funcorder // unexported helper placed here for logical grouping
 	if e.logWriter == nil {
 		return nil
 	}
@@ -295,7 +301,7 @@ func (e *DaemonTaskExecutor) makeProgressCallback(ctx context.Context, taskID st
 
 // makeValidationProgressCallback returns a validation progress callback that writes to Redis.
 // Returns nil when no logWriter is configured.
-func (e *DaemonTaskExecutor) makeValidationProgressCallback(ctx context.Context, taskID string) func(step, status string, info *validation.ProgressInfo) {
+func (e *DaemonTaskExecutor) makeValidationProgressCallback(ctx context.Context, taskID string) func(step, status string, info *validation.ProgressInfo) { //nolint:funcorder // unexported helper placed here for logical grouping
 	if e.logWriter == nil {
 		return nil
 	}
@@ -314,6 +320,8 @@ func (e *DaemonTaskExecutor) makeValidationProgressCallback(ctx context.Context,
 }
 
 // provisionWorkspace creates or reuses a workspace and returns worktreePath and branch.
+//
+//nolint:funcorder // unexported helper placed here for logical grouping
 func (e *DaemonTaskExecutor) provisionWorkspace(
 	ctx context.Context,
 	job daemon.TaskJob,
@@ -358,7 +366,7 @@ func (e *DaemonTaskExecutor) provisionWorkspace(
 }
 
 // resolveTemplate loads and returns the named template from the registry.
-func (e *DaemonTaskExecutor) resolveTemplate(job daemon.TaskJob, cfg *config.Config) (*domain.Template, error) {
+func (e *DaemonTaskExecutor) resolveTemplate(job daemon.TaskJob, cfg *config.Config) (*domain.Template, error) { //nolint:funcorder // unexported helper placed here for logical grouping
 	registry, err := template.NewRegistryWithConfig(job.RepoPath, cfg.Templates.CustomTemplates)
 	if err != nil {
 		return nil, fmt.Errorf("create template registry: %w", err)
@@ -375,6 +383,41 @@ func (e *DaemonTaskExecutor) resolveTemplate(job daemon.TaskJob, cfg *config.Con
 	}
 	return tmpl, nil
 }
+
+// InitHooks implements daemon.HookInitializer.
+// It creates a temporary hook manager, creates a minimal domain.Task, and calls
+// CreateHook + ReadyHook. If either fails, it returns (true, reason) so the runner
+// can mark the task as crash_recovery=degraded but still proceed with execution.
+//
+// The full workspace is not provisioned here; InitHooks is a best-effort
+// pre-run check. The engine's own initializeHook call remains authoritative.
+func (e *DaemonTaskExecutor) InitHooks(ctx context.Context, job daemon.TaskJob) (degraded bool, reason string) {
+	if job.Workspace == "" || job.TaskID == "" {
+		return false, ""
+	}
+
+	services := NewServiceFactory(e.logger).WithRepoPath(job.RepoPath)
+	hm := services.CreateHookManager(e.cfg, e.logger)
+	if hm == nil {
+		return false, ""
+	}
+
+	t := &domain.Task{
+		ID:          job.TaskID,
+		WorkspaceID: job.Workspace,
+	}
+
+	if err := hm.CreateHook(ctx, t); err != nil {
+		return true, fmt.Sprintf("CreateHook failed: %v", err)
+	}
+	if err := hm.ReadyHook(ctx, t); err != nil {
+		return true, fmt.Sprintf("ReadyHook failed: %v", err)
+	}
+	return false, ""
+}
+
+// Ensure DaemonTaskExecutor implements daemon.HookInitializer.
+var _ daemon.HookInitializer = (*DaemonTaskExecutor)(nil)
 
 // resolveGitCfgFromConfig converts config git settings to GitConfig with fallbacks.
 func resolveGitCfgFromConfig(cfg *config.Config) GitConfig {

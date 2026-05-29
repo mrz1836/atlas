@@ -663,7 +663,16 @@ func copyBinaryFile(src, dst string, mode os.FileMode) error {
 		return fmt.Errorf("copy to %s: %w", dst, err)
 	}
 
-	return dstFile.Close()
+	if err := dstFile.Close(); err != nil {
+		return err
+	}
+
+	// Apply mode explicitly after close — os.OpenFile mode is subject to umask.
+	if err := os.Chmod(dst, mode); err != nil {
+		return fmt.Errorf("chmod %s: %w", dst, err)
+	}
+
+	return nil
 }
 
 // isNewerVersion returns true if latest is newer than current.

@@ -135,6 +135,12 @@ atlas start "Fix race condition in cache handler" --type bug
 
 ATLAS creates a worktree, analyzes the codebase, generates an implementation plan, and waits for your approval.
 
+> By default `atlas start` runs in **foreground (direct) mode**. To use background daemon mode, start the daemon first and pass `--daemon`:
+> ```bash
+> atlas daemon start   # start background daemon (requires Redis)
+> atlas start "..." --daemon
+> ```
+
 <br>
 
 ### Review and approve the plan
@@ -216,6 +222,7 @@ ATLAS merges the changes back to your main branch and cleans up the worktree.
 
 ### Developer Experience
 
+- **Direct-first mode:** Runs foreground by default; daemon is an explicit opt-in for power users (Redis required for daemon mode only)
 - **Minimal Configuration:** Works out-of-the-box for Go projects
 - **Status Dashboard:** Real-time view of all active workspaces
 - **Clean Git History:** Commits are well-formed and descriptive

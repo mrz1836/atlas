@@ -107,10 +107,9 @@ func runUI(cmd *cobra.Command, _ []string) error {
 		model.SetStartupError(buildStartupError(daemonErr, redisErr))
 	} else if redisErr != nil {
 		// Daemon is up but Redis unavailable — log streaming disabled, task monitoring still works.
-		model.SetStartupError(fmt.Sprintf(
-			"Redis unavailable — log streaming disabled: %v\n\nPress q to quit.",
-			redisErr,
-		))
+		// Show an informational degraded banner (not a blocking error) so the user can still
+		// monitor tasks via the daemon socket. Satisfies AC-PB-3 / Q5 degraded mode.
+		model.SetStartupError(buildRedisDegradedBanner(redisErr))
 	}
 
 	// Launch the Bubble Tea program.
@@ -164,25 +163,46 @@ func connectRedisClient(ctx context.Context, cfg *config.Config) (*cache.Client,
 
 	client, err := daemon.NewRedisClient(ctx, redisCfg)
 	if err != nil {
-		return nil, fmt.Errorf("connect to Redis: %w", err)
+		return nil, fmt.Errorf("connect to Redis at %s: %w", redisCfg.Addr, err)
 	}
 
 	if err := daemon.PingRedis(ctx, client); err != nil {
 		client.Close()
-		return nil, fmt.Errorf("redis ping failed: %w", err)
+		return nil, fmt.Errorf("redis at %s not responding: %w", redisCfg.Addr, err)
 	}
 
 	return client, nil
 }
 
+// buildRedisDegradedBanner constructs the degraded-mode banner shown when the
+// daemon is reachable but Redis is not. Task monitoring continues via the daemon
+// socket; log streaming is unavailable until Redis is restored.
+// Satisfies AC-PB-3 (Q5: degraded mode must be visible) and AC-AI-8.
+func buildRedisDegradedBanner(redisErr error) string {
+	return fmt.Sprintf(
+		"⚠ Degraded mode — log streaming unavailable\n\n"+
+			"Redis is not reachable: %v\n\n"+
+			"Task monitoring continues via daemon socket.\n"+
+			"Log streaming will resume automatically when Redis is restored.\n\n"+
+			"Fix: brew services start redis  (macOS)\n"+
+			"     sudo systemctl start redis  (Linux)\n\n"+
+			"Press q to quit.",
+		redisErr,
+	)
+}
+
 // buildStartupError constructs a user-friendly startup error message.
+// When Redis is unavailable, it appends diagnostic text with fix commands.
 func buildStartupError(daemonErr, redisErr error) string {
 	msg := fmt.Sprintf(
 		"Cannot connect to Atlas daemon: %v\n\nRun: atlas daemon start\n\nPress q to quit.",
 		daemonErr,
 	)
 	if redisErr != nil {
-		msg += fmt.Sprintf("\n\n(Redis also unavailable: %v)", redisErr)
+		msg += fmt.Sprintf(
+			"\n\nRedis unavailable: %v\n  Fix: brew services start redis  (macOS)\n       sudo systemctl start redis   (Linux)",
+			redisErr,
+		)
 	}
 	return msg
 }

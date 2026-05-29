@@ -68,7 +68,8 @@ func (f FeedbackInput) View(termWidth, termHeight int) string {
 	title := s.KeyHint.Render("Reject task — enter feedback:")
 	hint := s.Dimmed.Render("[enter] submit  [esc] cancel")
 
-	inner := fmt.Sprintf("\n  %s\n\n  %s\n\n  %s\n",
+	inner := fmt.Sprintf(
+		"\n  %s\n\n  %s\n\n  %s\n",
 		title,
 		f.input.View(),
 		hint,

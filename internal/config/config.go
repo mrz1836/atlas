@@ -508,6 +508,12 @@ type DaemonConfig struct {
 	// Default: true
 	Enabled bool `yaml:"enabled" mapstructure:"enabled"`
 
+	// Default controls whether atlas start uses daemon mode by default.
+	// When false (the default), atlas start runs in direct/foreground mode unless
+	// --daemon is passed explicitly. Set to true to make daemon mode the default.
+	// Backward-compat default: false (direct-first, never breaks existing scripts).
+	Default bool `yaml:"default" mapstructure:"default"`
+
 	// SocketPath is the Unix domain socket path for IPC.
 	// Default: ~/.atlas/daemon.sock
 	SocketPath string `yaml:"socket_path" mapstructure:"socket_path"`

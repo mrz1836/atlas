@@ -103,7 +103,8 @@ func TestEngine_ProcessCIFailureAction_ViewLogs(t *testing.T) {
 	browserOpened := false
 	openedURL := ""
 	hubRunner := &mockHubRunner{}
-	ciFailureHandler := NewCIFailureHandler(hubRunner,
+	ciFailureHandler := NewCIFailureHandler(
+		hubRunner,
 		WithCIFailureLogger(logger),
 		WithBrowserOpener(func(url string) error {
 			browserOpened = true

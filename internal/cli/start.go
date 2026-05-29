@@ -48,6 +48,7 @@ type startOptions struct {
 	verify        bool
 	noVerify      bool
 	dryRun        bool
+	daemon        bool   // Opt in to daemon mode (overrides direct-first default)
 	fromBacklogID string // Discovery ID to link and promote after task creation
 	fromPRNumber  int    // GitHub PR number to resolve to head branch (mutually exclusive with baseBranch/targetBranch)
 }
@@ -66,6 +67,7 @@ func newStartCmd() *cobra.Command {
 		verify        bool
 		noVerify      bool
 		dryRun        bool
+		daemon        bool
 		fromBacklogID string
 		fromPRNumber  int
 	)
@@ -100,6 +102,7 @@ Examples:
 				verify:        verify,
 				noVerify:      noVerify,
 				dryRun:        dryRun,
+				daemon:        daemon,
 				fromBacklogID: fromBacklogID,
 				fromPRNumber:  fromPRNumber,
 			})
@@ -128,6 +131,8 @@ Examples:
 		"Disable AI verification step")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false,
 		"Show what would happen without making changes")
+	cmd.Flags().BoolVar(&daemon, "daemon", false,
+		"Submit task to the daemon queue and return immediately (daemon must be running)")
 	cmd.Flags().StringVar(&fromBacklogID, "from-backlog", "",
 		"Link this task to a backlog discovery (auto-promotes the discovery)")
 	cmd.Flags().IntVar(&fromPRNumber, "from-pr", 0,
@@ -168,11 +173,34 @@ func tryDaemonSubmit(ctx context.Context, cmd *cobra.Command, w io.Writer, descr
 		return &result // daemon is alive but submit failed; surface the error
 	}
 	out := tui.NewOutput(w, cmd.Flag("output").Value.String())
-	out.Success(fmt.Sprintf("Task queued: %s", resp.TaskID))
-	out.Info(fmt.Sprintf("  Status: %s", resp.Status))
-	out.Info("  Run 'atlas status' to check progress")
+	out.Success(fmt.Sprintf("Task queued: %s (mode: daemon)", resp.TaskID))
+	out.Info(fmt.Sprintf("  Status:    %s", resp.Status))
+	if resp.Workspace != "" {
+		out.Info(fmt.Sprintf("  Workspace: %s", resp.Workspace))
+		out.Info(fmt.Sprintf("  Follow:    atlas status %s", resp.TaskID))
+		out.Info(fmt.Sprintf("  Logs:      atlas workspace logs %s", resp.Workspace))
+	} else {
+		out.Info(fmt.Sprintf("  Follow:    atlas status %s", resp.TaskID))
+	}
 	result := error(nil)
 	return &result
+}
+
+// printDaemonAvailableNote checks whether the daemon is running and, if so, prints
+// a one-line informational note so the user knows they can opt in via --daemon.
+// Errors are silently swallowed — this is informational only and must not block
+// the direct execution path.
+func printDaemonAvailableNote(ctx context.Context, w io.Writer) {
+	quickCfg, cfgErr := config.Load(ctx)
+	if cfgErr != nil {
+		return
+	}
+	c := tryDaemonClient(ctx, quickCfg)
+	if c == nil {
+		return
+	}
+	_ = c.Close()
+	_, _ = fmt.Fprintln(w, "mode: direct (daemon available — pass --daemon to opt in)")
 }
 
 // startContext holds shared state for the start command execution.
@@ -184,7 +212,7 @@ type startContext struct {
 }
 
 // runStart executes the start command.
-func runStart(ctx context.Context, cmd *cobra.Command, w io.Writer, description string, opts startOptions) error {
+func runStart(ctx context.Context, cmd *cobra.Command, w io.Writer, description string, opts startOptions) error { //nolint:gocognit // complexity is inherent to the start command routing logic
 	// Check context cancellation at entry
 	select {
 	case <-ctx.Done():
@@ -206,13 +234,31 @@ func runStart(ctx context.Context, cmd *cobra.Command, w io.Writer, description 
 		return fmt.Errorf("not in a git repository: %w", repoErr)
 	}
 
-	// Daemon-aware path: when the daemon is running and this is not a dry-run,
-	// submit the task to the queue and return immediately.
-	// Falls through to direct (blocking) execution if the daemon is unavailable.
-	if !opts.dryRun {
-		if daemonResult := tryDaemonSubmit(ctx, cmd, w, description, opts, repoPath); daemonResult != nil {
-			return *daemonResult
+	// Direct-first routing (Q1): daemon mode is opt-in, not auto-detected.
+	//
+	// The daemon path is taken only when:
+	//   1. --daemon flag is explicitly passed, OR
+	//   2. config.Daemon.Default = true (set in ~/.atlas/config.yaml)
+	//
+	// If neither is true and a daemon is running, print an informational note
+	// but still run in direct/foreground mode.
+	if !opts.dryRun { //nolint:nestif // daemon routing requires multi-level config + flag checks
+		useDaemon := opts.daemon
+		if !useDaemon {
+			// Check config for daemon default (loads quickly; errors fall through to direct).
+			if quickCfg, cfgErr := config.Load(ctx); cfgErr == nil && quickCfg.Daemon.Default {
+				useDaemon = true
+			}
 		}
+		if useDaemon {
+			if daemonResult := tryDaemonSubmit(ctx, cmd, w, description, opts, repoPath); daemonResult != nil {
+				return *daemonResult
+			}
+			// Daemon was requested but submit failed (daemon unavailable). Surface a clear error.
+			return errDaemonModeUnavailable
+		}
+		// Direct mode: detect if daemon is running and print informational note.
+		printDaemonAvailableNote(ctx, w)
 	}
 
 	// Create signal handler for graceful shutdown on Ctrl+C
@@ -285,7 +331,8 @@ func validateStartFlags(opts startOptions) error {
 	}
 	if opts.verify && opts.noVerify {
 		return atlaserrors.NewExitCode2Error(
-			fmt.Errorf("%w: cannot use both --verify and --no-verify", atlaserrors.ErrConflictingFlags))
+			fmt.Errorf("%w: cannot use both --verify and --no-verify", atlaserrors.ErrConflictingFlags),
+		)
 	}
 	exclusiveCount := 0
 	if opts.baseBranch != "" {
@@ -299,11 +346,13 @@ func validateStartFlags(opts startOptions) error {
 	}
 	if exclusiveCount > 1 {
 		return atlaserrors.NewExitCode2Error(
-			fmt.Errorf("%w: --branch, --target, and --from-pr are mutually exclusive", atlaserrors.ErrConflictingFlags))
+			fmt.Errorf("%w: --branch, --target, and --from-pr are mutually exclusive", atlaserrors.ErrConflictingFlags),
+		)
 	}
 	if opts.fromPRNumber < 0 {
 		return atlaserrors.NewExitCode2Error(
-			fmt.Errorf("%w: --from-pr must be a positive integer", atlaserrors.ErrInvalidArgument))
+			fmt.Errorf("%w: --from-pr must be a positive integer", atlaserrors.ErrInvalidArgument),
+		)
 	}
 	return nil
 }
@@ -322,7 +371,8 @@ func validateStartOptions(opts startOptions, sc *startContext) error {
 	// Validate verify flags - cannot use both
 	if opts.verify && opts.noVerify {
 		return sc.handleError("", atlaserrors.NewExitCode2Error(
-			fmt.Errorf("%w: cannot use both --verify and --no-verify", atlaserrors.ErrConflictingFlags)))
+			fmt.Errorf("%w: cannot use both --verify and --no-verify", atlaserrors.ErrConflictingFlags),
+		))
 	}
 
 	// Validate branch flags - --branch, --target, and --from-pr are mutually exclusive
@@ -338,11 +388,13 @@ func validateStartOptions(opts startOptions, sc *startContext) error {
 	}
 	if exclusiveCount > 1 {
 		return sc.handleError("", atlaserrors.NewExitCode2Error(
-			fmt.Errorf("%w: --branch, --target, and --from-pr are mutually exclusive", atlaserrors.ErrConflictingFlags)))
+			fmt.Errorf("%w: --branch, --target, and --from-pr are mutually exclusive", atlaserrors.ErrConflictingFlags),
+		))
 	}
 	if opts.fromPRNumber < 0 {
 		return sc.handleError("", atlaserrors.NewExitCode2Error(
-			fmt.Errorf("%w: --from-pr must be a positive integer", atlaserrors.ErrInvalidArgument)))
+			fmt.Errorf("%w: --from-pr must be a positive integer", atlaserrors.ErrInvalidArgument),
+		))
 	}
 
 	return nil
@@ -1268,7 +1320,8 @@ func validateAgent(agent string) error {
 	}
 	if !isValidAgent(agent) {
 		return atlaserrors.NewExitCode2Error(
-			fmt.Errorf("%w: '%s' (must be one of claude, gemini, codex)", atlaserrors.ErrAgentNotFound, agent))
+			fmt.Errorf("%w: '%s' (must be one of claude, gemini, codex)", atlaserrors.ErrAgentNotFound, agent),
+		)
 	}
 	return nil
 }
@@ -1303,14 +1356,16 @@ func validateModel(agent, model string) error {
 			return nil
 		}
 		return atlaserrors.NewExitCode2Error(
-			fmt.Errorf("%w: '%s' (must be sonnet, opus, haiku for claude or flash, pro for gemini)", atlaserrors.ErrInvalidModel, model))
+			fmt.Errorf("%w: '%s' (must be sonnet, opus, haiku for claude or flash, pro for gemini)", atlaserrors.ErrInvalidModel, model),
+		)
 	}
 
 	// Validate against specific agent
 	if !isValidModelForAgent(agent, model) {
 		a := domain.Agent(agent)
 		return atlaserrors.NewExitCode2Error(
-			fmt.Errorf("%w: '%s' is not valid for agent '%s' (valid models: %v)", atlaserrors.ErrInvalidModel, model, agent, a.ModelAliases()))
+			fmt.Errorf("%w: '%s' is not valid for agent '%s' (valid models: %v)", atlaserrors.ErrInvalidModel, model, agent, a.ModelAliases()),
+		)
 	}
 	return nil
 }

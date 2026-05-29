@@ -132,15 +132,18 @@ func resolveBacklogAddMode(ctx context.Context, mgr *backlog.Manager, args []str
 	// Flag mode: validate required inputs
 	if len(args) == 0 {
 		return nil, atlaserrors.NewExitCode2Error(
-			fmt.Errorf("%w: title argument is required in flag mode", atlaserrors.ErrUserInputRequired))
+			fmt.Errorf("%w: title argument is required in flag mode", atlaserrors.ErrUserInputRequired),
+		)
 	}
 	if flags.category == "" {
 		return nil, atlaserrors.NewExitCode2Error(
-			fmt.Errorf("%w: --category flag is required", atlaserrors.ErrUserInputRequired))
+			fmt.Errorf("%w: --category flag is required", atlaserrors.ErrUserInputRequired),
+		)
 	}
 	if flags.severity == "" {
 		return nil, atlaserrors.NewExitCode2Error(
-			fmt.Errorf("%w: --severity flag is required", atlaserrors.ErrUserInputRequired))
+			fmt.Errorf("%w: --severity flag is required", atlaserrors.ErrUserInputRequired),
+		)
 	}
 
 	return buildDiscoveryFromFlags(ctx, mgr, args[0], flags)
@@ -153,7 +156,8 @@ func buildDiscoveryFromFlags(ctx context.Context, mgr *backlog.Manager, title st
 	if !category.IsValid() {
 		return nil, atlaserrors.NewExitCode2Error(
 			fmt.Errorf("%w: invalid category %q, must be one of: %v",
-				atlaserrors.ErrInvalidArgument, flags.category, backlog.ValidCategories()))
+				atlaserrors.ErrInvalidArgument, flags.category, backlog.ValidCategories()),
+		)
 	}
 
 	// Parse severity
@@ -161,7 +165,8 @@ func buildDiscoveryFromFlags(ctx context.Context, mgr *backlog.Manager, title st
 	if !severity.IsValid() {
 		return nil, atlaserrors.NewExitCode2Error(
 			fmt.Errorf("%w: invalid severity %q, must be one of: %v",
-				atlaserrors.ErrInvalidArgument, flags.severity, backlog.ValidSeverities()))
+				atlaserrors.ErrInvalidArgument, flags.severity, backlog.ValidSeverities()),
+		)
 	}
 
 	// Parse tags

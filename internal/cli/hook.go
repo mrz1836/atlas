@@ -4,6 +4,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -13,7 +14,9 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/crypto/native"
+	"github.com/mrz1836/atlas/internal/daemon"
 	"github.com/mrz1836/atlas/internal/domain"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 	"github.com/mrz1836/atlas/internal/git"
@@ -21,6 +24,9 @@ import (
 	"github.com/mrz1836/atlas/internal/tui"
 	"github.com/mrz1836/atlas/internal/workspace"
 )
+
+// errDaemonNotRunningRetry is returned when a hook retry is requested but no daemon is running.
+var errDaemonNotRunningRetry = errors.New("daemon is not running; cannot retry hook for daemon task")
 
 // AddHookCommand adds the hook command group to the root command.
 func AddHookCommand(root *cobra.Command) {
@@ -46,6 +52,7 @@ Examples:
 	hookCmd.AddCommand(newHookVerifyReceiptCmd())
 	hookCmd.AddCommand(newHookRegenerateCmd())
 	hookCmd.AddCommand(newHookExportCmd())
+	hookCmd.AddCommand(newHookRetryCmd())
 
 	root.AddCommand(hookCmd)
 }
@@ -394,6 +401,72 @@ func runHookInstall(ctx context.Context, cmd *cobra.Command, w io.Writer) error 
 	out.Info("# Then run: chmod +x .git/hooks/post-commit")
 	out.Info("# ------------------------------------------------------------------")
 
+	return nil
+}
+
+// newHookRetryCmd creates the hook retry command.
+func newHookRetryCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "retry <task-id>",
+		Short: "Retry hook initialization for a task with degraded crash recovery",
+		Long: `Retry crash-recovery hook initialization for a daemon task marked as degraded.
+
+When hook initialization fails at task start, the task runs without crash recovery
+support and is flagged 'crash_recovery: degraded' in atlas status output.
+
+This command re-attempts hook initialization and clears the degraded flag on success.
+The daemon must be running and the task must still be active.
+
+Exit codes:
+  0: Hook retry succeeded; crash-recovery flag cleared
+  1: Daemon unavailable or task not found
+  2: Hook re-initialization failed`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runHookRetry(cmd.Context(), cmd, os.Stdout, args[0])
+		},
+	}
+}
+
+// runHookRetry re-attempts hook initialization for a degraded task.
+func runHookRetry(ctx context.Context, cmd *cobra.Command, w io.Writer, taskID string) error {
+	outputFormat := cmd.Flag("output").Value.String()
+	out := tui.NewOutput(w, outputFormat)
+
+	// Load config to connect to daemon.
+	cfg, err := config.Load(ctx)
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
+
+	c := tryDaemonClient(ctx, cfg)
+	if c == nil {
+		if outputFormat == OutputJSON {
+			return outputHookErrorJSON(w, "retry", errDaemonNotRunningRetry.Error())
+		}
+		return errDaemonNotRunningRetry
+	}
+	defer func() { _ = c.Close() }()
+
+	// Ask the daemon to clear the crash_recovery flag.
+	var result map[string]interface{}
+	if callErr := c.Call(ctx, daemon.MethodHookRetry, daemon.HookRetryRequest{TaskID: taskID}, &result); callErr != nil {
+		if outputFormat == OutputJSON {
+			return outputHookErrorJSON(w, "retry", callErr.Error())
+		}
+		return fmt.Errorf("hook retry failed: %w", callErr)
+	}
+
+	if outputFormat == OutputJSON {
+		return out.JSON(map[string]any{
+			"success": true,
+			"task_id": taskID,
+			"message": "crash_recovery flag cleared; hook re-initialization signaled",
+		})
+	}
+
+	out.Success(fmt.Sprintf("Hook retry succeeded for task %s; crash-recovery flag cleared.", taskID))
+	out.Info("Run 'atlas status' to confirm the task is no longer degraded.")
 	return nil
 }
 

@@ -60,7 +60,8 @@ func TestSmartCommitRunner_GenerateAIMessageWithRetry_SuccessFirstAttempt(t *tes
 		},
 	}
 
-	runner := NewSmartCommitRunner(gitRunner, tmpDir, mockAI,
+	runner := NewSmartCommitRunner(
+		gitRunner, tmpDir, mockAI,
 		WithTimeout(30*time.Second),
 		WithMaxRetries(2),
 		WithRetryBackoffFactor(1.5),
@@ -99,7 +100,8 @@ func TestSmartCommitRunner_GenerateAIMessageWithRetry_SuccessSecondAttempt(t *te
 		},
 	}
 
-	runner := NewSmartCommitRunner(gitRunner, tmpDir, mockAI,
+	runner := NewSmartCommitRunner(
+		gitRunner, tmpDir, mockAI,
 		WithTimeout(30*time.Second),
 		WithMaxRetries(2),
 		WithRetryBackoffFactor(1.5),
@@ -141,7 +143,8 @@ func TestSmartCommitRunner_GenerateAIMessageWithRetry_SuccessThirdAttempt(t *tes
 		},
 	}
 
-	runner := NewSmartCommitRunner(gitRunner, tmpDir, mockAI,
+	runner := NewSmartCommitRunner(
+		gitRunner, tmpDir, mockAI,
 		WithTimeout(20*time.Second),
 		WithMaxRetries(2),
 		WithRetryBackoffFactor(2.0),
@@ -179,7 +182,8 @@ func TestSmartCommitRunner_GenerateAIMessageWithRetry_AllAttemptsFail(t *testing
 		err:       errPersistentTimeout,
 	}
 
-	runner := NewSmartCommitRunner(gitRunner, tmpDir, mockAI,
+	runner := NewSmartCommitRunner(
+		gitRunner, tmpDir, mockAI,
 		WithTimeout(10*time.Second),
 		WithMaxRetries(2),
 		WithRetryBackoffFactor(1.5),
@@ -218,7 +222,8 @@ func TestSmartCommitRunner_GenerateAIMessageWithRetry_ZeroRetries(t *testing.T) 
 		err:       errTimeout,
 	}
 
-	runner := NewSmartCommitRunner(gitRunner, tmpDir, mockAI,
+	runner := NewSmartCommitRunner(
+		gitRunner, tmpDir, mockAI,
 		WithTimeout(30*time.Second),
 		WithMaxRetries(0), // No retries
 		WithRetryBackoffFactor(1.5),
@@ -257,7 +262,8 @@ func TestSmartCommitRunner_GenerateAIMessageWithRetry_CustomBackoffFactor(t *tes
 		},
 	}
 
-	runner := NewSmartCommitRunner(gitRunner, tmpDir, mockAI,
+	runner := NewSmartCommitRunner(
+		gitRunner, tmpDir, mockAI,
 		WithTimeout(10*time.Second),
 		WithMaxRetries(3),
 		WithRetryBackoffFactor(3.0), // Aggressive backoff
@@ -305,7 +311,8 @@ func TestSmartCommitRunner_WithTimeoutOption(t *testing.T) {
 	gitRunner, err := NewRunner(context.Background(), tmpDir)
 	require.NoError(t, err)
 
-	runner := NewSmartCommitRunner(gitRunner, tmpDir, nil,
+	runner := NewSmartCommitRunner(
+		gitRunner, tmpDir, nil,
 		WithTimeout(60*time.Second),
 	)
 
@@ -321,7 +328,8 @@ func TestSmartCommitRunner_WithMaxRetriesOption(t *testing.T) {
 	gitRunner, err := NewRunner(context.Background(), tmpDir)
 	require.NoError(t, err)
 
-	runner := NewSmartCommitRunner(gitRunner, tmpDir, nil,
+	runner := NewSmartCommitRunner(
+		gitRunner, tmpDir, nil,
 		WithMaxRetries(5),
 	)
 
@@ -337,7 +345,8 @@ func TestSmartCommitRunner_WithRetryBackoffFactorOption(t *testing.T) {
 	gitRunner, err := NewRunner(context.Background(), tmpDir)
 	require.NoError(t, err)
 
-	runner := NewSmartCommitRunner(gitRunner, tmpDir, nil,
+	runner := NewSmartCommitRunner(
+		gitRunner, tmpDir, nil,
 		WithRetryBackoffFactor(2.5),
 	)
 
@@ -382,7 +391,8 @@ func TestSmartCommitRunner_GenerateAIMessageWithRetry_AIErrorTypes(t *testing.T)
 				err:       tt.aiError,
 			}
 
-			runner := NewSmartCommitRunner(gitRunner, tmpDir, mockAI,
+			runner := NewSmartCommitRunner(
+				gitRunner, tmpDir, mockAI,
 				WithTimeout(10*time.Second),
 				WithMaxRetries(1),
 				WithFallbackEnabled(false), // Disable fallback to test retry behavior only
@@ -414,7 +424,8 @@ func TestSmartCommitRunner_GenerateCommitMessage_FallbackLogsMessage(t *testing.
 		err:       errPersistentFailure,
 	}
 
-	runner := NewSmartCommitRunner(gitRunner, tmpDir, mockAI,
+	runner := NewSmartCommitRunner(
+		gitRunner, tmpDir, mockAI,
 		WithTimeout(10*time.Second),
 		WithMaxRetries(1),
 		WithFallbackEnabled(false), // Disable fallback to test retry behavior only

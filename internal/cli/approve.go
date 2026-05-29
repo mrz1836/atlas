@@ -195,7 +195,8 @@ func runApprove(ctx context.Context, cmd *cobra.Command, w io.Writer, opts appro
 	// Non-interactive mode requires --auto-approve or JSON output
 	if isNonInteractive && !opts.autoApprove && outputFormat != OutputJSON {
 		return atlaserrors.NewExitCode2Error(
-			fmt.Errorf("use --auto-approve in non-interactive mode: %w", atlaserrors.ErrApprovalRequired))
+			fmt.Errorf("use --auto-approve in non-interactive mode: %w", atlaserrors.ErrApprovalRequired),
+		)
 	}
 
 	// Create stores and find awaiting tasks
@@ -299,7 +300,8 @@ func selectApprovalTask(outputFormat string, w io.Writer, out tui.Output, opts a
 	// Non-interactive mode requires workspace argument when multiple tasks exist
 	if isNonInteractive {
 		return nil, nil, atlaserrors.NewExitCode2Error(
-			fmt.Errorf("multiple tasks awaiting approval, use workspace argument to specify: %w", atlaserrors.ErrInteractiveRequired))
+			fmt.Errorf("multiple tasks awaiting approval, use workspace argument to specify: %w", atlaserrors.ErrInteractiveRequired),
+		)
 	}
 
 	// Present selection menu (AC: #1)
@@ -653,7 +655,8 @@ func selectApprovalAction(t *domain.Task) (approvalAction, error) {
 		})
 	}
 
-	options = append(options,
+	options = append(
+		options,
 		tui.Option{Label: "View diff", Description: "Show file changes", Value: string(actionViewDiff)},
 		tui.Option{Label: "View logs", Description: "Show task execution log", Value: string(actionViewLogs)},
 	)
@@ -667,7 +670,8 @@ func selectApprovalAction(t *domain.Task) (approvalAction, error) {
 		})
 	}
 
-	options = append(options,
+	options = append(
+		options,
 		tui.Option{Label: "Reject", Description: "Run atlas reject for feedback", Value: string(actionReject)},
 		tui.Option{Label: "Cancel", Description: "Return without action", Value: string(actionCancel)},
 	)

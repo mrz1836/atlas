@@ -98,6 +98,15 @@ func PingRedis(ctx context.Context, client *cache.Client) error {
 	return nil
 }
 
+// RedisDownMessage returns a user-friendly multi-line message when Redis is unreachable.
+// It includes the address, underlying error, and platform-appropriate fix commands.
+func RedisDownMessage(addr string, err error) string {
+	return fmt.Sprintf(
+		"Redis unreachable at %s: %v\n  Diagnose: redis-cli ping %s\n  macOS:    brew services start redis\n  Linux:    sudo systemctl start redis",
+		addr, err, addr,
+	)
+}
+
 // Key builds a namespaced Redis key from a prefix and one or more parts.
 // Parts are joined with ":" separators.
 //

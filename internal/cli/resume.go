@@ -404,7 +404,8 @@ func createResumeEngine(ctx context.Context, ws *domain.Workspace, taskStore *ta
 	// Resolve git config settings with fallbacks
 	gitCfg := ResolveGitConfig(cfg)
 
-	smartCommitter := git.NewSmartCommitRunner(gitRunner, ws.WorktreePath, aiRunner,
+	smartCommitter := git.NewSmartCommitRunner(
+		gitRunner, ws.WorktreePath, aiRunner,
 		git.WithAgent(gitCfg.CommitAgent),
 		git.WithModel(gitCfg.CommitModel),
 		git.WithTimeout(gitCfg.CommitTimeout),
@@ -414,7 +415,8 @@ func createResumeEngine(ctx context.Context, ws *domain.Workspace, taskStore *ta
 	)
 	pusher := git.NewPushRunner(gitRunner)
 	hubRunner := git.NewCLIGitHubRunner(ws.WorktreePath)
-	prDescGen := git.NewAIDescriptionGenerator(aiRunner,
+	prDescGen := git.NewAIDescriptionGenerator(
+		aiRunner,
 		git.WithAIDescAgent(gitCfg.PRDescAgent),
 		git.WithAIDescModel(gitCfg.PRDescModel),
 		git.WithAIDescLogger(logger),

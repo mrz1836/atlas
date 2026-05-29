@@ -21,25 +21,28 @@ func TestRefreshHeartbeat(t *testing.T) {
 	ctx := context.Background()
 	d.refreshHeartbeat(ctx)
 
+	hbKey := heartbeatKey(d.cfg.Redis.KeyPrefix)
+	stKey := daemonStateKey(d.cfg.Redis.KeyPrefix)
+
 	// Heartbeat key should exist with a non-empty timestamp.
-	val, err := cache.Get(ctx, d.redis, heartbeatKey)
+	val, err := cache.Get(ctx, d.redis, hbKey)
 	require.NoError(t, err)
 	assert.NotEmpty(t, val)
 
 	// State hash should have pid, uptime, version, status.
-	pid, err := cache.HashGet(ctx, d.redis, daemonStateKey, "pid")
+	pid, err := cache.HashGet(ctx, d.redis, stKey, "pid")
 	require.NoError(t, err)
 	assert.NotEmpty(t, pid)
 
-	status, err := cache.HashGet(ctx, d.redis, daemonStateKey, "status")
+	status, err := cache.HashGet(ctx, d.redis, stKey, "status")
 	require.NoError(t, err)
 	assert.Equal(t, "running", status)
 
-	version, err := cache.HashGet(ctx, d.redis, daemonStateKey, "version")
+	version, err := cache.HashGet(ctx, d.redis, stKey, "version")
 	require.NoError(t, err)
 	assert.Equal(t, daemonVersion, version)
 
-	uptime, err := cache.HashGet(ctx, d.redis, daemonStateKey, "uptime")
+	uptime, err := cache.HashGet(ctx, d.redis, stKey, "uptime")
 	require.NoError(t, err)
 	assert.NotEmpty(t, uptime)
 }
@@ -140,13 +143,15 @@ func TestStartHeartbeat(t *testing.T) {
 
 	d.startHeartbeat(ctx)
 
+	hbKey := heartbeatKey(d.cfg.Redis.KeyPrefix)
+
 	// Wait for the heartbeat goroutine to write the key instead of sleeping.
 	require.Eventually(t, func() bool {
-		val, err := cache.Get(ctx, d.redis, heartbeatKey)
+		val, err := cache.Get(ctx, d.redis, hbKey)
 		return err == nil && val != ""
 	}, 5*time.Second, 10*time.Millisecond, "heartbeat key should be set by the goroutine")
 
-	val, err := cache.Get(ctx, d.redis, heartbeatKey)
+	val, err := cache.Get(ctx, d.redis, hbKey)
 	require.NoError(t, err)
 	assert.NotEmpty(t, val, "heartbeat key should be set by the goroutine")
 

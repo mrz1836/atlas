@@ -76,7 +76,8 @@ func TestNewCLIGitHubRunner(t *testing.T) {
 		config := RetryConfig{MaxAttempts: 5, InitialDelay: time.Second}
 		mock := &mockCommandExecutor{}
 
-		runner := NewCLIGitHubRunner("/test/dir",
+		runner := NewCLIGitHubRunner(
+			"/test/dir",
 			WithGHLogger(logger),
 			WithGHRetryConfig(config),
 			WithGHCommandExecutor(mock),
@@ -234,7 +235,8 @@ func TestCLIGitHubRunner_CreatePR_RetryOnRateLimit(t *testing.T) {
 		},
 	}
 
-	runner := NewCLIGitHubRunner("/test/dir",
+	runner := NewCLIGitHubRunner(
+		"/test/dir",
 		WithGHCommandExecutor(mock),
 		WithGHRetryConfig(RetryConfig{
 			MaxAttempts:  3,
@@ -265,7 +267,8 @@ func TestCLIGitHubRunner_CreatePR_NoRetryOnAuth(t *testing.T) {
 		},
 	}
 
-	runner := NewCLIGitHubRunner("/test/dir",
+	runner := NewCLIGitHubRunner(
+		"/test/dir",
 		WithGHCommandExecutor(mock),
 		WithGHRetryConfig(RetryConfig{
 			MaxAttempts:  3,
@@ -297,7 +300,8 @@ func TestCLIGitHubRunner_CreatePR_MaxRetriesExhausted(t *testing.T) {
 		},
 	}
 
-	runner := NewCLIGitHubRunner("/test/dir",
+	runner := NewCLIGitHubRunner(
+		"/test/dir",
 		WithGHCommandExecutor(mock),
 		WithGHRetryConfig(RetryConfig{
 			MaxAttempts:  3,
@@ -331,7 +335,8 @@ func TestCLIGitHubRunner_CreatePR_ContextCancelledDuringRetry(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-	runner := NewCLIGitHubRunner("/test/dir",
+	runner := NewCLIGitHubRunner(
+		"/test/dir",
 		WithGHCommandExecutor(mock),
 		WithGHRetryConfig(RetryConfig{
 			MaxAttempts:  5,
@@ -1108,7 +1113,8 @@ func TestCLIGitHubRunner_CreatePR_MaxDelayCapReached(t *testing.T) {
 	// Configure so that delay would exceed MaxDelay after first retry
 	// InitialDelay=50ms, Multiplier=100 -> second delay would be 5000ms
 	// But MaxDelay=100ms should cap it
-	runner := NewCLIGitHubRunner("/test/dir",
+	runner := NewCLIGitHubRunner(
+		"/test/dir",
 		WithGHCommandExecutor(mock),
 		WithGHRetryConfig(RetryConfig{
 			MaxAttempts:  3,
@@ -1367,7 +1373,8 @@ func TestCLIGitHubRunner_WatchPRChecks_RetryOnNetworkError(t *testing.T) {
 		},
 	}
 
-	runner := NewCLIGitHubRunner("/test/dir",
+	runner := NewCLIGitHubRunner(
+		"/test/dir",
 		WithGHCommandExecutor(mock),
 		WithGHRetryConfig(RetryConfig{
 			MaxAttempts:  3,
@@ -1396,7 +1403,8 @@ func TestCLIGitHubRunner_WatchPRChecks_NoRetryOnAuth(t *testing.T) {
 		},
 	}
 
-	runner := NewCLIGitHubRunner("/test/dir",
+	runner := NewCLIGitHubRunner(
+		"/test/dir",
 		WithGHCommandExecutor(mock),
 		WithGHRetryConfig(RetryConfig{
 			MaxAttempts:  3,
@@ -1427,7 +1435,8 @@ func TestCLIGitHubRunner_WatchPRChecks_RetryOnOtherError(t *testing.T) {
 		},
 	}
 
-	runner := NewCLIGitHubRunner("/test/dir",
+	runner := NewCLIGitHubRunner(
+		"/test/dir",
 		WithGHCommandExecutor(mock),
 		WithGHRetryConfig(RetryConfig{
 			MaxAttempts:  3,
@@ -1464,7 +1473,8 @@ func TestCLIGitHubRunner_WatchPRChecks_OtherErrorExhaustsRetriesReturnsFetchErro
 		},
 	}
 
-	runner := NewCLIGitHubRunner("/test/dir",
+	runner := NewCLIGitHubRunner(
+		"/test/dir",
 		WithGHCommandExecutor(mock),
 		WithGHRetryConfig(RetryConfig{
 			MaxAttempts:  3,
@@ -1506,7 +1516,8 @@ func TestCLIGitHubRunner_WatchPRChecks_OtherErrorFallbackSucceeds(t *testing.T) 
 		},
 	}
 
-	runner := NewCLIGitHubRunner("/test/dir",
+	runner := NewCLIGitHubRunner(
+		"/test/dir",
 		WithGHCommandExecutor(mock),
 		WithGHRetryConfig(RetryConfig{
 			MaxAttempts:  3,
@@ -1882,7 +1893,8 @@ func TestCLIGitHubRunner_WatchPRChecks_MaxRetriesExhausted(t *testing.T) {
 		},
 	}
 
-	runner := NewCLIGitHubRunner("/test/dir",
+	runner := NewCLIGitHubRunner(
+		"/test/dir",
 		WithGHCommandExecutor(mock),
 		WithGHRetryConfig(RetryConfig{
 			MaxAttempts:  3,
@@ -2932,7 +2944,8 @@ func TestCLIGitHubRunner_WatchPRChecks_FetchError_FallbackSuccess(t *testing.T) 
 		},
 	}
 
-	runner := NewCLIGitHubRunner("/test/dir",
+	runner := NewCLIGitHubRunner(
+		"/test/dir",
 		WithGHCommandExecutor(mock),
 		WithGHRetryConfig(RetryConfig{
 			MaxAttempts:  3,
@@ -2961,7 +2974,8 @@ func TestCLIGitHubRunner_WatchPRChecks_FetchError_FallbackAlsoFails(t *testing.T
 		},
 	}
 
-	runner := NewCLIGitHubRunner("/test/dir",
+	runner := NewCLIGitHubRunner(
+		"/test/dir",
 		WithGHCommandExecutor(mock),
 		WithGHRetryConfig(RetryConfig{
 			MaxAttempts:  3,
@@ -2990,7 +3004,8 @@ func TestCLIGitHubRunner_WatchPRChecks_AuthError_NoRetry(t *testing.T) {
 		},
 	}
 
-	runner := NewCLIGitHubRunner("/test/dir",
+	runner := NewCLIGitHubRunner(
+		"/test/dir",
 		WithGHCommandExecutor(mock),
 		WithGHRetryConfig(RetryConfig{
 			MaxAttempts:  3,

@@ -79,7 +79,8 @@ func (s *NativeReceiptSigner) KeyPath(_ uint32) string {
 // formatReceiptMessage creates the deterministic string to sign.
 // Format: {receipt_id}|{command}|{exit_code}|{stdout_hash}|{stderr_hash}|{completed_at_unix}
 func formatReceiptMessage(receipt *domain.ValidationReceipt) string {
-	return fmt.Sprintf("%s|%s|%d|%s|%s|%d",
+	return fmt.Sprintf(
+		"%s|%s|%d|%s|%s|%d",
 		receipt.ReceiptID,
 		receipt.Command,
 		receipt.ExitCode,

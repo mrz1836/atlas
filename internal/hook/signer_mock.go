@@ -87,7 +87,8 @@ func (m *MockSigner) KeyPath(_ uint32) string {
 
 // buildSignatureMessage creates the message to sign for a receipt.
 func (m *MockSigner) buildSignatureMessage(receipt *domain.ValidationReceipt) string {
-	return fmt.Sprintf("%s|%s|%d|%s|%s|%d",
+	return fmt.Sprintf(
+		"%s|%s|%d|%s|%s|%d",
 		receipt.ReceiptID,
 		receipt.Command,
 		receipt.ExitCode,

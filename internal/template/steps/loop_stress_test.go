@@ -347,7 +347,8 @@ func TestLoopStress_ScratchpadPerformance(t *testing.T) {
 	mockStore := &StressMockStateStore{}
 	scratchpad := NewFileScratchpad(tmpDir+"/scratchpad.json", logger)
 
-	executor := NewLoopExecutor(mockRunner, mockStore,
+	executor := NewLoopExecutor(
+		mockRunner, mockStore,
 		WithLoopLogger(logger),
 		WithLoopScratchpad(scratchpad),
 	)

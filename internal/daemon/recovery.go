@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"time"
 
 	"github.com/google/uuid"
 	cache "github.com/mrz1836/go-cache"
@@ -14,11 +15,16 @@ const (
 	maxRetryCount = 3
 )
 
-// RecoverOrphanedTasks scans the active-tasks set for tasks that were running when
-// the daemon last crashed and re-queues them up to maxRetryCount times.
+// RecoverOrphanedTasks scans the active-tasks set and applies the full recovery
+// contract from todo §174–181:
 //
-// A task is considered orphaned when its status is "running" but its worker
-// heartbeat lock (atlas:lock:task:{id}) no longer exists in Redis.
+//   - queued           → skip (will be picked up normally by workers)
+//   - running, no lock → requeue up to maxRetryCount, then fail
+//   - running, lock OK → skip (live worker holds it)
+//   - awaiting_approval → skip (preserve; worker removes from active set on resume)
+//   - completed/failed/canceled/abandoned → remove from active set (cleanup stale entries)
+//
+// Every recovery decision is emitted as a structured RecoveryEvent (Q4 verbose).
 func (d *Daemon) RecoverOrphanedTasks(ctx context.Context) error {
 	keyPrefix := d.cfg.Redis.KeyPrefix
 	if keyPrefix == "" {
@@ -26,7 +32,6 @@ func (d *Daemon) RecoverOrphanedTasks(ctx context.Context) error {
 	}
 	activeSetKey := keyPrefix + "active"
 
-	// 1. Get all task IDs from the active set.
 	members, err := cache.SetMembers(ctx, d.redis, activeSetKey)
 	if err != nil {
 		return fmt.Errorf("recover: get active set: %w", err)
@@ -39,103 +44,175 @@ func (d *Daemon) RecoverOrphanedTasks(ctx context.Context) error {
 
 	d.logger.Info().Int("count", len(members)).Msg("recovery: scanning active tasks")
 
+	var events []RecoveryEvent
+
 	for _, taskID := range members {
-		// H3: reject malformed IDs that could construct unexpected Redis keys.
+		// Reject malformed IDs to prevent unexpected Redis key construction.
 		if _, parseErr := uuid.Parse(taskID); parseErr != nil {
 			d.logger.Warn().Str("task_id", taskID).Msg("recovery: skipping non-UUID task ID")
 			continue
 		}
-		if recoverErr := d.recoverTask(ctx, taskID, keyPrefix); recoverErr != nil {
-			// Log and continue — one bad task should not abort the whole recovery scan.
+		ev, recoverErr := d.recoverTask(ctx, taskID, keyPrefix)
+		if recoverErr != nil {
 			d.logger.Error().
 				Err(recoverErr).
 				Str("task_id", taskID).
 				Msg("recovery: error processing task")
+			// Continue — one bad task should not abort the whole recovery scan.
+			continue
 		}
+		if ev != nil {
+			events = append(events, *ev)
+			// Emit verbose structured log event (Q4).
+			d.logger.Info().
+				Str("task_id", ev.TaskID).
+				Str("decision", ev.Decision).
+				Str("prior_state", ev.PriorState).
+				Str("reason", ev.Reason).
+				Msg("recovery: task recovery decision")
+		}
+	}
+
+	// Store recovery events for doctor/status output.
+	d.storeRecoveryEvents(events)
+
+	if len(events) > 0 {
+		d.logger.Info().Int("decisions", len(events)).Msg("recovery: completed")
 	}
 
 	return nil
 }
 
-// recoverTask inspects a single task and either re-queues it or marks it failed.
-func (d *Daemon) recoverTask(ctx context.Context, taskID, keyPrefix string) error {
-	// a. Get task fields from hash {prefix}task:{taskID}.
-	fields, err := d.getTaskStatus(ctx, taskID, keyPrefix)
+// recoverTask inspects a single task and applies the recovery contract.
+// Returns a RecoveryEvent describing the decision, or nil if no action was taken.
+func (d *Daemon) recoverTask(ctx context.Context, taskID, keyPrefix string) (*RecoveryEvent, error) { //nolint:gocognit // complexity is inherent to multi-state recovery decision logic
+	fields, err := d.getTaskFields(ctx, taskID, keyPrefix)
 	if err != nil {
-		return fmt.Errorf("get task status: %w", err)
+		return nil, fmt.Errorf("get task fields: %w", err)
 	}
 
 	status := fields["status"]
 	retryStr := fields["retry_count"]
 	priority := fields["priority"]
 
-	// b. Only recover tasks that were "running".
-	if status != "running" {
-		return nil
+	ev := &RecoveryEvent{
+		TaskID:     taskID,
+		PriorState: status,
 	}
 
-	// c. Check if the worker heartbeat lock exists.
+	switch status {
+	case "":
+		// Hash missing or empty — task in active set but no metadata.
+		// Remove from active set to clean up stale state.
+		if rmErr := d.removeFromActiveSet(ctx, taskID, keyPrefix); rmErr != nil {
+			return nil, fmt.Errorf("remove stale task from active set: %w", rmErr)
+		}
+		ev.Decision = "remove_terminal"
+		ev.Reason = "task hash missing or empty; stale active-set entry removed"
+		return ev, nil
+
+	case "completed", "failed", "canceled", "abandoned":
+		// Terminal states must never be requeued. Remove from active set if still present.
+		if rmErr := d.removeFromActiveSet(ctx, taskID, keyPrefix); rmErr != nil {
+			return nil, fmt.Errorf("remove terminal task from active set: %w", rmErr)
+		}
+		ev.Decision = "remove_terminal"
+		ev.Reason = fmt.Sprintf("task is in terminal state %q; removed from active set", status)
+		return ev, nil
+
+	case "awaiting_approval":
+		// Preserve: the task is waiting for human input, not orphaned.
+		ev.Decision = "preserve_approval"
+		ev.Reason = "task is awaiting approval; preserved without re-queuing"
+		return ev, nil
+
+	case "queued":
+		// Already in queue; will be picked up by a worker naturally.
+		ev.Decision = "skip"
+		ev.Reason = "task is already queued; no action needed"
+		return ev, nil
+
+	case "running":
+		// Fall through to orphan recovery logic below.
+
+	default:
+		// Unknown/intermediate state (paused, interrupted, etc.) — skip.
+		ev.Decision = "skip"
+		ev.Reason = fmt.Sprintf("task in non-recoverable state %q; skipping", status)
+		return ev, nil
+	}
+
+	// Running task: check if the worker heartbeat lock is still live.
 	lockKey := keyPrefix + "lock:task:" + taskID
 	hasLock, err := cache.Exists(ctx, d.redis, lockKey)
 	if err != nil {
-		return fmt.Errorf("check lock key %q: %w", lockKey, err)
+		return nil, fmt.Errorf("check lock key %q: %w", lockKey, err)
 	}
 
-	// d. If the lock is still live, the task is not orphaned.
 	if hasLock {
-		return nil
+		// Live lock — task is still being worked on by a worker.
+		ev.Decision = "skip"
+		ev.Reason = "task lock is live; worker is still active"
+		return ev, nil
 	}
 
-	// e. Parse retry count.
+	// Orphaned running task (no lock). Apply retry/fail logic.
 	retryCount, _ := strconv.Atoi(retryStr)
 
-	// f. Exceeded max retries — mark as failed.
-	if retryCount >= maxRetryCount {
+	if retryCount >= maxRetryCount { //nolint:nestif // nested failure/retry paths are inherent to recovery state machine
 		d.logger.Warn().
 			Str("task_id", taskID).
 			Int("retry_count", retryCount).
 			Msg("recovery: max retries exceeded; marking task failed")
 
 		if err := d.setTaskField(ctx, taskID, keyPrefix, "status", "failed"); err != nil {
-			return fmt.Errorf("set failed status: %w", err)
+			return nil, fmt.Errorf("set failed status: %w", err)
 		}
 		if err := d.setTaskField(ctx, taskID, keyPrefix, "error", "max retries exceeded"); err != nil {
-			return fmt.Errorf("set error field: %w", err)
+			return nil, fmt.Errorf("set error field: %w", err)
 		}
-		return nil
+		if err := d.setTaskField(ctx, taskID, keyPrefix, "completed_at", time.Now().UTC().Format(time.RFC3339)); err != nil {
+			return nil, fmt.Errorf("set completed_at field: %w", err)
+		}
+		if rmErr := d.removeFromActiveSet(ctx, taskID, keyPrefix); rmErr != nil {
+			d.logger.Warn().Err(rmErr).Str("task_id", taskID).Msg("recovery: failed to remove exhausted task from active set")
+		}
+
+		ev.Decision = "fail"
+		ev.Reason = fmt.Sprintf("max retries (%d) exceeded", maxRetryCount)
+		return ev, nil
 	}
 
-	// g. Re-queue: increment retry_count, reset status, push back onto queue.
+	// Re-queue: increment retry_count, reset status, push back onto queue.
 	newRetry := strconv.Itoa(retryCount + 1)
 	if err := d.setTaskField(ctx, taskID, keyPrefix, "retry_count", newRetry); err != nil {
-		return fmt.Errorf("increment retry_count: %w", err)
+		return nil, fmt.Errorf("increment retry_count: %w", err)
 	}
 	if err := d.setTaskField(ctx, taskID, keyPrefix, "status", "queued"); err != nil {
-		return fmt.Errorf("reset status to queued: %w", err)
+		return nil, fmt.Errorf("reset status to queued: %w", err)
 	}
 
-	// Determine priority for re-queue; fall back to Normal.
 	p := Priority(priority)
 	if p != PriorityUrgent && p != PriorityNormal && p != PriorityLow {
 		p = PriorityNormal
 	}
 	if err := d.queue.Submit(ctx, taskID, p); err != nil {
-		return fmt.Errorf("re-submit to queue: %w", err)
+		return nil, fmt.Errorf("re-submit to queue: %w", err)
 	}
 
-	// h. Log recovery action.
-	d.logger.Info().
-		Str("task_id", taskID).
-		Int("retry_count", retryCount+1).
-		Str("priority", string(p)).
-		Msg("recovery: orphaned task re-queued")
-
-	return nil
+	ev.Decision = "requeue"
+	ev.Reason = fmt.Sprintf("orphaned running task re-queued (retry %d/%d)", retryCount+1, maxRetryCount)
+	return ev, nil
 }
 
-// getTaskStatus reads task fields from the Redis hash {prefix}task:{taskID}.
-// Returns a map of field names to values for the fields: status, retry_count, priority.
-func (d *Daemon) getTaskStatus(ctx context.Context, taskID, keyPrefix string) (map[string]string, error) {
+// removeFromActiveSet removes taskID from the active set. Errors are returned.
+func (d *Daemon) removeFromActiveSet(ctx context.Context, taskID, keyPrefix string) error {
+	activeSetKey := keyPrefix + "active"
+	return cache.SetRemoveMember(ctx, d.redis, activeSetKey, taskID)
+}
+
+// getTaskFields reads the status, retry_count, and priority fields for a task.
+func (d *Daemon) getTaskFields(ctx context.Context, taskID, keyPrefix string) (map[string]string, error) {
 	hashKey := keyPrefix + "task:" + taskID
 	keys := []interface{}{"status", "retry_count", "priority"}
 

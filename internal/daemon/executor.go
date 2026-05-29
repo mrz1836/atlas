@@ -48,3 +48,14 @@ type TaskExecutor interface {
 	// For running tasks, cancel the context via Runner.CancelTask first.
 	Abandon(ctx context.Context, job TaskJob, reason string) error
 }
+
+// HookInitializer is an optional interface that executors may implement to perform
+// pre-execution hook initialization. When an executor implements this interface,
+// the runner calls InitHooks before Execute. If hook init fails, the task runs
+// with crash_recovery=degraded but is not hard-failed.
+type HookInitializer interface {
+	// InitHooks attempts to initialize crash-recovery hooks for the task.
+	// Returns (true, reason) when initialization fails and the task will run
+	// in degraded mode; returns (false, "") when hooks are ready.
+	InitHooks(ctx context.Context, job TaskJob) (degraded bool, reason string)
+}

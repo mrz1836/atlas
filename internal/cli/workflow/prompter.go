@@ -50,7 +50,8 @@ func (p *Prompter) SelectTemplate(ctx context.Context, registry *template.Regist
 	// Non-interactive mode or JSON output requires template flag
 	if noInteractive || outputFormat == "json" || !term.IsTerminal(int(os.Stdin.Fd())) {
 		return nil, atlaserrors.NewExitCode2Error(
-			fmt.Errorf("use --template to specify template: %w", atlaserrors.ErrTemplateRequired))
+			fmt.Errorf("use --template to specify template: %w", atlaserrors.ErrTemplateRequired),
+		)
 	}
 
 	return p.selectTemplateInteractive(registry)
@@ -80,7 +81,8 @@ func (p *Prompter) ResolveWorkspaceConflict(ctx context.Context, mgr *workspace.
 			return "", outputStartErrorJSON(w, wsName, "", fmt.Sprintf("workspace '%s': %s", wsName, atlaserrors.ErrWorkspaceExists.Error()))
 		}
 		return "", atlaserrors.NewExitCode2Error(
-			fmt.Errorf("workspace '%s': %w", wsName, atlaserrors.ErrWorkspaceExists))
+			fmt.Errorf("workspace '%s': %w", wsName, atlaserrors.ErrWorkspaceExists),
+		)
 	}
 
 	// Check if we're in a terminal

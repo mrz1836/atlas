@@ -177,7 +177,8 @@ func TestLoopExecutor_SignalBasedExit(t *testing.T) {
 	mockStore := &MockLoopStateStore{}
 	mockExit := &MockExitEvaluator{ShouldExit: true, ExitReason: "exit signal"}
 
-	executor := NewLoopExecutor(mockRunner, mockStore,
+	executor := NewLoopExecutor(
+		mockRunner, mockStore,
 		WithLoopLogger(logger),
 		WithLoopExitEvaluator(mockExit),
 	)
@@ -380,7 +381,8 @@ func TestLoopExecutor_ScratchpadIntegration(t *testing.T) {
 	mockStore := &MockLoopStateStore{}
 	mockScratchpad := &MockScratchpad{}
 
-	executor := NewLoopExecutor(mockRunner, mockStore,
+	executor := NewLoopExecutor(
+		mockRunner, mockStore,
 		WithLoopLogger(logger),
 		WithLoopScratchpad(mockScratchpad),
 	)
@@ -1093,7 +1095,8 @@ func TestLoopExecutor_ResumeWithScratchpadData(t *testing.T) {
 		},
 	}
 
-	executor := NewLoopExecutor(mockRunner, mockStore,
+	executor := NewLoopExecutor(
+		mockRunner, mockStore,
 		WithLoopLogger(logger),
 		WithLoopScratchpad(mockScratchpad),
 	)
@@ -1314,7 +1317,8 @@ func TestLoopExecutor_ScratchpadReadError(t *testing.T) {
 		ReadError: atlaserrors.ErrArtifactNotFound,
 	}
 
-	executor := NewLoopExecutor(mockRunner, mockStore,
+	executor := NewLoopExecutor(
+		mockRunner, mockStore,
 		WithLoopLogger(logger),
 		WithLoopScratchpad(mockScratchpad),
 	)
@@ -1354,7 +1358,8 @@ func TestLoopExecutor_ScratchpadWriteError(t *testing.T) {
 		WriteError: atlaserrors.ErrPathTraversal,
 	}
 
-	executor := NewLoopExecutor(mockRunner, mockStore,
+	executor := NewLoopExecutor(
+		mockRunner, mockStore,
 		WithLoopLogger(logger),
 		WithLoopScratchpad(mockScratchpad),
 	)
@@ -1578,7 +1583,8 @@ func TestLoopExecutor_ZeroMaxIterationsWithUntilSignal(t *testing.T) {
 	mockStore := &MockLoopStateStore{}
 	mockExit := &MockExitEvaluator{ShouldExit: true, ExitReason: "exit signal"}
 
-	executor := NewLoopExecutor(mockRunner, mockStore,
+	executor := NewLoopExecutor(
+		mockRunner, mockStore,
 		WithLoopLogger(logger),
 		WithLoopExitEvaluator(mockExit),
 	)
@@ -1652,7 +1658,8 @@ func TestLoopExecutor_LargeMaxIterations(t *testing.T) {
 	mockStore := &MockLoopStateStore{}
 	mockExit := &MockExitEvaluator{ShouldExit: false}
 
-	executor := NewLoopExecutor(mockRunner, mockStore,
+	executor := NewLoopExecutor(
+		mockRunner, mockStore,
 		WithLoopLogger(logger),
 		WithLoopExitEvaluator(mockExit),
 	)
@@ -1768,7 +1775,8 @@ func TestLoopExecutor_ExitOnFirstIteration(t *testing.T) {
 	mockStore := &MockLoopStateStore{}
 	mockExit := &MockExitEvaluator{ShouldExit: true, ExitReason: "immediate exit"}
 
-	executor := NewLoopExecutor(mockRunner, mockStore,
+	executor := NewLoopExecutor(
+		mockRunner, mockStore,
 		WithLoopLogger(logger),
 		WithLoopExitEvaluator(mockExit),
 	)
