@@ -250,7 +250,8 @@ Fixed null pointer exception when parsing configuration with nil options.
 			},
 		}
 
-		gen := NewAIDescriptionGenerator(mockRunner,
+		gen := NewAIDescriptionGenerator(
+			mockRunner,
 			WithAIDescTimeout(time.Minute),
 		)
 
@@ -765,7 +766,8 @@ func TestNewAIDescriptionGenerator_Options(t *testing.T) {
 	timeout := 5 * time.Minute
 	workDir := "/path/to/worktree"
 
-	gen := NewAIDescriptionGenerator(mockRunner,
+	gen := NewAIDescriptionGenerator(
+		mockRunner,
 		WithAIDescLogger(logger),
 		WithAIDescTimeout(timeout),
 		WithAIDescAgent("gemini"),
@@ -806,7 +808,8 @@ Fixed issue.
 		},
 	}
 
-	gen := NewAIDescriptionGenerator(mockRunner,
+	gen := NewAIDescriptionGenerator(
+		mockRunner,
 		WithAIDescWorkDir(expectedWorkDir),
 	)
 

@@ -61,7 +61,8 @@ func runBacklogDismiss(ctx context.Context, cmd *cobra.Command, w io.Writer, id 
 	// Validate reason
 	if flags.reason == "" {
 		return atlaserrors.NewExitCode2Error(
-			fmt.Errorf("%w: --reason flag is required", atlaserrors.ErrUserInputRequired))
+			fmt.Errorf("%w: --reason flag is required", atlaserrors.ErrUserInputRequired),
+		)
 	}
 
 	// Create manager

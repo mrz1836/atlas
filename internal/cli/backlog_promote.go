@@ -139,17 +139,20 @@ func runBacklogPromote(ctx context.Context, cmd *cobra.Command, w io.Writer, id 
 	if id == "" {
 		if opts.jsonOutput {
 			return atlaserrors.NewExitCode2Error(
-				fmt.Errorf("%w: ID required with --json flag", atlaserrors.ErrUserInputRequired))
+				fmt.Errorf("%w: ID required with --json flag", atlaserrors.ErrUserInputRequired),
+			)
 		}
 		return atlaserrors.NewExitCode2Error(
-			fmt.Errorf("%w: ID required in non-interactive mode (not a terminal)", atlaserrors.ErrUserInputRequired))
+			fmt.Errorf("%w: ID required in non-interactive mode (not a terminal)", atlaserrors.ErrUserInputRequired),
+		)
 	}
 
 	// Validate flags
 	if opts.template != "" && !backlog.IsValidTemplateName(opts.template) {
 		return atlaserrors.NewExitCode2Error(
 			fmt.Errorf("%w: invalid template %q, valid templates are: %s",
-				atlaserrors.ErrInvalidArgument, opts.template, strings.Join(backlog.ValidTemplateNames(), ", ")))
+				atlaserrors.ErrInvalidArgument, opts.template, strings.Join(backlog.ValidTemplateNames(), ", ")),
+		)
 	}
 
 	// Create manager

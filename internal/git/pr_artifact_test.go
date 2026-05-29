@@ -38,7 +38,8 @@ func (m *mockArtifactStore) SaveArtifact(ctx context.Context, workspaceName, tas
 func TestTaskStoreArtifactSaver_Save(t *testing.T) {
 	t.Run("saves artifact successfully", func(t *testing.T) {
 		store := newMockArtifactStore()
-		saver := NewTaskStoreArtifactSaver(store,
+		saver := NewTaskStoreArtifactSaver(
+			store,
 			WithTaskStoreLogger(zerolog.Nop()),
 		)
 
@@ -131,7 +132,8 @@ func TestTaskStoreArtifactSaver_Save(t *testing.T) {
 func TestFileArtifactSaver_Save(t *testing.T) {
 	t.Run("saves to file", func(t *testing.T) {
 		tmpDir := t.TempDir()
-		saver := NewFileArtifactSaver(tmpDir,
+		saver := NewFileArtifactSaver(
+			tmpDir,
 			WithFileArtifactLogger(zerolog.Nop()),
 		)
 

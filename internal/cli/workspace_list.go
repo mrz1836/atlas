@@ -169,7 +169,8 @@ func outputWorkspacesTable(w io.Writer, workspaces []*domain.Workspace) error {
 	)
 
 	// Print header
-	header := fmt.Sprintf("%-*s %-*s %-*s %-*s %*s %*s",
+	header := fmt.Sprintf(
+		"%-*s %-*s %-*s %-*s %*s %*s",
 		nameWidth, "NAME",
 		branchWidth, "BRANCH",
 		statusWidth, "STATUS",
@@ -208,7 +209,8 @@ func outputWorkspacesTable(w io.Writer, workspaces []*domain.Workspace) error {
 		completedCount := countCompletedTasks(ws)
 
 		// Build and print row
-		row := fmt.Sprintf("%-*s %-*s %-*s %-*s %*d %*d",
+		row := fmt.Sprintf(
+			"%-*s %-*s %-*s %-*s %*d %*d",
 			nameWidth, name,
 			branchWidth, branch,
 			statusWidth+tui.ColorOffset(statusStr, string(ws.Status)), statusStr,

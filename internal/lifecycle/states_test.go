@@ -64,35 +64,40 @@ func TestFileTaskLabel(t *testing.T) {
 // and filesystem states are consistent for equivalent states.
 func TestVocabularyConsistency(t *testing.T) {
 	// "queued" daemon state and "pending" file state must render the same label
-	assert.Equal(t,
+	assert.Equal(
+		t,
 		lifecycle.DaemonStateLabel(lifecycle.StateDaemonQueued),
 		lifecycle.FileTaskLabel(constants.TaskStatusPending),
 		"queued/pending must render the same canonical label",
 	)
 
 	// "running" must be consistent across daemon and file
-	assert.Equal(t,
+	assert.Equal(
+		t,
 		lifecycle.DaemonStateLabel(lifecycle.StateDaemonRunning),
 		lifecycle.FileTaskLabel(constants.TaskStatusRunning),
 		"running must render the same canonical label",
 	)
 
 	// "awaiting_approval" must be consistent
-	assert.Equal(t,
+	assert.Equal(
+		t,
 		lifecycle.DaemonStateLabel(lifecycle.StateDaemonAwaitingApproval),
 		lifecycle.FileTaskLabel(constants.TaskStatusAwaitingApproval),
 		"awaiting_approval must render the same canonical label",
 	)
 
 	// "completed" must be consistent
-	assert.Equal(t,
+	assert.Equal(
+		t,
 		lifecycle.DaemonStateLabel(lifecycle.StateDaemonCompleted),
 		lifecycle.FileTaskLabel(constants.TaskStatusCompleted),
 		"completed must render the same canonical label",
 	)
 
 	// "abandoned" must be consistent
-	assert.Equal(t,
+	assert.Equal(
+		t,
 		lifecycle.DaemonStateLabel(lifecycle.StateDaemonAbandoned),
 		lifecycle.FileTaskLabel(constants.TaskStatusAbandoned),
 		"abandoned must render the same canonical label",

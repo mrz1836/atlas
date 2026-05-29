@@ -258,7 +258,8 @@ func (r *ClaudeCodeRunner) parseResponse(stdout []byte) (*ClaudeResponse, error)
 
 // handleExecutionError processes errors from command execution.
 func (r *ClaudeCodeRunner) handleExecutionError(ctx context.Context, err error, stdout, stderr []byte) (*domain.AIResult, error) {
-	return r.base.HandleProviderExecutionError(ctx, claudeCLIInfo, err, stderr,
+	return r.base.HandleProviderExecutionError(
+		ctx, claudeCLIInfo, err, stderr,
 		func() (*domain.AIResult, bool) {
 			return r.tryParseErrorResponse(err, stdout, stderr)
 		},

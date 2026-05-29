@@ -183,7 +183,8 @@ func (f *ServiceFactory) CreateGitServices(ctx context.Context, worktreePath str
 		return nil, fmt.Errorf("failed to create git runner: %w", err)
 	}
 
-	smartCommitter := git.NewSmartCommitRunner(gitRunner, worktreePath, aiRunner,
+	smartCommitter := git.NewSmartCommitRunner(
+		gitRunner, worktreePath, aiRunner,
 		git.WithAgent(gitCfg.CommitAgent),
 		git.WithModel(gitCfg.CommitModel),
 		git.WithTimeout(gitCfg.CommitTimeout),
@@ -193,7 +194,8 @@ func (f *ServiceFactory) CreateGitServices(ctx context.Context, worktreePath str
 	)
 	pusher := git.NewPushRunner(gitRunner)
 	hubRunner := git.NewCLIGitHubRunner(worktreePath)
-	prDescGen := git.NewAIDescriptionGenerator(aiRunner,
+	prDescGen := git.NewAIDescriptionGenerator(
+		aiRunner,
 		git.WithAIDescAgent(gitCfg.PRDescAgent),
 		git.WithAIDescModel(gitCfg.PRDescModel),
 		git.WithAIDescLogger(f.logger),
@@ -320,13 +322,15 @@ func (f *ServiceFactory) CreateHookManager(cfg *config.Config, logger zerolog.Lo
 	mdGen := hook.NewMarkdownGenerator()
 
 	// Create file store with optional markdown generator
-	hookStore := hook.NewFileStore(basePath,
+	hookStore := hook.NewFileStore(
+		basePath,
 		hook.WithMarkdownGenerator(mdGen),
 		hook.WithLogger(&logger),
 	)
 
 	// Create and return manager
-	return hook.NewManager(hookStore, &cfg.Hooks,
+	return hook.NewManager(
+		hookStore, &cfg.Hooks,
 		hook.WithManagerLogger(logger),
 	)
 }

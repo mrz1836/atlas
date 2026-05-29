@@ -163,7 +163,8 @@ func (r *GeminiRunner) streamResultToGeminiResponse(result *GeminiStreamResult) 
 
 // handleExecutionError processes errors from command execution.
 func (r *GeminiRunner) handleExecutionError(ctx context.Context, err error, stdout, stderr []byte) (*domain.AIResult, error) {
-	return r.base.HandleProviderExecutionError(ctx, geminiCLIInfo, err, stderr,
+	return r.base.HandleProviderExecutionError(
+		ctx, geminiCLIInfo, err, stderr,
 		func() (*domain.AIResult, bool) {
 			return r.tryParseErrorResponse(err, stdout, stderr)
 		},

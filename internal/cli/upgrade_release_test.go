@@ -892,7 +892,8 @@ func TestDownloadFileViaGH_Success(t *testing.T) {
 
 	// Test parsing the URL
 	owner, repo, tag, asset, err := parseGitHubReleaseURL(
-		"https://github.com/mrz1836/atlas/releases/download/v1.0.0/atlas_1.0.0_checksums.txt")
+		"https://github.com/mrz1836/atlas/releases/download/v1.0.0/atlas_1.0.0_checksums.txt",
+	)
 	require.NoError(t, err)
 	assert.Equal(t, "mrz1836", owner)
 	assert.Equal(t, "atlas", repo)

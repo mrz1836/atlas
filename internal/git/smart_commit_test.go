@@ -56,7 +56,8 @@ func TestSmartCommitRunner_Options(t *testing.T) {
 	artifactsDir := filepath.Join(tmpDir, "artifacts")
 	customConfig := &GarbageConfig{DebugPatterns: []string{"*.debug"}}
 
-	runner := NewSmartCommitRunner(gitRunner, tmpDir, nil,
+	runner := NewSmartCommitRunner(
+		gitRunner, tmpDir, nil,
 		WithTaskID("task-test-abc"),
 		WithTemplateName("bugfix"),
 		WithArtifactsDir(artifactsDir),
@@ -170,7 +171,8 @@ func TestSmartCommitRunner_Commit_DryRun(t *testing.T) {
 	gitRunner, err := NewRunner(context.Background(), tmpDir)
 	require.NoError(t, err)
 
-	runner := NewSmartCommitRunner(gitRunner, tmpDir, nil,
+	runner := NewSmartCommitRunner(
+		gitRunner, tmpDir, nil,
 		WithTaskID("task-xyz"),
 		WithTemplateName("feature"),
 	)
@@ -282,7 +284,8 @@ func TestSmartCommitRunner_Commit_RealCommit(t *testing.T) {
 
 	// Put artifacts outside the repo to avoid untracked files issue
 	artifactsDir := filepath.Join(t.TempDir(), "artifacts")
-	runner := NewSmartCommitRunner(gitRunner, tmpDir, nil,
+	runner := NewSmartCommitRunner(
+		gitRunner, tmpDir, nil,
 		WithTaskID("task-real-test"),
 		WithTemplateName("feature"),
 		WithArtifactsDir(artifactsDir),
@@ -513,7 +516,8 @@ func TestSanitizeAICommitResponse(t *testing.T) {
 
 func TestWithModel(t *testing.T) {
 	gitRunner := &MockRunner{}
-	runner := NewSmartCommitRunner(gitRunner, "/tmp", nil,
+	runner := NewSmartCommitRunner(
+		gitRunner, "/tmp", nil,
 		WithModel("haiku"),
 	)
 

@@ -194,7 +194,8 @@ func TestNewGitExecutor_WithOptions(t *testing.T) {
 	prDescGen := &mockPRDescriptionGenerator{}
 	saver := newTestArtifactSaver()
 
-	executor := NewGitExecutor("/tmp/work",
+	executor := NewGitExecutor(
+		"/tmp/work",
 		WithSmartCommitter(committer),
 		WithPusher(pusher),
 		WithHubRunner(hubRunner),
@@ -232,7 +233,8 @@ func TestGitExecutor_Execute_ContextCancellation(t *testing.T) {
 
 func TestGitExecutor_Execute_UnknownOperation(t *testing.T) {
 	ctx := context.Background()
-	executor := NewGitExecutor("/tmp/work",
+	executor := NewGitExecutor(
+		"/tmp/work",
 		WithSmartCommitter(&mockSmartCommitter{}),
 	)
 
@@ -388,7 +390,8 @@ func TestGitExecutor_ExecuteCommit_WithGarbageAction_Remove(t *testing.T) {
 		},
 	}
 
-	executor := NewGitExecutor("/tmp/work",
+	executor := NewGitExecutor(
+		"/tmp/work",
 		WithSmartCommitter(committer),
 	)
 
@@ -627,7 +630,8 @@ func TestGitExecutor_ExecuteCommit_WithArtifacts(t *testing.T) {
 		},
 	}
 
-	executor := NewGitExecutor("/tmp/work",
+	executor := NewGitExecutor(
+		"/tmp/work",
 		WithSmartCommitter(committer),
 		WithGitArtifactSaver(saver),
 	)
@@ -823,7 +827,8 @@ func TestGitExecutor_ExecuteCreatePR_NoHubRunner(t *testing.T) {
 
 func TestGitExecutor_ExecuteCreatePR_NoPRDescGen(t *testing.T) {
 	ctx := context.Background()
-	executor := NewGitExecutor("/tmp/work",
+	executor := NewGitExecutor(
+		"/tmp/work",
 		WithHubRunner(&mockHubRunner{}),
 	) // No PR description generator configured
 
@@ -844,7 +849,8 @@ func TestGitExecutor_ExecuteCreatePR_NoPRDescGen(t *testing.T) {
 
 func TestGitExecutor_ExecuteCreatePR_NoBranch(t *testing.T) {
 	ctx := context.Background()
-	executor := NewGitExecutor("/tmp/work",
+	executor := NewGitExecutor(
+		"/tmp/work",
 		WithHubRunner(&mockHubRunner{}),
 		WithPRDescriptionGenerator(&mockPRDescriptionGenerator{}),
 	)
@@ -891,7 +897,8 @@ func TestGitExecutor_ExecuteCreatePR_Success(t *testing.T) {
 		},
 	}
 
-	executor := NewGitExecutor("/tmp/work",
+	executor := NewGitExecutor(
+		"/tmp/work",
 		WithHubRunner(hubRunner),
 		WithPRDescriptionGenerator(prDescGen),
 	)
@@ -946,7 +953,8 @@ func TestGitExecutor_ExecuteCreatePR_SkipsWhenPRExists(t *testing.T) {
 		},
 	}
 
-	executor := NewGitExecutor("/tmp/work",
+	executor := NewGitExecutor(
+		"/tmp/work",
 		WithHubRunner(hubRunner),
 		WithPRDescriptionGenerator(prDescGen),
 	)
@@ -1007,7 +1015,8 @@ func TestGitExecutor_ExecuteCreatePR_RaceConditionRecovery(t *testing.T) {
 		},
 	}
 
-	executor := NewGitExecutor("/tmp/work",
+	executor := NewGitExecutor(
+		"/tmp/work",
 		WithHubRunner(hubRunner),
 		WithPRDescriptionGenerator(&mockPRDescriptionGenerator{}),
 	)
@@ -1043,7 +1052,8 @@ func TestGitExecutor_ExecuteCreatePR_RateLimited(t *testing.T) {
 		},
 	}
 
-	executor := NewGitExecutor("/tmp/work",
+	executor := NewGitExecutor(
+		"/tmp/work",
 		WithHubRunner(hubRunner),
 		WithPRDescriptionGenerator(&mockPRDescriptionGenerator{}),
 	)
@@ -1099,7 +1109,8 @@ func TestGitExecutor_HandleGarbageDetected(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
-			executor := NewGitExecutor("/tmp/work",
+			executor := NewGitExecutor(
+				"/tmp/work",
 				WithGitRunner(&mockRunner{}),
 			)
 
@@ -1133,7 +1144,8 @@ func TestGitExecutor_HandleGarbageDetected_ResetFilesCalled(t *testing.T) {
 			},
 		}
 
-		executor := NewGitExecutor("/tmp/work",
+		executor := NewGitExecutor(
+			"/tmp/work",
 			WithGitRunner(mockGitRunner),
 		)
 
@@ -1163,7 +1175,8 @@ func TestGitExecutor_HandleGarbageDetected_ResetFilesCalled(t *testing.T) {
 			},
 		}
 
-		executor := NewGitExecutor("/tmp/work",
+		executor := NewGitExecutor(
+			"/tmp/work",
 			WithGitRunner(mockGitRunner),
 		)
 
@@ -1189,7 +1202,8 @@ func TestGitExecutor_HandleGarbageDetected_ResetFilesCalled(t *testing.T) {
 			},
 		}
 
-		executor := NewGitExecutor("/tmp/work",
+		executor := NewGitExecutor(
+			"/tmp/work",
 			WithGitRunner(mockGitRunner),
 		)
 
@@ -1478,7 +1492,8 @@ func TestGitExecutor_ExecuteMergePR_NoHubRunner(t *testing.T) {
 
 func TestGitExecutor_ExecuteMergePR_NoPRNumber(t *testing.T) {
 	ctx := context.Background()
-	executor := NewGitExecutor("/tmp/work",
+	executor := NewGitExecutor(
+		"/tmp/work",
 		WithHubRunner(&mockHubRunner{}),
 	)
 
@@ -1513,7 +1528,8 @@ func TestGitExecutor_ExecuteMergePR_Success(t *testing.T) {
 		},
 	}
 
-	executor := NewGitExecutor("/tmp/work",
+	executor := NewGitExecutor(
+		"/tmp/work",
 		WithHubRunner(hubRunner),
 		WithGitArtifactHelper(NewArtifactHelper(saver, zerolog.Nop())),
 	)
@@ -1556,7 +1572,8 @@ func TestGitExecutor_ExecuteMergePR_WithOptions(t *testing.T) {
 		},
 	}
 
-	executor := NewGitExecutor("/tmp/work",
+	executor := NewGitExecutor(
+		"/tmp/work",
 		WithHubRunner(hubRunner),
 	)
 
@@ -1593,7 +1610,8 @@ func TestGitExecutor_ExecuteMergePR_FromTaskMetadata(t *testing.T) {
 		},
 	}
 
-	executor := NewGitExecutor("/tmp/work",
+	executor := NewGitExecutor(
+		"/tmp/work",
 		WithHubRunner(hubRunner),
 	)
 
@@ -1628,7 +1646,8 @@ func TestGitExecutor_ExecuteMergePR_Error(t *testing.T) {
 		},
 	}
 
-	executor := NewGitExecutor("/tmp/work",
+	executor := NewGitExecutor(
+		"/tmp/work",
 		WithHubRunner(hubRunner),
 	)
 
@@ -1674,7 +1693,8 @@ func TestGitExecutor_ExecuteAddReview_NoHubRunner(t *testing.T) {
 
 func TestGitExecutor_ExecuteAddReview_NoPRNumber(t *testing.T) {
 	ctx := context.Background()
-	executor := NewGitExecutor("/tmp/work",
+	executor := NewGitExecutor(
+		"/tmp/work",
 		WithHubRunner(&mockHubRunner{}),
 	)
 
@@ -1707,7 +1727,8 @@ func TestGitExecutor_ExecuteAddReview_Approve(t *testing.T) {
 		},
 	}
 
-	executor := NewGitExecutor("/tmp/work",
+	executor := NewGitExecutor(
+		"/tmp/work",
 		WithHubRunner(hubRunner),
 		WithGitArtifactHelper(NewArtifactHelper(saver, zerolog.Nop())),
 	)
@@ -1748,7 +1769,8 @@ func TestGitExecutor_ExecuteAddReview_RequestChanges(t *testing.T) {
 		},
 	}
 
-	executor := NewGitExecutor("/tmp/work",
+	executor := NewGitExecutor(
+		"/tmp/work",
 		WithHubRunner(hubRunner),
 	)
 
@@ -1783,7 +1805,8 @@ func TestGitExecutor_ExecuteAddReview_Error(t *testing.T) {
 		},
 	}
 
-	executor := NewGitExecutor("/tmp/work",
+	executor := NewGitExecutor(
+		"/tmp/work",
 		WithHubRunner(hubRunner),
 	)
 
@@ -1830,7 +1853,8 @@ func TestGitExecutor_ExecuteAddComment_NoHubRunner(t *testing.T) {
 
 func TestGitExecutor_ExecuteAddComment_NoPRNumber(t *testing.T) {
 	ctx := context.Background()
-	executor := NewGitExecutor("/tmp/work",
+	executor := NewGitExecutor(
+		"/tmp/work",
 		WithHubRunner(&mockHubRunner{}),
 	)
 
@@ -1853,7 +1877,8 @@ func TestGitExecutor_ExecuteAddComment_NoPRNumber(t *testing.T) {
 
 func TestGitExecutor_ExecuteAddComment_NoBody(t *testing.T) {
 	ctx := context.Background()
-	executor := NewGitExecutor("/tmp/work",
+	executor := NewGitExecutor(
+		"/tmp/work",
 		WithHubRunner(&mockHubRunner{}),
 	)
 
@@ -1887,7 +1912,8 @@ func TestGitExecutor_ExecuteAddComment_Success(t *testing.T) {
 		},
 	}
 
-	executor := NewGitExecutor("/tmp/work",
+	executor := NewGitExecutor(
+		"/tmp/work",
 		WithHubRunner(hubRunner),
 		WithGitArtifactHelper(NewArtifactHelper(saver, zerolog.Nop())),
 	)
@@ -1926,7 +1952,8 @@ func TestGitExecutor_ExecuteAddComment_Error(t *testing.T) {
 		},
 	}
 
-	executor := NewGitExecutor("/tmp/work",
+	executor := NewGitExecutor(
+		"/tmp/work",
 		WithHubRunner(hubRunner),
 	)
 

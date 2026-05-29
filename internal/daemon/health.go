@@ -103,15 +103,15 @@ func (d *Daemon) refreshHeartbeat(ctx context.Context) {
 // file existence, Redis address, heartbeat age, queue depth by priority, and degraded reasons.
 func (d *Daemon) Doctor(ctx context.Context) (*DaemonDoctorResponse, error) {
 	resp := &DaemonDoctorResponse{
-		Version:   daemonVersion,
-		PID:       os.Getpid(),
-		StartedAt: d.startedAt.UTC().Format(time.RFC3339),
-		Uptime:    time.Since(d.startedAt).Round(time.Second).String(),
-		Workers:   d.cfg.Daemon.MaxParallelTasks,
-		RedisAddr: d.cfg.Redis.Addr,
+		Version:    daemonVersion,
+		PID:        os.Getpid(),
+		StartedAt:  d.startedAt.UTC().Format(time.RFC3339),
+		Uptime:     time.Since(d.startedAt).Round(time.Second).String(),
+		Workers:    d.cfg.Daemon.MaxParallelTasks,
+		RedisAddr:  d.cfg.Redis.Addr,
 		SocketPath: d.cfg.Daemon.SocketPath,
-		PIDFile:   d.cfg.Daemon.PIDFile,
-		LogFile:   d.cfg.Daemon.LogFile,
+		PIDFile:    d.cfg.Daemon.PIDFile,
+		LogFile:    d.cfg.Daemon.LogFile,
 	}
 
 	// Check file existence.

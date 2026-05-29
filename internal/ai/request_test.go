@@ -67,7 +67,8 @@ func TestNewAIRequest(t *testing.T) {
 	})
 
 	t.Run("applies multiple options", func(t *testing.T) {
-		req := NewAIRequest("Fix the bug",
+		req := NewAIRequest(
+			"Fix the bug",
 			WithModel("sonnet"),
 			WithTimeout(15*time.Minute),
 			WithPermissionMode("plan"),
@@ -88,7 +89,8 @@ func TestNewAIRequest(t *testing.T) {
 	})
 
 	t.Run("later options override earlier ones", func(t *testing.T) {
-		req := NewAIRequest("test",
+		req := NewAIRequest(
+			"test",
 			WithModel("haiku"),
 			WithModel("opus"), // Override
 		)

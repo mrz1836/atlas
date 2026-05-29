@@ -148,7 +148,8 @@ func TestLoopIntegration_FullWorkflow(t *testing.T) {
 
 	exitEval := NewExitEvaluator([]string{"all tests passing"}, logger)
 
-	executor := NewLoopExecutor(mockRunner, stateStore,
+	executor := NewLoopExecutor(
+		mockRunner, stateStore,
 		WithLoopLogger(logger),
 		WithLoopScratchpad(scratchpad),
 		WithLoopExitEvaluator(exitEval),
@@ -284,7 +285,8 @@ func TestLoopIntegration_ScratchpadPersistence(t *testing.T) {
 	scratchpadPath := filepath.Join(tmpDir, "artifacts", "scratchpad.json")
 	scratchpad := NewFileScratchpad(scratchpadPath, logger)
 
-	executor := NewLoopExecutor(mockRunner, stateStore,
+	executor := NewLoopExecutor(
+		mockRunner, stateStore,
 		WithLoopLogger(logger),
 		WithLoopScratchpad(scratchpad),
 	)
@@ -401,7 +403,8 @@ func TestLoopIntegration_ExitSignalWithConditions(t *testing.T) {
 	stateStore := NewFileStateStore(tmpDir)
 	exitEval := NewExitEvaluator([]string{"all tests passing"}, logger)
 
-	executor := NewLoopExecutor(mockRunner, stateStore,
+	executor := NewLoopExecutor(
+		mockRunner, stateStore,
 		WithLoopLogger(logger),
 		WithLoopExitEvaluator(exitEval),
 	)
@@ -653,7 +656,8 @@ func TestLoopIntegration_RealExitConditionEvaluator(t *testing.T) {
 	stateStore := NewFileStateStore(tmpDir)
 	exitEval := NewExitEvaluator([]string{"all tests passing"}, logger)
 
-	executor := NewLoopExecutor(mockRunner, stateStore,
+	executor := NewLoopExecutor(
+		mockRunner, stateStore,
 		WithLoopLogger(logger),
 		WithLoopExitEvaluator(exitEval),
 	)

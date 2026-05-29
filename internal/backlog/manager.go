@@ -354,7 +354,8 @@ func (m *Manager) Promote(ctx context.Context, id, taskID string) (*Discovery, e
 	if d.Status != StatusPending {
 		return nil, atlaserrors.NewExitCode2Error(
 			fmt.Errorf("%w: can only promote pending discoveries, current status is %q",
-				atlaserrors.ErrInvalidStatusTransition, d.Status))
+				atlaserrors.ErrInvalidStatusTransition, d.Status),
+		)
 	}
 
 	// Store task ID for planning (status changes when task starts)
@@ -380,7 +381,8 @@ func (m *Manager) Dismiss(ctx context.Context, id, reason string) (*Discovery, e
 	if d.Status != StatusPending {
 		return nil, atlaserrors.NewExitCode2Error(
 			fmt.Errorf("%w: can only dismiss pending discoveries, current status is %q",
-				atlaserrors.ErrInvalidStatusTransition, d.Status))
+				atlaserrors.ErrInvalidStatusTransition, d.Status),
+		)
 	}
 
 	// Update status and lifecycle
@@ -406,7 +408,8 @@ func (m *Manager) Complete(ctx context.Context, id string) (*Discovery, error) {
 	if d.Status != StatusPromoted {
 		return nil, atlaserrors.NewExitCode2Error(
 			fmt.Errorf("%w: can only complete promoted discoveries, current status is %q",
-				atlaserrors.ErrInvalidStatusTransition, d.Status))
+				atlaserrors.ErrInvalidStatusTransition, d.Status),
+		)
 	}
 
 	// Update status and lifecycle
@@ -437,7 +440,8 @@ func (m *Manager) StartTask(ctx context.Context, id, taskID string) (*Discovery,
 		}
 		return nil, atlaserrors.NewExitCode2Error(
 			fmt.Errorf("%w: can only start pending discoveries, current status is %q",
-				atlaserrors.ErrInvalidStatusTransition, d.Status))
+				atlaserrors.ErrInvalidStatusTransition, d.Status),
+		)
 	}
 
 	// Update status and lifecycle
@@ -503,14 +507,16 @@ func (m *Manager) PromoteWithOptions(ctx context.Context, id string, opts Promot
 	if d.Status != StatusPending {
 		return nil, atlaserrors.NewExitCode2Error(
 			fmt.Errorf("%w: can only promote pending discoveries, current status is %q",
-				atlaserrors.ErrInvalidStatusTransition, d.Status))
+				atlaserrors.ErrInvalidStatusTransition, d.Status),
+		)
 	}
 
 	// Check if already promoted to a task
 	if d.Lifecycle.PromotedToTask != "" {
 		return nil, atlaserrors.NewExitCode2Error(
 			fmt.Errorf("%w: discovery already promoted to task %q",
-				atlaserrors.ErrInvalidStatusTransition, d.Lifecycle.PromotedToTask))
+				atlaserrors.ErrInvalidStatusTransition, d.Lifecycle.PromotedToTask),
+		)
 	}
 
 	// Build promote result
