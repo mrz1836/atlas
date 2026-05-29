@@ -1,7 +1,7 @@
 # Lifecycle Service: Package Home Decision (T-228 Phase 1, Task 1.3)
 
-**Date:** 2026-05-28  
-**Branch:** fix/daemon-daily-driver  
+**Date:** 2026-05-28
+**Branch:** fix/daemon-daily-driver
 **Status:** Decision — ready for Phase 2 implementation
 
 ---

@@ -1,12 +1,12 @@
 # T-228 Dogfood Followup Notes (Phase 7, Task 7.3)
 
-Date: 2026-05-28  
-Phase: 7 (Dogfood on Atlas itself)  
+Date: 2026-05-28
+Phase: 7 (Dogfood on Atlas itself)
 Author: executor (T-228 Phase 7 worker)
 
 ## Purpose
 
-Capture unexpected behavior, copy issues, and test gaps observed during Phase 7 dogfood.  
+Capture unexpected behavior, copy issues, and test gaps observed during Phase 7 dogfood.
 These items are either addressed in Phase 8 docs or deferred for Z's triage.
 
 ---
@@ -52,7 +52,7 @@ add a unit test in `internal/cli/root_test.go` (or integration) asserting that
 
 ### DEFER-1: Redis not installed locally → real daemon dogfood incomplete
 
-**Observed:** Real daemon session (Task 7.2) blocked by missing Redis install.  
+**Observed:** Real daemon session (Task 7.2) blocked by missing Redis install.
 `atlas daemon start` fails with clear diagnostics (AC-PB-3 confirmed), but full
 CLI-level daemon submit/execute/status couldn't be demonstrated.
 
