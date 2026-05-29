@@ -172,6 +172,9 @@ func (d *Daemon) Doctor(ctx context.Context) (*DaemonDoctorResponse, error) {
 	}
 	resp.DegradedReasons = degraded
 
+	// Include recovery events from the last startup (Q4 verbose recovery).
+	resp.RecoveryEvents = d.getRecoveryEvents()
+
 	return resp, nil
 }
 

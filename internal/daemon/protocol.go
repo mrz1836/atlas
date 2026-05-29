@@ -64,6 +64,7 @@ const (
 	MethodWorkspaceDestroy  = "workspace.destroy"
 	MethodTaskPause         = "task.pause"
 	MethodDaemonDoctor      = "daemon.doctor"
+	MethodHookRetry         = "hook.retry"
 )
 
 // TaskSubmitRequest is the params for task.submit.
@@ -96,21 +97,22 @@ type TaskStatusRequest struct {
 
 // TaskStatusResponse is the result for task.status.
 type TaskStatusResponse struct {
-	TaskID      string `json:"task_id"`
-	Status      string `json:"status"`
-	Priority    string `json:"priority"`
-	CurrentStep int    `json:"current_step"`
-	TotalSteps  int    `json:"total_steps"`
-	SubmittedAt string `json:"submitted_at"`
-	StartedAt   string `json:"started_at,omitempty"`
-	CompletedAt string `json:"completed_at,omitempty"`
-	Error       string `json:"error,omitempty"`
-	Description string `json:"description,omitempty"`
-	Workspace   string `json:"workspace,omitempty"`
-	Agent       string `json:"agent,omitempty"`
-	Model       string `json:"model,omitempty"`
-	Branch      string `json:"branch,omitempty"`
-	Template    string `json:"template,omitempty"`
+	TaskID              string `json:"task_id"`
+	Status              string `json:"status"`
+	Priority            string `json:"priority"`
+	CurrentStep         int    `json:"current_step"`
+	TotalSteps          int    `json:"total_steps"`
+	SubmittedAt         string `json:"submitted_at"`
+	StartedAt           string `json:"started_at,omitempty"`
+	CompletedAt         string `json:"completed_at,omitempty"`
+	Error               string `json:"error,omitempty"`
+	Description         string `json:"description,omitempty"`
+	Workspace           string `json:"workspace,omitempty"`
+	Agent               string `json:"agent,omitempty"`
+	Model               string `json:"model,omitempty"`
+	Branch              string `json:"branch,omitempty"`
+	Template            string `json:"template,omitempty"`
+	CrashRecovery       string `json:"crash_recovery,omitempty"` // "degraded" when hook init failed
 }
 
 // TaskListRequest is the params for task.list.
@@ -233,15 +235,17 @@ type DaemonDoctorResponse struct {
 	ActiveTasks int    `json:"active_tasks"`
 
 	// Extended fields.
-	RedisAddr       string             `json:"redis_addr"`
-	HeartbeatAge    string             `json:"heartbeat_age,omitempty"`
-	SocketPath      string             `json:"socket_path"`
-	SocketExists    bool               `json:"socket_exists"`
-	PIDFile         string             `json:"pid_file"`
-	PIDFileExists   bool               `json:"pid_file_exists"`
-	LogFile         string             `json:"log_file,omitempty"`
+	RedisAddr       string          `json:"redis_addr"`
+	HeartbeatAge    string          `json:"heartbeat_age,omitempty"`
+	SocketPath      string          `json:"socket_path"`
+	SocketExists    bool            `json:"socket_exists"`
+	PIDFile         string          `json:"pid_file"`
+	PIDFileExists   bool            `json:"pid_file_exists"`
+	LogFile         string          `json:"log_file,omitempty"`
 	QueueByPriority QueuePriorityStats `json:"queue_by_priority"`
-	DegradedReasons []string           `json:"degraded_reasons"`
+	DegradedReasons []string        `json:"degraded_reasons"`
+	// RecoveryEvents holds per-task recovery decisions from the last daemon startup.
+	RecoveryEvents []RecoveryEvent `json:"recovery_events,omitempty"`
 }
 
 // DaemonShutdownRequest is the params for daemon.shutdown.
@@ -273,6 +277,23 @@ type WorkspaceDestroyRequest struct {
 type TaskPauseRequest struct {
 	TaskID string `json:"task_id"`
 }
+
+// HookRetryRequest is the params for hook.retry.
+// It re-attempts hook initialization for a task whose crash recovery was degraded.
+type HookRetryRequest struct {
+	TaskID string `json:"task_id"`
+}
+
+// RecoveryEvent records a single per-task recovery decision made during daemon startup.
+type RecoveryEvent struct {
+	TaskID     string `json:"task_id"`
+	Decision   string `json:"decision"`   // requeue | skip | fail | preserve_approval | remove_terminal
+	Reason     string `json:"reason"`     // human-readable explanation
+	PriorState string `json:"prior_state"` // task status before recovery
+}
+
+// EventTaskRecovered is emitted when the daemon recovers orphaned tasks on startup.
+const EventTaskRecovered = "task.recovered"
 
 // TaskEvent is the event payload published to the atlas:events channel.
 type TaskEvent struct {

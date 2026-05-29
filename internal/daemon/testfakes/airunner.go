@@ -38,6 +38,13 @@ type FakeExecutor struct {
 	// AbandonErr is the error returned by Abandon.
 	AbandonErr error
 
+	// HookDegraded, when true, causes InitHooks to report degraded hook state.
+	// Implements daemon.HookInitializer.
+	HookDegraded bool
+
+	// HookDegradedReason is the reason returned when HookDegraded is true.
+	HookDegradedReason string
+
 	// ExecuteCalls records each Execute invocation (by value) for post-test assertion.
 	ExecuteCalls []daemon.TaskJob
 
@@ -86,3 +93,19 @@ func (f *FakeExecutor) CallCount() int {
 	defer f.mu.Unlock()
 	return len(f.ExecuteCalls)
 }
+
+// InitHooks implements daemon.HookInitializer.
+// Returns (true, reason) when HookDegraded is set, (false, "") otherwise.
+func (f *FakeExecutor) InitHooks(_ context.Context, _ daemon.TaskJob) (bool, string) {
+	if f.HookDegraded {
+		reason := f.HookDegradedReason
+		if reason == "" {
+			reason = "hook initialization failed (fake)"
+		}
+		return true, reason
+	}
+	return false, ""
+}
+
+// Ensure FakeExecutor implements daemon.HookInitializer at compile time.
+var _ daemon.HookInitializer = (*FakeExecutor)(nil)

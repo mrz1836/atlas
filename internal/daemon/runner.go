@@ -11,6 +11,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/mrz1836/atlas/internal/config"
+	"github.com/mrz1836/atlas/internal/lifecycle"
 )
 
 // Runner manages a pool of workers that execute tasks popped from the queue.
@@ -431,6 +432,7 @@ func (r *Runner) executeTask(_ context.Context, taskID string) {
 
 	// Load job metadata from Redis before publishing started event so we can
 	// include enriched fields (workspace, agent, model, etc.) in the event.
+	// Also needed for hook initialization and worktree lock release.
 	job, loadErr := r.loadTaskJob(taskCtx, taskID)
 	if loadErr != nil {
 		r.logger.Error().Err(loadErr).Str("task_id", taskID).Msg("runner: failed to load task job")
@@ -448,6 +450,14 @@ func (r *Runner) executeTask(_ context.Context, taskID string) {
 			}
 		}
 		return
+	}
+
+	// Optional: run hook initialization if executor supports it (Task 5.3).
+	// Failure marks crash_recovery=degraded but does NOT abort execution.
+	if hi, ok := r.executor.(HookInitializer); ok {
+		if degraded, reason := hi.InitHooks(taskCtx, job); degraded {
+			r.markCrashRecoveryDegraded(taskCtx, taskID, reason)
+		}
 	}
 
 	if r.events != nil {
@@ -612,6 +622,9 @@ func (r *Runner) markTaskCompleted(ctx context.Context, taskID string) {
 	if err := cache.SetRemoveMember(ctx, r.redis, activeKey, taskID); err != nil {
 		r.logger.Warn().Err(err).Str("task_id", taskID).Msg("runner: failed to remove task from active set")
 	}
+
+	// Release worktree lock if repo_path is available.
+	r.releaseWorktreeLock(ctx, taskID)
 }
 
 // finalizeCanceledTask writes the terminal state for a task whose context was canceled.
@@ -634,6 +647,8 @@ func (r *Runner) finalizeCanceledTask(taskID, hashKey string) {
 	if err := cache.SetRemoveMember(bgCtx, r.redis, activeKey, taskID); err != nil {
 		r.logger.Warn().Err(err).Str("task_id", taskID).Msg("runner: failed to remove task from active set on cancel")
 	}
+	// Release worktree lock (best-effort).
+	r.releaseWorktreeLock(bgCtx, taskID)
 	// Choose the appropriate event type based on final status.
 	if r.events != nil {
 		evType := EventTaskCancelled
@@ -709,5 +724,39 @@ func (r *Runner) markTaskFailed(ctx context.Context, taskID, errMsg string) {
 	activeKey := r.cfg.Redis.KeyPrefix + "active"
 	if err := cache.SetRemoveMember(ctx, r.redis, activeKey, taskID); err != nil {
 		r.logger.Warn().Err(err).Str("task_id", taskID).Msg("runner: failed to remove failed task from active set")
+	}
+
+	// Release worktree lock if repo_path is available.
+	r.releaseWorktreeLock(ctx, taskID)
+}
+
+// markCrashRecoveryDegraded sets crash_recovery=degraded in the task hash.
+// The task continues to execute, but crash recovery is unavailable for this run.
+func (r *Runner) markCrashRecoveryDegraded(ctx context.Context, taskID, reason string) {
+	hashKey := r.cfg.Redis.KeyPrefix + "task:" + taskID
+	pairs := [][2]interface{}{
+		{"crash_recovery", "degraded"},
+		{"crash_recovery_reason", reason},
+	}
+	if err := cache.HashMapSet(ctx, r.redis, hashKey, pairs); err != nil {
+		r.logger.Warn().Err(err).Str("task_id", taskID).Msg("runner: failed to mark crash_recovery degraded")
+	}
+	r.logger.Warn().
+		Str("task_id", taskID).
+		Str("reason", reason).
+		Msg("runner: task running with degraded crash recovery (hook init failed)")
+}
+
+// releaseWorktreeLock reads the repo_path from Redis and releases the worktree lock.
+// Best-effort: logs but does not propagate errors.
+func (r *Runner) releaseWorktreeLock(ctx context.Context, taskID string) {
+	hashKey := r.cfg.Redis.KeyPrefix + "task:" + taskID
+	vals, err := cache.HashMapGet(ctx, r.redis, hashKey, "repo_path")
+	if err != nil || len(vals) == 0 || vals[0] == "" {
+		return
+	}
+	repoPath := vals[0]
+	if relErr := lifecycle.ReleaseWorktreeRedisLock(ctx, r.redis, r.cfg.Redis.KeyPrefix, repoPath, taskID); relErr != nil {
+		r.logger.Warn().Err(relErr).Str("task_id", taskID).Str("repo_path", repoPath).Msg("runner: failed to release worktree lock")
 	}
 }

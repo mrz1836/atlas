@@ -21,6 +21,10 @@ import (
 // DaemonTaskExecutor implements daemon.TaskExecutor using the task engine layer.
 // It bridges daemon TaskJob metadata to the full workspace / git / engine setup
 // that is normally done by the CLI start and resume commands.
+//
+// It also implements daemon.HookInitializer so the runner can call InitHooks
+// before Execute and mark the task degraded (crash_recovery=degraded) if hook
+// init fails rather than hard-failing the submit.
 type DaemonTaskExecutor struct {
 	logger    zerolog.Logger
 	cfg       *config.Config
@@ -375,6 +379,41 @@ func (e *DaemonTaskExecutor) resolveTemplate(job daemon.TaskJob, cfg *config.Con
 	}
 	return tmpl, nil
 }
+
+// InitHooks implements daemon.HookInitializer.
+// It creates a temporary hook manager, creates a minimal domain.Task, and calls
+// CreateHook + ReadyHook. If either fails, it returns (true, reason) so the runner
+// can mark the task as crash_recovery=degraded but still proceed with execution.
+//
+// Note: the full workspace is not provisioned here; InitHooks is a best-effort
+// pre-run check. The engine's own initializeHook call remains authoritative.
+func (e *DaemonTaskExecutor) InitHooks(ctx context.Context, job daemon.TaskJob) (degraded bool, reason string) {
+	if job.Workspace == "" || job.TaskID == "" {
+		return false, ""
+	}
+
+	services := NewServiceFactory(e.logger).WithRepoPath(job.RepoPath)
+	hm := services.CreateHookManager(e.cfg, e.logger)
+	if hm == nil {
+		return false, ""
+	}
+
+	t := &domain.Task{
+		ID:          job.TaskID,
+		WorkspaceID: job.Workspace,
+	}
+
+	if err := hm.CreateHook(ctx, t); err != nil {
+		return true, fmt.Sprintf("CreateHook failed: %v", err)
+	}
+	if err := hm.ReadyHook(ctx, t); err != nil {
+		return true, fmt.Sprintf("ReadyHook failed: %v", err)
+	}
+	return false, ""
+}
+
+// Ensure DaemonTaskExecutor implements daemon.HookInitializer.
+var _ daemon.HookInitializer = (*DaemonTaskExecutor)(nil)
 
 // resolveGitCfgFromConfig converts config git settings to GitConfig with fallbacks.
 func resolveGitCfgFromConfig(cfg *config.Config) GitConfig {

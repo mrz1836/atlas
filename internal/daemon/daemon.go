@@ -57,6 +57,11 @@ type Daemon struct {
 	lastHeartbeatAt time.Time
 	heartbeatMu     sync.RWMutex
 
+	// recoveryEvents holds the most recent per-task recovery decisions from startup.
+	// Protected by recoveryMu; capped at maxStoredRecoveryEvents.
+	recoveryEvents []RecoveryEvent
+	recoveryMu     sync.RWMutex
+
 	// executor is the task engine bridge; injected via WithExecutor.
 	executor TaskExecutor
 
@@ -447,6 +452,35 @@ func (d *Daemon) startServer(ctx context.Context) error {
 		return fmt.Errorf("start: bind unix socket: %w", srvErr)
 	}
 	return nil
+}
+
+// maxStoredRecoveryEvents is the maximum number of recovery events retained in memory
+// for doctor/status output. Older events are dropped.
+const maxStoredRecoveryEvents = 50
+
+// storeRecoveryEvents saves recovery events for later access via Doctor/Health.
+func (d *Daemon) storeRecoveryEvents(events []RecoveryEvent) {
+	if len(events) == 0 {
+		return
+	}
+	d.recoveryMu.Lock()
+	defer d.recoveryMu.Unlock()
+	d.recoveryEvents = append(d.recoveryEvents, events...)
+	if len(d.recoveryEvents) > maxStoredRecoveryEvents {
+		d.recoveryEvents = d.recoveryEvents[len(d.recoveryEvents)-maxStoredRecoveryEvents:]
+	}
+}
+
+// getRecoveryEvents returns a snapshot of the stored recovery events.
+func (d *Daemon) getRecoveryEvents() []RecoveryEvent {
+	d.recoveryMu.RLock()
+	defer d.recoveryMu.RUnlock()
+	if len(d.recoveryEvents) == 0 {
+		return nil
+	}
+	out := make([]RecoveryEvent, len(d.recoveryEvents))
+	copy(out, d.recoveryEvents)
+	return out
 }
 
 // socketDir returns the directory part of a socket/PID path.

@@ -12,6 +12,7 @@ import (
 
 	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/domain"
+	"github.com/mrz1836/atlas/internal/lifecycle"
 	"github.com/mrz1836/atlas/internal/task"
 	"github.com/mrz1836/atlas/internal/tui"
 )
@@ -65,7 +66,19 @@ func (o *Orchestrator) Prompter() *Prompter {
 }
 
 // StartTask starts the task execution and handles errors.
+// It acquires a filesystem worktree lock before starting and releases it
+// when the task completes (success or failure).
 func (o *Orchestrator) StartTask(ctx context.Context, engine *task.Engine, ws *domain.Workspace, tmpl *domain.Template, description, fromBacklogID string) (*domain.Task, error) {
+	// Acquire filesystem lock for direct-mode exclusivity (Q2).
+	// This prevents daemon mode from submitting a task for the same repo while direct mode is running.
+	if ws.WorktreePath != "" {
+		if lockErr := lifecycle.WriteFilesystemLock(ws.WorktreePath, ws.Name); lockErr != nil {
+			o.logger.Warn().Err(lockErr).Str("worktree", ws.WorktreePath).Msg("orchestrator: could not acquire filesystem worktree lock (continuing without lock)")
+		} else {
+			defer lifecycle.RemoveFilesystemLock(ws.WorktreePath)
+		}
+	}
+
 	t, err := engine.Start(ctx, ws.Name, ws.Branch, ws.WorktreePath, tmpl, description, fromBacklogID)
 	if err != nil {
 		o.logger.Error().Err(err).
