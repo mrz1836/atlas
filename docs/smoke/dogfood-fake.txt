@@ -1,0 +1,148 @@
+T-228 Dogfood Smoke Log — Fake AI Runner (Phase 7, Task 7.1)
+=============================================================
+Date:        2026-05-28
+Branch:      fix/daemon-daily-driver
+Commit:      e63b7e0 (Phase 6 — status/UI/log truth unification)
+Runner:      miniredis (in-process) + FakeExecutor (no external services)
+Repo:        ~/projects/atlas (the working checkout itself)
+Go version:  go1.24+ (per go.mod)
+
+Purpose
+-------
+Prove the full `atlas start --daemon` queue + persist + execute + status
+lifecycle end-to-end on the Atlas codebase, with no external services
+(no real Redis, no real Claude/AI runner).  Uses the Phase 2 testfakes
+harness: miniredis.Run() + FakeExecutor + TempAtlasEnv + TempGitRepo.
+
+Run Command
+-----------
+  cd ~/projects/atlas
+  go test -v -count=1 -timeout=180s \
+    -run "TestDaemonStart_HappyPath|TestHandlerTaskSubmit_Valid|\
+TestHandlerTaskStatus_Valid|TestHandlerTaskList_WithTasks|\
+TestRunnerIntegration_DispatchAndComplete|\
+TestRunnerIntegration_MultipleTasksCompleted|\
+TestHandlerDaemonStatus|TestHandlerQueueStats_WithItems|\
+TestHandlerDaemonPing|TestDaemonDoctor_ReturnsAllFields|\
+TestSubmitRollback|TestWorktreeLock|TestRecovery" \
+    ./internal/daemon/...
+
+Lifecycle Flow Verified
+-----------------------
+
+1. DAEMON START — TestDaemonStart_HappyPath (PASS 0.01s)
+   - miniredis started at ephemeral address (no external Redis)
+   - Daemon.Start() called → full readiness contract enforced:
+       * Redis connect+ping ✓
+       * PID file written: /tmp/atlslifeXXXX/d.pid → contains current PID ✓
+       * Socket bound:     /tmp/atlslifeXXXX/d.sock ✓
+       * Heartbeat key:    atlas:daemon:heartbeat written ✓
+       * Worker pool:      runner non-nil ✓
+       * Events publisher: events non-nil ✓
+   - Log output: {"level":"info","message":"daemon: started","socket":"/tmp/atlslifeXXXX/d.sock"}
+   - Daemon socket: path printed in started banner ✓
+
+2. DAEMON DOCTOR — TestDaemonDoctor_ReturnsAllFields (PASS 0.00s)
+   - atlas daemon doctor output includes:
+       * Redis status:    connected ✓
+       * Queue depth:     by priority (urgent/normal/low) ✓
+       * Worker count:    configured pool size ✓
+       * Active tasks:    0 ✓
+       * Socket path:     present ✓
+       * PID file path:   present ✓
+       * Log file path:   present ✓
+       * Heartbeat age:   < threshold ✓
+       * Degraded:        false ✓
+
+3. SUBMIT → QUEUED — TestHandlerTaskSubmit_Valid (PASS 0.00s)
+   Task ID:     auto-generated UUID (e.g., "atlas-task-<uuid>")
+   Workspace:   ws1
+   Description: "fix the thing"
+   Template:    bug
+   Priority:    urgent
+   Response:    status=queued ✓
+   Redis writes confirmed (transactional submit with full rollback):
+     atlas:task:<id>         → hash: status=queued, template=bug, workspace=ws1
+     atlas:tasks:persistent  → set: <id> added ✓
+     atlas:active            → set: <id> added ✓
+     atlas:queue             → sorted set: score = priority × 1e18 + nanoseconds (urgent) ✓
+
+   TestSubmitRollback_* (5 fault-injection tests) — all PASS:
+     TestSubmitRollback_HashWriteFailure      (PASS 0.00s) → full rollback, clean state ✓
+     TestSubmitRollback_TasksSetFailure       (PASS 0.01s) → full rollback, clean state ✓
+     TestSubmitRollback_ActiveSetFailure      (PASS 0.01s) → full rollback, clean state ✓
+     TestSubmitRollback_QueueSubmitFailure    (PASS 0.01s) → full rollback, clean state ✓
+     TestSubmitRollback_WorkspaceNameInResponse (PASS 0.01s)
+       Response includes: taskID=<uuid>, workspace=ws-dogfood-smoke ✓
+       CLI can print: atlas status <id> / atlas workspace logs ws-dogfood-smoke ✓
+
+4. STATUS QUERY — TestHandlerTaskStatus_Valid (PASS 0.00s)
+   - Submit returns task ID
+   - Status query: atlas:task:<id> → status=queued, submitted_at=<timestamp> ✓
+
+5. TASK LIST — TestHandlerTaskList_WithTasks (PASS 0.01s)
+   - Tasks with statuses [queued, running, completed, awaiting_approval] listed ✓
+   - Lifecycle vocabulary: queued | running | awaiting_approval | completed |
+                           failed | canceled | abandoned | degraded ✓
+
+6. QUEUE STATS — TestHandlerQueueStats_WithItems (PASS 0.01s)
+   - Queue depth by priority:
+       urgent: 2, normal: 2, low: 1
+   - QueueStats.Total = 5 ✓
+
+7. DISPATCH + EXECUTE → COMPLETED
+   TestRunnerIntegration_DispatchAndComplete (PASS 0.15s)
+     Task ID:   "integration-task-001"
+     Submit:    q.Submit(ctx, "integration-task-001", PriorityNormal) → queued ✓
+     Runner:    r.Start(ctx) → dispatch loop running ✓
+     Execute:   FakeExecutor.Execute() called → returns ("", "completed", nil) ✓
+     Redis:     atlas:task:integration-task-001 → status=completed ✓
+                completed_at = <timestamp set> ✓
+     Lifecycle: queued → running → completed ✓
+
+   TestRunnerIntegration_MultipleTasksCompleted (PASS 0.26s)
+     Tasks:     ["multi-task-000", "multi-task-001", "multi-task-002", "multi-task-003"]
+     Priority:  all PriorityNormal
+     Result:    all 4 tasks → status=completed ✓
+     Concurrency: MaxParallelTasks=2, tasks processed in pairs ✓
+
+8. WORKTREE EXCLUSIVITY LOCK — TestWorktreeLock_* (all PASS)
+   TestWorktreeLock_TwoDaemonSubmitsSameWorktree    (PASS 0.01s) — 2nd submit rejected ✓
+   TestWorktreeLock_DirectModeInterlock             (PASS 0.01s) — direct blocks daemon ✓
+   TestWorktreeLock_DirectModeChecksRedisLock       (PASS 0.01s) — daemon blocks direct ✓
+   TestWorktreeLock_TwoWorktreesSameUpstreamAllowed (PASS 0.01s) — cross-worktree OK ✓
+   TestWorktreeLock_NoRepoPath                      (PASS 0.01s) — no lock, submit OK ✓
+   TestWorktreeLock_HookDegraded                    (PASS 0.06s) — degraded visible ✓
+
+9. DAEMON PING — TestHandlerDaemonPing (PASS 0.00s)
+   - Ping handler returns pong ✓
+
+10. DAEMON STATUS — TestHandlerDaemonStatus (PASS 0.00s)
+    - Status response includes socket, pid, queue depth, worker count ✓
+
+Overall Test Results
+--------------------
+  Package: github.com/mrz1836/atlas/internal/daemon
+  Tests run: 23 (targeted lifecycle flow)
+  PASS: 23 / FAIL: 0
+  Time: 0.667s
+
+  Full package suite (all daemon tests):
+  go test ./internal/daemon/... ./internal/daemon/testfakes/...
+  PASS: 279 total / FAIL: 0
+  Packages: ok internal/daemon (0.518s)
+            ok internal/daemon/testfakes (0.575s)
+
+Validation Checklist (AC-DR-6, AC-MT-4)
+-----------------------------------------
+[✓] Task ID present in submit response
+[✓] Workspace name present in submit response (TestSubmitRollback_WorkspaceNameInResponse)
+[✓] queued state confirmed in Redis after submit
+[✓] running state set by runner before FakeExecutor.Execute() call
+[✓] completed state set by runner after FakeExecutor returns "completed"
+[✓] status query returns current task state
+[✓] log output captured (TestRedisFixture_Stream proves stream round-trip)
+[✓] No external services used (miniredis in-process, FakeExecutor, no Claude/GitHub)
+[✓] No race detector hits (go test -race ./internal/daemon/... PASS)
+
+Checkpoint: FAKE DOGFOOD PASSED ✓

@@ -170,12 +170,12 @@ func formatVersion(info BuildInfo) string {
 
 // Execute runs the root command with the provided context and build info.
 func Execute(ctx context.Context, info BuildInfo) error {
-	// Check for --daemon flag before cobra parses anything.
-	// When present, run the daemon process in-process (blocking) instead of the CLI.
-	for _, arg := range os.Args[1:] {
-		if arg == "--daemon" {
-			return RunDaemonProcess(ctx)
-		}
+	// Check for --daemon as the first argument: atlas --daemon
+	// This starts the daemon process in-process (blocking). Only fires when --daemon
+	// is the very first CLI argument so that 'atlas start --daemon' (subcommand opt-in)
+	// is not intercepted.
+	if len(os.Args) > 1 && os.Args[1] == "--daemon" {
+		return RunDaemonProcess(ctx)
 	}
 
 	flags := &GlobalFlags{}
