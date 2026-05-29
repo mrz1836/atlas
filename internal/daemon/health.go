@@ -25,10 +25,14 @@ const (
 	daemonVersion = "dev"
 )
 
-// startHeartbeat starts a goroutine that periodically refreshes the daemon heartbeat
-// in Redis. The heartbeat key has a heartbeatTTL TTL and is refreshed every
-// HeartbeatInterval (default 10s).
+// startHeartbeat writes the first heartbeat synchronously (so callers can rely on it
+// being present once startHeartbeat returns), then starts a goroutine for subsequent
+// periodic refreshes.
 func (d *Daemon) startHeartbeat(ctx context.Context) {
+	// Write the first heartbeat synchronously so Start() doesn't return until
+	// the heartbeat key is in Redis.
+	d.refreshHeartbeat(ctx)
+
 	interval := d.cfg.Daemon.HeartbeatInterval
 	if interval <= 0 {
 		interval = 10 * time.Second
@@ -37,9 +41,6 @@ func (d *Daemon) startHeartbeat(ctx context.Context) {
 	d.wg.Add(1)
 	go func() {
 		defer d.wg.Done()
-
-		// Immediately write an initial heartbeat on start.
-		d.refreshHeartbeat(ctx)
 
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()

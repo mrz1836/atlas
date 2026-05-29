@@ -509,12 +509,8 @@ func TestDaemonDoctor_ReturnsAllFields(t *testing.T) {
 	require.NoError(t, d.Start(ctx))
 	t.Cleanup(func() { _ = d.Stop(context.Background()) })
 
-	// Allow heartbeat goroutine to write at least once.
-	require.Eventually(t, func() bool {
-		d.heartbeatMu.RLock()
-		defer d.heartbeatMu.RUnlock()
-		return !d.lastHeartbeatAt.IsZero()
-	}, 3*time.Second, 10*time.Millisecond, "heartbeat must fire at least once")
+	// startHeartbeat now writes the first heartbeat synchronously before Start()
+	// returns, so lastHeartbeatAt is already set — no Eventually needed.
 
 	doc, err := d.Doctor(ctx)
 	require.NoError(t, err)
