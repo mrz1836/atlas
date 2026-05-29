@@ -1,9 +1,12 @@
 package daemon
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -299,4 +302,54 @@ func TestWritePIDFile_EmptyPath(t *testing.T) {
 	d := New(cfg, logger)
 
 	require.NoError(t, d.writePIDFile())
+}
+
+// TestDaemonStart_HappyPath pins the golden state produced by a successful daemon start:
+//   - PID file written with the current process PID
+//   - Unix socket bound at the configured path
+//   - Redis heartbeat key written with a non-empty value
+//   - Worker pool (runner) and queue wired and non-nil
+//   - Log output contains the "daemon: started" banner with socket path
+//
+// This test characterizes current behavior so that Phase 3–6 changes are visible
+// whenever they alter these observable invariants.
+func TestDaemonStart_HappyPath(t *testing.T) {
+	t.Parallel()
+	mr := miniredis.RunT(t)
+	cfg := newLifecycleTestConfig(t, mr)
+
+	// Capture zerolog JSON output to assert golden log strings.
+	var logBuf bytes.Buffer
+	logger := zerolog.New(&logBuf)
+
+	d := New(cfg, logger)
+	ctx := context.Background()
+
+	require.NoError(t, d.Start(ctx))
+	t.Cleanup(func() { _ = d.Stop(context.Background()) })
+
+	// PID file must contain the current process PID (golden: exact value).
+	pidData, err := os.ReadFile(cfg.Daemon.PIDFile)
+	require.NoError(t, err, "PID file should be written on Start")
+	assert.Equal(t, strconv.Itoa(os.Getpid()), strings.TrimSpace(string(pidData)),
+		"PID file should contain the current process PID")
+
+	// Socket must be bound at the configured path.
+	_, err = os.Stat(cfg.Daemon.SocketPath)
+	require.NoError(t, err, "socket file should exist after Start")
+
+	// Redis heartbeat key must be written (verifies heartbeat goroutine ran).
+	hbVal, hbErr := mr.Get(heartbeatKey)
+	require.NoError(t, hbErr, "heartbeat key %q should be written to Redis", heartbeatKey)
+	assert.NotEmpty(t, hbVal, "heartbeat value should not be empty")
+
+	// Worker pool and queue must be wired.
+	assert.NotNil(t, d.runner, "runner should be non-nil after Start")
+	assert.NotNil(t, d.queue, "queue should be non-nil after Start")
+	assert.NotNil(t, d.events, "events publisher should be non-nil after Start")
+
+	// Golden log output: "daemon: started" message with socket path embedded.
+	logOut := logBuf.String()
+	assert.Contains(t, logOut, "daemon: started", "log must contain the started banner")
+	assert.Contains(t, logOut, cfg.Daemon.SocketPath, "log must contain the socket path")
 }
