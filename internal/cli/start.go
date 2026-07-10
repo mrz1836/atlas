@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"sync"
 
 	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
@@ -914,12 +915,81 @@ func startTaskExecution(ctx context.Context, ws *domain.Workspace, tmpl *domain.
 
 // progressState holds shared state for progress and activity callbacks.
 // This enables activity events to update the spinner message inline.
+//
+// The step-progress callbacks (start/complete/retry/auto-fix) run on the main
+// engine goroutine, while activity callbacks run on background streaming
+// goroutines. The mutex guards the mutable fields (activeSpinner, baseMessage,
+// showGitStats) so the two never race on a torn read/write. gitStatsProvider and
+// aiRunner are assigned once during setup before any callback fires and are read
+// without the lock.
 type progressState struct {
+	mu               sync.Mutex
 	activeSpinner    tui.Spinner
 	baseMessage      string             // e.g., "Step 1/8: implement (claude/sonnet)"
 	gitStatsProvider *git.StatsProvider // Provider for live git stats display
 	aiRunner         ai.Runner          // AI runner for process termination on interrupt
 	showGitStats     bool               // Only true during AI implementation steps (steps with Agent set)
+}
+
+// setActive atomically stores the active spinner and its base message.
+func (s *progressState) setActive(sp tui.Spinner, baseMessage string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.activeSpinner = sp
+	s.baseMessage = baseMessage
+}
+
+// setActiveWithStats is setActive plus the git-stats visibility flag, used for
+// AI implementation steps where live git stats are shown in the spinner message.
+func (s *progressState) setActiveWithStats(sp tui.Spinner, baseMessage string, showGitStats bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.activeSpinner = sp
+	s.baseMessage = baseMessage
+	s.showGitStats = showGitStats
+}
+
+// resetMessage clears the base message and git-stats visibility once a spinner
+// has been stopped.
+func (s *progressState) resetMessage() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.baseMessage = ""
+	s.showGitStats = false
+}
+
+// spinner returns the currently-active spinner, or nil if none is active.
+func (s *progressState) spinner() tui.Spinner {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.activeSpinner
+}
+
+// activitySnapshot returns the active spinner, base message and git-stats flag
+// captured atomically so activity events never observe a torn (spinner, message)
+// pair while a step transition is swapping the spinner.
+func (s *progressState) activitySnapshot() (tui.Spinner, string, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.activeSpinner, s.baseMessage, s.showGitStats
+}
+
+// stopActiveSpinner stops and clears any currently-active spinner so that only a
+// single animate goroutine is ever painting the status line. It MUST run before
+// creating a replacement spinner: TerminalSpinner.Stop() calls
+// SpinnerManager.ClearActive(), so stopping after the new spinner starts would
+// wrongly clear the new active pointer and break logger line-coordination. The
+// spinner is stopped outside the lock because Stop() acquires the spinner and
+// terminal-write mutexes.
+func stopActiveSpinner(state *progressState) {
+	state.mu.Lock()
+	sp := state.activeSpinner
+	state.activeSpinner = nil
+	state.mu.Unlock()
+
+	if sp != nil {
+		sp.Stop()
+	}
 }
 
 // createProgressCallback creates the progress callback for UI feedback.
@@ -959,14 +1029,13 @@ func handleProgressStart(ctx context.Context, out tui.Output, event task.StepPro
 
 	msg := buildStepStartMessage(event)
 
-	// Store base message for activity updates
-	state.baseMessage = msg
+	// Stop any previous spinner before starting a new one so only a single
+	// animate goroutine ever paints the status line (prevents flicker).
+	stopActiveSpinner(state)
 
-	// Only show git stats during AI implementation steps (those with an Agent set)
-	state.showGitStats = event.Agent != ""
-
-	// Show spinner for ALL step types during execution
-	state.activeSpinner = out.Spinner(ctx, msg)
+	// Show spinner for ALL step types during execution. Only show git stats
+	// during AI implementation steps (those with an Agent set).
+	state.setActiveWithStats(out.Spinner(ctx, msg), msg, event.Agent != "")
 }
 
 // buildStepStartMessage builds the step start message based on the event.
@@ -980,12 +1049,8 @@ func buildStepStartMessage(event task.StepProgressEvent) string {
 // handleProgressComplete handles the complete event of a step progress.
 func handleProgressComplete(out tui.Output, event task.StepProgressEvent, state *progressState) {
 	// Stop the spinner if one was running
-	if state.activeSpinner != nil {
-		state.activeSpinner.Stop()
-		state.activeSpinner = nil
-	}
-	state.baseMessage = ""
-	state.showGitStats = false
+	stopActiveSpinner(state)
+	state.resetMessage()
 
 	// Check if step is awaiting approval vs completed
 	if event.Status == constants.StepStatusAwaitingApproval {
@@ -1038,7 +1103,8 @@ func displayPRURL(out tui.Output, output string) {
 
 // handleProgressUpdate handles sub-step progress updates during multi-phase operations.
 func handleProgressUpdate(_ tui.Output, event task.StepProgressEvent, state *progressState) {
-	if state.activeSpinner == nil {
+	sp := state.spinner()
+	if sp == nil {
 		return
 	}
 
@@ -1056,7 +1122,7 @@ func handleProgressUpdate(_ tui.Output, event task.StepProgressEvent, state *pro
 		msg = fmt.Sprintf("%s - %s (%d/%d)", msg, event.SubStep, event.SubStepIndex+1, event.SubStepTotal)
 	}
 
-	state.activeSpinner.Update(msg)
+	sp.Update(msg)
 }
 
 // createValidationProgressAdapter creates a validation progress callback that converts
@@ -1098,19 +1164,17 @@ func createValidationProgressAdapter(progressCallback func(task.StepProgressEven
 // handleRetryAIStart handles the retry_ai_start event of a validation retry.
 func handleRetryAIStart(ctx context.Context, out tui.Output, event task.StepProgressEvent, state *progressState) {
 	msg := buildRetryAIStartMessage(event)
-	// Store base message for activity updates
-	state.baseMessage = msg
-	state.activeSpinner = out.Spinner(ctx, msg)
+	// Stop the previous (validate or prior-attempt) spinner before starting a new
+	// one so only a single animate goroutine paints the status line.
+	stopActiveSpinner(state)
+	state.setActive(out.Spinner(ctx, msg), msg)
 }
 
 // handleRetryAIComplete handles the retry_ai_complete event of a validation retry.
 func handleRetryAIComplete(out tui.Output, event task.StepProgressEvent, state *progressState) {
 	// Stop the spinner if one was running
-	if state.activeSpinner != nil {
-		state.activeSpinner.Stop()
-		state.activeSpinner = nil
-	}
-	state.baseMessage = ""
+	stopActiveSpinner(state)
+	state.resetMessage()
 
 	// Display completion message only if we have metrics (final completion)
 	// If no metrics, this is the intermediate notification before validation
@@ -1130,9 +1194,10 @@ func handleRetryValidationStart(ctx context.Context, out tui.Output, event task.
 	if msg == "" {
 		msg = "Validating after AI fix..."
 	}
-	// Store base message for activity updates
-	state.baseMessage = msg
-	state.activeSpinner = out.Spinner(ctx, msg)
+	// Stop the AI-fix spinner (already stopped by retry_ai_complete, so this is a
+	// no-op in the normal flow) before starting the validation spinner.
+	stopActiveSpinner(state)
+	state.setActive(out.Spinner(ctx, msg), msg)
 }
 
 // buildRetryAIStartMessage builds the retry AI start message based on the event.
@@ -1146,19 +1211,17 @@ func buildRetryAIStartMessage(event task.StepProgressEvent) string {
 // handleAutoFixStart handles the auto_fix_start event of a verification auto-fix.
 func handleAutoFixStart(ctx context.Context, out tui.Output, event task.StepProgressEvent, state *progressState) {
 	msg := buildAutoFixStartMessage(event)
-	// Store base message for activity updates
-	state.baseMessage = msg
-	state.activeSpinner = out.Spinner(ctx, msg)
+	// Stop any previous spinner before starting a new one so only a single
+	// animate goroutine ever paints the status line.
+	stopActiveSpinner(state)
+	state.setActive(out.Spinner(ctx, msg), msg)
 }
 
 // handleAutoFixComplete handles the auto_fix_complete event of a verification auto-fix.
 func handleAutoFixComplete(out tui.Output, event task.StepProgressEvent, state *progressState) {
 	// Stop the spinner if one was running
-	if state.activeSpinner != nil {
-		state.activeSpinner.Stop()
-		state.activeSpinner = nil
-	}
-	state.baseMessage = ""
+	stopActiveSpinner(state)
+	state.resetMessage()
 
 	// Display completion message
 	out.Success("Auto-fix completed")
@@ -1744,24 +1807,27 @@ func createActivityUICallback(state *progressState, verbosity ai.VerbosityLevel)
 			return
 		}
 
-		// Skip if no active spinner or base message
-		if state.activeSpinner == nil || state.baseMessage == "" {
+		// Read spinner + message atomically so a concurrent step transition can't
+		// hand us a torn (spinner, baseMessage) pair. Skip if no active spinner or
+		// base message.
+		sp, baseMessage, showGitStats := state.activitySnapshot()
+		if sp == nil || baseMessage == "" {
 			return
 		}
 
 		icon := event.Type.Icon()
 		msg := event.FormatMessage()
 		statsStr := ""
-		if state.showGitStats {
+		if showGitStats {
 			statsStr = getGitStatsString(state.gitStatsProvider)
 		}
 
 		// Integrate activity into spinner with optional stats
 		// Format: "Step 1/8: implement (claude/sonnet) 3M +120/-45 | 🔍 Analyzing..."
 		if statsStr != "" {
-			state.activeSpinner.Update(fmt.Sprintf("%s %s | %s %s", state.baseMessage, statsStr, icon, msg))
+			sp.Update(fmt.Sprintf("%s %s | %s %s", baseMessage, statsStr, icon, msg))
 		} else {
-			state.activeSpinner.Update(fmt.Sprintf("%s %s %s", state.baseMessage, icon, msg))
+			sp.Update(fmt.Sprintf("%s %s %s", baseMessage, icon, msg))
 		}
 	}
 }
