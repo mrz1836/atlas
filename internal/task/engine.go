@@ -847,7 +847,7 @@ func (e *Engine) handleStepExecutionResult(
 	}
 
 	// Attempt automatic validation retry before error handling
-	result, err = e.tryValidationRetry(ctx, task, step, result, err, totalSteps)
+	result, err = e.tryValidationRetry(ctx, task, step, result, err)
 	if err != nil {
 		// Retry didn't succeed (or wasn't attempted). Emit the deferred
 		// complete event now so consumers see the final failed state exactly once.
@@ -868,7 +868,6 @@ func (e *Engine) tryValidationRetry(
 	step *domain.StepDefinition,
 	result *domain.StepResult,
 	err error,
-	totalSteps int,
 ) (*domain.StepResult, error) {
 	if step.Type != domain.StepTypeValidation || !e.shouldAttemptValidationRetry(result) {
 		return result, err
@@ -879,10 +878,10 @@ func (e *Engine) tryValidationRetry(
 		return result, err
 	}
 
-	// Retry succeeded - update result and notify
-	newResult := e.convertRetryResultToStepResult(task, step, retryResult)
-	e.notifyStepComplete(task, step, newResult, totalSteps)
-	return newResult, nil
+	// Retry succeeded. Return the converted result with nil error; the caller's
+	// main run loop emits the single completion event. Emitting notifyStepComplete
+	// here as well would produce a duplicate "✓ ... completed" line.
+	return e.convertRetryResultToStepResult(task, step, retryResult), nil
 }
 
 // handleStepError handles an error from step execution.
