@@ -15,7 +15,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/mattn/go-runewidth v0.0.27
 	github.com/mrz1836/go-cache v1.1.11
-	github.com/mrz1836/go-selfupdate v0.1.2
+	github.com/mrz1836/go-selfupdate v0.1.3
 	github.com/rs/zerolog v1.35.1
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/viper v1.21.0

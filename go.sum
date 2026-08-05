@@ -124,8 +124,8 @@ github.com/mitchellh/hashstructure/v2 v2.0.2 h1:vGKWl0YJqUNxE8d+h8f6NJLcCJrgbhC4
 github.com/mitchellh/hashstructure/v2 v2.0.2/go.mod h1:MG3aRVU/N29oo/V/IhBX8GR/zz4kQkprJgF2EVszyDE=
 github.com/mrz1836/go-cache v1.1.11 h1:ipDtcDdcKgeDtoFPXc2fBvoDl70uMuuiDyFa78S6Fcg=
 github.com/mrz1836/go-cache v1.1.11/go.mod h1:nN81F9Epmk7Cyzm/sq7HwPxfpJkHXsFUP5ulD+oVb3E=
-github.com/mrz1836/go-selfupdate v0.1.2 h1:R1p8ZBL4GMzEo/XbQlc7C3bmZCy59ns0CEN9Q1hm/TM=
-github.com/mrz1836/go-selfupdate v0.1.2/go.mod h1:w9jWTnJEqpKjjUkgc9YN7RYwdUPFIwhEYKl/mp1Lhjc=
+github.com/mrz1836/go-selfupdate v0.1.3 h1:jcAe4FP7ayObOhYsTjHdfwAT2RSlHsuReJjUQg/2zqA=
+github.com/mrz1836/go-selfupdate v0.1.3/go.mod h1:w9jWTnJEqpKjjUkgc9YN7RYwdUPFIwhEYKl/mp1Lhjc=
 github.com/muesli/ansi v0.0.0-20230316100256-276c6243b2f6 h1:ZK8zHtRHOkbHy6Mmr5D264iyp3TiX5OmNcI5cIARiQI=
 github.com/muesli/ansi v0.0.0-20230316100256-276c6243b2f6/go.mod h1:CJlz5H+gyd6CUWT45Oy4q24RdLyn7Md9Vj2/ldJBSIo=
 github.com/muesli/cancelreader v0.2.2 h1:3I4Kt4BQjOR54NavqnDogx/MIoWBFa0StPA8ELUXHmA=
