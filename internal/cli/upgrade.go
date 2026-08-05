@@ -27,6 +27,8 @@ import (
 type UpgradeFlags struct {
 	// Check performs a dry-run, showing updates without installing.
 	Check bool
+	// Force reinstalls tools even when they already appear up to date.
+	Force bool
 	// Yes skips confirmation prompts.
 	Yes bool
 	// OutputFormat specifies the output format (text or json).
@@ -160,11 +162,15 @@ func getValidToolNames() []string {
 }
 
 // newUpgradeCmd creates the upgrade command for updating ATLAS and managed tools.
-func newUpgradeCmd(flags *UpgradeFlags) *cobra.Command {
+// atlasVersion is the running binary's version (from build info); atlas self-updates
+// against it rather than against whatever `atlas` resolves to on PATH.
+func newUpgradeCmd(flags *UpgradeFlags, atlasVersion string) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "upgrade [tool]",
-		Short: "Upgrade ATLAS and managed tools",
+		Use:     "upgrade [tool]",
+		Aliases: []string{"update"},
+		Short:   "Upgrade ATLAS and managed tools",
 		Long: `Upgrade ATLAS and its managed tools to their latest versions.
+Also available as "atlas update".
 
 By default, checks and upgrades all tools:
   - atlas: The ATLAS CLI itself
@@ -178,7 +184,9 @@ For Speckit upgrades, constitution.md is automatically backed up and restored.
 
 Examples:
   atlas upgrade              # Check and upgrade all tools
+  atlas update               # Same command, alternate spelling
   atlas upgrade --check      # Only check for updates (dry-run)
+  atlas upgrade --force      # Reinstall even if already up to date
   atlas upgrade -y           # Upgrade without confirmation
   atlas upgrade speckit      # Upgrade only Speckit
   atlas upgrade atlas        # Upgrade only ATLAS itself
@@ -194,23 +202,27 @@ Examples:
 					return fmt.Errorf("%w: %q (valid options: %s)", errors.ErrInvalidToolName, tool, strings.Join(validNames, ", "))
 				}
 			}
-			return runUpgrade(cmd.Context(), cmd.OutOrStdout(), flags, tool)
+			return runUpgrade(cmd.Context(), cmd.OutOrStdout(), flags, tool, atlasVersion)
 		},
 		SilenceUsage: true,
 	}
 
-	// Add flags
+	// Add flags. --check/--force mirror the self-update flags on flywheel and
+	// go-invoice so the fleet's update commands feel identical.
 	cmd.Flags().BoolVarP(&flags.Check, "check", "c", false, "only check for updates without installing")
+	cmd.Flags().BoolVarP(&flags.Force, "force", "f", false, "reinstall even if already up to date")
 	cmd.Flags().BoolVarP(&flags.Yes, "yes", "y", false, "skip confirmation prompt")
 	cmd.Flags().StringVarP(&flags.OutputFormat, "output", "o", "text", "output format (text or json)")
 
 	return cmd
 }
 
-// AddUpgradeCommand adds the upgrade command to the root command.
-func AddUpgradeCommand(rootCmd *cobra.Command) {
+// AddUpgradeCommand adds the upgrade command to the root command. atlasVersion is
+// the running binary's version, threaded through so atlas self-updates against
+// itself rather than a PATH lookup.
+func AddUpgradeCommand(rootCmd *cobra.Command, atlasVersion string) {
 	flags := &UpgradeFlags{}
-	rootCmd.AddCommand(newUpgradeCmd(flags))
+	rootCmd.AddCommand(newUpgradeCmd(flags, atlasVersion))
 }
 
 // isValidTool checks if the provided tool name is valid.
@@ -224,10 +236,10 @@ func isValidTool(tool string) bool {
 }
 
 // runUpgrade executes the upgrade command with default dependencies.
-func runUpgrade(ctx context.Context, w io.Writer, flags *UpgradeFlags, tool string) error {
+func runUpgrade(ctx context.Context, w io.Writer, flags *UpgradeFlags, tool, atlasVersion string) error {
 	executor := &DefaultCommandExecutor{}
-	checker := NewDefaultUpgradeChecker(executor)
-	upgradeExec := NewDefaultUpgradeExecutor(executor)
+	checker := NewDefaultUpgradeChecker(executor, atlasVersion)
+	upgradeExec := NewDefaultUpgradeExecutor(executor, atlasVersion, flags.Force)
 
 	return runUpgradeWithDeps(ctx, w, flags, tool, checker, upgradeExec)
 }
@@ -294,7 +306,9 @@ func (u *upgradeCmd) checkForUpdates(ctx context.Context, tool string) (*UpdateC
 			return nil, fmt.Errorf("failed to check for updates: %w", err)
 		}
 		return &UpdateCheckResult{
-			UpdatesAvailable: info.UpdateAvailable,
+			// A not-installed tool is informational, not an actionable update, so it
+			// must not make a successful --check exit non-zero.
+			UpdatesAvailable: info.UpdateAvailable && info.Installed,
 			Tools:            []UpdateInfo{*info},
 		}, nil
 	}
@@ -326,9 +340,10 @@ func (u *upgradeCmd) handleCheckMode(checkResult *UpdateCheckResult) error {
 	return nil
 }
 
-// getToolsToUpgrade returns the list of tools that need upgrades.
+// getToolsToUpgrade returns the installed tools to upgrade. --force reinstalls
+// every installed tool even when none reports an available update.
 func (u *upgradeCmd) getToolsToUpgrade(checkResult *UpdateCheckResult) []UpdateInfo {
-	if !checkResult.UpdatesAvailable {
+	if !checkResult.UpdatesAvailable && !u.flags.Force {
 		_, _ = fmt.Fprintln(u.w)
 		_, _ = fmt.Fprintln(u.w, u.styles.success.Render("✓ All tools are up to date."))
 		return nil
@@ -336,7 +351,7 @@ func (u *upgradeCmd) getToolsToUpgrade(checkResult *UpdateCheckResult) []UpdateI
 
 	var toolsToUpgrade []UpdateInfo
 	for _, t := range checkResult.Tools {
-		if t.UpdateAvailable && t.Installed {
+		if t.Installed && (t.UpdateAvailable || u.flags.Force) {
 			toolsToUpgrade = append(toolsToUpgrade, t)
 		}
 	}
@@ -559,22 +574,34 @@ func atlasSelfUpdateConfig(currentVersion string) selfupdate.Config {
 	}
 }
 
+// normalizeAtlasVersion strips a leading "v" from the running binary's version for
+// display and comparison. An empty version is left empty (go-selfupdate treats it,
+// like "dev", as older than any release).
+func normalizeAtlasVersion(v string) string {
+	return strings.TrimPrefix(v, "v")
+}
+
 // DefaultUpgradeChecker implements UpgradeChecker using the tool detector.
 type DefaultUpgradeChecker struct {
 	executor config.CommandExecutor
+	// atlasVersion is the running binary's version, used for atlas's own row so the
+	// check reflects the binary that self-update will replace — not whatever `atlas`
+	// resolves to on PATH, which may be a different or shadowing copy.
+	atlasVersion string
 	// checkAtlas resolves atlas's latest release; defaults to selfupdate.Check.
 	checkAtlas atlasCheckFunc
 }
 
-// NewDefaultUpgradeChecker creates a new DefaultUpgradeChecker.
-func NewDefaultUpgradeChecker(executor config.CommandExecutor) *DefaultUpgradeChecker {
-	return &DefaultUpgradeChecker{executor: executor, checkAtlas: selfupdate.Check}
+// NewDefaultUpgradeChecker creates a new DefaultUpgradeChecker. atlasVersion is the
+// running binary's version.
+func NewDefaultUpgradeChecker(executor config.CommandExecutor, atlasVersion string) *DefaultUpgradeChecker {
+	return &DefaultUpgradeChecker{executor: executor, atlasVersion: atlasVersion, checkAtlas: selfupdate.Check}
 }
 
 // NewDefaultUpgradeCheckerWithCheck creates a checker with a custom atlas release
 // check. It is the injection seam that keeps the atlas path offline in tests.
-func NewDefaultUpgradeCheckerWithCheck(executor config.CommandExecutor, check atlasCheckFunc) *DefaultUpgradeChecker {
-	return &DefaultUpgradeChecker{executor: executor, checkAtlas: check}
+func NewDefaultUpgradeCheckerWithCheck(executor config.CommandExecutor, atlasVersion string, check atlasCheckFunc) *DefaultUpgradeChecker {
+	return &DefaultUpgradeChecker{executor: executor, atlasVersion: atlasVersion, checkAtlas: check}
 }
 
 // CheckAllUpdates checks for updates to all tools in parallel.
@@ -599,7 +626,9 @@ func (c *DefaultUpgradeChecker) CheckAllUpdates(ctx context.Context) (*UpdateChe
 			info := c.checkToolUpdate(gCtx, tool)
 			resultMu.Lock()
 			result.Tools = append(result.Tools, info)
-			if info.UpdateAvailable {
+			// Only an installed tool with a newer version is an actionable update;
+			// a not-installed tool is informational and must not gate the exit code.
+			if info.UpdateAvailable && info.Installed {
 				result.UpdatesAvailable = true
 			}
 			resultMu.Unlock()
@@ -687,6 +716,21 @@ func (c *DefaultUpgradeChecker) checkToolUpdate(ctx context.Context, tool upgrad
 		InstallPath: tool.installPath,
 	}
 
+	// Atlas is the running binary, so it is definitionally installed and its version
+	// is the compiled-in one — not whatever `atlas` resolves to on PATH, which may be
+	// a stale or shadowing copy. go-selfupdate replaces the running binary
+	// (os.Executable), so keying off the running version keeps check and upgrade in
+	// agreement and lets atlas update itself from a non-PATH location.
+	if tool.name == constants.ToolAtlas {
+		info.Installed = true
+		info.CurrentVersion = normalizeAtlasVersion(c.atlasVersion)
+		if result, err := c.checkAtlas(ctx, atlasSelfUpdateConfig(info.CurrentVersion)); err == nil && result != nil {
+			info.LatestVersion = strings.TrimPrefix(result.LatestVersion, "v")
+			info.UpdateAvailable = result.UpdateAvailable
+		}
+		return info
+	}
+
 	// Check if tool exists in PATH
 	_, err := c.executor.LookPath(tool.command)
 	if err != nil {
@@ -706,16 +750,6 @@ func (c *DefaultUpgradeChecker) checkToolUpdate(ctx context.Context, tool upgrad
 	}
 
 	info.CurrentVersion = parseVersionFromOutput(tool.name, output)
-
-	// For atlas, resolve the latest release via go-selfupdate.
-	if tool.name == constants.ToolAtlas {
-		if result, err := c.checkAtlas(ctx, atlasSelfUpdateConfig(info.CurrentVersion)); err == nil && result != nil {
-			info.LatestVersion = strings.TrimPrefix(result.LatestVersion, "v")
-			info.UpdateAvailable = result.UpdateAvailable
-			return info
-		}
-		// If we can't fetch latest, fall through to default behavior
-	}
 
 	// For other tools, we assume an update is potentially available if the tool is installed
 	// A more sophisticated approach would query the package registry
@@ -800,19 +834,26 @@ func parseGenericVersion(output string) string {
 // DefaultUpgradeExecutor implements UpgradeExecutor.
 type DefaultUpgradeExecutor struct {
 	executor config.CommandExecutor
+	// atlasVersion is the running binary's version, used as the current version for
+	// atlas's self-update so the "is newer?" decision matches the binary being
+	// replaced.
+	atlasVersion string
+	// force reinstalls atlas even when it is already on the latest release.
+	force bool
 	// installAtlas installs atlas's latest release; defaults to selfupdate.Install.
 	installAtlas atlasInstallFunc
 }
 
-// NewDefaultUpgradeExecutor creates a new DefaultUpgradeExecutor.
-func NewDefaultUpgradeExecutor(executor config.CommandExecutor) *DefaultUpgradeExecutor {
-	return &DefaultUpgradeExecutor{executor: executor, installAtlas: selfupdate.Install}
+// NewDefaultUpgradeExecutor creates a new DefaultUpgradeExecutor. atlasVersion is
+// the running binary's version and force reinstalls atlas even when current.
+func NewDefaultUpgradeExecutor(executor config.CommandExecutor, atlasVersion string, force bool) *DefaultUpgradeExecutor {
+	return &DefaultUpgradeExecutor{executor: executor, atlasVersion: atlasVersion, force: force, installAtlas: selfupdate.Install}
 }
 
 // NewDefaultUpgradeExecutorWithInstall creates an executor with a custom atlas
 // install. It is the injection seam that keeps the atlas path offline in tests.
-func NewDefaultUpgradeExecutorWithInstall(executor config.CommandExecutor, install atlasInstallFunc) *DefaultUpgradeExecutor {
-	return &DefaultUpgradeExecutor{executor: executor, installAtlas: install}
+func NewDefaultUpgradeExecutorWithInstall(executor config.CommandExecutor, atlasVersion string, force bool, install atlasInstallFunc) *DefaultUpgradeExecutor {
+	return &DefaultUpgradeExecutor{executor: executor, atlasVersion: atlasVersion, force: force, installAtlas: install}
 }
 
 // UpgradeTool upgrades a specific tool.
@@ -941,16 +982,16 @@ func (e *DefaultUpgradeExecutor) upgradeGoPreCommit(ctx context.Context, tool st
 // upgradeAtlasViaRelease upgrades atlas via go-selfupdate: it downloads the latest
 // release archive, verifies its SHA-256 checksum, and atomically replaces the running
 // binary. A binary owned by another installer is refused rather than overwritten.
-func (e *DefaultUpgradeExecutor) upgradeAtlasViaRelease(ctx context.Context, toolConfig *upgradableToolConfig, result *UpgradeResult) {
-	// Resolve the running atlas version so the library can decide whether the latest
-	// release actually outranks it.
-	output, err := e.executor.Run(ctx, toolConfig.command, toolConfig.versionFlag)
-	currentVersion := "unknown"
-	if err == nil {
-		currentVersion = parseVersionFromOutput(constants.ToolAtlas, output)
+//
+// The current version is the running binary's own (threaded in), not a PATH lookup,
+// so a stale binary run from a non-PATH location still upgrades itself correctly.
+func (e *DefaultUpgradeExecutor) upgradeAtlasViaRelease(ctx context.Context, _ *upgradableToolConfig, result *UpgradeResult) {
+	var opts []selfupdate.Option
+	if e.force {
+		opts = append(opts, selfupdate.WithForce())
 	}
 
-	res, err := e.installAtlas(ctx, atlasSelfUpdateConfig(currentVersion))
+	res, err := e.installAtlas(ctx, atlasSelfUpdateConfig(normalizeAtlasVersion(e.atlasVersion)), opts...)
 	if err != nil {
 		result.Success = false
 		result.Error = err.Error()

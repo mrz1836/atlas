@@ -131,7 +131,7 @@ func newRootCmd(flags *GlobalFlags, info BuildInfo) *cobra.Command {
 	// Add subcommands
 	AddInitCommand(cmd)
 	AddConfigCommand(cmd)
-	AddUpgradeCommand(cmd)
+	AddUpgradeCommand(cmd, info.Version)
 	AddWorkspaceCommand(cmd)
 	AddStartCommand(cmd)
 	AddStatusCommand(cmd)

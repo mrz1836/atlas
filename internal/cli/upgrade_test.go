@@ -141,7 +141,7 @@ func TestNewUpgradeCmd(t *testing.T) {
 	t.Parallel()
 
 	flags := &UpgradeFlags{}
-	cmd := newUpgradeCmd(flags)
+	cmd := newUpgradeCmd(flags, "")
 
 	assert.Equal(t, "upgrade [tool]", cmd.Use)
 	assert.NotEmpty(t, cmd.Short)
@@ -417,7 +417,7 @@ func TestUpgradeCmd_InvalidTool_ReturnsError(t *testing.T) {
 	t.Parallel()
 
 	flags := &UpgradeFlags{}
-	cmd := newUpgradeCmd(flags)
+	cmd := newUpgradeCmd(flags, "")
 
 	err := cmd.RunE(cmd, []string{"invalid-tool"})
 	require.Error(t, err)
@@ -456,7 +456,7 @@ func TestDefaultUpgradeChecker_CheckAllUpdates(t *testing.T) {
 		},
 	}
 
-	checker := NewDefaultUpgradeCheckerWithCheck(executor, stubAtlasCheck("v0.2.0", true))
+	checker := NewDefaultUpgradeCheckerWithCheck(executor, "0.1.0", stubAtlasCheck("v0.2.0", true))
 	result, err := checker.CheckAllUpdates(context.Background())
 
 	require.NoError(t, err)
@@ -476,7 +476,7 @@ func TestDefaultUpgradeChecker_CheckToolUpdate(t *testing.T) {
 		},
 	}
 
-	checker := NewDefaultUpgradeCheckerWithCheck(executor, stubAtlasCheck("v0.2.0", true))
+	checker := NewDefaultUpgradeCheckerWithCheck(executor, "0.1.0", stubAtlasCheck("v0.2.0", true))
 	info, err := checker.CheckToolUpdate(context.Background(), constants.ToolAtlas)
 
 	require.NoError(t, err)
@@ -492,7 +492,7 @@ func TestDefaultUpgradeChecker_CheckToolUpdate_UnknownTool(t *testing.T) {
 	t.Parallel()
 
 	executor := &mockCommandExecutor{}
-	checker := NewDefaultUpgradeChecker(executor)
+	checker := NewDefaultUpgradeChecker(executor, "")
 
 	_, err := checker.CheckToolUpdate(context.Background(), "unknown-tool")
 	require.Error(t, err)
@@ -513,7 +513,7 @@ func TestDefaultUpgradeExecutor_UpgradeTool(t *testing.T) {
 	}
 
 	// Stub atlas's self-update so the executor's atlas path runs offline.
-	upgradeExec := NewDefaultUpgradeExecutorWithInstall(executor, stubAtlasInstall("v1.0.0"))
+	upgradeExec := NewDefaultUpgradeExecutorWithInstall(executor, "1.0.0", false, stubAtlasInstall("v1.0.0"))
 	result, err := upgradeExec.UpgradeTool(context.Background(), constants.ToolAtlas)
 
 	require.NoError(t, err)
@@ -526,7 +526,7 @@ func TestDefaultUpgradeExecutor_UpgradeTool_UnknownTool(t *testing.T) {
 	t.Parallel()
 
 	executor := &mockCommandExecutor{}
-	upgradeExec := NewDefaultUpgradeExecutor(executor)
+	upgradeExec := NewDefaultUpgradeExecutor(executor, "", false)
 
 	_, err := upgradeExec.UpgradeTool(context.Background(), "unknown-tool")
 	require.Error(t, err)
@@ -546,7 +546,7 @@ func TestDefaultUpgradeExecutor_UpgradeTool_MageX_UsesUpdateInstall(t *testing.T
 		},
 	}
 
-	upgradeExec := NewDefaultUpgradeExecutor(executor)
+	upgradeExec := NewDefaultUpgradeExecutor(executor, "", false)
 	result, err := upgradeExec.UpgradeTool(context.Background(), constants.ToolMageX)
 
 	require.NoError(t, err)
@@ -568,7 +568,7 @@ func TestDefaultUpgradeExecutor_UpgradeTool_MageX_NotInstalled_UsesGoInstall(t *
 		},
 	}
 
-	upgradeExec := NewDefaultUpgradeExecutor(executor)
+	upgradeExec := NewDefaultUpgradeExecutor(executor, "", false)
 	result, err := upgradeExec.UpgradeTool(context.Background(), constants.ToolMageX)
 
 	require.NoError(t, err)
@@ -589,7 +589,7 @@ func TestDefaultUpgradeExecutor_UpgradeTool_GoPreCommit_UsesUpgradeForce(t *test
 		},
 	}
 
-	upgradeExec := NewDefaultUpgradeExecutor(executor)
+	upgradeExec := NewDefaultUpgradeExecutor(executor, "", false)
 	result, err := upgradeExec.UpgradeTool(context.Background(), constants.ToolGoPreCommit)
 
 	require.NoError(t, err)
@@ -611,7 +611,7 @@ func TestDefaultUpgradeExecutor_UpgradeTool_GoPreCommit_NotInstalled_UsesGoInsta
 		},
 	}
 
-	upgradeExec := NewDefaultUpgradeExecutor(executor)
+	upgradeExec := NewDefaultUpgradeExecutor(executor, "", false)
 	result, err := upgradeExec.UpgradeTool(context.Background(), constants.ToolGoPreCommit)
 
 	require.NoError(t, err)
@@ -637,7 +637,7 @@ func TestDefaultUpgradeExecutor_BackupConstitution(t *testing.T) {
 	defer func() { _ = os.Chdir(oldWd) }()
 
 	executor := &mockCommandExecutor{}
-	upgradeExec := NewDefaultUpgradeExecutor(executor)
+	upgradeExec := NewDefaultUpgradeExecutor(executor, "", false)
 
 	path, err := upgradeExec.BackupConstitution()
 	require.NoError(t, err)
@@ -662,7 +662,7 @@ func TestDefaultUpgradeExecutor_BackupConstitution_NoFile(t *testing.T) {
 	defer func() { _ = os.Chdir(oldWd) }()
 
 	executor := &mockCommandExecutor{}
-	upgradeExec := NewDefaultUpgradeExecutor(executor)
+	upgradeExec := NewDefaultUpgradeExecutor(executor, "", false)
 
 	path, err := upgradeExec.BackupConstitution()
 	require.NoError(t, err)
@@ -681,7 +681,7 @@ func TestDefaultUpgradeExecutor_RestoreConstitution(t *testing.T) {
 	require.NoError(t, os.WriteFile(backupPath, []byte("# Original Content"), 0o600))
 
 	executor := &mockCommandExecutor{}
-	upgradeExec := NewDefaultUpgradeExecutor(executor)
+	upgradeExec := NewDefaultUpgradeExecutor(executor, "", false)
 
 	err := upgradeExec.RestoreConstitution(constitutionPath)
 	require.NoError(t, err)
@@ -696,7 +696,7 @@ func TestDefaultUpgradeExecutor_RestoreConstitution_EmptyPath(t *testing.T) {
 	t.Parallel()
 
 	executor := &mockCommandExecutor{}
-	upgradeExec := NewDefaultUpgradeExecutor(executor)
+	upgradeExec := NewDefaultUpgradeExecutor(executor, "", false)
 
 	err := upgradeExec.RestoreConstitution("")
 	require.NoError(t, err)
@@ -709,7 +709,7 @@ func TestDefaultUpgradeExecutor_RestoreConstitution_NoBackup(t *testing.T) {
 	constitutionPath := filepath.Join(tmpDir, "constitution.md")
 
 	executor := &mockCommandExecutor{}
-	upgradeExec := NewDefaultUpgradeExecutor(executor)
+	upgradeExec := NewDefaultUpgradeExecutor(executor, "", false)
 
 	// Should not error when no backup exists
 	err := upgradeExec.RestoreConstitution(constitutionPath)
@@ -728,7 +728,7 @@ func TestDefaultUpgradeExecutor_CleanupConstitutionBackup(t *testing.T) {
 	require.NoError(t, os.WriteFile(backupPath, []byte("# Content"), 0o600))
 
 	executor := &mockCommandExecutor{}
-	upgradeExec := NewDefaultUpgradeExecutor(executor)
+	upgradeExec := NewDefaultUpgradeExecutor(executor, "", false)
 
 	err := upgradeExec.CleanupConstitutionBackup(constitutionPath)
 	require.NoError(t, err)
@@ -883,12 +883,26 @@ func TestAddUpgradeCommand(t *testing.T) {
 	t.Parallel()
 
 	rootCmd := &cobra.Command{Use: "test"}
-	AddUpgradeCommand(rootCmd)
+	AddUpgradeCommand(rootCmd, "0.21.4")
 
 	// Verify upgrade command was added
 	upgradeCmd, _, err := rootCmd.Find([]string{"upgrade"})
 	require.NoError(t, err)
 	assert.Equal(t, "upgrade [tool]", upgradeCmd.Use)
+
+	// The `update` alias mirrors flywheel and go-invoice so the fleet's update
+	// commands respond to the same verbs.
+	assert.Contains(t, upgradeCmd.Aliases, "update", "upgrade carries the update alias")
+	updateCmd, _, err := rootCmd.Find([]string{"update"})
+	require.NoError(t, err)
+	assert.Same(t, upgradeCmd, updateCmd, "update resolves to the same command")
+
+	// --force/--check mirror the self-updater flags on the other tools.
+	for _, name := range []string{"check", "force"} {
+		flag := upgradeCmd.Flags().Lookup(name)
+		require.NotNilf(t, flag, "upgrade registers --%s", name)
+		assert.Equalf(t, "bool", flag.Value.Type(), "--%s is a boolean flag", name)
+	}
 }
 
 func TestParseAtlasVersion(t *testing.T) {
@@ -1323,7 +1337,7 @@ func TestDefaultUpgradeExecutor_UpgradeTool_Speckit_BackupSuccess(t *testing.T) 
 		},
 	}
 
-	upgradeExec := NewDefaultUpgradeExecutor(executor)
+	upgradeExec := NewDefaultUpgradeExecutor(executor, "", false)
 	result, err := upgradeExec.UpgradeTool(context.Background(), constants.ToolSpeckit)
 
 	require.NoError(t, err)
@@ -1351,7 +1365,7 @@ func TestDefaultUpgradeExecutor_UpgradeTool_Speckit_BackupFailure(t *testing.T) 
 	}
 
 	// Use a directory that doesn't exist and we can't create
-	upgradeExec := NewDefaultUpgradeExecutor(executor)
+	upgradeExec := NewDefaultUpgradeExecutor(executor, "", false)
 	result, err := upgradeExec.UpgradeTool(context.Background(), constants.ToolSpeckit)
 
 	require.NoError(t, err)
@@ -1381,7 +1395,7 @@ func TestDefaultUpgradeExecutor_UpgradeTool_Speckit_UpgradeFailed(t *testing.T) 
 		},
 	}
 
-	upgradeExec := NewDefaultUpgradeExecutor(executor)
+	upgradeExec := NewDefaultUpgradeExecutor(executor, "", false)
 	result, err := upgradeExec.UpgradeTool(context.Background(), constants.ToolSpeckit)
 
 	require.NoError(t, err)
@@ -1406,7 +1420,7 @@ func TestDefaultUpgradeExecutor_UpgradeTool_MageX_UpdateInstallFails(t *testing.
 		},
 	}
 
-	upgradeExec := NewDefaultUpgradeExecutor(executor)
+	upgradeExec := NewDefaultUpgradeExecutor(executor, "", false)
 	result, err := upgradeExec.UpgradeTool(context.Background(), constants.ToolMageX)
 
 	require.NoError(t, err)
@@ -1426,7 +1440,7 @@ func TestDefaultUpgradeExecutor_UpgradeTool_GoPreCommit_UpgradeFails(t *testing.
 		},
 	}
 
-	upgradeExec := NewDefaultUpgradeExecutor(executor)
+	upgradeExec := NewDefaultUpgradeExecutor(executor, "", false)
 	result, err := upgradeExec.UpgradeTool(context.Background(), constants.ToolGoPreCommit)
 
 	require.NoError(t, err)
@@ -1443,7 +1457,7 @@ func TestDefaultUpgradeExecutor_UpgradeTool_GoInstallFails(t *testing.T) {
 		},
 	}
 
-	upgradeExec := NewDefaultUpgradeExecutor(executor)
+	upgradeExec := NewDefaultUpgradeExecutor(executor, "", false)
 	result, err := upgradeExec.UpgradeTool(context.Background(), constants.ToolSpeckit)
 
 	require.NoError(t, err)
@@ -1454,14 +1468,16 @@ func TestDefaultUpgradeExecutor_UpgradeTool_GoInstallFails(t *testing.T) {
 func TestDefaultUpgradeChecker_CheckToolUpdate_NotInstalled(t *testing.T) {
 	t.Parallel()
 
+	// A non-atlas tool exercises the PATH-based not-installed path; atlas itself is
+	// always installed because it is the running binary.
 	executor := &mockCommandExecutor{
 		lookPathErrors: map[string]error{
-			constants.ToolAtlas: exec.ErrNotFound,
+			constants.ToolMageX: exec.ErrNotFound,
 		},
 	}
 
-	checker := NewDefaultUpgradeChecker(executor)
-	info, err := checker.CheckToolUpdate(context.Background(), constants.ToolAtlas)
+	checker := NewDefaultUpgradeChecker(executor, "")
+	info, err := checker.CheckToolUpdate(context.Background(), constants.ToolMageX)
 
 	require.NoError(t, err)
 	assert.False(t, info.Installed)
@@ -1471,22 +1487,55 @@ func TestDefaultUpgradeChecker_CheckToolUpdate_NotInstalled(t *testing.T) {
 func TestDefaultUpgradeChecker_CheckToolUpdate_VersionCommandFails(t *testing.T) {
 	t.Parallel()
 
+	// A non-atlas tool exercises the version-command-failed path.
 	executor := &mockCommandExecutor{
 		lookPathResults: map[string]string{
-			constants.ToolAtlas: "/usr/bin/atlas",
+			constants.ToolMageX: "/go/bin/magex",
 		},
 		runErrors: map[string]error{
-			"atlas --version": assert.AnError,
+			constants.ToolMageX + " --version": assert.AnError,
 		},
 	}
 
-	checker := NewDefaultUpgradeChecker(executor)
-	info, err := checker.CheckToolUpdate(context.Background(), constants.ToolAtlas)
+	checker := NewDefaultUpgradeChecker(executor, "")
+	info, err := checker.CheckToolUpdate(context.Background(), constants.ToolMageX)
 
 	require.NoError(t, err)
 	assert.True(t, info.Installed)
 	assert.Equal(t, "unknown", info.CurrentVersion)
 	assert.True(t, info.UpdateAvailable)
+}
+
+// TestDefaultUpgradeChecker_AtlasUsesRunningVersion pins bug fix #1: atlas checks
+// against the running binary's version and is always "installed", even when no
+// atlas is on PATH (the executor resolves nothing). go-selfupdate replaces the
+// running binary, so the check must not depend on a PATH lookup.
+func TestDefaultUpgradeChecker_AtlasUsesRunningVersion(t *testing.T) {
+	t.Parallel()
+
+	// Empty executor: atlas is NOT resolvable on PATH.
+	checker := NewDefaultUpgradeCheckerWithCheck(&mockCommandExecutor{}, "0.21.4", stubAtlasCheck("v0.22.0", true))
+	info, err := checker.CheckToolUpdate(context.Background(), constants.ToolAtlas)
+
+	require.NoError(t, err)
+	assert.True(t, info.Installed, "atlas is the running binary, so it is always installed")
+	assert.Equal(t, "0.21.4", info.CurrentVersion, "current version comes from the running binary, not PATH")
+	assert.Equal(t, "0.22.0", info.LatestVersion)
+	assert.True(t, info.UpdateAvailable)
+}
+
+// TestDefaultUpgradeChecker_NotInstalledIsNotAnUpdate pins bug fix #2: a
+// not-installed tool is informational and must not set UpdatesAvailable (which
+// gates the --check exit code).
+func TestDefaultUpgradeChecker_NotInstalledIsNotAnUpdate(t *testing.T) {
+	t.Parallel()
+
+	// Nothing is on PATH, and atlas reports up to date, so no actionable update exists.
+	checker := NewDefaultUpgradeCheckerWithCheck(&mockCommandExecutor{}, "0.22.0", stubAtlasCheck("v0.22.0", false))
+	result, err := checker.CheckAllUpdates(context.Background())
+
+	require.NoError(t, err)
+	assert.False(t, result.UpdatesAvailable, "not-installed tools must not make the check report an available update")
 }
 
 func TestDefaultUpgradeChecker_CheckAllUpdates_ContextCanceled(t *testing.T) {
@@ -1496,7 +1545,7 @@ func TestDefaultUpgradeChecker_CheckAllUpdates_ContextCanceled(t *testing.T) {
 	cancel() // Cancel immediately
 
 	executor := &mockCommandExecutor{}
-	checker := NewDefaultUpgradeChecker(executor)
+	checker := NewDefaultUpgradeChecker(executor, "")
 
 	_, err := checker.CheckAllUpdates(ctx)
 	assert.ErrorIs(t, err, context.Canceled)
@@ -1509,7 +1558,7 @@ func TestDefaultUpgradeChecker_CheckToolUpdate_ContextCanceled(t *testing.T) {
 	cancel() // Cancel immediately
 
 	executor := &mockCommandExecutor{}
-	checker := NewDefaultUpgradeChecker(executor)
+	checker := NewDefaultUpgradeChecker(executor, "")
 
 	_, err := checker.CheckToolUpdate(ctx, constants.ToolAtlas)
 	assert.ErrorIs(t, err, context.Canceled)
@@ -1580,7 +1629,7 @@ func TestDefaultUpgradeExecutor_CleanupConstitutionBackup_EmptyPath(t *testing.T
 	t.Parallel()
 
 	executor := &mockCommandExecutor{}
-	upgradeExec := NewDefaultUpgradeExecutor(executor)
+	upgradeExec := NewDefaultUpgradeExecutor(executor, "", false)
 
 	err := upgradeExec.CleanupConstitutionBackup("")
 	require.NoError(t, err)
@@ -1639,7 +1688,7 @@ func TestDefaultUpgradeExecutor_HandleSpeckitRestore_RestoreFails(t *testing.T) 
 	require.NoError(t, os.WriteFile(backupPath, []byte("# Content"), 0o600))
 
 	executor := &mockCommandExecutor{}
-	upgradeExec := NewDefaultUpgradeExecutor(executor)
+	upgradeExec := NewDefaultUpgradeExecutor(executor, "", false)
 
 	result := &UpgradeResult{
 		Tool:    constants.ToolSpeckit,
@@ -1675,7 +1724,7 @@ func TestDefaultUpgradeExecutor_HandleSpeckitRestore_CleanupFails(t *testing.T) 
 	require.NoError(t, os.WriteFile(backupPath, []byte("# Content"), 0o600))
 
 	executor := &mockCommandExecutor{}
-	upgradeExec := NewDefaultUpgradeExecutor(executor)
+	upgradeExec := NewDefaultUpgradeExecutor(executor, "", false)
 
 	result := &UpgradeResult{
 		Tool:    constants.ToolSpeckit,
@@ -1780,7 +1829,7 @@ func TestDefaultUpgradeExecutor_RestoreConstitution_StatError(t *testing.T) {
 	require.NoError(t, os.MkdirAll(backupPath, 0o700))
 
 	executor := &mockCommandExecutor{}
-	upgradeExec := NewDefaultUpgradeExecutor(executor)
+	upgradeExec := NewDefaultUpgradeExecutor(executor, "", false)
 
 	err := upgradeExec.RestoreConstitution(constitutionPath)
 	require.Error(t, err)
