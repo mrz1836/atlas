@@ -102,21 +102,55 @@
 
 ## 🚀 Installation
 
-**ATLAS** requires a [supported release of Go](https://golang.org/doc/devel/release.html#policy).
-
-### Install via go install
+Install the latest prebuilt release for your platform with a single copy‑paste. It
+lands in `~/.local/bin` — a user‑writable directory, so no `sudo`, and `atlas upgrade`
+can self‑update in place afterward:
 
 ```bash
-go install github.com/mrz1836/atlas@latest
+# Install the latest atlas release into ~/.local/bin
+VER=$(curl -fsSL https://api.github.com/repos/mrz1836/atlas/releases/latest | grep '"tag_name"' | cut -d'"' -f4 | tr -d v)
+OS=$(uname -s | tr '[:upper:]' '[:lower:]'); ARCH=$(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')
+mkdir -p ~/.local/bin
+curl -fsSL "https://github.com/mrz1836/atlas/releases/download/v${VER}/atlas_${VER}_${OS}_${ARCH}.tar.gz" | tar -xzf - -C ~/.local/bin atlas
+atlas --version
 ```
 
-### Build from source
+If `atlas` isn't found afterward, add `~/.local/bin` to your `PATH` (put
+`export PATH="$HOME/.local/bin:$PATH"` in your `~/.zshrc` or `~/.bashrc`).
+
+### Keeping it up to date
+
+`atlas upgrade` self‑updates atlas via [go-selfupdate](https://github.com/mrz1836/go-selfupdate):
+it downloads the latest release, verifies its SHA‑256 checksum against the published
+`atlas_<ver>_checksums.txt`, and atomically replaces the running binary — no `sudo` when
+it lives in `~/.local/bin`.
+
+```bash
+atlas upgrade            # update atlas plus any managed tools that are installed
+atlas upgrade atlas      # update only atlas
+atlas upgrade --check    # report available updates without installing
+```
+
+`atlas upgrade` also updates the developer tools it manages (mage-x, go-pre-commit,
+speckit) when they're present on your `PATH`.
+
+> **Heads up:** a binary that another installer owns — `go install`'s `~/go/bin`, or a
+> Homebrew prefix — is **refused** by atlas's self‑update rather than overwritten (that
+> would break the tool that owns it). Install the release binary into `~/.local/bin` as
+> above to keep self‑update working.
+
+<details>
+<summary><strong>Build from source (contributors)</strong></summary>
+
+Requires a [supported release of Go](https://golang.org/doc/devel/release.html#policy).
 
 ```bash
 git clone https://github.com/mrz1836/atlas.git
 cd atlas
-go build -o bin/atlas .
+go build -o bin/atlas ./cmd/atlas
 ```
+
+</details>
 
 <br/>
 
