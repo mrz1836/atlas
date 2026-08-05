@@ -11,14 +11,34 @@ import (
 	"strings"
 	"testing"
 
+	selfupdate "github.com/mrz1836/go-selfupdate"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/errors"
 )
+
+// stubAtlasCheck returns a fixed atlas release check so the checker's atlas path
+// runs offline in tests. It matches [atlasCheckFunc].
+func stubAtlasCheck(latest string, available bool) atlasCheckFunc {
+	return func(_ context.Context, cfg selfupdate.Config) (*selfupdate.Info, error) {
+		return &selfupdate.Info{
+			CurrentVersion:  cfg.CurrentVersion,
+			LatestVersion:   latest,
+			UpdateAvailable: available,
+		}, nil
+	}
+}
+
+// stubAtlasInstall returns a fixed atlas install result so the executor's atlas
+// path runs offline in tests. It matches [atlasInstallFunc].
+func stubAtlasInstall(latest string) atlasInstallFunc {
+	return func(_ context.Context, cfg selfupdate.Config, _ ...selfupdate.Option) (selfupdate.Result, error) {
+		return selfupdate.Result{PreviousVersion: cfg.CurrentVersion, LatestVersion: latest, Updated: true}, nil
+	}
+}
 
 // mockCommandExecutor is a mock implementation of config.CommandExecutor for testing.
 type mockCommandExecutor struct {
@@ -436,7 +456,7 @@ func TestDefaultUpgradeChecker_CheckAllUpdates(t *testing.T) {
 		},
 	}
 
-	checker := NewDefaultUpgradeChecker(executor)
+	checker := NewDefaultUpgradeCheckerWithCheck(executor, stubAtlasCheck("v0.2.0", true))
 	result, err := checker.CheckAllUpdates(context.Background())
 
 	require.NoError(t, err)
@@ -456,7 +476,7 @@ func TestDefaultUpgradeChecker_CheckToolUpdate(t *testing.T) {
 		},
 	}
 
-	checker := NewDefaultUpgradeChecker(executor)
+	checker := NewDefaultUpgradeCheckerWithCheck(executor, stubAtlasCheck("v0.2.0", true))
 	info, err := checker.CheckToolUpdate(context.Background(), constants.ToolAtlas)
 
 	require.NoError(t, err)
@@ -464,6 +484,8 @@ func TestDefaultUpgradeChecker_CheckToolUpdate(t *testing.T) {
 	assert.Equal(t, constants.ToolAtlas, info.Name)
 	assert.True(t, info.Installed)
 	assert.Equal(t, "0.1.0", info.CurrentVersion)
+	assert.Equal(t, "0.2.0", info.LatestVersion)
+	assert.True(t, info.UpdateAvailable)
 }
 
 func TestDefaultUpgradeChecker_CheckToolUpdate_UnknownTool(t *testing.T) {
@@ -490,40 +512,14 @@ func TestDefaultUpgradeExecutor_UpgradeTool(t *testing.T) {
 		},
 	}
 
-	// Create a mock upgrader function that returns "already on latest"
-	mockUpgraderFunc := func(_ config.CommandExecutor) *AtlasReleaseUpgrader {
-		return NewAtlasReleaseUpgraderWithDeps(
-			&mockReleaseClientForUpgrade{
-				release: &GitHubRelease{
-					TagName: "v1.0.0", // Same version as current
-				},
-			},
-			nil,
-			executor,
-		)
-	}
-
-	upgradeExec := NewDefaultUpgradeExecutorWithUpgrader(executor, mockUpgraderFunc)
+	// Stub atlas's self-update so the executor's atlas path runs offline.
+	upgradeExec := NewDefaultUpgradeExecutorWithInstall(executor, stubAtlasInstall("v1.0.0"))
 	result, err := upgradeExec.UpgradeTool(context.Background(), constants.ToolAtlas)
 
 	require.NoError(t, err)
 	assert.True(t, result.Success)
 	assert.Equal(t, constants.ToolAtlas, result.Tool)
-	// When already on latest, returns current version
 	assert.Equal(t, "1.0.0", result.NewVersion)
-}
-
-// mockReleaseClientForUpgrade is a mock that supports the full upgrade flow.
-type mockReleaseClientForUpgrade struct {
-	release *GitHubRelease
-	err     error
-}
-
-func (m *mockReleaseClientForUpgrade) GetLatestRelease(_ context.Context, _, _ string) (*GitHubRelease, error) {
-	if m.err != nil {
-		return nil, m.err
-	}
-	return m.release, nil
 }
 
 func TestDefaultUpgradeExecutor_UpgradeTool_UnknownTool(t *testing.T) {

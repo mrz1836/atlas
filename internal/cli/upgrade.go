@@ -13,6 +13,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/huh"
+	selfupdate "github.com/mrz1836/go-selfupdate"
 	"github.com/spf13/cobra"
 	"golang.org/x/sync/errgroup"
 
@@ -533,14 +534,47 @@ func (u *upgradeCmd) displayRollbackInfo(failedTools []string) {
 	}
 }
 
+// atlasCheckFunc resolves the latest atlas release. It matches [selfupdate.Check]
+// and is a field on the checker so tests can substitute it without the network.
+type atlasCheckFunc func(ctx context.Context, cfg selfupdate.Config) (*selfupdate.Info, error)
+
+// atlasInstallFunc installs the latest atlas release. It matches [selfupdate.Install]
+// and is a field on the executor so tests can substitute it without a real download.
+type atlasInstallFunc func(ctx context.Context, cfg selfupdate.Config, opts ...selfupdate.Option) (selfupdate.Result, error)
+
+// atlasSelfUpdateConfig builds the go-selfupdate configuration for atlas's own
+// binary. The release archive is the only install route; its SHA-256 is verified
+// against the published checksums and the running binary is atomically replaced. A
+// binary owned by another installer (a go-install ~/go/bin, a Homebrew prefix) is
+// refused rather than overwritten. Stdout is discarded so the upgrade command's own
+// styled output stays the single source of truth.
+func atlasSelfUpdateConfig(currentVersion string) selfupdate.Config {
+	return selfupdate.Config{ //nolint:gosec // G101 false positive: TokenEnvVar is an environment variable name, not a credential
+		Owner:          constants.GitHubOwner,
+		Repo:           constants.GitHubRepo,
+		BinaryName:     constants.ToolAtlas,
+		CurrentVersion: currentVersion,
+		TokenEnvVar:    "ATLAS_GITHUB_TOKEN",
+		Stdout:         io.Discard,
+	}
+}
+
 // DefaultUpgradeChecker implements UpgradeChecker using the tool detector.
 type DefaultUpgradeChecker struct {
 	executor config.CommandExecutor
+	// checkAtlas resolves atlas's latest release; defaults to selfupdate.Check.
+	checkAtlas atlasCheckFunc
 }
 
 // NewDefaultUpgradeChecker creates a new DefaultUpgradeChecker.
 func NewDefaultUpgradeChecker(executor config.CommandExecutor) *DefaultUpgradeChecker {
-	return &DefaultUpgradeChecker{executor: executor}
+	return &DefaultUpgradeChecker{executor: executor, checkAtlas: selfupdate.Check}
+}
+
+// NewDefaultUpgradeCheckerWithCheck creates a checker with a custom atlas release
+// check. It is the injection seam that keeps the atlas path offline in tests.
+func NewDefaultUpgradeCheckerWithCheck(executor config.CommandExecutor, check atlasCheckFunc) *DefaultUpgradeChecker {
+	return &DefaultUpgradeChecker{executor: executor, checkAtlas: check}
 }
 
 // CheckAllUpdates checks for updates to all tools in parallel.
@@ -673,12 +707,11 @@ func (c *DefaultUpgradeChecker) checkToolUpdate(ctx context.Context, tool upgrad
 
 	info.CurrentVersion = parseVersionFromOutput(tool.name, output)
 
-	// For atlas, fetch the latest version from GitHub
+	// For atlas, resolve the latest release via go-selfupdate.
 	if tool.name == constants.ToolAtlas {
-		upgrader := NewAtlasReleaseUpgrader(c.executor)
-		if latestVersion, err := upgrader.GetLatestVersion(ctx); err == nil {
-			info.LatestVersion = latestVersion
-			info.UpdateAvailable = isNewerVersion(info.CurrentVersion, latestVersion)
+		if result, err := c.checkAtlas(ctx, atlasSelfUpdateConfig(info.CurrentVersion)); err == nil && result != nil {
+			info.LatestVersion = strings.TrimPrefix(result.LatestVersion, "v")
+			info.UpdateAvailable = result.UpdateAvailable
 			return info
 		}
 		// If we can't fetch latest, fall through to default behavior
@@ -764,31 +797,22 @@ func parseGenericVersion(output string) string {
 	return output
 }
 
-// AtlasUpgraderFunc is a function type that creates an AtlasReleaseUpgrader.
-// This allows injection of custom upgraders for testing.
-type AtlasUpgraderFunc func(executor config.CommandExecutor) *AtlasReleaseUpgrader
-
 // DefaultUpgradeExecutor implements UpgradeExecutor.
 type DefaultUpgradeExecutor struct {
-	executor          config.CommandExecutor
-	atlasUpgraderFunc AtlasUpgraderFunc // For testing injection
+	executor config.CommandExecutor
+	// installAtlas installs atlas's latest release; defaults to selfupdate.Install.
+	installAtlas atlasInstallFunc
 }
 
 // NewDefaultUpgradeExecutor creates a new DefaultUpgradeExecutor.
 func NewDefaultUpgradeExecutor(executor config.CommandExecutor) *DefaultUpgradeExecutor {
-	return &DefaultUpgradeExecutor{
-		executor:          executor,
-		atlasUpgraderFunc: NewAtlasReleaseUpgrader,
-	}
+	return &DefaultUpgradeExecutor{executor: executor, installAtlas: selfupdate.Install}
 }
 
-// NewDefaultUpgradeExecutorWithUpgrader creates a new DefaultUpgradeExecutor with a custom atlas upgrader.
-// This is used for testing.
-func NewDefaultUpgradeExecutorWithUpgrader(executor config.CommandExecutor, upgraderFunc AtlasUpgraderFunc) *DefaultUpgradeExecutor {
-	return &DefaultUpgradeExecutor{
-		executor:          executor,
-		atlasUpgraderFunc: upgraderFunc,
-	}
+// NewDefaultUpgradeExecutorWithInstall creates an executor with a custom atlas
+// install. It is the injection seam that keeps the atlas path offline in tests.
+func NewDefaultUpgradeExecutorWithInstall(executor config.CommandExecutor, install atlasInstallFunc) *DefaultUpgradeExecutor {
+	return &DefaultUpgradeExecutor{executor: executor, installAtlas: install}
 }
 
 // UpgradeTool upgrades a specific tool.
@@ -914,18 +938,19 @@ func (e *DefaultUpgradeExecutor) upgradeGoPreCommit(ctx context.Context, tool st
 	e.updateResultVersion(ctx, tool, toolConfig, result)
 }
 
-// upgradeAtlasViaRelease upgrades atlas using GitHub releases.
+// upgradeAtlasViaRelease upgrades atlas via go-selfupdate: it downloads the latest
+// release archive, verifies its SHA-256 checksum, and atomically replaces the running
+// binary. A binary owned by another installer is refused rather than overwritten.
 func (e *DefaultUpgradeExecutor) upgradeAtlasViaRelease(ctx context.Context, toolConfig *upgradableToolConfig, result *UpgradeResult) {
-	// Get current version
+	// Resolve the running atlas version so the library can decide whether the latest
+	// release actually outranks it.
 	output, err := e.executor.Run(ctx, toolConfig.command, toolConfig.versionFlag)
 	currentVersion := "unknown"
 	if err == nil {
 		currentVersion = parseVersionFromOutput(constants.ToolAtlas, output)
 	}
 
-	// Create upgrader and perform upgrade
-	upgrader := e.atlasUpgraderFunc(e.executor)
-	newVersion, err := upgrader.UpgradeAtlas(ctx, currentVersion)
+	res, err := e.installAtlas(ctx, atlasSelfUpdateConfig(currentVersion))
 	if err != nil {
 		result.Success = false
 		result.Error = err.Error()
@@ -933,7 +958,7 @@ func (e *DefaultUpgradeExecutor) upgradeAtlasViaRelease(ctx context.Context, too
 	}
 
 	result.Success = true
-	result.NewVersion = newVersion
+	result.NewVersion = strings.TrimPrefix(res.LatestVersion, "v")
 }
 
 // upgradeViaGoInstall upgrades a tool using go install.
