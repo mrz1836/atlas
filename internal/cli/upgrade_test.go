@@ -890,14 +890,12 @@ func TestAddUpgradeCommand(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "upgrade [tool]", upgradeCmd.Use)
 
-	// The `update` alias mirrors flywheel and go-invoice so the fleet's update
-	// commands respond to the same verbs.
+	// The upgrade command also answers to `update`.
 	assert.Contains(t, upgradeCmd.Aliases, "update", "upgrade carries the update alias")
 	updateCmd, _, err := rootCmd.Find([]string{"update"})
 	require.NoError(t, err)
 	assert.Same(t, upgradeCmd, updateCmd, "update resolves to the same command")
 
-	// --force/--check mirror the self-updater flags on the other tools.
 	for _, name := range []string{"check", "force"} {
 		flag := upgradeCmd.Flags().Lookup(name)
 		require.NotNilf(t, flag, "upgrade registers --%s", name)

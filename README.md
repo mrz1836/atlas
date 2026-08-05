@@ -120,15 +120,17 @@ If `atlas` isn't found afterward, add `~/.local/bin` to your `PATH` (put
 
 ### Keeping it up to date
 
-`atlas upgrade` self‑updates atlas via [go-selfupdate](https://github.com/mrz1836/go-selfupdate):
-it downloads the latest release, verifies its SHA‑256 checksum against the published
-`atlas_<ver>_checksums.txt`, and atomically replaces the running binary — no `sudo` when
-it lives in `~/.local/bin`.
+`atlas upgrade` (also spelled `atlas update`) self‑updates atlas via
+[go-selfupdate](https://github.com/mrz1836/go-selfupdate): it downloads the latest
+release, verifies its SHA‑256 checksum against the published `atlas_<ver>_checksums.txt`,
+and atomically replaces the running binary — no `sudo` when it lives in `~/.local/bin`.
 
 ```bash
 atlas upgrade            # update atlas plus any managed tools that are installed
+atlas update             # same command, alternate spelling
 atlas upgrade atlas      # update only atlas
-atlas upgrade --check    # report available updates without installing
+atlas upgrade --check    # report available updates without installing (-c)
+atlas upgrade --force    # reinstall even if already up to date (-f)
 ```
 
 `atlas upgrade` also updates the developer tools it manages (mage-x, go-pre-commit,

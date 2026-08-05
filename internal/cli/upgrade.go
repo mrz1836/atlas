@@ -207,8 +207,7 @@ Examples:
 		SilenceUsage: true,
 	}
 
-	// Add flags. --check/--force mirror the self-update flags on flywheel and
-	// go-invoice so the fleet's update commands feel identical.
+	// Add flags.
 	cmd.Flags().BoolVarP(&flags.Check, "check", "c", false, "only check for updates without installing")
 	cmd.Flags().BoolVarP(&flags.Force, "force", "f", false, "reinstall even if already up to date")
 	cmd.Flags().BoolVarP(&flags.Yes, "yes", "y", false, "skip confirmation prompt")
