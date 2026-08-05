@@ -107,6 +107,10 @@ const (
 	// GitHubRepo is the GitHub repository name for atlas.
 	GitHubRepo = "atlas"
 
+	// GitHubRepoGoPreCommit is the GitHub repository name for go-pre-commit,
+	// whose release archives are the install source for that managed tool.
+	GitHubRepoGoPreCommit = "go-pre-commit"
+
 	// GitHubAPIBaseURL is the base URL for GitHub API requests.
 	GitHubAPIBaseURL = "https://api.github.com"
 )

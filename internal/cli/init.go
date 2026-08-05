@@ -14,6 +14,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/huh"
+	selfupdate "github.com/mrz1836/go-selfupdate"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
@@ -429,7 +430,14 @@ func installManagedTools(ctx context.Context, w io.Writer, tools []config.Tool, 
 		case constants.ToolMageX:
 			cmd = exec.CommandContext(ctx, "go", "install", constants.InstallPathMageX) //nolint:gosec // Install path is from constants, not user input
 		case constants.ToolGoPreCommit:
-			cmd = exec.CommandContext(ctx, "go", "install", constants.InstallPathGoPreCommit) //nolint:gosec // Install path is from constants, not user input
+			// Installed from a release archive so the binary lands in a user-writable
+			// directory and can self-update in place afterward.
+			if _, err := installGoPreCommitRelease(ctx, selfupdate.Install); err != nil {
+				_, _ = fmt.Fprintln(w, styles.err.Render("  Failed to install "+tool.Name+": "+err.Error()))
+			} else {
+				_, _ = fmt.Fprintln(w, styles.success.Render("  ✓ Installed "+tool.Name))
+			}
+			continue
 		case constants.ToolSpeckit:
 			// Speckit may have a different install method
 			_, _ = fmt.Fprintln(w, styles.dim.Render("  Skipping speckit (manual installation required)"))

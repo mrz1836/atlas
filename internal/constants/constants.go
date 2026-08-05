@@ -140,6 +140,11 @@ const (
 	// WorkspaceFilePerm is the permission mode for workspace metadata files.
 	// Owner has read/write only.
 	WorkspaceFilePerm = 0o600
+
+	// ToolInstallDirPerm is the permission mode for the directory managed tool
+	// binaries are installed into. Owner has read/write/execute, group and other
+	// have read/execute, matching the convention for a directory on PATH.
+	ToolInstallDirPerm = 0o755
 )
 
 // Workspace name validation constants.

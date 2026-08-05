@@ -32,9 +32,9 @@ func stubAtlasCheck(latest string, available bool) atlasCheckFunc {
 	}
 }
 
-// stubAtlasInstall returns a fixed atlas install result so the executor's atlas
-// path runs offline in tests. It matches [atlasInstallFunc].
-func stubAtlasInstall(latest string) atlasInstallFunc {
+// stubAtlasInstall returns a fixed release install result so the executor's
+// release paths run offline in tests. It matches [releaseInstallFunc].
+func stubAtlasInstall(latest string) releaseInstallFunc {
 	return func(_ context.Context, cfg selfupdate.Config, _ ...selfupdate.Option) (selfupdate.Result, error) {
 		return selfupdate.Result{PreviousVersion: cfg.CurrentVersion, LatestVersion: latest, Updated: true}, nil
 	}
@@ -598,25 +598,93 @@ func TestDefaultUpgradeExecutor_UpgradeTool_GoPreCommit_UsesUpgradeForce(t *test
 	assert.Equal(t, "1.0.0", result.NewVersion)
 }
 
-func TestDefaultUpgradeExecutor_UpgradeTool_GoPreCommit_NotInstalled_UsesGoInstall(t *testing.T) {
-	t.Parallel()
+func TestDefaultUpgradeExecutor_UpgradeTool_GoPreCommit_NotInstalled_InstallsFromRelease(t *testing.T) {
+	// Cannot use t.Parallel() because t.Setenv redirects HOME so the install
+	// directory is created under a temporary root rather than the caller's home.
+	home := t.TempDir()
+	t.Setenv("HOME", home)
 
 	executor := &mockCommandExecutor{
-		runResults: map[string]string{
-			"go install " + constants.InstallPathGoPreCommit: "",
-			"go-pre-commit --version":                        "v1.0.0",
-		},
 		lookPathErrors: map[string]error{
 			"go-pre-commit": exec.ErrNotFound,
 		},
+		// A `go install` fallback would surface here as a failed result, which is the
+		// behavior this test exists to rule out.
+		runErrors: map[string]error{
+			"go install " + constants.InstallPathGoPreCommit: exec.ErrNotFound,
+		},
 	}
 
-	upgradeExec := NewDefaultUpgradeExecutor(executor, "", false)
+	var gotCfg selfupdate.Config
+	var gotOpts int
+	install := func(_ context.Context, cfg selfupdate.Config, opts ...selfupdate.Option) (selfupdate.Result, error) {
+		gotCfg = cfg
+		gotOpts = len(opts)
+		return selfupdate.Result{LatestVersion: "v1.2.3", Updated: true}, nil
+	}
+
+	upgradeExec := NewDefaultUpgradeExecutorWithInstall(executor, "", false, install)
 	result, err := upgradeExec.UpgradeTool(context.Background(), constants.ToolGoPreCommit)
 
 	require.NoError(t, err)
 	assert.True(t, result.Success)
 	assert.Equal(t, constants.ToolGoPreCommit, result.Tool)
+	assert.Equal(t, "1.2.3", result.NewVersion)
+
+	// The release archive, not the Go binary directory, is the install source.
+	assert.Equal(t, constants.GitHubOwner, gotCfg.Owner)
+	assert.Equal(t, constants.GitHubRepoGoPreCommit, gotCfg.Repo)
+	assert.Equal(t, filepath.Join(home, ".local", "bin", constants.ToolGoPreCommit), gotCfg.TargetPath)
+	assert.DirExists(t, filepath.Join(home, ".local", "bin"))
+
+	// Without an option go-selfupdate reads the empty current version as a
+	// development build and declines to install anything.
+	assert.Equal(t, 1, gotOpts, "a fresh install must force past the development-build guard")
+}
+
+func TestGoPreCommitSelfUpdateConfig(t *testing.T) {
+	t.Parallel()
+
+	cfg := goPreCommitSelfUpdateConfig("/tmp/bin/go-pre-commit")
+
+	assert.Equal(t, constants.GitHubOwner, cfg.Owner)
+	assert.Equal(t, constants.GitHubRepoGoPreCommit, cfg.Repo)
+	assert.Equal(t, constants.ToolGoPreCommit, cfg.BinaryName)
+	assert.Equal(t, "/tmp/bin/go-pre-commit", cfg.TargetPath)
+	// Empty so the target is chosen by TargetPath rather than the running binary.
+	assert.Empty(t, cfg.CurrentVersion)
+}
+
+func TestInstallGoPreCommitRelease_CreatesInstallDir(t *testing.T) {
+	// Cannot use t.Parallel() because t.Setenv redirects HOME.
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	var gotTarget string
+	install := func(_ context.Context, cfg selfupdate.Config, _ ...selfupdate.Option) (selfupdate.Result, error) {
+		gotTarget = cfg.TargetPath
+		return selfupdate.Result{LatestVersion: "v1.2.3", Updated: true}, nil
+	}
+
+	res, err := installGoPreCommitRelease(context.Background(), install)
+
+	require.NoError(t, err)
+	assert.Equal(t, "v1.2.3", res.LatestVersion)
+	assert.Equal(t, filepath.Join(home, ".local", "bin", constants.ToolGoPreCommit), gotTarget)
+	assert.DirExists(t, filepath.Join(home, ".local", "bin"))
+}
+
+func TestInstallGoPreCommitRelease_PropagatesInstallError(t *testing.T) {
+	// Cannot use t.Parallel() because t.Setenv redirects HOME.
+	t.Setenv("HOME", t.TempDir())
+
+	install := func(_ context.Context, _ selfupdate.Config, _ ...selfupdate.Option) (selfupdate.Result, error) {
+		return selfupdate.Result{}, exec.ErrNotFound
+	}
+
+	_, err := installGoPreCommitRelease(context.Background(), install)
+
+	require.Error(t, err)
 }
 
 func TestDefaultUpgradeExecutor_BackupConstitution(t *testing.T) {

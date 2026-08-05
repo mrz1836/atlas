@@ -552,9 +552,9 @@ func (u *upgradeCmd) displayRollbackInfo(failedTools []string) {
 // and is a field on the checker so tests can substitute it without the network.
 type atlasCheckFunc func(ctx context.Context, cfg selfupdate.Config) (*selfupdate.Info, error)
 
-// atlasInstallFunc installs the latest atlas release. It matches [selfupdate.Install]
+// releaseInstallFunc installs a tool's latest release. It matches [selfupdate.Install]
 // and is a field on the executor so tests can substitute it without a real download.
-type atlasInstallFunc func(ctx context.Context, cfg selfupdate.Config, opts ...selfupdate.Option) (selfupdate.Result, error)
+type releaseInstallFunc func(ctx context.Context, cfg selfupdate.Config, opts ...selfupdate.Option) (selfupdate.Result, error)
 
 // atlasSelfUpdateConfig builds the go-selfupdate configuration for atlas's own
 // binary. The release archive is the only install route; its SHA-256 is verified
@@ -571,6 +571,55 @@ func atlasSelfUpdateConfig(currentVersion string) selfupdate.Config {
 		TokenEnvVar:    "ATLAS_GITHUB_TOKEN",
 		Stdout:         io.Discard,
 	}
+}
+
+// goPreCommitSelfUpdateConfig builds the go-selfupdate configuration used to install
+// go-pre-commit from its published release archives. targetPath is the binary to write,
+// which keeps the install off the running executable. CurrentVersion is left empty
+// because the tool is absent and has no version to report; callers force the install so
+// that empty version is not mistaken for a development build. Stdout is discarded so
+// the upgrade command's own styled output stays the single source of truth.
+func goPreCommitSelfUpdateConfig(targetPath string) selfupdate.Config {
+	return selfupdate.Config{ //nolint:gosec // G101 false positive: TokenEnvVar is an environment variable name, not a credential
+		Owner:       constants.GitHubOwner,
+		Repo:        constants.GitHubRepoGoPreCommit,
+		BinaryName:  constants.ToolGoPreCommit,
+		TargetPath:  targetPath,
+		TokenEnvVar: "ATLAS_GITHUB_TOKEN",
+		Stdout:      io.Discard,
+	}
+}
+
+// toolInstallDir returns the directory new tool binaries are installed into. It is
+// user-writable, so no elevation is needed and the installed binary can replace itself
+// when it later self-updates.
+func toolInstallDir() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("resolve home directory: %w", err)
+	}
+	return filepath.Join(home, ".local", "bin"), nil
+}
+
+// installGoPreCommitRelease installs go-pre-commit from its latest release archive.
+// The download's SHA-256 is verified against the published checksums before anything
+// is written, and the binary lands in a user-writable directory so it can self-update
+// in place afterward.
+//
+// The install is forced because the tool is absent: with no current version to compare
+// against, go-selfupdate reads the empty version as a development build and declines to
+// replace it. Nothing is being overwritten here, so that protection does not apply.
+func installGoPreCommitRelease(ctx context.Context, install releaseInstallFunc) (selfupdate.Result, error) {
+	dir, err := toolInstallDir()
+	if err != nil {
+		return selfupdate.Result{}, err
+	}
+	if mkErr := os.MkdirAll(dir, constants.ToolInstallDirPerm); mkErr != nil {
+		return selfupdate.Result{}, fmt.Errorf("create install directory %s: %w", dir, mkErr)
+	}
+
+	target := filepath.Join(dir, constants.ToolGoPreCommit)
+	return install(ctx, goPreCommitSelfUpdateConfig(target), selfupdate.WithForce())
 }
 
 // normalizeAtlasVersion strips a leading "v" from the running binary's version for
@@ -839,20 +888,20 @@ type DefaultUpgradeExecutor struct {
 	atlasVersion string
 	// force reinstalls atlas even when it is already on the latest release.
 	force bool
-	// installAtlas installs atlas's latest release; defaults to selfupdate.Install.
-	installAtlas atlasInstallFunc
+	// installRelease installs a tool's latest release; defaults to selfupdate.Install.
+	installRelease releaseInstallFunc
 }
 
 // NewDefaultUpgradeExecutor creates a new DefaultUpgradeExecutor. atlasVersion is
 // the running binary's version and force reinstalls atlas even when current.
 func NewDefaultUpgradeExecutor(executor config.CommandExecutor, atlasVersion string, force bool) *DefaultUpgradeExecutor {
-	return &DefaultUpgradeExecutor{executor: executor, atlasVersion: atlasVersion, force: force, installAtlas: selfupdate.Install}
+	return &DefaultUpgradeExecutor{executor: executor, atlasVersion: atlasVersion, force: force, installRelease: selfupdate.Install}
 }
 
-// NewDefaultUpgradeExecutorWithInstall creates an executor with a custom atlas
-// install. It is the injection seam that keeps the atlas path offline in tests.
-func NewDefaultUpgradeExecutorWithInstall(executor config.CommandExecutor, atlasVersion string, force bool, install atlasInstallFunc) *DefaultUpgradeExecutor {
-	return &DefaultUpgradeExecutor{executor: executor, atlasVersion: atlasVersion, force: force, installAtlas: install}
+// NewDefaultUpgradeExecutorWithInstall creates an executor with a custom release
+// install. It is the injection seam that keeps release installs offline in tests.
+func NewDefaultUpgradeExecutorWithInstall(executor config.CommandExecutor, atlasVersion string, force bool, install releaseInstallFunc) *DefaultUpgradeExecutor {
+	return &DefaultUpgradeExecutor{executor: executor, atlasVersion: atlasVersion, force: force, installRelease: install}
 }
 
 // UpgradeTool upgrades a specific tool.
@@ -950,6 +999,11 @@ func (e *DefaultUpgradeExecutor) tryToolSpecificUpgrade(ctx context.Context, too
 			e.upgradeGoPreCommit(ctx, tool, toolConfig, result)
 			return true
 		}
+		// Not yet installed: install from a release archive rather than `go install`,
+		// so the binary lands in a user-writable directory instead of the Go binary
+		// directory, where a later self-update would be refused.
+		e.installGoPreCommitViaRelease(ctx, tool, toolConfig, result)
+		return true
 	}
 	return false
 }
@@ -978,6 +1032,25 @@ func (e *DefaultUpgradeExecutor) upgradeGoPreCommit(ctx context.Context, tool st
 	e.updateResultVersion(ctx, tool, toolConfig, result)
 }
 
+// installGoPreCommitViaRelease installs go-pre-commit from its latest release archive
+// when the tool is not yet present. The archive's SHA-256 is verified against the
+// published checksums before anything is written, and the binary is placed in a
+// user-writable directory so its own update command can replace it in place later.
+func (e *DefaultUpgradeExecutor) installGoPreCommitViaRelease(ctx context.Context, tool string, toolConfig *upgradableToolConfig, result *UpgradeResult) {
+	res, err := installGoPreCommitRelease(ctx, e.installRelease)
+	if err != nil {
+		result.Success = false
+		result.Error = err.Error()
+		return
+	}
+
+	result.Success = true
+	result.NewVersion = strings.TrimPrefix(res.LatestVersion, "v")
+	if result.NewVersion == "" {
+		e.updateResultVersion(ctx, tool, toolConfig, result)
+	}
+}
+
 // upgradeAtlasViaRelease upgrades atlas via go-selfupdate: it downloads the latest
 // release archive, verifies its SHA-256 checksum, and atomically replaces the running
 // binary. A binary owned by another installer is refused rather than overwritten.
@@ -990,7 +1063,7 @@ func (e *DefaultUpgradeExecutor) upgradeAtlasViaRelease(ctx context.Context, _ *
 		opts = append(opts, selfupdate.WithForce())
 	}
 
-	res, err := e.installAtlas(ctx, atlasSelfUpdateConfig(normalizeAtlasVersion(e.atlasVersion)), opts...)
+	res, err := e.installRelease(ctx, atlasSelfUpdateConfig(normalizeAtlasVersion(e.atlasVersion)), opts...)
 	if err != nil {
 		result.Success = false
 		result.Error = err.Error()
