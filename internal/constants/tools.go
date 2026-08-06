@@ -111,6 +111,10 @@ const (
 	// whose release archives are the install source for that managed tool.
 	GitHubRepoGoPreCommit = "go-pre-commit"
 
+	// GitHubRepoMageX is the GitHub repository name for mage-x, whose release
+	// archives are the install source for that managed tool.
+	GitHubRepoMageX = "mage-x"
+
 	// GitHubAPIBaseURL is the base URL for GitHub API requests.
 	GitHubAPIBaseURL = "https://api.github.com"
 )

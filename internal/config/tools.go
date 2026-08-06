@@ -296,7 +296,7 @@ func getToolConfigs() []toolConfig {
 			minVersion:  "",
 			required:    false,
 			managed:     true,
-			installHint: "Install with: go install github.com/mage-x/magex@latest",
+			installHint: "Install with: go install github.com/mrz1836/mage-x/cmd/magex@latest",
 			parseFunc:   parseMageXVersion,
 		},
 		{

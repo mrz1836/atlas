@@ -555,25 +555,48 @@ func TestDefaultUpgradeExecutor_UpgradeTool_MageX_UsesUpdateInstall(t *testing.T
 	assert.Equal(t, "1.2.0", result.NewVersion)
 }
 
-func TestDefaultUpgradeExecutor_UpgradeTool_MageX_NotInstalled_UsesGoInstall(t *testing.T) {
-	t.Parallel()
+func TestDefaultUpgradeExecutor_UpgradeTool_MageX_NotInstalled_InstallsFromRelease(t *testing.T) {
+	// Cannot use t.Parallel() because t.Setenv redirects HOME so the install
+	// directory is created under a temporary root rather than the caller's home.
+	home := t.TempDir()
+	t.Setenv("HOME", home)
 
 	executor := &mockCommandExecutor{
-		runResults: map[string]string{
-			"go install " + constants.InstallPathMageX: "",
-			"magex --version":                          "v1.2.0",
-		},
 		lookPathErrors: map[string]error{
 			"magex": exec.ErrNotFound,
 		},
+		// A `go install` fallback would surface here as a failed result, which is the
+		// behavior this test exists to rule out.
+		runErrors: map[string]error{
+			"go install " + constants.InstallPathMageX: exec.ErrNotFound,
+		},
 	}
 
-	upgradeExec := NewDefaultUpgradeExecutor(executor, "", false)
+	var gotCfg selfupdate.Config
+	var gotOpts int
+	install := func(_ context.Context, cfg selfupdate.Config, opts ...selfupdate.Option) (selfupdate.Result, error) {
+		gotCfg = cfg
+		gotOpts = len(opts)
+		return selfupdate.Result{LatestVersion: "v1.2.3", Updated: true}, nil
+	}
+
+	upgradeExec := NewDefaultUpgradeExecutorWithInstall(executor, "", false, install)
 	result, err := upgradeExec.UpgradeTool(context.Background(), constants.ToolMageX)
 
 	require.NoError(t, err)
 	assert.True(t, result.Success)
 	assert.Equal(t, constants.ToolMageX, result.Tool)
+	assert.Equal(t, "1.2.3", result.NewVersion)
+
+	// The release archive, not the Go binary directory, is the install source.
+	assert.Equal(t, constants.GitHubOwner, gotCfg.Owner)
+	assert.Equal(t, constants.GitHubRepoMageX, gotCfg.Repo)
+	assert.Equal(t, filepath.Join(home, ".local", "bin", constants.ToolMageX), gotCfg.TargetPath)
+	assert.DirExists(t, filepath.Join(home, ".local", "bin"))
+
+	// Without an option go-selfupdate reads the empty current version as a
+	// development build and declines to install anything.
+	assert.Equal(t, 1, gotOpts, "a fresh install must force past the development-build guard")
 }
 
 func TestDefaultUpgradeExecutor_UpgradeTool_GoPreCommit_UsesUpgradeForce(t *testing.T) {
@@ -683,6 +706,52 @@ func TestInstallGoPreCommitRelease_PropagatesInstallError(t *testing.T) {
 	}
 
 	_, err := installGoPreCommitRelease(context.Background(), install)
+
+	require.Error(t, err)
+}
+
+func TestMageXSelfUpdateConfig(t *testing.T) {
+	t.Parallel()
+
+	cfg := mageXSelfUpdateConfig("/tmp/bin/magex")
+
+	assert.Equal(t, constants.GitHubOwner, cfg.Owner)
+	assert.Equal(t, constants.GitHubRepoMageX, cfg.Repo)
+	// The executable inside a mage-x release archive is "magex", not the repo name.
+	assert.Equal(t, constants.ToolMageX, cfg.BinaryName)
+	assert.Equal(t, "/tmp/bin/magex", cfg.TargetPath)
+	// Empty so the target is chosen by TargetPath rather than the running binary.
+	assert.Empty(t, cfg.CurrentVersion)
+}
+
+func TestInstallMageXRelease_CreatesInstallDir(t *testing.T) {
+	// Cannot use t.Parallel() because t.Setenv redirects HOME.
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	var gotTarget string
+	install := func(_ context.Context, cfg selfupdate.Config, _ ...selfupdate.Option) (selfupdate.Result, error) {
+		gotTarget = cfg.TargetPath
+		return selfupdate.Result{LatestVersion: "v1.2.3", Updated: true}, nil
+	}
+
+	res, err := installMageXRelease(context.Background(), install)
+
+	require.NoError(t, err)
+	assert.Equal(t, "v1.2.3", res.LatestVersion)
+	assert.Equal(t, filepath.Join(home, ".local", "bin", constants.ToolMageX), gotTarget)
+	assert.DirExists(t, filepath.Join(home, ".local", "bin"))
+}
+
+func TestInstallMageXRelease_PropagatesInstallError(t *testing.T) {
+	// Cannot use t.Parallel() because t.Setenv redirects HOME.
+	t.Setenv("HOME", t.TempDir())
+
+	install := func(_ context.Context, _ selfupdate.Config, _ ...selfupdate.Option) (selfupdate.Result, error) {
+		return selfupdate.Result{}, exec.ErrNotFound
+	}
+
+	_, err := installMageXRelease(context.Background(), install)
 
 	require.Error(t, err)
 }

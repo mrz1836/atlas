@@ -590,6 +590,24 @@ func goPreCommitSelfUpdateConfig(targetPath string) selfupdate.Config {
 	}
 }
 
+// mageXSelfUpdateConfig builds the go-selfupdate configuration used to install mage-x
+// from its published release archives. It mirrors goPreCommitSelfUpdateConfig: targetPath
+// is the binary to write, keeping the install off the running executable; CurrentVersion
+// is left empty because the tool is absent, so callers force the install to keep that empty
+// version from being read as a development build; and stdout is discarded so the upgrade
+// command's own styled output stays the single source of truth. The executable inside a
+// mage-x release archive is "magex", which is constants.ToolMageX.
+func mageXSelfUpdateConfig(targetPath string) selfupdate.Config {
+	return selfupdate.Config{ //nolint:gosec // G101 false positive: TokenEnvVar is an environment variable name, not a credential
+		Owner:       constants.GitHubOwner,
+		Repo:        constants.GitHubRepoMageX,
+		BinaryName:  constants.ToolMageX,
+		TargetPath:  targetPath,
+		TokenEnvVar: "ATLAS_GITHUB_TOKEN",
+		Stdout:      io.Discard,
+	}
+}
+
 // toolInstallDir returns the directory new tool binaries are installed into. It is
 // user-writable, so no elevation is needed and the installed binary can replace itself
 // when it later self-updates.
@@ -620,6 +638,27 @@ func installGoPreCommitRelease(ctx context.Context, install releaseInstallFunc) 
 
 	target := filepath.Join(dir, constants.ToolGoPreCommit)
 	return install(ctx, goPreCommitSelfUpdateConfig(target), selfupdate.WithForce())
+}
+
+// installMageXRelease installs mage-x from its latest release archive. Like
+// installGoPreCommitRelease, the download's SHA-256 is verified against the published
+// checksums before anything is written, and the binary lands in a user-writable directory
+// so `magex update:install` can replace it in place afterward.
+//
+// The install is forced for the same reason: the tool is absent, so with no current version
+// to compare against go-selfupdate reads the empty version as a development build and
+// declines to write anything. Nothing is being overwritten here, so that guard does not apply.
+func installMageXRelease(ctx context.Context, install releaseInstallFunc) (selfupdate.Result, error) {
+	dir, err := toolInstallDir()
+	if err != nil {
+		return selfupdate.Result{}, err
+	}
+	if mkErr := os.MkdirAll(dir, constants.ToolInstallDirPerm); mkErr != nil {
+		return selfupdate.Result{}, fmt.Errorf("create install directory %s: %w", dir, mkErr)
+	}
+
+	target := filepath.Join(dir, constants.ToolMageX)
+	return install(ctx, mageXSelfUpdateConfig(target), selfupdate.WithForce())
 }
 
 // normalizeAtlasVersion strips a leading "v" from the running binary's version for
@@ -994,6 +1033,11 @@ func (e *DefaultUpgradeExecutor) tryToolSpecificUpgrade(ctx context.Context, too
 			e.upgradeMagex(ctx, tool, toolConfig, result)
 			return true
 		}
+		// Not yet installed: install from a release archive rather than `go install`,
+		// so the binary lands in a user-writable directory instead of the Go binary
+		// directory, where a later self-update would be refused.
+		e.installMageXViaRelease(ctx, tool, toolConfig, result)
+		return true
 	case constants.ToolGoPreCommit:
 		if _, lookErr := e.executor.LookPath(constants.ToolGoPreCommit); lookErr == nil {
 			e.upgradeGoPreCommit(ctx, tool, toolConfig, result)
@@ -1008,7 +1052,9 @@ func (e *DefaultUpgradeExecutor) tryToolSpecificUpgrade(ctx context.Context, too
 	return false
 }
 
-// upgradeMagex upgrades magex using its built-in update command.
+// upgradeMagex upgrades an installed magex using its built-in `update:install`
+// command, which is now backed by go-selfupdate: it replaces a release binary in place,
+// or refreshes a `go install` build via `go install`, choosing the right route itself.
 func (e *DefaultUpgradeExecutor) upgradeMagex(ctx context.Context, tool string, toolConfig *upgradableToolConfig, result *UpgradeResult) {
 	_, err := e.executor.Run(ctx, constants.ToolMageX, "update:install")
 	if err != nil {
@@ -1018,6 +1064,25 @@ func (e *DefaultUpgradeExecutor) upgradeMagex(ctx context.Context, tool string, 
 	}
 	result.Success = true
 	e.updateResultVersion(ctx, tool, toolConfig, result)
+}
+
+// installMageXViaRelease installs mage-x from its latest release archive when the tool is
+// not yet present. It mirrors installGoPreCommitViaRelease: the archive's SHA-256 is
+// verified against the published checksums before anything is written, and the binary is
+// placed in a user-writable directory so `magex update:install` can replace it in place later.
+func (e *DefaultUpgradeExecutor) installMageXViaRelease(ctx context.Context, tool string, toolConfig *upgradableToolConfig, result *UpgradeResult) {
+	res, err := installMageXRelease(ctx, e.installRelease)
+	if err != nil {
+		result.Success = false
+		result.Error = err.Error()
+		return
+	}
+
+	result.Success = true
+	result.NewVersion = strings.TrimPrefix(res.LatestVersion, "v")
+	if result.NewVersion == "" {
+		e.updateResultVersion(ctx, tool, toolConfig, result)
+	}
 }
 
 // upgradeGoPreCommit upgrades go-pre-commit using its built-in upgrade command.

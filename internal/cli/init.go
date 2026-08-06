@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -421,41 +420,35 @@ func promptInstallManagedTools(w io.Writer, tools []config.Tool, styles *initSty
 }
 
 // installManagedTools installs the specified managed tools.
+//
+// mage-x and go-pre-commit are installed from their published release archives via
+// go-selfupdate, so each binary lands in a user-writable directory and can self-update in
+// place afterward. Speckit has no automated install path yet and is skipped.
 func installManagedTools(ctx context.Context, w io.Writer, tools []config.Tool, styles *initStyles) {
 	for _, tool := range tools {
 		_, _ = fmt.Fprintln(w, styles.info.Render("Installing "+tool.Name+"..."))
 
-		var cmd *exec.Cmd
 		switch tool.Name {
 		case constants.ToolMageX:
-			cmd = exec.CommandContext(ctx, "go", "install", constants.InstallPathMageX) //nolint:gosec // Install path is from constants, not user input
+			installManagedRelease(ctx, w, tool.Name, styles, installMageXRelease)
 		case constants.ToolGoPreCommit:
-			// Installed from a release archive so the binary lands in a user-writable
-			// directory and can self-update in place afterward.
-			if _, err := installGoPreCommitRelease(ctx, selfupdate.Install); err != nil {
-				_, _ = fmt.Fprintln(w, styles.err.Render("  Failed to install "+tool.Name+": "+err.Error()))
-			} else {
-				_, _ = fmt.Fprintln(w, styles.success.Render("  ✓ Installed "+tool.Name))
-			}
-			continue
+			installManagedRelease(ctx, w, tool.Name, styles, installGoPreCommitRelease)
 		case constants.ToolSpeckit:
 			// Speckit may have a different install method
 			_, _ = fmt.Fprintln(w, styles.dim.Render("  Skipping speckit (manual installation required)"))
-			continue
 		default:
-			continue
-		}
-
-		output, err := cmd.CombinedOutput()
-		if err != nil {
-			_, _ = fmt.Fprintln(w, styles.err.Render("  Failed to install "+tool.Name+": "+err.Error()))
-			if len(output) > 0 {
-				_, _ = fmt.Fprintln(w, styles.dim.Render(string(output)))
-			}
-		} else {
-			_, _ = fmt.Fprintln(w, styles.success.Render("  ✓ Installed "+tool.Name))
 		}
 	}
+}
+
+// installManagedRelease installs a managed tool from its release archive using the given
+// installer and reports success or failure with the init command's styled output.
+func installManagedRelease(ctx context.Context, w io.Writer, name string, styles *initStyles, install func(context.Context, releaseInstallFunc) (selfupdate.Result, error)) {
+	if _, err := install(ctx, selfupdate.Install); err != nil {
+		_, _ = fmt.Fprintln(w, styles.err.Render("  Failed to install "+name+": "+err.Error()))
+		return
+	}
+	_, _ = fmt.Fprintln(w, styles.success.Render("  ✓ Installed "+name))
 }
 
 // runInteractiveWizard runs the interactive configuration wizard.
