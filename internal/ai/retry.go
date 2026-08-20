@@ -23,7 +23,12 @@ var timeSleep = func(d time.Duration) <-chan time.Time {
 //nolint:gochecknoglobals // Read-only pattern configuration
 var nonRetryablePatterns = [][]string{
 	// Authentication errors - cannot retry without fixing credentials
-	{"authentication", "api key", "anthropic_api_key", "gemini_api_key", "openai_api_key"},
+	{"authentication", "api key", "invalid_api_key", "anthropic_api_key", "gemini_api_key", "openai_api_key"},
+	// Account / quota / eligibility errors - permanent until the account, plan, or
+	// client is fixed. Retrying only burns attempts (and money) on a request that
+	// cannot succeed. NOTE: these are distinct from transient throttles like rate
+	// limits or 5xx/overload (handled by isProviderOutage), which remain retryable.
+	{"insufficient_quota", "exceeded your current quota", "quota exceeded", "ineligibletiererror", "unsupported_client", "no longer supported", "please migrate"},
 	// JSON parse errors - same input will produce same error
 	{"invalid json", "failed to parse json"},
 	// CLI not found - requires installation, not transient

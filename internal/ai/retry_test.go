@@ -27,6 +27,13 @@ var (
 	errNoSuchFile        = errors.New("chdir /path/to/worktree: no such file or directory")
 	errChdirFailed       = errors.New("chdir to working directory failed")
 
+	// Permanent account / quota / eligibility / client errors — retrying cannot help.
+	errInsufficientQuota = errors.New("insufficient_quota: you have exceeded your current quota, please check your plan")
+	errIneligibleTier    = errors.New("IneligibleTierError: your plan does not support this model")
+	errUnsupportedClient = errors.New("unsupported_client: please upgrade the CLI")
+	errNoLongerSupported = errors.New("this client version is no longer supported, please migrate to the new one")
+	errUnderscoreAPIKey  = errors.New("invalid_api_key provided in request")
+
 	// Test error types for isFallbackTrigger and isNonRecoverableError testing.
 	errInvalidFormatMissingPrefix = errors.New("invalid format: missing type prefix")
 	errUnexpectedFormat           = errors.New("unexpected format from AI")
@@ -170,6 +177,33 @@ func TestIsRetryable(t *testing.T) {
 			name:     "rate limit error is retryable",
 			err:      errRateLimit,
 			expected: true,
+		},
+		// Permanent account/quota/eligibility errors must NOT be retried (no storm):
+		// distinct from the transient rate-limit case above.
+		{
+			name:     "insufficient_quota is not retryable",
+			err:      errInsufficientQuota,
+			expected: false,
+		},
+		{
+			name:     "ineligible tier is not retryable",
+			err:      errIneligibleTier,
+			expected: false,
+		},
+		{
+			name:     "unsupported_client is not retryable",
+			err:      errUnsupportedClient,
+			expected: false,
+		},
+		{
+			name:     "no longer supported / please migrate is not retryable",
+			err:      errNoLongerSupported,
+			expected: false,
+		},
+		{
+			name:     "invalid_api_key (underscore form) is not retryable",
+			err:      errUnderscoreAPIKey,
+			expected: false,
 		},
 		{
 			name:     "generic error is retryable",
