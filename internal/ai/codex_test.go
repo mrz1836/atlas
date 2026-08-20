@@ -119,6 +119,23 @@ func TestCodexRunner_buildCommand(t *testing.T) {
 		assert.Equal(t, "codex", cmd.Path[len(cmd.Path)-5:]) // ends with "codex"
 		assert.Contains(t, cmd.Args, "exec")
 		assert.Contains(t, cmd.Args, "--json")
+		assert.Contains(t, cmd.Args, "--skip-git-repo-check")
+		// Default (non-plan) permission mode uses a writable sandbox.
+		assert.Contains(t, cmd.Args, "--sandbox")
+		assert.Contains(t, cmd.Args, "workspace-write")
+	})
+
+	t.Run("plan mode uses read-only sandbox", func(t *testing.T) {
+		runner := NewCodexRunner(&config.AIConfig{}, nil)
+
+		cmd := runner.buildCommand(context.Background(), &domain.AIRequest{
+			Prompt:         "verify this",
+			PermissionMode: "plan",
+		})
+
+		assert.Contains(t, cmd.Args, "--sandbox")
+		assert.Contains(t, cmd.Args, "read-only")
+		assert.NotContains(t, cmd.Args, "workspace-write")
 	})
 
 	t.Run("builds command with model from request", func(t *testing.T) {
@@ -134,7 +151,7 @@ func TestCodexRunner_buildCommand(t *testing.T) {
 
 		// Model should be resolved and included
 		assert.Contains(t, cmd.Args, "-m")
-		assert.Contains(t, cmd.Args, "gpt-5.2-codex")
+		assert.Contains(t, cmd.Args, "gpt-5.4")
 	})
 
 	t.Run("builds command with model from config when request has none", func(t *testing.T) {
@@ -150,7 +167,7 @@ func TestCodexRunner_buildCommand(t *testing.T) {
 		cmd := runner.buildCommand(context.Background(), req)
 
 		assert.Contains(t, cmd.Args, "-m")
-		assert.Contains(t, cmd.Args, "gpt-5.1-codex-max")
+		assert.Contains(t, cmd.Args, "gpt-5.5")
 	})
 
 	t.Run("sets working directory when specified", func(t *testing.T) {
@@ -173,7 +190,10 @@ func TestCodexRunner_execute(t *testing.T) {
 
 	t.Run("executes successfully and parses response", func(t *testing.T) {
 		mockExec := &MockExecutor{
-			StdoutData: []byte(`{"success":true,"content":"test output","session_id":"test-session","duration_ms":1000,"num_turns":1,"total_cost_usd":0.05}`),
+			StdoutData: []byte(`{"type":"thread.started","thread_id":"test-session"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"test output"}}
+{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":2}}`),
 		}
 		runner := NewCodexRunner(&config.AIConfig{}, mockExec)
 
@@ -186,9 +206,7 @@ func TestCodexRunner_execute(t *testing.T) {
 		assert.True(t, result.Success)
 		assert.Equal(t, "test output", result.Output)
 		assert.Equal(t, "test-session", result.SessionID)
-		assert.Equal(t, 1000, result.DurationMs)
 		assert.Equal(t, 1, result.NumTurns)
-		assert.InDelta(t, 0.05, result.TotalCostUSD, 0.001)
 	})
 
 	t.Run("returns error on execution failure without valid JSON", func(t *testing.T) {
@@ -225,8 +243,9 @@ func TestCodexRunner_execute(t *testing.T) {
 
 	t.Run("returns parsed error response on execution failure with valid JSON", func(t *testing.T) {
 		mockExec := &MockExecutor{
-			Err:        errCodexTestExitStatus1,
-			StdoutData: []byte(`{"success":false,"error":"API rate limit exceeded"}`),
+			Err: errCodexTestExitStatus1,
+			StdoutData: []byte(`{"type":"thread.started","thread_id":"s"}
+{"type":"turn.failed","message":"API rate limit exceeded"}`),
 		}
 		runner := NewCodexRunner(&config.AIConfig{}, mockExec)
 
@@ -290,8 +309,11 @@ func TestWrapCodexExecutionError(t *testing.T) {
 }
 
 func TestParseCodexResponse(t *testing.T) {
-	t.Run("parses valid success response", func(t *testing.T) {
-		data := []byte(`{"success":true,"content":"Hello world","session_id":"sess-123","duration_ms":500,"num_turns":1,"total_cost_usd":0.01}`)
+	t.Run("parses agent message from event stream", func(t *testing.T) {
+		data := []byte(`{"type":"thread.started","thread_id":"sess-123"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"Hello world"}}
+{"type":"turn.completed","usage":{"input_tokens":100,"output_tokens":5}}`)
 
 		resp, err := parseCodexResponse(data)
 
@@ -299,19 +321,43 @@ func TestParseCodexResponse(t *testing.T) {
 		assert.True(t, resp.Success)
 		assert.Equal(t, "Hello world", resp.Content)
 		assert.Equal(t, "sess-123", resp.SessionID)
-		assert.Equal(t, 500, resp.DurationMs)
 		assert.Equal(t, 1, resp.NumTurns)
-		assert.InDelta(t, 0.01, resp.TotalCostUSD, 0.001)
+		assert.Equal(t, 100, resp.Usage.InputTokens)
+		assert.Equal(t, 5, resp.Usage.OutputTokens)
 	})
 
-	t.Run("parses valid error response", func(t *testing.T) {
-		data := []byte(`{"success":false,"error":"Rate limit exceeded"}`)
+	t.Run("ignores non-fatal warning item when answer is present", func(t *testing.T) {
+		data := []byte(`{"type":"item.completed","item":{"type":"error","message":"Model metadata for gpt-5.6 not found. Defaulting to fallback metadata."}}
+{"type":"item.completed","item":{"type":"agent_message","text":"OK"}}
+{"type":"turn.completed"}`)
+
+		resp, err := parseCodexResponse(data)
+
+		require.NoError(t, err)
+		assert.True(t, resp.Success)
+		assert.Equal(t, "OK", resp.Content)
+		assert.Empty(t, resp.Error)
+	})
+
+	t.Run("surfaces turn.failed as error", func(t *testing.T) {
+		data := []byte(`{"type":"thread.started","thread_id":"s"}
+{"type":"turn.failed","message":"Rate limit exceeded"}`)
 
 		resp, err := parseCodexResponse(data)
 
 		require.NoError(t, err)
 		assert.False(t, resp.Success)
 		assert.Equal(t, "Rate limit exceeded", resp.Error)
+	})
+
+	t.Run("surfaces terminal error item when no answer", func(t *testing.T) {
+		data := []byte(`{"type":"item.completed","item":{"type":"error","message":"stream disconnected"}}`)
+
+		resp, err := parseCodexResponse(data)
+
+		require.NoError(t, err)
+		assert.False(t, resp.Success)
+		assert.Equal(t, "stream disconnected", resp.Error)
 	})
 
 	t.Run("returns error for empty data", func(t *testing.T) {
@@ -322,24 +368,22 @@ func TestParseCodexResponse(t *testing.T) {
 		assert.Contains(t, err.Error(), "empty response")
 	})
 
-	t.Run("returns error for invalid JSON", func(t *testing.T) {
-		resp, err := parseCodexResponse([]byte("not json"))
+	t.Run("returns error when no json events present", func(t *testing.T) {
+		resp, err := parseCodexResponse([]byte("not json at all"))
 
 		assert.Nil(t, resp)
 		require.ErrorIs(t, err, atlaserrors.ErrCodexInvocation)
-		assert.Contains(t, err.Error(), "failed to parse json")
+		assert.Contains(t, err.Error(), "no json events")
 	})
 }
 
 func TestCodexResponse_toAIResult(t *testing.T) {
 	t.Run("converts success response", func(t *testing.T) {
 		resp := &CodexResponse{
-			Success:      true,
-			Content:      "output content",
-			SessionID:    "sess-456",
-			DurationMs:   1234,
-			NumTurns:     2,
-			TotalCostUSD: 0.05,
+			Success:   true,
+			Content:   "output content",
+			SessionID: "sess-456",
+			NumTurns:  2,
 		}
 
 		result := resp.toAIResult("")
@@ -347,21 +391,8 @@ func TestCodexResponse_toAIResult(t *testing.T) {
 		assert.True(t, result.Success)
 		assert.Equal(t, "output content", result.Output)
 		assert.Equal(t, "sess-456", result.SessionID)
-		assert.Equal(t, 1234, result.DurationMs)
 		assert.Equal(t, 2, result.NumTurns)
-		assert.InDelta(t, 0.05, result.TotalCostUSD, 0.001)
 		assert.Empty(t, result.Error)
-	})
-
-	t.Run("uses Result field when Content is empty", func(t *testing.T) {
-		resp := &CodexResponse{
-			Success: true,
-			Result:  "result content",
-		}
-
-		result := resp.toAIResult("")
-
-		assert.Equal(t, "result content", result.Output)
 	})
 
 	t.Run("includes error from response", func(t *testing.T) {

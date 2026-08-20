@@ -137,26 +137,33 @@ func (r *CodexRunner) tryParseErrorResponse(execErr error, stdout, stderr []byte
 
 // buildCommand constructs the codex CLI command with appropriate flags.
 func (r *CodexRunner) buildCommand(ctx context.Context, req *domain.AIRequest) *exec.Cmd {
-	// Codex uses "codex exec" for non-interactive mode with --json for JSON output
+	// `codex exec` runs non-interactively. --json streams JSONL events
+	// (thread.started / item.completed / turn.completed) that parseCodexResponse
+	// consumes. --skip-git-repo-check lets codex run inside worktrees that are not
+	// registered as trusted projects (otherwise it refuses with a trust prompt).
 	args := []string{
-		"exec",   // Non-interactive execution mode
-		"--json", // JSON output format
+		"exec",
+		"--json",
+		"--skip-git-repo-check",
 	}
 
-	// Determine model: request > config
+	// Sandbox policy. Verification ("plan") is read-only; any other mode may write
+	// within the workspace. Both run without interactive approval under exec.
+	if req.PermissionMode == "plan" {
+		args = append(args, "--sandbox", "read-only")
+	} else {
+		args = append(args, "--sandbox", "workspace-write")
+	}
+
+	// Determine model: request > config, then resolve the alias to a full id.
 	model := req.Model
 	if model == "" && r.base.Config != nil {
 		model = r.base.Config.Model
 	}
-
-	// Resolve model alias to full model name
 	if model != "" {
 		model = domain.AgentCodex.ResolveModelAlias(model)
 		args = append(args, "-m", model)
 	}
-
-	// Codex CLI may support additional flags in the future.
-	// Add them here as they become available.
 
 	cmd := exec.CommandContext(ctx, "codex", args...)
 
