@@ -10,7 +10,6 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/google/uuid"
 	cache "github.com/mrz1836/go-cache"
 
 	"github.com/mrz1836/atlas/internal/lifecycle"
@@ -117,63 +116,60 @@ func (d *Daemon) handleTaskSubmit(ctx context.Context, params json.RawMessage) (
 		return nil, err
 	}
 
-	taskID := uuid.New().String()
+	taskID := d.generateTaskID()
 
 	// --- Transactional submit with full rollback (Q8) ---
 	//
-	// Each Redis write appends its inverse to rollbacks. On any error,
-	// runRollbacks executes them in reverse to leave Redis in its pre-submit state.
-	// The queue.Submit call checks MaxSize and returns ErrQueueFull before writing,
-	// so no rollback is needed for a full-queue rejection.
-	var rollbacks []func()
-
-	rollback := func() {
-		for i := len(rollbacks) - 1; i >= 0; i-- {
-			rollbacks[i]()
-		}
-	}
+	// Each write registers its inverse on the transaction as it succeeds. The
+	// deferred rollbackIfNeeded runs every registered compensation (in reverse)
+	// unless the transaction is committed, so ANY early return — including a
+	// mid-submit error — leaves Redis in its pre-submit state. This is
+	// misuse-proof: no failure path can forget to roll back.
+	var tx submitTxn
+	defer tx.rollbackIfNeeded()
 
 	// Step 0: Worktree exclusivity lock (Q2).
 	lockRollback, err := d.acquireWorktreeLock(ctx, req.RepoPath, taskID)
 	if err != nil {
 		return nil, err
 	}
-	rollbacks = append(rollbacks, lockRollback)
+	tx.onRollback(lockRollback)
 
 	// Step 1: Store task metadata in a Redis hash.
 	hashKey := d.cfg.Redis.KeyPrefix + "task:" + taskID
 	if err := cache.HashMapSet(ctx, d.redis, hashKey, buildTaskHashPairs(req, taskID, wsName, priority)); err != nil {
 		return nil, fmt.Errorf("store task hash: %w", err)
 	}
-	rollbacks = append(rollbacks, func() {
+	tx.onRollback(func() {
 		_, _ = cache.DeleteWithoutDependency(ctx, d.redis, hashKey)
 	})
 
 	// Step 2: Track in persistent tasks set so the task remains visible in listings.
 	tasksKey := d.cfg.Redis.KeyPrefix + "tasks"
 	if err := cache.SetAdd(ctx, d.redis, tasksKey, taskID); err != nil {
-		rollback()
 		return nil, fmt.Errorf("track in tasks set: %w", err)
 	}
-	rollbacks = append(rollbacks, func() {
+	tx.onRollback(func() {
 		_ = cache.SetRemoveMember(ctx, d.redis, tasksKey, taskID)
 	})
 
 	// Step 3: Track in active set BEFORE queuing so the task is visible once submitted.
 	activeKey := d.cfg.Redis.KeyPrefix + "active"
 	if err := cache.SetAdd(ctx, d.redis, activeKey, taskID); err != nil {
-		rollback()
 		return nil, fmt.Errorf("track in active set: %w", err)
 	}
-	rollbacks = append(rollbacks, func() {
+	tx.onRollback(func() {
 		_ = cache.SetRemoveMember(ctx, d.redis, activeKey, taskID)
 	})
 
-	// Step 4: Add to the priority queue.
+	// Step 4: Add to the priority queue. The queue checks MaxSize and returns
+	// ErrQueueFull before writing, so no compensation is registered for it.
 	if err := d.queue.Submit(ctx, taskID, priority); err != nil {
-		rollback()
 		return nil, fmt.Errorf("queue submit: %w", err)
 	}
+
+	// All writes succeeded — commit so the deferred rollback becomes a no-op.
+	tx.commit()
 
 	// Publish event (best-effort; non-fatal).
 	if err := d.events.Publish(ctx, TaskEvent{

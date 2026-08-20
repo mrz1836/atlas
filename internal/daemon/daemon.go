@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/google/uuid"
 	cache "github.com/mrz1836/go-cache"
 	"github.com/rs/zerolog"
 
@@ -73,6 +74,11 @@ type Daemon struct {
 	// workspaceLoader is an injectable function for listing filesystem workspaces
 	// during reconcile. Defaults to the production implementation; tests override it.
 	workspaceLoader func(atlasHome string) ([]*workspaceEntry, error)
+
+	// newTaskID is an injectable task-ID generator. Defaults to a random UUID;
+	// tests override it to make submit flows deterministic (e.g., to fault-inject
+	// on a known task-hash key).
+	newTaskID func() string
 }
 
 // New creates a new Daemon instance.
@@ -489,6 +495,15 @@ func (d *Daemon) getRecoveryEvents() []RecoveryEvent {
 
 // socketDir returns the directory part of a socket/PID path.
 // Returns "" for bare filenames with no directory component.
+// generateTaskID returns a unique task ID, using the injected generator when set
+// (tests) and a random UUID otherwise (production).
+func (d *Daemon) generateTaskID() string {
+	if d.newTaskID != nil {
+		return d.newTaskID()
+	}
+	return uuid.New().String()
+}
+
 func socketDir(p string) string {
 	idx := strings.LastIndex(p, "/")
 	if idx <= 0 {
