@@ -59,6 +59,10 @@ func (e *DefaultExecutor) Execute(_ context.Context, cmd *exec.Cmd) ([]byte, []b
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
+	// Isolate the command in its own process group and bound I/O draining so a
+	// spawned child cannot be orphaned or hang cmd.Wait.
+	prepareCommand(cmd)
+
 	// Start the command
 	if err := cmd.Start(); err != nil {
 		return nil, nil, err
@@ -94,8 +98,8 @@ func (e *DefaultExecutor) TerminateProcess() error {
 		return nil // No process to terminate
 	}
 
-	// First try SIGTERM for graceful shutdown
-	if err := proc.Signal(syscall.SIGTERM); err != nil {
+	// First try SIGTERM on the whole process group for graceful shutdown.
+	if err := signalProcessGroup(proc, syscall.SIGTERM); err != nil {
 		// Process may have already exited
 		if errors.Is(err, os.ErrProcessDone) {
 			return nil
@@ -127,14 +131,14 @@ func (e *DefaultExecutor) TerminateProcess() error {
 		time.Sleep(100 * time.Millisecond)
 	}
 
-	// Timeout: force kill synchronously
+	// Timeout: force kill the whole process group synchronously.
 	e.processMu.Lock()
 	currentProc := e.runningProcess
 	e.processMu.Unlock()
 
 	// Only kill if same process is still running
 	if currentProc != nil && currentProc.Pid == proc.Pid {
-		_ = proc.Kill() // Best effort, ignore errors
+		_ = signalProcessGroup(proc, syscall.SIGKILL) // Best effort, ignore errors
 	}
 
 	return nil
