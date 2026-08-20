@@ -112,43 +112,10 @@ func (h *RetryHandler) RetryWithAI(
 	model string,
 	onAIComplete AICompleteCallback,
 ) (*RetryResult, error) {
-	// Check if retry is enabled
-	if !h.config.Enabled {
-		h.logger.Warn().Msg("AI retry is disabled")
-		return nil, atlaserrors.ErrRetryDisabled
-	}
-
-	// Get max attempts from operations config or fallback to config
-	maxAttempts := h.getMaxAttempts()
-
-	// Check if max attempts exceeded
-	if attemptNum > maxAttempts {
-		h.logger.Warn().
-			Int("attempt", attemptNum).
-			Int("max_attempts", maxAttempts).
-			Msg("maximum retry attempts exceeded")
-		return nil, fmt.Errorf("%w: attempt %d exceeds max %d",
-			atlaserrors.ErrMaxRetriesExceeded, attemptNum, maxAttempts)
-	}
-
-	// Check context cancellation
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	default:
-	}
-
-	// Pre-flight check: verify workDir exists before attempting AI retry
-	// This prevents wasteful AI invocations when the worktree has been deleted
-	if workDir == "" {
-		h.logger.Error().Msg("work directory is empty for AI retry")
-		return nil, fmt.Errorf("work directory is empty: %w", atlaserrors.ErrWorktreeNotFound)
-	}
-	if _, err := os.Stat(workDir); os.IsNotExist(err) {
-		h.logger.Error().
-			Str("work_dir", workDir).
-			Msg("CRITICAL: worktree directory missing before AI retry")
-		return nil, fmt.Errorf("worktree directory missing: %s: %w", workDir, atlaserrors.ErrWorktreeNotFound)
+	// Validate preconditions (retry enabled, attempt budget, context, workDir).
+	maxAttempts, err := h.checkRetryPreconditions(ctx, workDir, attemptNum)
+	if err != nil {
+		return nil, err
 	}
 
 	// Resolve agent/model from operations config (priority: operations > passed values)
@@ -162,6 +129,101 @@ func (h *RetryHandler) RetryWithAI(
 		Str("failed_step", result.FailedStepName).
 		Msg("starting AI-assisted validation retry")
 
+	// Invoke AI to fix the issues using error context from the failed result.
+	aiResult, err := h.runAIFix(ctx, result, workDir, attemptNum, maxAttempts, resolvedAgent, resolvedModel)
+	if err != nil {
+		return nil, err
+	}
+
+	h.logger.Info().
+		Str("agent", string(resolvedAgent)).
+		Str("model", resolvedModel).
+		Bool("ai_success", aiResult.Success).
+		Int("files_changed", len(aiResult.FilesChanged)).
+		Msg("AI fix completed, re-running validation")
+
+	// Check context cancellation before re-running validation
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+
+	// Notify caller that AI is complete before starting validation
+	// This allows UI to stop the AI spinner and optionally start validation progress
+	if onAIComplete != nil {
+		onAIComplete()
+	}
+
+	return h.rerunValidationAfterFix(ctx, workDir, runnerConfig, attemptNum, aiResult, resolvedAgent, resolvedModel)
+}
+
+// CanRetry checks if another retry attempt is allowed.
+func (h *RetryHandler) CanRetry(attemptNum int) bool {
+	return h.config.Enabled && attemptNum <= h.getMaxAttempts()
+}
+
+// MaxAttempts returns the maximum retry attempts configured.
+// Uses operations.validation_retry.max_attempts if set, otherwise uses config.MaxAttempts.
+func (h *RetryHandler) MaxAttempts() int {
+	return h.getMaxAttempts()
+}
+
+// IsEnabled returns whether AI retry is enabled.
+func (h *RetryHandler) IsEnabled() bool {
+	return h.config.Enabled
+}
+
+// checkRetryPreconditions validates that an AI retry may proceed and returns the
+// effective max-attempts limit. It returns a non-nil (already-logged) error when
+// retry is disabled, the attempt budget is exhausted, the context is canceled,
+// or the work directory is missing.
+func (h *RetryHandler) checkRetryPreconditions(ctx context.Context, workDir string, attemptNum int) (int, error) {
+	// Check if retry is enabled
+	if !h.config.Enabled {
+		h.logger.Warn().Msg("AI retry is disabled")
+		return 0, atlaserrors.ErrRetryDisabled
+	}
+
+	// Get max attempts from operations config or fallback to config
+	maxAttempts := h.getMaxAttempts()
+
+	// Check if max attempts exceeded
+	if attemptNum > maxAttempts {
+		h.logger.Warn().
+			Int("attempt", attemptNum).
+			Int("max_attempts", maxAttempts).
+			Msg("maximum retry attempts exceeded")
+		return 0, fmt.Errorf("%w: attempt %d exceeds max %d",
+			atlaserrors.ErrMaxRetriesExceeded, attemptNum, maxAttempts)
+	}
+
+	// Check context cancellation
+	select {
+	case <-ctx.Done():
+		return 0, ctx.Err()
+	default:
+	}
+
+	// Pre-flight check: verify workDir exists before attempting AI retry
+	// This prevents wasteful AI invocations when the worktree has been deleted
+	if workDir == "" {
+		h.logger.Error().Msg("work directory is empty for AI retry")
+		return 0, fmt.Errorf("work directory is empty: %w", atlaserrors.ErrWorktreeNotFound)
+	}
+	if _, err := os.Stat(workDir); os.IsNotExist(err) {
+		h.logger.Error().
+			Str("work_dir", workDir).
+			Msg("CRITICAL: worktree directory missing before AI retry")
+		return 0, fmt.Errorf("worktree directory missing: %s: %w", workDir, atlaserrors.ErrWorktreeNotFound)
+	}
+
+	return maxAttempts, nil
+}
+
+// runAIFix extracts error context from the failed result, builds the fix prompt,
+// and invokes the AI runner. The returned error is already logged and wrapped.
+func (h *RetryHandler) runAIFix(ctx context.Context, result *PipelineResult, workDir string, attemptNum, maxAttempts int, resolvedAgent domain.Agent, resolvedModel string) (*domain.AIResult, error) {
 	// Extract error context from the failed result
 	retryCtx := ExtractErrorContext(result, attemptNum, maxAttempts)
 
@@ -194,27 +256,12 @@ func (h *RetryHandler) RetryWithAI(
 			Msg("AI fix invocation failed")
 		return nil, fmt.Errorf("AI fix failed: %w", err)
 	}
+	return aiResult, nil
+}
 
-	h.logger.Info().
-		Str("agent", string(resolvedAgent)).
-		Str("model", resolvedModel).
-		Bool("ai_success", aiResult.Success).
-		Int("files_changed", len(aiResult.FilesChanged)).
-		Msg("AI fix completed, re-running validation")
-
-	// Check context cancellation before re-running validation
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	default:
-	}
-
-	// Notify caller that AI is complete before starting validation
-	// This allows UI to stop the AI spinner and optionally start validation progress
-	if onAIComplete != nil {
-		onAIComplete()
-	}
-
+// rerunValidationAfterFix re-runs the validation pipeline after an AI fix and
+// packages the outcome (including the AI result) into a RetryResult.
+func (h *RetryHandler) rerunValidationAfterFix(ctx context.Context, workDir string, runnerConfig *RunnerConfig, attemptNum int, aiResult *domain.AIResult, resolvedAgent domain.Agent, resolvedModel string) (*RetryResult, error) {
 	// Re-run validation using existing Runner
 	runner := NewRunner(h.executor, runnerConfig)
 	newResult, runErr := runner.Run(ctx, workDir)
@@ -247,22 +294,6 @@ func (h *RetryHandler) RetryWithAI(
 
 	retryResult.Success = true
 	return retryResult, nil
-}
-
-// CanRetry checks if another retry attempt is allowed.
-func (h *RetryHandler) CanRetry(attemptNum int) bool {
-	return h.config.Enabled && attemptNum <= h.getMaxAttempts()
-}
-
-// MaxAttempts returns the maximum retry attempts configured.
-// Uses operations.validation_retry.max_attempts if set, otherwise uses config.MaxAttempts.
-func (h *RetryHandler) MaxAttempts() int {
-	return h.getMaxAttempts()
-}
-
-// IsEnabled returns whether AI retry is enabled.
-func (h *RetryHandler) IsEnabled() bool {
-	return h.config.Enabled
 }
 
 // getRetryAgentModel returns the agent and model to use for validation retry.

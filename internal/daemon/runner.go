@@ -347,7 +347,7 @@ func (r *Runner) dispatchLoop(ctx context.Context) {
 // daemon shutdown (which cancels the dispatch loop context) does not abruptly
 // cancel in-flight Redis operations.
 //
-//nolint:contextcheck,gocognit // contextcheck: intentional independent task context; gocognit: inherent orchestration complexity.
+//nolint:contextcheck // Intentional independent task context; see doc comment above.
 func (r *Runner) executeTask(_ context.Context, taskID string) {
 	taskTimeout := r.cfg.Daemon.TaskTimeout
 	if taskTimeout <= 0 {
@@ -367,25 +367,7 @@ func (r *Runner) executeTask(_ context.Context, taskID string) {
 		cancel()
 	}()
 
-	defer func() {
-		if rec := recover(); rec != nil {
-			r.logger.Error().
-				Interface("panic", rec).
-				Str("task_id", taskID).
-				Msg("runner: task panicked")
-			r.markTaskFailed(taskCtx, taskID, fmt.Sprintf("panic: %v", rec))
-			if r.events != nil {
-				if pubErr := r.events.Publish(taskCtx, TaskEvent{
-					Type:    EventTaskFailed,
-					TaskID:  taskID,
-					Status:  "failed",
-					Message: fmt.Sprintf("panic: %v", rec),
-				}); pubErr != nil {
-					r.logger.Warn().Err(pubErr).Str("task_id", taskID).Msg("runner: failed to publish task.failed event")
-				}
-			}
-		}
-	}()
+	defer r.recoverTaskPanic(taskCtx, taskID)
 
 	// Acquire a distributed lock to prevent double-execution across daemon instances.
 	lockKey := r.cfg.Redis.KeyPrefix + "lock:task:" + taskID
@@ -430,75 +412,13 @@ func (r *Runner) executeTask(_ context.Context, taskID string) {
 		return
 	}
 
-	// Load job metadata from Redis before publishing started event so we can
-	// include enriched fields (workspace, agent, model, etc.) in the event.
-	// Also needed for hook initialization and worktree lock release.
-	job, loadErr := r.loadTaskJob(taskCtx, taskID)
-	if loadErr != nil {
-		r.logger.Error().Err(loadErr).Str("task_id", taskID).Msg("runner: failed to load task job")
-		r.markTaskFailed(taskCtx, taskID, loadErr.Error())
-		r.writeLog(taskCtx, taskID, LogEntry{Level: "error", Message: "failed to load task job: " + loadErr.Error(), Source: "runner"})
-		if r.events != nil {
-			if pubErr := r.events.Publish(taskCtx, TaskEvent{
-				Type:    EventTaskFailed,
-				TaskID:  taskID,
-				Status:  "failed",
-				Message: loadErr.Error(),
-				Error:   loadErr.Error(),
-			}); pubErr != nil {
-				r.logger.Warn().Err(pubErr).Str("task_id", taskID).Msg("runner: failed to publish task.failed event")
-			}
-		}
+	job, ok := r.loadJobAndAnnounce(taskCtx, taskID)
+	if !ok {
 		return
 	}
 
-	// Optional: run hook initialization if executor supports it (Task 5.3).
-	// Failure marks crash_recovery=degraded but does NOT abort execution.
-	if hi, ok := r.executor.(HookInitializer); ok {
-		if degraded, reason := hi.InitHooks(taskCtx, job); degraded {
-			r.markCrashRecoveryDegraded(taskCtx, taskID, reason)
-		}
-	}
-
-	if r.events != nil {
-		if pubErr := r.events.Publish(taskCtx, TaskEvent{
-			Type:        EventTaskStarted,
-			TaskID:      taskID,
-			Status:      "running",
-			Workspace:   job.Workspace,
-			Agent:       job.Agent,
-			Model:       job.Model,
-			Branch:      job.Branch,
-			Template:    job.Template,
-			Description: job.Description,
-		}); pubErr != nil {
-			r.logger.Warn().Err(pubErr).Str("task_id", taskID).Msg("runner: failed to publish task.started event")
-		}
-	}
-	r.writeLog(taskCtx, taskID, LogEntry{Level: "info", Message: "task started", Source: "runner"})
-
 	if r.executor == nil {
-		// Stub mode: no executor wired (test/dev mode).
-		r.logger.Info().Str("task_id", taskID).Msg("runner: executing task (stub)")
-		r.writeLog(taskCtx, taskID, LogEntry{Level: "info", Message: "executing task (stub mode)", Source: "runner"})
-		time.Sleep(100 * time.Millisecond)
-		r.markTaskCompleted(taskCtx, taskID)
-		r.writeLog(taskCtx, taskID, LogEntry{Level: "info", Message: "task completed", Source: "runner"})
-		if r.events != nil {
-			if pubErr := r.events.Publish(taskCtx, TaskEvent{
-				Type:        EventTaskCompleted,
-				TaskID:      taskID,
-				Status:      "completed",
-				Workspace:   job.Workspace,
-				Agent:       job.Agent,
-				Model:       job.Model,
-				Branch:      job.Branch,
-				Template:    job.Template,
-				Description: job.Description,
-			}); pubErr != nil {
-				r.logger.Warn().Err(pubErr).Str("task_id", taskID).Msg("runner: failed to publish task.completed event")
-			}
-		}
+		r.runStubTask(taskCtx, taskID, job)
 		return
 	}
 
@@ -519,25 +439,70 @@ func (r *Runner) executeTask(_ context.Context, taskID string) {
 		r.storeEngineTaskID(taskCtx, taskID, engineTaskID)
 	}
 
+	r.handleExecutionOutcome(taskCtx, taskID, job, finalStatus, execErr)
+}
+
+// loadJobAndAnnounce loads the task's job metadata (needed for enriched events,
+// hook initialization, and worktree lock release), runs optional hook
+// initialization, and publishes the task.started event. It returns ok=false —
+// after recording the failure — when the job cannot be loaded.
+func (r *Runner) loadJobAndAnnounce(taskCtx context.Context, taskID string) (TaskJob, bool) {
+	job, loadErr := r.loadTaskJob(taskCtx, taskID)
+	if loadErr != nil {
+		r.logger.Error().Err(loadErr).Str("task_id", taskID).Msg("runner: failed to load task job")
+		r.markTaskFailed(taskCtx, taskID, loadErr.Error())
+		r.writeLog(taskCtx, taskID, LogEntry{Level: "error", Message: "failed to load task job: " + loadErr.Error(), Source: "runner"})
+		r.publishTaskEvent(taskCtx, EventTaskFailed, taskID, "failed", loadErr.Error(), loadErr.Error(), nil)
+		return TaskJob{}, false
+	}
+
+	// Optional: run hook initialization if executor supports it (Task 5.3).
+	// Failure marks crash_recovery=degraded but does NOT abort execution.
+	if hi, ok := r.executor.(HookInitializer); ok {
+		if degraded, reason := hi.InitHooks(taskCtx, job); degraded {
+			r.markCrashRecoveryDegraded(taskCtx, taskID, reason)
+		}
+	}
+
+	r.publishTaskEvent(taskCtx, EventTaskStarted, taskID, "running", "", "", &job)
+	r.writeLog(taskCtx, taskID, LogEntry{Level: "info", Message: "task started", Source: "runner"})
+	return job, true
+}
+
+// recoverTaskPanic recovers from a panic in executeTask, marks the task failed,
+// and publishes a failure event. It is intended to be used with defer.
+func (r *Runner) recoverTaskPanic(taskCtx context.Context, taskID string) {
+	rec := recover()
+	if rec == nil {
+		return
+	}
+	r.logger.Error().
+		Interface("panic", rec).
+		Str("task_id", taskID).
+		Msg("runner: task panicked")
+	r.markTaskFailed(taskCtx, taskID, fmt.Sprintf("panic: %v", rec))
+	r.publishTaskEvent(taskCtx, EventTaskFailed, taskID, "failed", fmt.Sprintf("panic: %v", rec), "", nil)
+}
+
+// runStubTask handles execution when no executor is wired (test/dev mode): it
+// simulates a brief run and marks the task completed.
+func (r *Runner) runStubTask(taskCtx context.Context, taskID string, job TaskJob) {
+	r.logger.Info().Str("task_id", taskID).Msg("runner: executing task (stub)")
+	r.writeLog(taskCtx, taskID, LogEntry{Level: "info", Message: "executing task (stub mode)", Source: "runner"})
+	time.Sleep(100 * time.Millisecond)
+	r.markTaskCompleted(taskCtx, taskID)
+	r.writeLog(taskCtx, taskID, LogEntry{Level: "info", Message: "task completed", Source: "runner"})
+	r.publishTaskEvent(taskCtx, EventTaskCompleted, taskID, "completed", "", "", &job)
+}
+
+// handleExecutionOutcome records the terminal task state and publishes the
+// matching lifecycle event based on the status returned by the executor.
+func (r *Runner) handleExecutionOutcome(taskCtx context.Context, taskID string, job TaskJob, finalStatus string, execErr error) {
 	switch finalStatus {
 	case "completed":
 		r.markTaskCompleted(taskCtx, taskID)
 		r.writeLog(taskCtx, taskID, LogEntry{Level: "info", Message: "task completed", Source: "runner"})
-		if r.events != nil {
-			if pubErr := r.events.Publish(taskCtx, TaskEvent{
-				Type:        EventTaskCompleted,
-				TaskID:      taskID,
-				Status:      "completed",
-				Workspace:   job.Workspace,
-				Agent:       job.Agent,
-				Model:       job.Model,
-				Branch:      job.Branch,
-				Template:    job.Template,
-				Description: job.Description,
-			}); pubErr != nil {
-				r.logger.Warn().Err(pubErr).Str("task_id", taskID).Msg("runner: failed to publish task.completed event")
-			}
-		}
+		r.publishTaskEvent(taskCtx, EventTaskCompleted, taskID, "completed", "", "", &job)
 	case "awaiting_approval":
 		r.markTaskStatus(taskCtx, taskID, "awaiting_approval")
 		// Remove from active set — worker is returning. RequeueForResume() re-adds on resume.
@@ -546,21 +511,7 @@ func (r *Runner) executeTask(_ context.Context, taskID string) {
 			r.logger.Warn().Err(err).Str("task_id", taskID).Msg("runner: failed to remove awaiting_approval task from active set")
 		}
 		r.writeLog(taskCtx, taskID, LogEntry{Level: "info", Message: "task awaiting approval", Source: "runner"})
-		if r.events != nil {
-			if pubErr := r.events.Publish(taskCtx, TaskEvent{
-				Type:        EventTaskApprovalRequired,
-				TaskID:      taskID,
-				Status:      "awaiting_approval",
-				Workspace:   job.Workspace,
-				Agent:       job.Agent,
-				Model:       job.Model,
-				Branch:      job.Branch,
-				Template:    job.Template,
-				Description: job.Description,
-			}); pubErr != nil {
-				r.logger.Warn().Err(pubErr).Str("task_id", taskID).Msg("runner: failed to publish task.approval_required event")
-			}
-		}
+		r.publishTaskEvent(taskCtx, EventTaskApprovalRequired, taskID, "awaiting_approval", "", "", &job)
 	default:
 		msg := "task execution failed"
 		if execErr != nil {
@@ -570,23 +521,34 @@ func (r *Runner) executeTask(_ context.Context, taskID string) {
 		}
 		r.markTaskFailed(taskCtx, taskID, msg)
 		r.writeLog(taskCtx, taskID, LogEntry{Level: "error", Message: "task failed: " + msg, Source: "runner"})
-		if r.events != nil {
-			if pubErr := r.events.Publish(taskCtx, TaskEvent{
-				Type:        EventTaskFailed,
-				TaskID:      taskID,
-				Status:      "failed",
-				Message:     msg,
-				Error:       msg,
-				Workspace:   job.Workspace,
-				Agent:       job.Agent,
-				Model:       job.Model,
-				Branch:      job.Branch,
-				Template:    job.Template,
-				Description: job.Description,
-			}); pubErr != nil {
-				r.logger.Warn().Err(pubErr).Str("task_id", taskID).Msg("runner: failed to publish task.failed event")
-			}
-		}
+		r.publishTaskEvent(taskCtx, EventTaskFailed, taskID, "failed", msg, msg, &job)
+	}
+}
+
+// publishTaskEvent publishes a task lifecycle event, enriching it with job
+// metadata when a job is available, and logs a warning if publishing fails.
+// It is a no-op when no event bus is configured.
+func (r *Runner) publishTaskEvent(ctx context.Context, eventType, taskID, status, message, errMsg string, job *TaskJob) {
+	if r.events == nil {
+		return
+	}
+	ev := TaskEvent{
+		Type:    eventType,
+		TaskID:  taskID,
+		Status:  status,
+		Message: message,
+		Error:   errMsg,
+	}
+	if job != nil {
+		ev.Workspace = job.Workspace
+		ev.Agent = job.Agent
+		ev.Model = job.Model
+		ev.Branch = job.Branch
+		ev.Template = job.Template
+		ev.Description = job.Description
+	}
+	if pubErr := r.events.Publish(ctx, ev); pubErr != nil {
+		r.logger.Warn().Err(pubErr).Str("task_id", taskID).Msg("runner: failed to publish " + eventType + " event")
 	}
 }
 
