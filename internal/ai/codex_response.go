@@ -78,13 +78,8 @@ func parseCodexResponse(data []byte) (*CodexResponse, error) {
 		return nil, fmt.Errorf("%w: empty response", atlaserrors.ErrCodexInvocation)
 	}
 
-	resp := &CodexResponse{}
-	var (
-		parsedAny        bool
-		sawTurnCompleted bool
-		fatalErr         string // turn.failed / top-level error event
-		itemErr          string // last terminal error item message
-	)
+	agg := &codexAggregate{resp: &CodexResponse{}}
+	var parsedAny bool
 
 	scanner := bufio.NewScanner(bytes.NewReader(data))
 	// codex can emit large events (reasoning, config); allow generous line sizes.
@@ -99,44 +94,7 @@ func parseCodexResponse(data []byte) (*CodexResponse, error) {
 			continue // ignore malformed / partial lines
 		}
 		parsedAny = true
-
-		switch ev.Type {
-		case "thread.started":
-			if ev.ThreadID != "" {
-				resp.SessionID = ev.ThreadID
-			}
-		case "turn.started":
-			resp.NumTurns++
-		case "turn.completed":
-			sawTurnCompleted = true
-			if ev.Usage != nil {
-				resp.Usage = *ev.Usage
-			}
-		case "turn.failed":
-			if ev.Message != "" {
-				fatalErr = ev.Message
-			} else if ev.Item != nil && ev.Item.Message != "" {
-				fatalErr = ev.Item.Message
-			}
-		case "error":
-			if ev.Message != "" {
-				fatalErr = ev.Message
-			}
-		case "item.completed":
-			if ev.Item == nil {
-				continue
-			}
-			switch ev.Item.Type {
-			case "agent_message":
-				if strings.TrimSpace(ev.Item.Text) != "" {
-					resp.Content = ev.Item.Text // keep the final agent message
-				}
-			case "error":
-				if ev.Item.Message != "" {
-					itemErr = ev.Item.Message
-				}
-			}
-		}
+		agg.apply(ev)
 	}
 	if err := scanner.Err(); err != nil {
 		return nil, fmt.Errorf("%w: failed to read codex json stream: %w", atlaserrors.ErrCodexInvocation, err)
@@ -145,21 +103,79 @@ func parseCodexResponse(data []byte) (*CodexResponse, error) {
 		return nil, fmt.Errorf("%w: no json events in response (%d bytes)", atlaserrors.ErrCodexInvocation, len(data))
 	}
 
-	switch {
-	case resp.Content != "":
-		// A final answer was produced; warning-level item errors are ignored.
-		resp.Success = true
-	case fatalErr != "":
-		resp.Error = fatalErr
-	case itemErr != "":
-		resp.Error = itemErr
-	case sawTurnCompleted:
-		resp.Success = true
-	default:
-		resp.Error = "codex exec produced no agent message"
-	}
+	return agg.finalize(), nil
+}
 
-	return resp, nil
+// codexAggregate accumulates state while scanning the codex JSONL event stream.
+type codexAggregate struct {
+	resp             *CodexResponse
+	sawTurnCompleted bool
+	fatalErr         string // turn.failed / top-level error event
+	itemErr          string // last terminal error item message
+}
+
+// apply folds a single codex event into the aggregate.
+func (a *codexAggregate) apply(ev codexEvent) {
+	switch ev.Type {
+	case "thread.started":
+		if ev.ThreadID != "" {
+			a.resp.SessionID = ev.ThreadID
+		}
+	case "turn.started":
+		a.resp.NumTurns++
+	case "turn.completed":
+		a.sawTurnCompleted = true
+		if ev.Usage != nil {
+			a.resp.Usage = *ev.Usage
+		}
+	case "turn.failed":
+		if ev.Message != "" {
+			a.fatalErr = ev.Message
+		} else if ev.Item != nil && ev.Item.Message != "" {
+			a.fatalErr = ev.Item.Message
+		}
+	case "error":
+		if ev.Message != "" {
+			a.fatalErr = ev.Message
+		}
+	case "item.completed":
+		a.applyItem(ev.Item)
+	}
+}
+
+// applyItem folds an item.completed payload into the aggregate.
+func (a *codexAggregate) applyItem(item *codexItem) {
+	if item == nil {
+		return
+	}
+	switch item.Type {
+	case "agent_message":
+		if strings.TrimSpace(item.Text) != "" {
+			a.resp.Content = item.Text // keep the final agent message
+		}
+	case "error":
+		if item.Message != "" {
+			a.itemErr = item.Message
+		}
+	}
+}
+
+// finalize resolves the aggregated state into the terminal CodexResponse.
+func (a *codexAggregate) finalize() *CodexResponse {
+	switch {
+	case a.resp.Content != "":
+		// A final answer was produced; warning-level item errors are ignored.
+		a.resp.Success = true
+	case a.fatalErr != "":
+		a.resp.Error = a.fatalErr
+	case a.itemErr != "":
+		a.resp.Error = a.itemErr
+	case a.sawTurnCompleted:
+		a.resp.Success = true
+	default:
+		a.resp.Error = "codex exec produced no agent message"
+	}
+	return a.resp
 }
 
 // toAIResult converts a CodexResponse to a domain.AIResult.
