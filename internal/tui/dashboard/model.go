@@ -225,25 +225,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case logStreamEntryMsg:
-		// Dispatch the first entry as a public LogEntryMsg.
-		m.logPanel.AddEntry(msg.entry)
-		if msg.entry.ID != "" {
-			m.lastLogID = msg.entry.ID
-		}
-		// Re-queue: if there are remaining entries, emit the next one;
-		// otherwise tail the stream from the updated cursor.
-		if len(msg.remaining) > 0 {
-			next := msg.remaining[0]
-			return m, func() tea.Msg {
-				return logStreamEntryMsg{
-					entry:     next,
-					remaining: msg.remaining[1:],
-					taskID:    msg.taskID,
-					ctx:       msg.ctx,
-				}
-			}
-		}
-		return m, m.logStreamCmd(msg.ctx, msg.taskID, m.lastLogID)
+		return m.handleLogStreamEntry(msg)
 
 	case logStreamPollMsg:
 		// No new entries — poll again with the same cursor.
@@ -261,24 +243,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case ReconnectedMsg:
-		m.connState = ConnectionStateConnected
-		m.header.SetConnection(ConnectionStateConnected)
-		m.reconnectAttempts = 0
-		m.reconnectDelay = reconnectInitialDelay
-		m.startupError = ""
-		reconnectCmds := []tea.Cmd{m.initialTaskListCmd(), daemonPingCmd(m.client)}
-		if m.cacheClient != nil && m.eventSub == nil {
-			sub := daemon.NewEventSubscriber(m.cacheClient, "")
-			sCtx, sCancel := context.WithCancel(context.Background())
-			if err := sub.Start(sCtx); err == nil {
-				m.eventSub = sub
-				m.eventSubCancel = sCancel
-				reconnectCmds = append(reconnectCmds, watchEventsCmd(m.eventSub))
-			} else {
-				sCancel()
-			}
-		}
-		return m, tea.Batch(reconnectCmds...)
+		return m.handleReconnected()
 
 	case DisconnectedMsg:
 		m.connState = ConnectionStateReconnecting
@@ -520,6 +485,53 @@ func (m *Model) buildFooter() string {
 }
 
 // ── Internal message handlers (unexported, after exported methods per funcorder) ──
+
+// handleLogStreamEntry appends a streamed log entry and either emits the next
+// buffered entry or resumes tailing the stream from the updated cursor.
+func (m *Model) handleLogStreamEntry(msg logStreamEntryMsg) (tea.Model, tea.Cmd) {
+	// Dispatch the first entry as a public LogEntryMsg.
+	m.logPanel.AddEntry(msg.entry)
+	if msg.entry.ID != "" {
+		m.lastLogID = msg.entry.ID
+	}
+	// Re-queue: if there are remaining entries, emit the next one;
+	// otherwise tail the stream from the updated cursor.
+	if len(msg.remaining) > 0 {
+		next := msg.remaining[0]
+		return m, func() tea.Msg {
+			return logStreamEntryMsg{
+				entry:     next,
+				remaining: msg.remaining[1:],
+				taskID:    msg.taskID,
+				ctx:       msg.ctx,
+			}
+		}
+	}
+	return m, m.logStreamCmd(msg.ctx, msg.taskID, m.lastLogID)
+}
+
+// handleReconnected restores connected state after a reconnect and re-establishes
+// the event subscription when needed.
+func (m *Model) handleReconnected() (tea.Model, tea.Cmd) {
+	m.connState = ConnectionStateConnected
+	m.header.SetConnection(ConnectionStateConnected)
+	m.reconnectAttempts = 0
+	m.reconnectDelay = reconnectInitialDelay
+	m.startupError = ""
+	reconnectCmds := []tea.Cmd{m.initialTaskListCmd(), daemonPingCmd(m.client)}
+	if m.cacheClient != nil && m.eventSub == nil {
+		sub := daemon.NewEventSubscriber(m.cacheClient, "")
+		sCtx, sCancel := context.WithCancel(context.Background())
+		if err := sub.Start(sCtx); err == nil {
+			m.eventSub = sub
+			m.eventSubCancel = sCancel
+			reconnectCmds = append(reconnectCmds, watchEventsCmd(m.eventSub))
+		} else {
+			sCancel()
+		}
+	}
+	return m, tea.Batch(reconnectCmds...)
+}
 
 // handleResize updates layout dimensions when the terminal is resized.
 func (m *Model) handleResize(w, h int) (tea.Model, tea.Cmd) {
