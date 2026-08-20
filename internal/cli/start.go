@@ -115,9 +115,9 @@ Examples:
 	cmd.Flags().StringVarP(&workspaceName, "workspace", "w", "",
 		"Custom workspace name")
 	cmd.Flags().StringVarP(&agent, "agent", "a", "",
-		"AI agent/CLI to use (claude, gemini, codex)")
+		"AI agent/CLI to use (claude, gemini, codex, antigravity)")
 	cmd.Flags().StringVarP(&model, "model", "m", "",
-		"AI model to use (claude: sonnet, opus, haiku; gemini: flash, pro; codex: codex, max, mini)")
+		"AI model to use (claude: sonnet, opus, haiku; gemini: flash, pro; codex: codex, max, mini; antigravity: pro, flash)")
 	cmd.Flags().StringVarP(&baseBranch, "branch", "b", "",
 		"Base branch to create workspace from (fetches from remote by default)")
 	cmd.Flags().StringVar(&targetBranch, "target", "",
@@ -1383,7 +1383,7 @@ func validateAgent(agent string) error {
 	}
 	if !isValidAgent(agent) {
 		return atlaserrors.NewExitCode2Error(
-			fmt.Errorf("%w: '%s' (must be one of claude, gemini, codex)", atlaserrors.ErrAgentNotFound, agent),
+			fmt.Errorf("%w: '%s' (must be one of claude, gemini, codex, antigravity)", atlaserrors.ErrAgentNotFound, agent),
 		)
 	}
 	return nil

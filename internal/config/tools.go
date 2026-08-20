@@ -44,6 +44,13 @@ var (
 		regexp.MustCompile(`(?i)codex[- ]?(?:cli)?[- ]?v?(\d+\.\d+(?:\.\d+)?)`),
 		regexp.MustCompile(`v?(\d+\.\d+\.\d+)`),
 	}
+
+	// Antigravity (agy) version patterns (from most specific to most general).
+	// `agy --version` prints a bare version like "1.1.16".
+	antigravityVersionPatterns = []*regexp.Regexp{
+		regexp.MustCompile(`(?i)(?:antigravity|agy)[- ]?(?:cli)?[- ]?v?(\d+\.\d+(?:\.\d+)?)`),
+		regexp.MustCompile(`v?(\d+\.\d+\.\d+)`),
+	}
 )
 
 // ToolStatus represents the installation status of an external tool.
@@ -290,6 +297,16 @@ func getToolConfigs() []toolConfig {
 			parseFunc:   parseCodexVersion,
 		},
 		{
+			name:        constants.ToolAntigravity,
+			command:     constants.ToolAntigravity,
+			versionFlag: constants.VersionFlagStandard,
+			minVersion:  constants.MinVersionAntigravity,
+			required:    false, // Lazy validation - checked when agent is used
+			managed:     false,
+			installHint: "Install Antigravity CLI: curl -fsSL https://antigravity.google/cli/install.sh | bash",
+			parseFunc:   parseAntigravityVersion,
+		},
+		{
 			name:        constants.ToolMageX,
 			command:     constants.ToolMageX,
 			versionFlag: constants.VersionFlagStandard,
@@ -482,6 +499,12 @@ func parseGeminiVersion(output string) string {
 // Examples: "codex 0.77.0", "Codex CLI v0.77.0", "0.77.0"
 func parseCodexVersion(output string) string {
 	return extractVersionWithPatterns(output, codexVersionPatterns)
+}
+
+// parseAntigravityVersion parses various Antigravity CLI (agy) version formats.
+// Examples: "1.1.16", "agy 1.1.16", "Antigravity CLI v1.1.16"
+func parseAntigravityVersion(output string) string {
+	return extractVersionWithPatterns(output, antigravityVersionPatterns)
 }
 
 // parseGenericVersion extracts a version number from generic output.

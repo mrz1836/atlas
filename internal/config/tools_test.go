@@ -539,8 +539,8 @@ func TestToolDetector_ParallelDetection(t *testing.T) {
 	// Should complete quickly since mock doesn't actually run commands
 	assert.Less(t, elapsed, 1*time.Second)
 
-	// All tools should be detected (including gemini and codex)
-	assert.Len(t, result.Tools, 10)
+	// All tools should be detected (including gemini, codex, and antigravity)
+	assert.Len(t, result.Tools, 11)
 }
 
 // TestParseVersionParts tests version string parsing.
@@ -644,6 +644,9 @@ func TestToolDetector_AllToolsPresent(t *testing.T) {
 	mock.SetLookPath(constants.ToolGemini, "/usr/local/bin/gemini", nil)
 	mock.SetRun("gemini --version", "Gemini CLI 0.22.0", nil)
 
+	mock.SetLookPath(constants.ToolAntigravity, "/usr/local/bin/agy", nil)
+	mock.SetRun("agy --version", "1.1.16", nil)
+
 	mock.SetLookPath(constants.ToolMageX, "/go/bin/magex", nil)
 	mock.SetRun("magex --version", "v1.0.0", nil)
 
@@ -659,7 +662,7 @@ func TestToolDetector_AllToolsPresent(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	assert.False(t, result.HasMissingRequired)
-	assert.Len(t, result.Tools, 10)
+	assert.Len(t, result.Tools, 11)
 
 	// Verify all required tools are installed
 	for _, tool := range result.Tools {

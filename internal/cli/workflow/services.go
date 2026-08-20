@@ -149,11 +149,16 @@ func (f *ServiceFactory) CreateAIRunnerWithActivity(cfg *config.Config, activity
 			ai.WithGeminiActivityCallback(*activityOpts)))
 		runnerRegistry.Register(domain.AgentCodex, ai.NewCodexRunner(&cfg.AI, nil,
 			ai.WithCodexActivityCallback(*activityOpts)))
+		// Antigravity does not implement live activity streaming (agy's
+		// stream-json schema is undocumented), so it registers plainly.
+		runnerRegistry.Register(domain.AgentAntigravity, ai.NewAntigravityRunner(&cfg.AI, nil,
+			ai.WithAntigravityLogger(f.logger)))
 	} else {
 		// Create runners without activity streaming
 		runnerRegistry.Register(domain.AgentClaude, ai.NewClaudeCodeRunner(&cfg.AI, nil))
 		runnerRegistry.Register(domain.AgentGemini, ai.NewGeminiRunner(&cfg.AI, nil, ai.WithGeminiLogger(f.logger)))
 		runnerRegistry.Register(domain.AgentCodex, ai.NewCodexRunner(&cfg.AI, nil))
+		runnerRegistry.Register(domain.AgentAntigravity, ai.NewAntigravityRunner(&cfg.AI, nil, ai.WithAntigravityLogger(f.logger)))
 	}
 
 	fbCfg := &ai.FallbackConfig{

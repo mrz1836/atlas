@@ -86,6 +86,13 @@ var errorInfoEntries = []errorEntry{
 		},
 	},
 	{
+		err: ErrAntigravityInvocation,
+		info: ErrorInfo{
+			Message: "Failed to communicate with Antigravity (agy). Check your sign-in and network.",
+			Action:  "Run 'agy' once to complete the Google sign-in, then verify network access.",
+		},
+	},
+	{
 		err: ErrAgentNotFound,
 		info: ErrorInfo{
 			Message: "The specified AI agent is not available.",

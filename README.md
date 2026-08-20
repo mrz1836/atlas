@@ -239,7 +239,7 @@ ATLAS merges the changes back to your main branch and cleans up the worktree.
 ### AI-Assisted Workflows
 
 - **Spec-Driven Development (SDD):** Every task starts with analysis and planning
-- **Multi-Model Support:** Claude Opus, Sonnet, Haiku, Gemini, GPT-4
+- **Multi-Model Support:** Claude (Opus, Sonnet, Haiku), Gemini, OpenAI Codex, and Google Antigravity (`agy`)
 - **Context-Aware:** ATLAS analyzes your codebase structure before making changes
 - **Iterative Refinement:** Auto-fixes lint and test failures until clean
 

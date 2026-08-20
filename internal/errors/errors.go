@@ -30,6 +30,10 @@ var (
 	// or returned a non-zero exit code.
 	ErrCodexInvocation = errors.New("codex invocation failed")
 
+	// ErrAntigravityInvocation indicates that the Antigravity CLI (agy) failed
+	// to execute or returned a non-zero exit code.
+	ErrAntigravityInvocation = errors.New("antigravity invocation failed")
+
 	// ErrAgentNotFound indicates no runner is registered for the agent type.
 	ErrAgentNotFound = errors.New("agent not found")
 

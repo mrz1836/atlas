@@ -37,9 +37,10 @@ func DefaultFallbackConfig() *FallbackConfig {
 	return &FallbackConfig{
 		Enabled: true,
 		ModelChains: map[string][]string{
-			"claude": {"haiku", "sonnet", "opus"},
-			"gemini": {"flash", "pro"},
-			"codex":  {"mini", "codex", "max"},
+			"claude":      {"haiku", "sonnet", "opus"},
+			"gemini":      {"flash", "pro"},
+			"codex":       {"mini", "codex", "max"},
+			"antigravity": {"flash", "pro"},
 		},
 		AgentFallbackOrder: nil, // No cross-agent fallback by default
 		MaxRetriesPerModel: 1,

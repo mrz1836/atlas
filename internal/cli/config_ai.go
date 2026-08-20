@@ -33,12 +33,12 @@ func newConfigAICmd(flags *ConfigAIFlags) *cobra.Command {
 
 This command allows you to update your AI configuration settings without
 running the full init wizard. It supports:
-  - Default AI model selection (claude: sonnet, opus, haiku; gemini: flash, pro; codex: codex, max, mini)
+  - Default AI model selection (claude: sonnet, opus, haiku; gemini: flash, pro; codex: codex, max, mini; antigravity: pro, flash)
   - API key environment variable configuration
   - Timeout settings
   - Max turns per step
 
-Supported AI agents: claude (default), gemini, codex
+Supported AI agents: claude (default), gemini, codex, antigravity
 Use --no-interactive to show current values without prompting.`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runConfigAI(cmd.Context(), cmd.OutOrStdout(), flags)

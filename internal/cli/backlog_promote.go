@@ -16,6 +16,7 @@ import (
 	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/contracts"
+	"github.com/mrz1836/atlas/internal/domain"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 	"github.com/mrz1836/atlas/internal/tui"
 )
@@ -105,7 +106,7 @@ Exit codes:
 	// Flags
 	cmd.Flags().StringVarP(&opts.template, "template", "t", "", "Override template selection (bugfix, feature, task, hotfix)")
 	cmd.Flags().BoolVar(&opts.ai, "ai", false, "Use AI to determine optimal task configuration")
-	cmd.Flags().StringVar(&opts.agent, "agent", "", "Override AI agent (claude, gemini, codex)")
+	cmd.Flags().StringVar(&opts.agent, "agent", "", "Override AI agent (claude, gemini, codex, antigravity)")
 	cmd.Flags().StringVar(&opts.model, "model", "", "Override AI model")
 	cmd.Flags().BoolVar(&opts.dryRun, "dry-run", false, "Show what would happen without executing")
 	cmd.Flags().BoolVar(&opts.jsonOutput, "json", false, "Output as JSON")
@@ -397,6 +398,10 @@ func truncateDescription(desc string, maxLen int) string {
 
 // detectAvailableAgents detects which AI agent CLIs are installed.
 // Returns a slice of agent names (e.g., ["claude", "gemini"]).
+//
+// The returned values are agent names (matching domain.Agent), which can differ
+// from the CLI/tool command name — e.g. the "antigravity" agent uses the "agy"
+// binary.
 func detectAvailableAgents(ctx context.Context) []string {
 	detector := config.NewToolDetector()
 	result, err := detector.Detect(ctx)
@@ -404,14 +409,18 @@ func detectAvailableAgents(ctx context.Context) []string {
 		return nil
 	}
 
-	var agents []string
-	agentTools := []string{constants.ToolClaude, constants.ToolGemini, constants.ToolCodex}
+	// Map each agent CLI tool name to its agent name.
+	toolToAgent := map[string]string{
+		constants.ToolClaude:      string(domain.AgentClaude),
+		constants.ToolGemini:      string(domain.AgentGemini),
+		constants.ToolCodex:       string(domain.AgentCodex),
+		constants.ToolAntigravity: string(domain.AgentAntigravity),
+	}
 
+	var agents []string
 	for _, tool := range result.Tools {
-		for _, agentTool := range agentTools {
-			if tool.Name == agentTool && tool.Status == config.ToolStatusInstalled {
-				agents = append(agents, tool.Name)
-			}
+		if agentName, ok := toolToAgent[tool.Name]; ok && tool.Status == config.ToolStatusInstalled {
+			agents = append(agents, agentName)
 		}
 	}
 

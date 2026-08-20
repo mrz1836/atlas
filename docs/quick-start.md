@@ -96,6 +96,7 @@ gh --version      # Need 2.20+
 claude --version  # Need 2.0.76+ (if using claude agent)
 gemini --version  # Need 0.22.5+ (if using gemini agent)
 codex --version   # Need 0.77.0+ (if using codex agent)
+agy --version     # Need 1.0.0+ (if using antigravity agent)
 
 # 2. Install ATLAS
 go install github.com/mrz1836/atlas@latest
@@ -126,9 +127,12 @@ atlas approve
 | **Claude CLI** | 2.1.1+ | AI execution (Claude) | [Claude Code](https://docs.anthropic.com/en/docs/claude-code) or `npm install -g @anthropic-ai/claude-code` |
 | **Gemini CLI** | 0.22.5+ | AI execution (Gemini) | `npm install -g @google/gemini-cli` |
 | **Codex CLI** | 0.77.0+ | AI execution (OpenAI) | `npm install -g @openai/codex` |
+| **Antigravity CLI (agy)** | 1.0.0+ | AI execution (Google Antigravity) | `curl -fsSL https://antigravity.google/cli/install.sh \| bash` |
 | **uv** | 0.5.x | Python tool runner (for Speckit) | `brew install uv` |
 
-**Note:** At least one AI CLI (Claude, Gemini, or Codex) is required. Install based on your preferred AI provider.
+**Note:** At least one AI CLI (Claude, Gemini, Codex, or Antigravity) is required. Install based on your preferred AI provider.
+
+> **Antigravity sign-in:** Unlike the other CLIs, Antigravity (`agy`) authenticates with a Google account rather than an API key. After installing, run `agy` once and complete the browser sign-in — there is no API key environment variable to set.
 
 ATLAS manages additional tools automatically:
 - **mage-x** (magex command) - Standardized build/test toolkit
@@ -269,8 +273,8 @@ atlas start "fix null pointer" --template bug --dry-run --output json
 |------|-------|-------------|--------|
 | `--template` | `-t` | Template to use | `bug`, `feature`, `task`, `commit`, `patch`; quality: `go-optimize`, `dedup`, `goroutine-leak`, `jr-to-sr`, `constant-hunter`, `config-hunter`, `test-creator` |
 | `--workspace` | `-w` | Custom workspace name | Any string (sanitized) |
-| `--agent` | `-a` | AI agent/CLI to use | `claude`, `gemini`, `codex` |
-| `--model` | `-m` | AI model to use | Claude: `sonnet`, `opus`, `haiku`; Gemini: `flash`, `pro`; Codex: `codex`, `max`, `mini` |
+| `--agent` | `-a` | AI agent/CLI to use | `claude`, `gemini`, `codex`, `antigravity` |
+| `--model` | `-m` | AI model to use | Claude: `sonnet`, `opus`, `haiku`; Gemini: `flash`, `pro`; Codex: `codex`, `max`, `mini`; Antigravity: `pro`, `flash` |
 | `--branch` | `-b` | Base branch to create workspace from (fetches from remote by default) | Branch name |
 | `--target` | | Existing branch to checkout and work on (skips new branch creation, mutually exclusive with `--branch`) | Branch name |
 | `--from-pr` | | GitHub PR number to checkout and fix (resolves head branch automatically, mutually exclusive with `--branch` and `--target`) | PR number |
@@ -896,7 +900,7 @@ atlas backlog promote item-ABC123 --dry-run --json
 |------|-------|-------------|---------|
 | `--template` | `-t` | Override template selection | Auto from category |
 | `--ai` | | Use AI-assisted analysis | `false` |
-| `--agent` | | AI agent override (claude, gemini, codex) | From config |
+| `--agent` | | AI agent override (claude, gemini, codex, antigravity) | From config |
 | `--model` | | AI model override | From config |
 | `--dry-run` | | Preview without executing | `false` |
 | `--json` | | Output as JSON (requires ID) | `false` |
@@ -982,7 +986,7 @@ Dismissed discovery item-A1B2C3
 
 #### AI Agent Discovery Protocol
 
-For AI agents (Claude Code, Gemini, Codex), add to your CLAUDE.md or equivalent:
+For AI agents (Claude Code, Gemini, Codex, Antigravity), add to your CLAUDE.md or equivalent:
 
 ```markdown
 **Discovery Protocol**: If you see an issue outside your current task scope, DO NOT ignore it.
@@ -1132,9 +1136,9 @@ atlas config ai --no-interactive
 ```
 
 **Configurable Settings:**
-- AI agent (claude, gemini, codex)
-- Default model (claude: sonnet, opus, haiku; gemini: flash, pro; codex: codex, max, mini)
-- API key environment variables per provider
+- AI agent (claude, gemini, codex, antigravity)
+- Default model (claude: sonnet, opus, haiku; gemini: flash, pro; codex: codex, max, mini; antigravity: pro, flash)
+- API key environment variables per provider (Antigravity uses Google sign-in, no API key)
 - Timeout duration
 - Max agentic turns
 
@@ -2234,7 +2238,7 @@ export ATLAS_QUIET=false
 # AI Configuration
 #------------------------------------------------------------------------------
 ai:
-  # AI agent/CLI to use: "claude", "gemini", or "codex"
+  # AI agent/CLI to use: "claude", "gemini", "codex", or "antigravity"
   # Default: "claude"
   agent: claude
 
@@ -2242,12 +2246,14 @@ ai:
   # Claude: "sonnet", "opus", or "haiku"
   # Gemini: "flash" or "pro"
   # Codex: "codex", "max", or "mini"
-  # Default: "sonnet" for claude, "flash" for gemini, "codex" for codex
+  # Antigravity: "pro" or "flash"
+  # Default: "sonnet" for claude, "flash" for gemini, "codex" for codex, "pro" for antigravity
   model: sonnet
 
   # Environment variable names containing API keys per provider
   # You can override the default env var for each provider
   # Defaults: claude=ANTHROPIC_API_KEY, gemini=GEMINI_API_KEY, codex=OPENAI_API_KEY
+  # Note: antigravity signs in with a Google account (OAuth) and has no API key env var
   api_key_env_vars:
     claude: ANTHROPIC_API_KEY
     gemini: GEMINI_API_KEY

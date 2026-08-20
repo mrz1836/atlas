@@ -53,7 +53,7 @@ Template
 Invokes an AI model with a prompt. Supports variable interpolation for dynamic content.
 
 **Capabilities:**
-- Model selection (Opus, Sonnet, Haiku, Gemini)
+- Model selection (Opus, Sonnet, Haiku, Gemini, Antigravity)
 - Extended thinking mode for complex analysis
 - Output saved to artifact files
 - Access to file contents via template functions
@@ -471,6 +471,8 @@ Update an existing PR description based on new changes.
 | Gemini | 2.5 Pro | `gemini-2.5-pro` | Stable reasoning |
 | Gemini | 2.5 Flash | `gemini-2.5-flash` | Stable balanced |
 | Gemini | 2.5 Flash-Lite | `gemini-2.5-flash-lite` | Fastest/cheapest |
+| Antigravity | Gemini 3.1 Pro | `gemini-3.1-pro-high` | `pro` alias; via `agy` (Google sign-in) |
+| Antigravity | Gemini 3.7 Flash | `gemini-3.7-flash-medium` | `flash` alias; fast, via `agy` |
 
 ---
 

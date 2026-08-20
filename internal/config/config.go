@@ -146,6 +146,9 @@ func (c *AIConfig) GetAPIKeyEnvVar(agent string) string {
 		return "GEMINI_API_KEY"
 	case "codex":
 		return "OPENAI_API_KEY"
+	case "antigravity":
+		// Antigravity authenticates via Google sign-in (OAuth); no API key env var.
+		return ""
 	default:
 		return ""
 	}
