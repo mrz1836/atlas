@@ -326,18 +326,31 @@ func TestColorOffset(t *testing.T) {
 
 func TestOutputWorkspacesTable(t *testing.T) {
 	now := time.Now()
+	// A long name and branch that would have been truncated by the old
+	// fixed-width renderer (name > 12 chars, branch > 20 chars).
+	const longName = "test-ws-with-a-very-long-name"
+	const longBranch = "dependabot/github_actions/some/really/long/branch"
 	workspaces := []*domain.Workspace{
 		{
-			Name:         "test-ws",
+			Name:         longName,
 			WorktreePath: "/tmp/test",
-			Branch:       "feat/test",
+			Branch:       longBranch,
 			Status:       constants.WorkspaceStatusActive,
+			RepoPath:     "/Users/dev/projects/go-subtree",
 			Tasks: []domain.TaskRef{
 				{ID: "task-1", Status: constants.TaskStatusRunning},
 				{ID: "task-2", Status: constants.TaskStatusCompleted},
 				{ID: "task-3", Status: constants.TaskStatusPending},
 			},
 			CreatedAt: now.Add(-2 * time.Hour),
+			UpdatedAt: now,
+		},
+		{
+			// Legacy workspace without a recorded RepoPath.
+			Name:      "legacy-ws",
+			Branch:    "feat/legacy",
+			Status:    constants.WorkspaceStatusClosed,
+			CreatedAt: now.Add(-24 * time.Hour),
 			UpdatedAt: now,
 		},
 	}
@@ -347,24 +360,53 @@ func TestOutputWorkspacesTable(t *testing.T) {
 
 	// Use buffer to capture output
 	var buf bytes.Buffer
-	err := outputWorkspacesTable(&buf, workspaces)
+	err := outputWorkspacesTable(&buf, workspaces, "/Users/dev/projects/go-subtree")
 	require.NoError(t, err)
 
 	output := buf.String()
 
 	// Verify table structure
 	assert.Contains(t, output, "NAME")
+	assert.Contains(t, output, "REPO")
 	assert.Contains(t, output, "BRANCH")
 	assert.Contains(t, output, "STATUS")
 	assert.Contains(t, output, "CREATED")
 	assert.Contains(t, output, "ACTIVE")
 	assert.Contains(t, output, "COMPLETED")
-	assert.Contains(t, output, "test-ws")
-	assert.Contains(t, output, "feat/test")
 	assert.Contains(t, output, "active")
 	// Should show 2 active (running + pending) and 1 completed
 	assert.Contains(t, output, "2")
 	assert.Contains(t, output, "1")
+
+	// Names and branches must render in full (no ellipsis truncation).
+	assert.Contains(t, output, longName)
+	assert.Contains(t, output, longBranch)
+	assert.NotContains(t, output, "…")
+
+	// Scope header line shows the current repo.
+	assert.Contains(t, output, "Repo: go-subtree")
+
+	// REPO column shows the derived repo basename, and "-" when unknown.
+	assert.Contains(t, output, "go-subtree")
+	assert.Contains(t, output, "-")
+}
+
+func TestRepoLabel(t *testing.T) {
+	tests := []struct {
+		name     string
+		repoPath string
+		want     string
+	}{
+		{name: "basename from path", repoPath: "/Users/dev/projects/go-subtree", want: "go-subtree"},
+		{name: "empty path yields dash", repoPath: "", want: "-"},
+		{name: "trailing slash", repoPath: "/Users/dev/projects/atlas/", want: "atlas"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := repoLabel(&domain.Workspace{RepoPath: tt.repoPath})
+			assert.Equal(t, tt.want, got)
+		})
+	}
 }
 
 func TestStatusColors(t *testing.T) {

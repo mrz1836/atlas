@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"unicode/utf8"
 
 	"charm.land/lipgloss/v2"
 	"github.com/spf13/cobra"
@@ -119,7 +121,7 @@ func runWorkspaceList(ctx context.Context, cmd *cobra.Command, w io.Writer) erro
 		return outputWorkspacesJSON(w, workspaces)
 	}
 
-	return outputWorkspacesTable(w, workspaces)
+	return outputWorkspacesTable(w, workspaces, repoPath)
 }
 
 // outputWorkspacesJSON outputs workspaces as JSON array.
@@ -154,24 +156,53 @@ func countCompletedTasks(ws *domain.Workspace) int {
 	return count
 }
 
-// outputWorkspacesTable outputs workspaces as a styled table.
-func outputWorkspacesTable(w io.Writer, workspaces []*domain.Workspace) error {
+// repoLabel returns a short, human-readable repo name for a workspace,
+// derived from the basename of its RepoPath. Returns "-" when the repo path
+// is unknown (e.g. legacy workspaces created before RepoPath was recorded).
+func repoLabel(ws *domain.Workspace) string {
+	if ws.RepoPath == "" {
+		return "-"
+	}
+	return filepath.Base(ws.RepoPath)
+}
+
+// outputWorkspacesTable outputs workspaces as a styled table. Columns auto-fit
+// to their content so names and branches are never truncated. repoPath is the
+// current repo scope, shown as a header line above the table.
+func outputWorkspacesTable(w io.Writer, workspaces []*domain.Workspace, repoPath string) error {
 	styles := newTableStyles()
 
-	// Define column widths
+	// Scope header: which repo this listing is for.
+	if repoPath != "" {
+		_, _ = fmt.Fprintln(w, styles.dim.Render(fmt.Sprintf("Repo: %s (%s)", filepath.Base(repoPath), repoPath)))
+		_, _ = fmt.Fprintln(w)
+	}
+
+	// Compute column widths from content (auto-fit). Text columns size to the
+	// widest cell; numeric columns are effectively their header width.
+	nameWidth := utf8.RuneCountInString("NAME")
+	repoWidth := utf8.RuneCountInString("REPO")
+	branchWidth := utf8.RuneCountInString("BRANCH")
+	statusWidth := utf8.RuneCountInString("STATUS")
+	createdWidth := utf8.RuneCountInString("CREATED")
 	const (
-		nameWidth      = 12
-		branchWidth    = 20
-		statusWidth    = 10
-		createdWidth   = 15
 		activeWidth    = 6 // "ACTIVE" header
 		completedWidth = 9 // "COMPLETED" header
 	)
 
+	for _, ws := range workspaces {
+		nameWidth = max(nameWidth, utf8.RuneCountInString(ws.Name))
+		repoWidth = max(repoWidth, utf8.RuneCountInString(repoLabel(ws)))
+		branchWidth = max(branchWidth, utf8.RuneCountInString(ws.Branch))
+		statusWidth = max(statusWidth, utf8.RuneCountInString(string(ws.Status)))
+		createdWidth = max(createdWidth, utf8.RuneCountInString(tui.RelativeTime(ws.CreatedAt)))
+	}
+
 	// Print header
 	header := fmt.Sprintf(
-		"%-*s %-*s %-*s %-*s %*s %*s",
+		"%-*s %-*s %-*s %-*s %-*s %*s %*s",
 		nameWidth, "NAME",
+		repoWidth, "REPO",
 		branchWidth, "BRANCH",
 		statusWidth, "STATUS",
 		createdWidth, "CREATED",
@@ -182,18 +213,6 @@ func outputWorkspacesTable(w io.Writer, workspaces []*domain.Workspace) error {
 
 	// Print rows
 	for _, ws := range workspaces {
-		// Format name (truncate if needed)
-		name := ws.Name
-		if len(name) > nameWidth {
-			name = name[:nameWidth-1] + "…"
-		}
-
-		// Format branch (truncate if needed)
-		branch := ws.Branch
-		if len(branch) > branchWidth {
-			branch = branch[:branchWidth-1] + "…"
-		}
-
 		// Format status with color
 		statusStr := string(ws.Status)
 		if color, ok := styles.statusColors[ws.Status]; ok {
@@ -210,9 +229,10 @@ func outputWorkspacesTable(w io.Writer, workspaces []*domain.Workspace) error {
 
 		// Build and print row
 		row := fmt.Sprintf(
-			"%-*s %-*s %-*s %-*s %*d %*d",
-			nameWidth, name,
-			branchWidth, branch,
+			"%-*s %-*s %-*s %-*s %-*s %*d %*d",
+			nameWidth, ws.Name,
+			repoWidth, repoLabel(ws),
+			branchWidth, ws.Branch,
 			statusWidth+tui.ColorOffset(statusStr, string(ws.Status)), statusStr,
 			createdWidth, createdStr,
 			activeWidth, activeCount,
