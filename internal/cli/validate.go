@@ -71,8 +71,6 @@ func runValidate(ctx context.Context, cmd *cobra.Command, w io.Writer) error {
 }
 
 // runValidateWithOptions is the testable version that accepts optional dependencies.
-//
-//nolint:gocognit // TODO: Refactor to reduce complexity - extract progress callback setup and result handling
 func runValidateWithOptions(ctx context.Context, cmd *cobra.Command, w io.Writer, opts *ValidateOptions) error {
 	// Check context cancellation
 	select {
@@ -113,68 +111,11 @@ func runValidateWithOptions(ctx context.Context, cmd *cobra.Command, w io.Writer
 	// The spinner wraps the writer with mutex protection for thread safety
 	spinner := tui.NewTerminalSpinner(w)
 
-	// Use injected runner if provided (for testing), otherwise create real runner
-	var runner ValidationRunner
-	if opts != nil && opts.Runner != nil {
-		runner = opts.Runner
-	} else {
-		// Create executor and runner
-		executor := validation.NewExecutor(cfg.Validation.Timeout)
+	// Use injected runner if provided (for testing), otherwise create real runner.
+	runner := buildValidationRunner(cfg, opts, spinner, verbose)
 
-		// Enable live output streaming in verbose mode
-		// Use the spinner's writer to ensure thread-safe access to the output
-		if verbose {
-			executor.SetLiveOutput(spinner.Writer())
-		}
-
-		runnerConfig := &validation.RunnerConfig{
-			FormatCommands:    cfg.Validation.Commands.Format,
-			LintCommands:      cfg.Validation.Commands.Lint,
-			TestCommands:      cfg.Validation.Commands.Test,
-			PreCommitCommands: cfg.Validation.Commands.PreCommit,
-		}
-		runner = validation.NewRunner(executor, runnerConfig)
-	}
-
-	// Set up progress callback for TUI output
-	runner.SetProgressCallback(func(step, status string, info *validation.ProgressInfo) {
-		// Skip all progress output in quiet mode
-		if quiet {
-			return
-		}
-
-		// For JSON output, skip visual feedback
-		if outputFormat == OutputJSON {
-			return
-		}
-
-		stepInfo := ""
-		if info != nil && info.TotalSteps > 0 {
-			stepInfo = fmt.Sprintf("[%d/%d] ", info.CurrentStep, info.TotalSteps)
-		}
-
-		switch constants.ValidationProgressStatus(status) {
-		case constants.ValidationProgressStarting:
-			// Use spinner for starting status
-			spinner.Start(ctx, fmt.Sprintf("%sRunning %s...", stepInfo, step))
-		case constants.ValidationProgressCompleted:
-			// Stop spinner and show success
-			duration := ""
-			if info != nil && info.DurationMs > 0 {
-				duration = fmt.Sprintf(" (%s)", tui.FormatDuration(info.DurationMs))
-			}
-			spinner.StopWithSuccess(fmt.Sprintf("%s passed%s", capitalizeStep(step), duration))
-		case constants.ValidationProgressFailed:
-			// Stop spinner - error will be reported later with details
-			if verbose {
-				spinner.StopWithError(fmt.Sprintf("%s failed", capitalizeStep(step)))
-			} else {
-				spinner.Stop()
-			}
-		case constants.ValidationProgressSkipped:
-			spinner.StopWithWarning(fmt.Sprintf("%s skipped (tool not installed)", capitalizeStep(step)))
-		}
-	})
+	// Set up progress callback for TUI output.
+	runner.SetProgressCallback(newValidationProgressCallback(ctx, spinner, quiet, verbose, outputFormat))
 
 	// Run the validation pipeline
 	result, err := runner.Run(ctx, workDir)
@@ -194,6 +135,72 @@ func runValidateWithOptions(ctx context.Context, cmd *cobra.Command, w io.Writer
 
 	out.Success("All validations passed!")
 	return nil
+}
+
+// buildValidationRunner returns the injected runner when provided, otherwise
+// constructs a real validation runner from config (enabling live output in
+// verbose mode via the spinner's thread-safe writer).
+func buildValidationRunner(cfg *config.Config, opts *ValidateOptions, spinner *tui.TerminalSpinner, verbose bool) ValidationRunner {
+	if opts != nil && opts.Runner != nil {
+		return opts.Runner
+	}
+
+	executor := validation.NewExecutor(cfg.Validation.Timeout)
+	if verbose {
+		executor.SetLiveOutput(spinner.Writer())
+	}
+
+	runnerConfig := &validation.RunnerConfig{
+		FormatCommands:    cfg.Validation.Commands.Format,
+		LintCommands:      cfg.Validation.Commands.Lint,
+		TestCommands:      cfg.Validation.Commands.Test,
+		PreCommitCommands: cfg.Validation.Commands.PreCommit,
+	}
+	return validation.NewRunner(executor, runnerConfig)
+}
+
+// newValidationProgressCallback builds the progress callback that drives the
+// spinner for interactive validation output. It is a no-op in quiet and JSON
+// modes.
+func newValidationProgressCallback(ctx context.Context, spinner *tui.TerminalSpinner, quiet, verbose bool, outputFormat string) func(step, status string, info *validation.ProgressInfo) {
+	return func(step, status string, info *validation.ProgressInfo) {
+		// Skip all progress output in quiet mode.
+		if quiet {
+			return
+		}
+
+		// For JSON output, skip visual feedback.
+		if outputFormat == OutputJSON {
+			return
+		}
+
+		stepInfo := ""
+		if info != nil && info.TotalSteps > 0 {
+			stepInfo = fmt.Sprintf("[%d/%d] ", info.CurrentStep, info.TotalSteps)
+		}
+
+		switch constants.ValidationProgressStatus(status) {
+		case constants.ValidationProgressStarting:
+			// Use spinner for starting status.
+			spinner.Start(ctx, fmt.Sprintf("%sRunning %s...", stepInfo, step))
+		case constants.ValidationProgressCompleted:
+			// Stop spinner and show success.
+			duration := ""
+			if info != nil && info.DurationMs > 0 {
+				duration = fmt.Sprintf(" (%s)", tui.FormatDuration(info.DurationMs))
+			}
+			spinner.StopWithSuccess(fmt.Sprintf("%s passed%s", capitalizeStep(step), duration))
+		case constants.ValidationProgressFailed:
+			// Stop spinner - error will be reported later with details.
+			if verbose {
+				spinner.StopWithError(fmt.Sprintf("%s failed", capitalizeStep(step)))
+			} else {
+				spinner.Stop()
+			}
+		case constants.ValidationProgressSkipped:
+			spinner.StopWithWarning(fmt.Sprintf("%s skipped (tool not installed)", capitalizeStep(step)))
+		}
+	}
 }
 
 // capitalizeStep formats step names for display.
