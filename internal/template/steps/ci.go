@@ -134,14 +134,9 @@ func (e *CIExecutor) Execute(ctx context.Context, task *domain.Task, step *domai
 				Str("task_id", task.ID).
 				Str("step_name", step.Name).
 				Msg("skipping CI wait - no PR was created (no changes to commit)")
-			return &domain.StepResult{
-				StepIndex:   task.CurrentStep,
-				StepName:    step.Name,
-				Status:      constants.StepStatusSkipped,
-				StartedAt:   startTime,
-				CompletedAt: time.Now(),
-				Output:      "Skipped - no PR was created (no changes to commit)",
-			}, nil
+			result := newStepResult(task, step, startTime, constants.StepStatusSkipped)
+			result.Output = "Skipped - no PR was created (no changes to commit)"
+			return result, nil
 		}
 	}
 
@@ -308,25 +303,17 @@ func (e *CIExecutor) extractPRNumber(t *domain.Task) (int, error) {
 
 // handleSuccess returns a completed StepResult for successful CI.
 func (e *CIExecutor) handleSuccess(result *git.CIWatchResult, t *domain.Task, step *domain.StepDefinition, startTime time.Time, artifactPath string) (*domain.StepResult, error) {
-	completedAt := time.Now()
 	e.logger.Info().Msgf("CI: ✓ All %d checks passed (%s)",
 		len(result.CheckResults), formatDuration(result.ElapsedTime))
 
-	return &domain.StepResult{
-		StepIndex:    t.CurrentStep,
-		StepName:     step.Name,
-		Status:       constants.StepStatusSuccess,
-		StartedAt:    startTime,
-		CompletedAt:  completedAt,
-		DurationMs:   completedAt.Sub(startTime).Milliseconds(),
-		Output:       fmt.Sprintf("CI passed in %s (%d checks)", result.ElapsedTime.Round(time.Second), len(result.CheckResults)),
-		ArtifactPath: artifactPath,
-	}, nil
+	stepResult := newSuccessResult(t, step, startTime)
+	stepResult.Output = fmt.Sprintf("CI passed in %s (%d checks)", result.ElapsedTime.Round(time.Second), len(result.CheckResults))
+	stepResult.ArtifactPath = artifactPath
+	return stepResult, nil
 }
 
 // handleFailure returns appropriate StepResult for CI failure.
 func (e *CIExecutor) handleFailure(result *git.CIWatchResult, t *domain.Task, step *domain.StepDefinition, startTime time.Time, artifactPath string) (*domain.StepResult, error) {
-	completedAt := time.Now()
 	stateCounts := countChecksByState(result.CheckResults)
 	e.logger.Warn().Msgf("CI: ✗ %d failed, %d passed (%s)",
 		stateCounts.Failed, stateCounts.Completed, formatDuration(result.ElapsedTime))
@@ -336,57 +323,35 @@ func (e *CIExecutor) handleFailure(result *git.CIWatchResult, t *domain.Task, st
 
 	// If no failure handler or handler not available, return simple failure
 	if e.ciFailureHandler == nil || !e.ciFailureHandler.HasHandler() {
-		return &domain.StepResult{
-			StepIndex:    t.CurrentStep,
-			StepName:     step.Name,
-			Status:       constants.StepStatusFailed,
-			StartedAt:    startTime,
-			CompletedAt:  completedAt,
-			DurationMs:   completedAt.Sub(startTime).Milliseconds(),
-			Output:       failureMsg,
-			Error:        "ci checks failed",
-			ArtifactPath: artifactPath,
-		}, atlaserrors.ErrCIFailed
+		stepResult := newFailedResult(t, step, startTime, "ci checks failed")
+		stepResult.Output = failureMsg
+		stepResult.ArtifactPath = artifactPath
+		return stepResult, atlaserrors.ErrCIFailed
 	}
 
 	// Return awaiting_approval to trigger failure handling menu
-	return &domain.StepResult{
-		StepIndex:    t.CurrentStep,
-		StepName:     step.Name,
-		Status:       constants.StepStatusAwaitingApproval,
-		StartedAt:    startTime,
-		CompletedAt:  completedAt,
-		DurationMs:   completedAt.Sub(startTime).Milliseconds(),
-		Output:       failureMsg,
-		ArtifactPath: artifactPath,
-	}, nil
+	stepResult := newAwaitingApprovalResult(t, step, startTime)
+	stepResult.Output = failureMsg
+	stepResult.ArtifactPath = artifactPath
+	return stepResult, nil
 }
 
 // handleTimeout returns appropriate StepResult for CI timeout.
 func (e *CIExecutor) handleTimeout(result *git.CIWatchResult, t *domain.Task, step *domain.StepDefinition, startTime time.Time, artifactPath string) (*domain.StepResult, error) {
-	completedAt := time.Now()
 	e.logger.Warn().
 		Dur("elapsed", result.ElapsedTime).
 		Msg("CI monitoring timed out")
 
-	return &domain.StepResult{
-		StepIndex:    t.CurrentStep,
-		StepName:     step.Name,
-		Status:       constants.StepStatusAwaitingApproval,
-		StartedAt:    startTime,
-		CompletedAt:  completedAt,
-		DurationMs:   completedAt.Sub(startTime).Milliseconds(),
-		Output:       fmt.Sprintf("CI monitoring timed out after %s", result.ElapsedTime.Round(time.Second)),
-		ArtifactPath: artifactPath,
-	}, nil
+	stepResult := newAwaitingApprovalResult(t, step, startTime)
+	stepResult.Output = fmt.Sprintf("CI monitoring timed out after %s", result.ElapsedTime.Round(time.Second))
+	stepResult.ArtifactPath = artifactPath
+	return stepResult, nil
 }
 
 // handleFetchError returns appropriate StepResult when CI status fetch fails.
 // This is distinct from CI failure - the CI may have passed, but we couldn't verify.
 // Returns awaiting_approval status to allow user to decide how to proceed.
 func (e *CIExecutor) handleFetchError(result *git.CIWatchResult, t *domain.Task, step *domain.StepDefinition, startTime time.Time, artifactPath string) (*domain.StepResult, error) {
-	completedAt := time.Now()
-
 	errMsg := "Unable to determine CI status"
 	if result.Error != nil {
 		errMsg = result.Error.Error()
@@ -397,34 +362,19 @@ func (e *CIExecutor) handleFetchError(result *git.CIWatchResult, t *domain.Task,
 		Str("error", errMsg).
 		Msg("CI status fetch failed - awaiting user decision")
 
-	return &domain.StepResult{
-		StepIndex:    t.CurrentStep,
-		StepName:     step.Name,
-		Status:       constants.StepStatusAwaitingApproval,
-		StartedAt:    startTime,
-		CompletedAt:  completedAt,
-		DurationMs:   completedAt.Sub(startTime).Milliseconds(),
-		Output:       fmt.Sprintf("Unable to fetch CI status after %s: %s", result.ElapsedTime.Round(time.Second), errMsg),
-		ArtifactPath: artifactPath,
-		Metadata: map[string]any{
-			"failure_type":   "ci_fetch_error",
-			"original_error": errMsg,
-		},
-	}, nil
+	stepResult := newAwaitingApprovalResult(t, step, startTime)
+	stepResult.Output = fmt.Sprintf("Unable to fetch CI status after %s: %s", result.ElapsedTime.Round(time.Second), errMsg)
+	stepResult.ArtifactPath = artifactPath
+	stepResult.Metadata = map[string]any{
+		"failure_type":   "ci_fetch_error",
+		"original_error": errMsg,
+	}
+	return stepResult, nil
 }
 
 // buildErrorResult builds a failed StepResult for errors.
 func (e *CIExecutor) buildErrorResult(t *domain.Task, step *domain.StepDefinition, startTime time.Time, errMsg string) *domain.StepResult {
-	completedAt := time.Now()
-	return &domain.StepResult{
-		StepIndex:   t.CurrentStep,
-		StepName:    step.Name,
-		Status:      constants.StepStatusFailed,
-		StartedAt:   startTime,
-		CompletedAt: completedAt,
-		DurationMs:  completedAt.Sub(startTime).Milliseconds(),
-		Error:       errMsg,
-	}
+	return newFailedResult(t, step, startTime, errMsg)
 }
 
 // formatCIFailureMessage formats a human-readable CI failure message.

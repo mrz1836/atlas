@@ -7,7 +7,6 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/domain"
 )
 
@@ -54,15 +53,9 @@ func (e *HumanExecutor) Execute(ctx context.Context, task *domain.Task, step *do
 		Str("prompt", prompt).
 		Msg("awaiting human approval")
 
-	return &domain.StepResult{
-		StepIndex:   task.CurrentStep,
-		StepName:    step.Name,
-		Status:      constants.StepStatusAwaitingApproval,
-		StartedAt:   now,
-		CompletedAt: now,
-		DurationMs:  0,
-		Output:      prompt,
-	}, nil
+	result := newAwaitingApprovalResult(task, step, now)
+	result.Output = prompt
+	return result, nil
 }
 
 // Type returns the step type this executor handles.

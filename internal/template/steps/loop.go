@@ -11,7 +11,6 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/domain"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 )
@@ -587,8 +586,6 @@ func (e *LoopExecutor) saveCheckpoint(ctx context.Context, task *domain.Task, st
 
 // buildResult creates the final StepResult for the loop.
 func (e *LoopExecutor) buildResult(task *domain.Task, step *domain.StepDefinition, startTime time.Time, state *domain.LoopState) *domain.StepResult {
-	completedAt := time.Now()
-
 	// Collect all files changed across all iterations
 	// Preallocate based on estimated size
 	totalFiles := 0
@@ -610,21 +607,14 @@ func (e *LoopExecutor) buildResult(task *domain.Task, step *domain.StepDefinitio
 		stateJSONStr = string(stateJSON)
 	}
 
-	result := &domain.StepResult{
-		StepIndex:    task.CurrentStep,
-		StepName:     step.Name,
-		Status:       constants.StepStatusSuccess,
-		StartedAt:    startTime,
-		CompletedAt:  completedAt,
-		DurationMs:   completedAt.Sub(startTime).Milliseconds(),
-		Output:       output,
-		FilesChanged: allFilesChanged,
-		Metadata: map[string]any{
-			"exit_reason":          state.ExitReason,
-			"iterations_completed": state.CurrentIteration,
-			"loop_state":           stateJSONStr,
-			"scratchpad_path":      state.ScratchpadPath,
-		},
+	result := newSuccessResult(task, step, startTime)
+	result.Output = output
+	result.FilesChanged = allFilesChanged
+	result.Metadata = map[string]any{
+		"exit_reason":          state.ExitReason,
+		"iterations_completed": state.CurrentIteration,
+		"loop_state":           stateJSONStr,
+		"scratchpad_path":      state.ScratchpadPath,
 	}
 
 	e.logger.Info().

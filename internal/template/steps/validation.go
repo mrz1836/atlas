@@ -11,7 +11,6 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/domain"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 	"github.com/mrz1836/atlas/internal/git"
@@ -191,7 +190,7 @@ func (e *ValidationExecutor) Execute(ctx context.Context, task *domain.Task, ste
 
 	// Early return: detect_only mode always succeeds
 	if e.isDetectOnlyMode(step) {
-		result := e.buildDetectOnlyResult(task, step, startTime, elapsed, output, validationChecks, pipelineResult, artifactPath, log)
+		result := e.buildDetectOnlyResult(task, step, startTime, output, validationChecks, pipelineResult, artifactPath, log)
 		e.enrichWithCIFailures(ctx, task, result, log)
 		return result, nil
 	}
@@ -296,7 +295,7 @@ func (e *ValidationExecutor) buildMetadataWithArtifact(validationChecks []map[st
 }
 
 // buildDetectOnlyResult builds the result for detect_only mode.
-func (e *ValidationExecutor) buildDetectOnlyResult(task *domain.Task, step *domain.StepDefinition, startTime time.Time, elapsed time.Duration, output string, validationChecks []map[string]any, pipelineResult *validation.PipelineResult, artifactPath string, log *zerolog.Logger) *domain.StepResult {
+func (e *ValidationExecutor) buildDetectOnlyResult(task *domain.Task, step *domain.StepDefinition, startTime time.Time, output string, validationChecks []map[string]any, pipelineResult *validation.PipelineResult, artifactPath string, log *zerolog.Logger) *domain.StepResult {
 	log.Info().
 		Str("task_id", task.ID).
 		Str("step_name", step.Name).
@@ -312,16 +311,10 @@ func (e *ValidationExecutor) buildDetectOnlyResult(task *domain.Task, step *doma
 	}
 	metadata := e.buildMetadataWithArtifact(validationChecks, pipelineResult, artifactPath, extra)
 
-	return &domain.StepResult{
-		StepIndex:   task.CurrentStep,
-		StepName:    step.Name,
-		Status:      constants.StepStatusSuccess,
-		StartedAt:   startTime,
-		CompletedAt: time.Now(),
-		DurationMs:  elapsed.Milliseconds(),
-		Output:      output,
-		Metadata:    metadata,
-	}
+	stepResult := newSuccessResult(task, step, startTime)
+	stepResult.Output = output
+	stepResult.Metadata = metadata
+	return stepResult
 }
 
 // enrichWithCIFailures checks CI status for the PR (if --from-pr was used)
@@ -403,17 +396,10 @@ func (e *ValidationExecutor) buildErrorResult(task *domain.Task, step *domain.St
 
 	metadata := e.buildMetadataWithArtifact(validationChecks, pipelineResult, artifactPath, nil)
 
-	return &domain.StepResult{
-		StepIndex:   task.CurrentStep,
-		StepName:    step.Name,
-		Status:      constants.StepStatusFailed,
-		StartedAt:   startTime,
-		CompletedAt: time.Now(),
-		DurationMs:  elapsed.Milliseconds(),
-		Output:      output,
-		Error:       pipelineErr.Error(),
-		Metadata:    metadata,
-	}
+	stepResult := newFailedResult(task, step, startTime, pipelineErr.Error())
+	stepResult.Output = output
+	stepResult.Metadata = metadata
+	return stepResult
 }
 
 // buildSuccessResult builds the result for a successful validation.
@@ -425,19 +411,13 @@ func (e *ValidationExecutor) buildSuccessResult(task *domain.Task, step *domain.
 		Dur("duration_ms", elapsed).
 		Msg("validation step completed")
 
-	return &domain.StepResult{
-		StepIndex:   task.CurrentStep,
-		StepName:    step.Name,
-		Status:      constants.StepStatusSuccess,
-		StartedAt:   startTime,
-		CompletedAt: time.Now(),
-		DurationMs:  elapsed.Milliseconds(),
-		Output:      output,
-		Metadata: map[string]any{
-			"validation_checks": validationChecks,
-			"pipeline_result":   pipelineResult,
-		},
+	stepResult := newSuccessResult(task, step, startTime)
+	stepResult.Output = output
+	stepResult.Metadata = map[string]any{
+		"validation_checks": validationChecks,
+		"pipeline_result":   pipelineResult,
 	}
+	return stepResult
 }
 
 // buildRunnerConfig creates a RunnerConfig from task config and executor's stored commands.

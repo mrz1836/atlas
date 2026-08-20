@@ -10,7 +10,6 @@ import (
 
 	"github.com/mrz1836/atlas/internal/ai"
 	"github.com/mrz1836/atlas/internal/config"
-	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/domain"
 	"github.com/mrz1836/atlas/internal/prompts"
 	"github.com/mrz1836/atlas/internal/validation"
@@ -118,15 +117,7 @@ func (e *AIExecutor) Execute(ctx context.Context, task *domain.Task, step *domai
 			Dur("duration_ms", elapsed).
 			Msg("ai step failed")
 
-		return &domain.StepResult{
-			StepIndex:   task.CurrentStep,
-			StepName:    step.Name,
-			Status:      constants.StepStatusFailed,
-			StartedAt:   startTime,
-			CompletedAt: time.Now(),
-			DurationMs:  elapsed.Milliseconds(),
-			Error:       err.Error(),
-		}, err
+		return newFailedResult(task, step, startTime, err.Error()), err
 	}
 
 	log.Info().
@@ -139,18 +130,12 @@ func (e *AIExecutor) Execute(ctx context.Context, task *domain.Task, step *domai
 		Dur("duration_ms", elapsed).
 		Msg("ai step completed")
 
-	return &domain.StepResult{
-		StepIndex:    task.CurrentStep,
-		StepName:     step.Name,
-		Status:       constants.StepStatusSuccess,
-		StartedAt:    startTime,
-		CompletedAt:  time.Now(),
-		DurationMs:   elapsed.Milliseconds(),
-		Output:       result.Output,
-		FilesChanged: result.FilesChanged,
-		SessionID:    result.SessionID,
-		NumTurns:     result.NumTurns,
-	}, nil
+	stepResult := newSuccessResult(task, step, startTime)
+	stepResult.Output = result.Output
+	stepResult.FilesChanged = result.FilesChanged
+	stepResult.SessionID = result.SessionID
+	stepResult.NumTurns = result.NumTurns
+	return stepResult, nil
 }
 
 // Type returns the step type this executor handles.

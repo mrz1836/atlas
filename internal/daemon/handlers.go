@@ -98,6 +98,16 @@ func (d *Daemon) handleDaemonShutdown(_ context.Context, _ json.RawMessage) (any
 
 // -- task.* --
 
+// appendFieldIf appends a {key, val} pair to pairs only when cond is true.
+// It keeps the task-hash construction in handleTaskSubmit free of repetitive
+// single-field if-blocks.
+func appendFieldIf(pairs [][2]any, cond bool, key string, val any) [][2]any {
+	if cond {
+		pairs = append(pairs, [2]any{key, val})
+	}
+	return pairs
+}
+
 func (d *Daemon) handleTaskSubmit(ctx context.Context, params json.RawMessage) (any, error) { //nolint:gocognit // complexity is inherent to multi-step transactional submit with rollback
 	var req TaskSubmitRequest
 	if err := json.Unmarshal(params, &req); err != nil {
@@ -177,30 +187,14 @@ func (d *Daemon) handleTaskSubmit(ctx context.Context, params json.RawMessage) (
 		{"submitted_at", time.Now().UTC().Format(time.RFC3339)},
 		{"workspace", wsName},
 	}
-	if req.Branch != "" {
-		pairs = append(pairs, [2]any{"branch", req.Branch})
-	}
-	if req.RepoPath != "" {
-		pairs = append(pairs, [2]any{"repo_path", req.RepoPath})
-	}
-	if req.Agent != "" {
-		pairs = append(pairs, [2]any{"agent", req.Agent})
-	}
-	if req.Model != "" {
-		pairs = append(pairs, [2]any{"model", req.Model})
-	}
-	if req.TargetBranch != "" {
-		pairs = append(pairs, [2]any{"target_branch", req.TargetBranch})
-	}
-	if req.UseLocal {
-		pairs = append(pairs, [2]any{"use_local", "true"})
-	}
-	if req.Verify {
-		pairs = append(pairs, [2]any{"verify", "true"})
-	}
-	if req.NoVerify {
-		pairs = append(pairs, [2]any{"no_verify", "true"})
-	}
+	pairs = appendFieldIf(pairs, req.Branch != "", "branch", req.Branch)
+	pairs = appendFieldIf(pairs, req.RepoPath != "", "repo_path", req.RepoPath)
+	pairs = appendFieldIf(pairs, req.Agent != "", "agent", req.Agent)
+	pairs = appendFieldIf(pairs, req.Model != "", "model", req.Model)
+	pairs = appendFieldIf(pairs, req.TargetBranch != "", "target_branch", req.TargetBranch)
+	pairs = appendFieldIf(pairs, req.UseLocal, "use_local", "true")
+	pairs = appendFieldIf(pairs, req.Verify, "verify", "true")
+	pairs = appendFieldIf(pairs, req.NoVerify, "no_verify", "true")
 	if err := cache.HashMapSet(ctx, d.redis, hashKey, pairs); err != nil {
 		return nil, fmt.Errorf("store task hash: %w", err)
 	}

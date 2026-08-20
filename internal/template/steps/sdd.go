@@ -12,7 +12,6 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/mrz1836/atlas/internal/ai"
-	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/domain"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
 )
@@ -104,15 +103,8 @@ func (e *SDDExecutor) Execute(ctx context.Context, task *domain.Task, step *doma
 			Str("step_name", step.Name).
 			Msg("speckit not installed")
 
-		return &domain.StepResult{
-			StepIndex:   task.CurrentStep,
-			StepName:    step.Name,
-			Status:      constants.StepStatusFailed,
-			StartedAt:   startTime,
-			CompletedAt: time.Now(),
-			DurationMs:  time.Since(startTime).Milliseconds(),
-			Error:       err.Error(),
-		}, fmt.Errorf("%w: %w", atlaserrors.ErrClaudeInvocation, err)
+		return newFailedResult(task, step, startTime, err.Error()),
+			fmt.Errorf("%w: %w", atlaserrors.ErrClaudeInvocation, err)
 	}
 
 	log.Debug().
@@ -167,15 +159,7 @@ func (e *SDDExecutor) Execute(ctx context.Context, task *domain.Task, step *doma
 		// Wrap with ErrClaudeInvocation and include SDD command context
 		wrappedErr := fmt.Errorf("%w: sdd command '%s' failed: %w", atlaserrors.ErrClaudeInvocation, sddCmd, err)
 
-		return &domain.StepResult{
-			StepIndex:   task.CurrentStep,
-			StepName:    step.Name,
-			Status:      constants.StepStatusFailed,
-			StartedAt:   startTime,
-			CompletedAt: time.Now(),
-			DurationMs:  elapsed.Milliseconds(),
-			Error:       wrappedErr.Error(),
-		}, wrappedErr
+		return newFailedResult(task, step, startTime, wrappedErr.Error()), wrappedErr
 	}
 
 	// Check for empty output - treat as error
@@ -187,15 +171,7 @@ func (e *SDDExecutor) Execute(ctx context.Context, task *domain.Task, step *doma
 
 		wrappedErr := fmt.Errorf("%w: sdd command '%s' returned empty output", atlaserrors.ErrClaudeInvocation, sddCmd)
 
-		return &domain.StepResult{
-			StepIndex:   task.CurrentStep,
-			StepName:    step.Name,
-			Status:      constants.StepStatusFailed,
-			StartedAt:   startTime,
-			CompletedAt: time.Now(),
-			DurationMs:  time.Since(startTime).Milliseconds(),
-			Error:       wrappedErr.Error(),
-		}, wrappedErr
+		return newFailedResult(task, step, startTime, wrappedErr.Error()), wrappedErr
 	}
 
 	// Save artifact to file (implement command doesn't produce a single artifact)
@@ -221,16 +197,10 @@ func (e *SDDExecutor) Execute(ctx context.Context, task *domain.Task, step *doma
 		Dur("duration_ms", elapsed).
 		Msg("sdd step completed")
 
-	return &domain.StepResult{
-		StepIndex:    task.CurrentStep,
-		StepName:     step.Name,
-		Status:       constants.StepStatusSuccess,
-		StartedAt:    startTime,
-		CompletedAt:  time.Now(),
-		DurationMs:   elapsed.Milliseconds(),
-		Output:       result.Output,
-		ArtifactPath: artifactPath,
-	}, nil
+	stepResult := newSuccessResult(task, step, startTime)
+	stepResult.Output = result.Output
+	stepResult.ArtifactPath = artifactPath
+	return stepResult, nil
 }
 
 // Type returns the step type this executor handles.
