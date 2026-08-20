@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -959,13 +960,10 @@ func getFileDescription(f FileChange) string {
 // isValidConventionalCommit checks if a message follows conventional commits.
 func isValidConventionalCommit(message string) bool {
 	// Simple validation: must start with a known type
-	for _, t := range ValidCommitTypes {
+	return slices.ContainsFunc(ValidCommitTypes, func(t CommitType) bool {
 		typeStr := string(t)
-		if strings.HasPrefix(message, typeStr+"(") || strings.HasPrefix(message, typeStr+":") {
-			return true
-		}
-	}
-	return false
+		return strings.HasPrefix(message, typeStr+"(") || strings.HasPrefix(message, typeStr+":")
+	})
 }
 
 // sanitizeAICommitResponse cleans common AI output artifacts from commit messages.

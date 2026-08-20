@@ -3,6 +3,8 @@ package ai
 import (
 	"context"
 	"fmt"
+	"maps"
+	"slices"
 	"sync"
 
 	"github.com/mrz1836/atlas/internal/domain"
@@ -57,11 +59,7 @@ func (r *RunnerRegistry) Agents() []domain.Agent {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	agents := make([]domain.Agent, 0, len(r.runners))
-	for a := range r.runners {
-		agents = append(agents, a)
-	}
-	return agents
+	return slices.Sorted(maps.Keys(r.runners))
 }
 
 // MultiRunner dispatches AI requests to the appropriate runner based on the agent field.

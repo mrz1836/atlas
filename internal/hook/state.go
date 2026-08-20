@@ -3,6 +3,7 @@ package hook
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/mrz1836/atlas/internal/domain"
@@ -67,13 +68,7 @@ func (t *Transitioner) IsValidTransition(from, to domain.HookState) bool {
 		return false
 	}
 
-	for _, validTarget := range validTargets {
-		if validTarget == to {
-			return true
-		}
-	}
-
-	return false
+	return slices.Contains(validTargets, to)
 }
 
 // IsTerminalState returns true for completed, failed, abandoned.

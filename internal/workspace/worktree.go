@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -357,10 +358,10 @@ func (r *GitWorktreeRunner) FindByBranch(ctx context.Context, branch string) str
 		return ""
 	}
 
-	for _, wt := range worktrees {
-		if wt.Branch == branch {
-			return wt.Path
-		}
+	if idx := slices.IndexFunc(worktrees, func(wt *WorktreeInfo) bool {
+		return wt.Branch == branch
+	}); idx >= 0 {
+		return worktrees[idx].Path
 	}
 
 	return ""
@@ -566,10 +567,10 @@ func (r *GitWorktreeRunner) cleanupOrphanedPath(ctx context.Context, path string
 		return fmt.Errorf("failed to list worktrees: %w", err)
 	}
 
-	for _, wt := range worktrees {
-		if wt.Path == path {
-			return nil // It's an active worktree, don't touch it
-		}
+	if slices.ContainsFunc(worktrees, func(wt *WorktreeInfo) bool {
+		return wt.Path == path
+	}) {
+		return nil // It's an active worktree, don't touch it
 	}
 
 	// Path exists but isn't a worktree - it's orphaned

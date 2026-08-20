@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 
@@ -226,12 +227,7 @@ func AddUpgradeCommand(rootCmd *cobra.Command, atlasVersion string) {
 
 // isValidTool checks if the provided tool name is valid.
 func isValidTool(tool string) bool {
-	for _, valid := range getValidToolNames() {
-		if tool == valid {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(getValidToolNames(), tool)
 }
 
 // runUpgrade executes the upgrade command with default dependencies.

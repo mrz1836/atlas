@@ -3,6 +3,7 @@ package cli
 
 import (
 	stderrors "errors"
+	"slices"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -80,12 +81,7 @@ func ValidOutputFormats() []string {
 
 // IsValidOutputFormat checks if the given format is a valid output format.
 func IsValidOutputFormat(format string) bool {
-	for _, valid := range ValidOutputFormats() {
-		if format == valid {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(ValidOutputFormats(), format)
 }
 
 // ExitCodeForError returns the appropriate exit code for the given error.

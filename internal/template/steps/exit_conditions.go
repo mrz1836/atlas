@@ -7,6 +7,7 @@ import (
 
 	"github.com/rs/zerolog"
 
+	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/domain"
 )
 
@@ -117,7 +118,7 @@ func checkTestsPassed(task *domain.Task) bool {
 	for i := len(task.StepResults) - 1; i >= 0; i-- {
 		result := task.StepResults[i]
 		if result.StepName == "validate" || strings.Contains(result.StepName, "validation") {
-			return result.Status == "success"
+			return result.Status == constants.StepStatusSuccess
 		}
 	}
 	return false

@@ -11,6 +11,7 @@ package task
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/mrz1836/atlas/internal/constants"
@@ -139,12 +140,7 @@ func IsValidTransition(from, to constants.TaskStatus) bool {
 	if !exists {
 		return false // Terminal state or unknown state
 	}
-	for _, target := range validTargets {
-		if target == to {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(validTargets, to)
 }
 
 // IsTerminalStatus returns true for states where no further transitions are allowed.
@@ -184,12 +180,7 @@ func CanForceAbandon(status constants.TaskStatus) bool {
 	if !exists {
 		return false
 	}
-	for _, target := range validTargets {
-		if target == constants.TaskStatusAbandoned {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(validTargets, constants.TaskStatusAbandoned)
 }
 
 // GetValidTargetStatuses returns all valid target statuses for a given status.

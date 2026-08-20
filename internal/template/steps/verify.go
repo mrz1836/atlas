@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -601,13 +602,9 @@ func (e *VerifyExecutor) CheckTestCoverage(_ context.Context, changedFiles []Cha
 
 		// Check if there's a corresponding test file
 		testFile := toTestFileName(f.Path)
-		hasTest := false
-		for _, tf := range changedFiles {
-			if tf.Path == testFile {
-				hasTest = true
-				break
-			}
-		}
+		hasTest := slices.ContainsFunc(changedFiles, func(tf ChangedFile) bool {
+			return tf.Path == testFile
+		})
 
 		if !hasTest {
 			issues = append(issues, VerificationIssue{

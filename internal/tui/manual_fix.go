@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/mrz1836/atlas/internal/constants"
 	"github.com/mrz1836/atlas/internal/domain"
 )
 
@@ -142,7 +143,7 @@ func ExtractManualFixInfo(task *domain.Task, workspace *domain.Workspace) *Manua
 
 	// Extract validation output and artifact path from step results
 	for _, sr := range task.StepResults {
-		if sr.Status == "failed" && sr.Output != "" {
+		if sr.Status == constants.StepStatusFailed && sr.Output != "" {
 			info.ValidationOutput = sr.Output
 			// Extract artifact path from metadata if available
 			if sr.Metadata != nil {

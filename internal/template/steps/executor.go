@@ -12,6 +12,8 @@ package steps
 import (
 	"context"
 	"fmt"
+	"maps"
+	"slices"
 	"sync"
 
 	"github.com/mrz1836/atlas/internal/domain"
@@ -87,9 +89,5 @@ func (r *ExecutorRegistry) Types() []domain.StepType {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	types := make([]domain.StepType, 0, len(r.executors))
-	for t := range r.executors {
-		types = append(types, t)
-	}
-	return types
+	return slices.Sorted(maps.Keys(r.executors))
 }

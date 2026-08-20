@@ -986,7 +986,7 @@ func getBranchFromConfig(config map[string]any, task *domain.Task) string {
 func extractCommitMessages(results []domain.StepResult) []string {
 	var messages []string
 	for _, r := range results {
-		if r.Status != "success" {
+		if r.Status != constants.StepStatusSuccess {
 			continue
 		}
 		msgs := extractMessagesFromResult(r)

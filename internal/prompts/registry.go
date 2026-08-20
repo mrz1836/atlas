@@ -4,7 +4,9 @@ import (
 	"embed"
 	"fmt"
 	"io/fs"
+	"maps"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"text/template"
@@ -218,11 +220,7 @@ func (r *registry) list() []PromptID {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	ids := make([]PromptID, 0, len(r.templates))
-	for id := range r.templates {
-		ids = append(ids, id)
-	}
-	return ids
+	return slices.Sorted(maps.Keys(r.templates))
 }
 
 // RegisterCustomFuncs adds custom template functions.

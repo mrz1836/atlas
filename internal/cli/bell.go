@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 )
 
 // EmitBell writes the BEL character to stdout to trigger the terminal bell.
@@ -28,12 +29,7 @@ func ShouldNotify(event string, cfg *NotificationConfig) bool {
 	if !cfg.BellEnabled {
 		return false
 	}
-	for _, e := range cfg.Events {
-		if e == event {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(cfg.Events, event)
 }
 
 // NotifyIfEnabled emits a bell if the event should trigger a notification.

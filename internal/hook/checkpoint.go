@@ -5,9 +5,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"io"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -393,11 +395,7 @@ func FindFilesInCheckpoints(hook *domain.Hook) []string {
 		}
 	}
 
-	files := make([]string, 0, len(fileSet))
-	for f := range fileSet {
-		files = append(files, f)
-	}
-	return files
+	return slices.Sorted(maps.Keys(fileSet))
 }
 
 // ResolveAbsolutePath resolves a path relative to a base directory.

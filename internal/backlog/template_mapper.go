@@ -1,5 +1,7 @@
 package backlog
 
+import "slices"
+
 // TemplateMapping defines the mapping from discovery category/severity to task template.
 // This struct allows customization of the mapping logic.
 type TemplateMapping struct {
@@ -74,10 +76,5 @@ func ValidTemplateNames() []string {
 
 // IsValidTemplateName checks if a template name is valid.
 func IsValidTemplateName(name string) bool {
-	for _, valid := range ValidTemplateNames() {
-		if name == valid {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(ValidTemplateNames(), name)
 }
