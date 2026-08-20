@@ -1,0 +1,31 @@
+# Gremlins mutation-testing configuration for Atlas.
+#
+# Mutation testing measures whether the test suite would actually FAIL if the
+# code silently changed (an off-by-one, a dropped guard, a flipped condition) —
+# something line coverage cannot tell you. A "LIVED" mutant is a real gap: a
+# change no test would catch. Surviving mutants must be triaged: close genuine
+# gaps with an assertion, and dismiss equivalent mutants (behavior-neutral
+# changes) rather than adding brittle tests for them.
+#
+# Usage (run one package at a time; each mutant rebuilds the package, so this is
+# slow — scope it):
+#
+#   gremlins unleash ./internal/task    --output-statuses lt   # show survivors + timeouts
+#   gremlins unleash ./internal/daemon  --output-statuses lt
+#
+# The daemon and CLI suites bind Unix sockets and write under $HOME, so run those
+# outside a restrictive sandbox.
+unleash:
+  # Each mutant recompiles the mutated package. Fewer workers reduce Go
+  # build-cache contention (which otherwise inflates per-mutant wall time), and a
+  # generous timeout coefficient prevents false TIMED_OUT results — the per-mutant
+  # timeout is derived from the (cached, sub-second) coverage run, so it must be
+  # scaled up to cover a real from-source rebuild.
+  workers: 4
+  timeout-coefficient: 100
+
+  # Quality gates for local/manual gating (efficacy = killed / (killed + lived)).
+  # Left at 0 so a run never fails the process; raise when wiring an explicit
+  # local gate. Not enforced in CI here.
+  threshold-efficacy: 0
+  threshold-mcover: 0
