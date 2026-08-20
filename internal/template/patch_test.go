@@ -214,8 +214,8 @@ func TestPatchTemplate_VerifyStep(t *testing.T) {
 	assert.Equal(t, 5*time.Minute, verifyStep.Timeout)
 
 	// Check verify step config
-	assert.Equal(t, "gemini", verifyStep.Config["agent"], "verify should use gemini agent")
-	assert.Empty(t, verifyStep.Config["model"], "verify should use default model")
+	assert.Equal(t, "codex", verifyStep.Config["agent"], "verify should use codex agent")
+	assert.Equal(t, "mini", verifyStep.Config["model"], "verify should use codex mini model")
 
 	checks, ok := verifyStep.Config["checks"].([]string)
 	require.True(t, ok, "checks should be a string slice")

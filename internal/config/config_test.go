@@ -270,8 +270,8 @@ func TestDefaultConfig_HasOperationsConfig(t *testing.T) {
 	assert.Equal(t, "sonnet", cfg.Operations.Implement.Model)
 	assert.Equal(t, 30*time.Minute, cfg.Operations.Implement.Timeout)
 
-	assert.Equal(t, "gemini", cfg.Operations.Verify.Agent)
-	assert.Equal(t, "flash", cfg.Operations.Verify.Model)
+	assert.Equal(t, "codex", cfg.Operations.Verify.Agent)
+	assert.Equal(t, "mini", cfg.Operations.Verify.Model)
 	assert.Equal(t, 5*time.Minute, cfg.Operations.Verify.Timeout)
 	assert.Equal(t, "plan", cfg.Operations.Verify.PermissionMode)
 
@@ -317,15 +317,15 @@ func TestOperationsConfig_GetForStep(t *testing.T) {
 			name:          "verify step by name",
 			stepName:      "verify",
 			stepType:      "ai",
-			expectedAgent: "gemini",
-			expectedModel: "flash",
+			expectedAgent: "codex",
+			expectedModel: "mini",
 		},
 		{
 			name:          "verify step by type",
 			stepName:      "custom_verify",
 			stepType:      "verify",
-			expectedAgent: "gemini",
-			expectedModel: "flash",
+			expectedAgent: "codex",
+			expectedModel: "mini",
 		},
 		{
 			name:          "validation_retry step",

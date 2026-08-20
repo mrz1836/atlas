@@ -80,8 +80,8 @@ func NewBugTemplate() *domain.Template {
 				Required:    false, // Optional - enable with --verify flag
 				Timeout:     5 * time.Minute,
 				Config: map[string]any{
-					"agent":  "gemini",                     // Use Gemini for verification
-					"model":  "",                           // Will use Gemini default (flash)
+					"agent":  "codex",                      // Use Codex (OpenAI) for verification — different agent than implement (claude)
+					"model":  "mini",                       // Fast checks (codex fallback: mini -> codex -> max)
 					"checks": []string{"code_correctness"}, // Add test_coverage, garbage_files, security for deeper checks
 				},
 			},

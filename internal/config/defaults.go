@@ -62,19 +62,22 @@ func DefaultConfig() *Config {
 			// For smart commit (which uses haiku by default), this enables
 			// automatic escalation: haiku → sonnet → opus on format errors.
 			FallbackModels: map[string][]string{
-				"claude": {"haiku", "sonnet", "opus"},
-				"gemini": {"flash", "pro"},
-				"codex":  {"mini", "codex", "max"},
+				"claude":      {"haiku", "sonnet", "opus"},
+				"gemini":      {"flash", "pro"},
+				"codex":       {"mini", "codex", "max"},
+				"antigravity": {"flash", "pro"},
 			},
 
 			// FallbackAgents: cross-provider failover order.
 			// When the primary provider (claude) has a confirmed outage or all of
 			// its models fail, the FallbackRunner moves to the next agent in this
-			// list. Order is claude → codex → gemini because codex (OpenAI) is the
-			// closest substitute for claude on coding tasks; gemini is the second
-			// fallback. Users without those CLIs installed will see them logged as
-			// unavailable and skipped automatically.
-			FallbackAgents: []string{"claude", "codex", "gemini"},
+			// list. Order is claude → codex: codex (OpenAI) is the closest substitute
+			// for claude on coding tasks and, like claude, runs cleanly in
+			// non-interactive mode. The legacy gemini CLI is retired (its free tier
+			// was discontinued); antigravity (agy) is available when selected
+			// explicitly but is omitted from automatic failover because its
+			// interactive agent can stall on tool-approval prompts in unattended runs.
+			FallbackAgents: []string{"claude", "codex"},
 
 			// FallbackMaxRetriesPerModel: 1 try per model before moving to next.
 			// This is intentionally low since format errors typically don't
@@ -305,10 +308,10 @@ func DefaultOperationsConfig() OperationsConfig {
 		},
 
 		// Verify: Cross-validation using different AI perspective.
-		// Using gemini provides a different perspective from claude.
+		// Using codex (OpenAI) provides a different perspective from claude.
 		Verify: OperationAIConfig{
-			Agent:          "gemini",
-			Model:          "flash",
+			Agent:          "codex",
+			Model:          "mini",
 			Timeout:        5 * time.Minute,
 			PermissionMode: "plan", // Read-only for verification
 		},

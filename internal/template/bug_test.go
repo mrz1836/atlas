@@ -247,8 +247,8 @@ func TestBugTemplate_VerifyStep(t *testing.T) {
 	assert.False(t, verifyStep.Required, "verify step should be optional")
 	assert.Equal(t, 5*time.Minute, verifyStep.Timeout)
 
-	assert.Equal(t, "gemini", verifyStep.Config["agent"])
-	assert.Empty(t, verifyStep.Config["model"])
+	assert.Equal(t, "codex", verifyStep.Config["agent"])
+	assert.Equal(t, "mini", verifyStep.Config["model"])
 
 	checks, ok := verifyStep.Config["checks"].([]string)
 	require.True(t, ok, "checks should be a string slice")

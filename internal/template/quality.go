@@ -48,8 +48,8 @@ func newQualityVerifyStep() domain.StepDefinition {
 		Required:    false,
 		Timeout:     5 * time.Minute,
 		Config: map[string]any{
-			"agent":  "gemini",
-			"model":  "",
+			"agent":  "codex",
+			"model":  "mini",
 			"checks": []string{"code_correctness"},
 		},
 	}
