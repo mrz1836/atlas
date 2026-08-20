@@ -99,7 +99,7 @@ func (d *Daemon) loadWorkspaces(atlasHome string) ([]*workspaceEntry, error) {
 
 // Reconcile walks the Redis active set and the filesystem workspace store,
 // then reports any drift with offending IDs and suggested remediation.
-func (d *Daemon) Reconcile(ctx context.Context, req ReconcileRequest) (ReconcileResponse, error) { //nolint:gocognit // complexity is inherent to multi-source drift detection logic
+func (d *Daemon) Reconcile(ctx context.Context, req ReconcileRequest) (ReconcileResponse, error) {
 	keyPrefix := d.cfg.Redis.KeyPrefix
 	if keyPrefix == "" {
 		keyPrefix = "atlas:"
@@ -115,35 +115,9 @@ func (d *Daemon) Reconcile(ctx context.Context, req ReconcileRequest) (Reconcile
 	}
 
 	// ── Step 1: collect Redis active-set tasks ──────────────────────────────
-	activeSetKey := keyPrefix + "active"
-	activeMembers, err := cache.SetMembers(ctx, d.redis, activeSetKey)
+	redisTasks, redisTasksByWS, err := d.collectRedisActiveTasks(ctx, keyPrefix)
 	if err != nil {
-		return ReconcileResponse{}, fmt.Errorf("reconcile: get active set: %w", err)
-	}
-
-	type redisTask struct {
-		taskID    string
-		workspace string
-		status    string
-	}
-	redisTasks := make([]redisTask, 0, len(activeMembers))
-	redisTasksByWS := make(map[string]redisTask)
-
-	for _, taskID := range activeMembers {
-		fields, ferr := d.getReconcileTaskFields(ctx, taskID, keyPrefix)
-		if ferr != nil {
-			d.logger.Warn().Err(ferr).Str("task_id", taskID).Msg("reconcile: failed to read task fields")
-			continue
-		}
-		rt := redisTask{
-			taskID:    taskID,
-			workspace: fields["workspace"],
-			status:    fields["status"],
-		}
-		redisTasks = append(redisTasks, rt)
-		if rt.workspace != "" {
-			redisTasksByWS[rt.workspace] = rt
-		}
+		return ReconcileResponse{}, err
 	}
 
 	// ── Step 2: scan filesystem workspaces ──────────────────────────────────
@@ -158,10 +132,70 @@ func (d *Daemon) Reconcile(ctx context.Context, req ReconcileRequest) (Reconcile
 		fsWSByName[entry.Name] = entry.Status
 	}
 
+	// ── Step 3: cross-reference the two sources to find drift ────────────────
+	items := detectDrift(redisTasks, redisTasksByWS, fsEntries, fsWSByName)
+
+	resp := ReconcileResponse{
+		DriftItems: items,
+		Total:      len(items),
+		AtlasHome:  atlasHome,
+	}
+	if len(items) == 0 {
+		resp.Summary = "no drift detected — Redis and filesystem are in sync"
+	} else {
+		resp.Summary = fmt.Sprintf("%d drift item(s) detected; review items for suggested actions", len(items))
+	}
+
+	return resp, nil
+}
+
+// reconcileRedisTask is a compact view of a Redis active-set task used for drift detection.
+type reconcileRedisTask struct {
+	taskID    string
+	workspace string
+	status    string
+}
+
+// collectRedisActiveTasks reads the Redis active set and returns its tasks both
+// as a slice and indexed by workspace name. Tasks whose fields cannot be read
+// are logged and skipped rather than failing the whole reconcile.
+func (d *Daemon) collectRedisActiveTasks(ctx context.Context, keyPrefix string) ([]reconcileRedisTask, map[string]reconcileRedisTask, error) {
+	activeSetKey := keyPrefix + "active"
+	activeMembers, err := cache.SetMembers(ctx, d.redis, activeSetKey)
+	if err != nil {
+		return nil, nil, fmt.Errorf("reconcile: get active set: %w", err)
+	}
+
+	redisTasks := make([]reconcileRedisTask, 0, len(activeMembers))
+	redisTasksByWS := make(map[string]reconcileRedisTask)
+
+	for _, taskID := range activeMembers {
+		fields, ferr := d.getReconcileTaskFields(ctx, taskID, keyPrefix)
+		if ferr != nil {
+			d.logger.Warn().Err(ferr).Str("task_id", taskID).Msg("reconcile: failed to read task fields")
+			continue
+		}
+		rt := reconcileRedisTask{
+			taskID:    taskID,
+			workspace: fields["workspace"],
+			status:    fields["status"],
+		}
+		redisTasks = append(redisTasks, rt)
+		if rt.workspace != "" {
+			redisTasksByWS[rt.workspace] = rt
+		}
+	}
+	return redisTasks, redisTasksByWS, nil
+}
+
+// detectDrift cross-references Redis active-set tasks with filesystem workspaces
+// and returns all detected drift items: Redis-only (workspace missing on disk),
+// file-only (active on disk but absent from the queue), and status-mismatch
+// (terminal in Redis but still active on disk).
+func detectDrift(redisTasks []reconcileRedisTask, redisTasksByWS map[string]reconcileRedisTask, fsEntries []*workspaceEntry, fsWSByName map[string]constants.WorkspaceStatus) []DriftItem {
 	var items []DriftItem
 
-	// ── Step 3: Redis-only drift ─────────────────────────────────────────────
-	// Tasks in Redis active set whose workspace is missing on disk.
+	// Redis-only drift: tasks in the active set whose workspace is missing on disk.
 	for _, rt := range redisTasks {
 		if rt.workspace == "" {
 			continue
@@ -177,8 +211,7 @@ func (d *Daemon) Reconcile(ctx context.Context, req ReconcileRequest) (Reconcile
 		}
 	}
 
-	// ── Step 4: file-only drift ──────────────────────────────────────────────
-	// Filesystem workspaces that are active but have no task in the Redis active set.
+	// File-only drift: active filesystem workspaces with no task in the Redis active set.
 	for _, entry := range fsEntries {
 		if entry.Status != constants.WorkspaceStatusActive {
 			continue
@@ -193,8 +226,7 @@ func (d *Daemon) Reconcile(ctx context.Context, req ReconcileRequest) (Reconcile
 		}
 	}
 
-	// ── Step 5: status-mismatch detection ───────────────────────────────────
-	// Workspaces present in both Redis and filesystem with conflicting states.
+	// Status mismatch: present in both Redis and filesystem with conflicting states.
 	for wsName, rt := range redisTasksByWS {
 		if fsStatus, onDisk := fsWSByName[wsName]; onDisk {
 			if lifecycle.IsTerminalDaemonState(rt.status) && fsStatus == constants.WorkspaceStatusActive {
@@ -210,18 +242,7 @@ func (d *Daemon) Reconcile(ctx context.Context, req ReconcileRequest) (Reconcile
 		}
 	}
 
-	resp := ReconcileResponse{
-		DriftItems: items,
-		Total:      len(items),
-		AtlasHome:  atlasHome,
-	}
-	if len(items) == 0 {
-		resp.Summary = "no drift detected — Redis and filesystem are in sync"
-	} else {
-		resp.Summary = fmt.Sprintf("%d drift item(s) detected; review items for suggested actions", len(items))
-	}
-
-	return resp, nil
+	return items
 }
 
 // getReconcileTaskFields reads the status, workspace, and priority fields for a task.
