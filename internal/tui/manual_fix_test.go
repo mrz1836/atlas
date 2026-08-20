@@ -288,6 +288,9 @@ func TestIsOutageErrorSummary(t *testing.T) {
 		{name: "internal server error", summary: "internal server error from upstream", want: true},
 		{name: "case insensitive", summary: "INTERNAL SERVER ERROR", want: true},
 		{name: "incidental 503 in text without word boundary", summary: "tried 5031 times", want: false},
+		{name: "gemini auth error wrapped in exhausted fallback - not outage", summary: "all AI fallback options exhausted: gemini invocation failed: Error authenticating: IneligibleTierError: This client is no longer supported for Gemini Code Assist for individuals", want: false},
+		{name: "unsupported_client - not outage", summary: "all AI fallback options exhausted: UNSUPPORTED_CLIENT", want: false},
+		{name: "unauthorized api key - not outage", summary: "claude invocation failed: unauthorized: invalid api key", want: false},
 	}
 
 	for _, tc := range cases {
@@ -358,6 +361,45 @@ func TestDisplayManualFixInstructions_OutageBanner(t *testing.T) {
 		assert.Contains(t, output, "Validation Failed - Manual Fix Required")
 		assert.NotContains(t, output, "AI Provider Outage Detected")
 		assert.NotContains(t, output, "status.anthropic.com")
+	})
+}
+
+func TestDisplayManualFixInstructions_AuthConfigBanner(t *testing.T) {
+	t.Run("auth/eligibility error uses auth banner, not outage banner", func(t *testing.T) {
+		task := &domain.Task{
+			Status:      constants.TaskStatusValidationFailed,
+			CurrentStep: 1,
+			Steps: []domain.Step{
+				{Name: "implement"},
+				{Name: "verify"},
+			},
+			Metadata: map[string]any{
+				"last_error": "all AI fallback options exhausted: gemini invocation failed: " +
+					"Error authenticating: IneligibleTierError: This client is no longer " +
+					"supported for Gemini Code Assist for individuals",
+			},
+		}
+		ws := &domain.Workspace{
+			Name:         "auth-ws",
+			WorktreePath: "/tmp/auth",
+		}
+
+		var buf bytes.Buffer
+		out := NewTTYOutput(&buf)
+		DisplayManualFixInstructions(out, task, ws)
+		output := buf.String()
+
+		// Auth-specific elements should appear.
+		assert.Contains(t, output, "AI Provider Auth/Config Error")
+		assert.Contains(t, output, "not an outage")
+		assert.Contains(t, output, "atlas resume auth-ws")
+		assert.Contains(t, output, "atlas abandon auth-ws")
+
+		// It must NOT be shown as an outage (would tell the user to wait) nor as
+		// a code/validation failure (would tell them to fix code).
+		assert.NotContains(t, output, "AI Provider Outage Detected")
+		assert.NotContains(t, output, "Wait a few minutes for provider recovery")
+		assert.NotContains(t, output, "Validation Failed - Manual Fix Required")
 	})
 }
 
