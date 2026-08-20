@@ -32,6 +32,9 @@ var (
 	errWorktreeLocked       = errors.New("worktree already has an active Atlas task")
 )
 
+// taskTemplateNameRe validates submitted template names (compiled once).
+var taskTemplateNameRe = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
+
 // setupRouter registers all JSON-RPC method handlers on the given Router.
 func (d *Daemon) setupRouter(r *Router) {
 	r.Register(MethodDaemonPing, d.handleDaemonPing)
@@ -108,34 +111,13 @@ func appendFieldIf(pairs [][2]any, cond bool, key string, val any) [][2]any {
 	return pairs
 }
 
-func (d *Daemon) handleTaskSubmit(ctx context.Context, params json.RawMessage) (any, error) { //nolint:gocognit // complexity is inherent to multi-step transactional submit with rollback
-	var req TaskSubmitRequest
-	if err := json.Unmarshal(params, &req); err != nil {
-		return nil, fmt.Errorf("invalid params: %w", err)
-	}
-	if req.Description == "" {
-		return nil, errDescriptionRequired
-	}
-	if req.Template == "" || !regexp.MustCompile(`^[a-zA-Z0-9_-]+$`).MatchString(req.Template) {
-		return nil, errInvalidTemplateName
+func (d *Daemon) handleTaskSubmit(ctx context.Context, params json.RawMessage) (any, error) {
+	req, priority, wsName, err := parseTaskSubmitRequest(params)
+	if err != nil {
+		return nil, err
 	}
 
 	taskID := uuid.New().String()
-	priority := Priority(req.Priority)
-	switch priority {
-	case PriorityUrgent, PriorityNormal, PriorityLow:
-		// valid
-	case "":
-		priority = PriorityNormal
-	default:
-		return nil, fmt.Errorf("%w: got %q", errInvalidPriority, req.Priority)
-	}
-
-	// Resolve workspace name: use submitted name if provided, otherwise generate one.
-	wsName := req.Workspace
-	if wsName == "" {
-		wsName = daemonGenerateWorkspaceName(req.Description)
-	}
 
 	// --- Transactional submit with full rollback (Q8) ---
 	//
@@ -152,50 +134,15 @@ func (d *Daemon) handleTaskSubmit(ctx context.Context, params json.RawMessage) (
 	}
 
 	// Step 0: Worktree exclusivity lock (Q2).
-	// One active Atlas task per worktree path. Daemon mode uses a Redis lock
-	// keyed on sha256(repo_path). Before acquiring it, check the filesystem lock
-	// in case direct mode is running in the same repo.
-	if req.RepoPath != "" { //nolint:nestif // worktree lock acquisition requires nested checks for TTL and conflict detection
-		if lifecycle.IsFilesystemLocked(req.RepoPath) {
-			return nil, fmt.Errorf("%w: %q is locked by a direct-mode task; use 'atlas status' to check", errWorktreeLocked, req.RepoPath)
-		}
-		wtLockTTL := int64(d.cfg.Daemon.TaskTimeout.Seconds())
-		if wtLockTTL <= 0 {
-			wtLockTTL = 2700 // 45-minute fallback
-		}
-		wtLocked, wtLockErr := lifecycle.AcquireWorktreeRedisLock(ctx, d.redis, d.cfg.Redis.KeyPrefix, req.RepoPath, taskID, wtLockTTL)
-		if wtLockErr != nil {
-			return nil, fmt.Errorf("acquire worktree lock: %w", wtLockErr)
-		}
-		if !wtLocked {
-			return nil, fmt.Errorf("%w: %q; use 'atlas status' to check existing task", errWorktreeLocked, req.RepoPath)
-		}
-		capturedRepoPath := req.RepoPath
-		rollbacks = append(rollbacks, func() {
-			_ = lifecycle.ReleaseWorktreeRedisLock(ctx, d.redis, d.cfg.Redis.KeyPrefix, capturedRepoPath, taskID)
-		})
+	lockRollback, err := d.acquireWorktreeLock(ctx, req.RepoPath, taskID)
+	if err != nil {
+		return nil, err
 	}
+	rollbacks = append(rollbacks, lockRollback)
 
 	// Step 1: Store task metadata in a Redis hash.
 	hashKey := d.cfg.Redis.KeyPrefix + "task:" + taskID
-	pairs := [][2]any{
-		{"id", taskID},
-		{"description", req.Description},
-		{"template", req.Template},
-		{"status", "queued"},
-		{"priority", string(priority)},
-		{"submitted_at", time.Now().UTC().Format(time.RFC3339)},
-		{"workspace", wsName},
-	}
-	pairs = appendFieldIf(pairs, req.Branch != "", "branch", req.Branch)
-	pairs = appendFieldIf(pairs, req.RepoPath != "", "repo_path", req.RepoPath)
-	pairs = appendFieldIf(pairs, req.Agent != "", "agent", req.Agent)
-	pairs = appendFieldIf(pairs, req.Model != "", "model", req.Model)
-	pairs = appendFieldIf(pairs, req.TargetBranch != "", "target_branch", req.TargetBranch)
-	pairs = appendFieldIf(pairs, req.UseLocal, "use_local", "true")
-	pairs = appendFieldIf(pairs, req.Verify, "verify", "true")
-	pairs = appendFieldIf(pairs, req.NoVerify, "no_verify", "true")
-	if err := cache.HashMapSet(ctx, d.redis, hashKey, pairs); err != nil {
+	if err := cache.HashMapSet(ctx, d.redis, hashKey, buildTaskHashPairs(req, taskID, wsName, priority)); err != nil {
 		return nil, fmt.Errorf("store task hash: %w", err)
 	}
 	rollbacks = append(rollbacks, func() {
@@ -240,6 +187,90 @@ func (d *Daemon) handleTaskSubmit(ctx context.Context, params json.RawMessage) (
 	}
 
 	return TaskSubmitResponse{TaskID: taskID, Status: "queued", Workspace: wsName}, nil
+}
+
+// parseTaskSubmitRequest unmarshals and validates a task.submit request and
+// resolves the effective priority and workspace name.
+func parseTaskSubmitRequest(params json.RawMessage) (TaskSubmitRequest, Priority, string, error) {
+	var req TaskSubmitRequest
+	if err := json.Unmarshal(params, &req); err != nil {
+		return req, "", "", fmt.Errorf("invalid params: %w", err)
+	}
+	if req.Description == "" {
+		return req, "", "", errDescriptionRequired
+	}
+	if req.Template == "" || !taskTemplateNameRe.MatchString(req.Template) {
+		return req, "", "", errInvalidTemplateName
+	}
+
+	priority := Priority(req.Priority)
+	switch priority {
+	case PriorityUrgent, PriorityNormal, PriorityLow:
+		// valid
+	case "":
+		priority = PriorityNormal
+	default:
+		return req, "", "", fmt.Errorf("%w: got %q", errInvalidPriority, req.Priority)
+	}
+
+	// Resolve workspace name: use submitted name if provided, otherwise generate one.
+	wsName := req.Workspace
+	if wsName == "" {
+		wsName = daemonGenerateWorkspaceName(req.Description)
+	}
+
+	return req, priority, wsName, nil
+}
+
+// acquireWorktreeLock enforces one active Atlas task per worktree path (Q2).
+// Daemon mode uses a Redis lock keyed on sha256(repo_path); before acquiring it,
+// the filesystem lock is checked in case direct mode is running in the same repo.
+// It returns a rollback that releases the lock, or nil when repoPath is empty
+// (no lock needed). A non-nil error means the caller must abort the submit.
+func (d *Daemon) acquireWorktreeLock(ctx context.Context, repoPath, taskID string) (func(), error) {
+	noop := func() {}
+	if repoPath == "" {
+		return noop, nil
+	}
+	if lifecycle.IsFilesystemLocked(repoPath) {
+		return nil, fmt.Errorf("%w: %q is locked by a direct-mode task; use 'atlas status' to check", errWorktreeLocked, repoPath)
+	}
+	wtLockTTL := int64(d.cfg.Daemon.TaskTimeout.Seconds())
+	if wtLockTTL <= 0 {
+		wtLockTTL = 2700 // 45-minute fallback
+	}
+	wtLocked, wtLockErr := lifecycle.AcquireWorktreeRedisLock(ctx, d.redis, d.cfg.Redis.KeyPrefix, repoPath, taskID, wtLockTTL)
+	if wtLockErr != nil {
+		return nil, fmt.Errorf("acquire worktree lock: %w", wtLockErr)
+	}
+	if !wtLocked {
+		return nil, fmt.Errorf("%w: %q; use 'atlas status' to check existing task", errWorktreeLocked, repoPath)
+	}
+	return func() {
+		_ = lifecycle.ReleaseWorktreeRedisLock(ctx, d.redis, d.cfg.Redis.KeyPrefix, repoPath, taskID)
+	}, nil
+}
+
+// buildTaskHashPairs assembles the Redis hash field/value pairs for a submitted task.
+func buildTaskHashPairs(req TaskSubmitRequest, taskID, wsName string, priority Priority) [][2]any {
+	pairs := [][2]any{
+		{"id", taskID},
+		{"description", req.Description},
+		{"template", req.Template},
+		{"status", "queued"},
+		{"priority", string(priority)},
+		{"submitted_at", time.Now().UTC().Format(time.RFC3339)},
+		{"workspace", wsName},
+	}
+	pairs = appendFieldIf(pairs, req.Branch != "", "branch", req.Branch)
+	pairs = appendFieldIf(pairs, req.RepoPath != "", "repo_path", req.RepoPath)
+	pairs = appendFieldIf(pairs, req.Agent != "", "agent", req.Agent)
+	pairs = appendFieldIf(pairs, req.Model != "", "model", req.Model)
+	pairs = appendFieldIf(pairs, req.TargetBranch != "", "target_branch", req.TargetBranch)
+	pairs = appendFieldIf(pairs, req.UseLocal, "use_local", "true")
+	pairs = appendFieldIf(pairs, req.Verify, "verify", "true")
+	pairs = appendFieldIf(pairs, req.NoVerify, "no_verify", "true")
+	return pairs
 }
 
 // daemonGenerateWorkspaceName converts a task description to a sanitized workspace
