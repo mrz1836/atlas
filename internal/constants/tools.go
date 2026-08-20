@@ -34,6 +34,9 @@ const (
 	// ToolCodex is the OpenAI Codex CLI.
 	ToolCodex = "codex"
 
+	// ToolAntigravity is the Antigravity CLI (agy) from Google.
+	ToolAntigravity = "agy"
+
 	// ToolMageX is the mage-x build automation tool.
 	ToolMageX = "magex"
 
@@ -60,13 +63,20 @@ const (
 	MinVersionUV = "0.5.0"
 
 	// MinVersionClaude is the minimum required Claude Code version.
-	MinVersionClaude = "2.0.76"
+	MinVersionClaude = "2.1.237"
 
 	// MinVersionGemini is the minimum required Gemini CLI version.
-	MinVersionGemini = "0.22.5"
+	// The legacy Gemini CLI is effectively retired in favor of Antigravity (agy),
+	// but this floor is kept current for anyone still driving it directly.
+	MinVersionGemini = "0.43.0"
 
 	// MinVersionCodex is the minimum required Codex CLI version.
-	MinVersionCodex = "0.77.0"
+	// The JSONL event stream parsed by CodexRunner (thread.started / item.completed /
+	// turn.completed) requires a current Codex build.
+	MinVersionCodex = "0.148.0"
+
+	// MinVersionAntigravity is the minimum required Antigravity CLI (agy) version.
+	MinVersionAntigravity = "1.1.16"
 )
 
 // Tool version command arguments.

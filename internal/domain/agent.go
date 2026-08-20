@@ -15,6 +15,11 @@ const (
 
 	// AgentCodex uses the Codex CLI from OpenAI.
 	AgentCodex Agent = "codex"
+
+	// AgentAntigravity uses the Antigravity CLI (agy) from Google.
+	// Unlike the legacy Gemini CLI, it authenticates via Google sign-in (OAuth)
+	// rather than an API key and exposes Gemini 3.x plus other models.
+	AgentAntigravity Agent = "antigravity"
 )
 
 // agentConfig holds all configuration for an agent.
@@ -43,9 +48,9 @@ var agentConfigs = map[Agent]agentConfig{ //nolint:gochecknoglobals // Central c
 		tool:      "claude",
 		aliases:   []string{"sonnet", "opus", "haiku"},
 		resolution: map[string]string{
-			"sonnet": "claude-sonnet-4-20250514",
-			"opus":   "claude-opus-4-20250514",
-			"haiku":  "claude-haiku-3-20250514",
+			"sonnet": "claude-sonnet-5",
+			"opus":   "claude-opus-5",
+			"haiku":  "claude-haiku-4-5-20251001",
 		},
 	},
 	AgentGemini: { //nolint:gosec // G101: apiKeyEnv stores env var names, not hardcoded credentials
@@ -65,10 +70,26 @@ var agentConfigs = map[Agent]agentConfig{ //nolint:gochecknoglobals // Central c
 		hint:      "Install Codex CLI: npm install -g @openai/codex",
 		tool:      "codex",
 		aliases:   []string{"codex", "max", "mini"},
+		// Codex retired the "-codex" model line; the CLI now migrates all of the
+		// old ids (gpt-5.1-codex-*, gpt-5.2-codex, gpt-5.3-codex) to gpt-5.4.
+		// These three are the current, exec-selectable coding models.
 		resolution: map[string]string{
-			"codex": "gpt-5.2-codex",
-			"max":   "gpt-5.1-codex-max",
-			"mini":  "gpt-5.1-codex-mini",
+			"codex": "gpt-5.4",
+			"max":   "gpt-5.5",
+			"mini":  "gpt-5.4-mini",
+		},
+	},
+	AgentAntigravity: {
+		// Antigravity authenticates via Google sign-in (OAuth), so there is no
+		// API key environment variable. Model IDs come from `agy models`.
+		model:     "pro",
+		apiKeyEnv: "", // OAuth-based; no API key env var
+		hint:      "Install Antigravity CLI: curl -fsSL https://antigravity.google/cli/install.sh | bash",
+		tool:      "agy",
+		aliases:   []string{"pro", "flash"},
+		resolution: map[string]string{
+			"pro":   "gemini-3.1-pro-high",
+			"flash": "gemini-3.7-flash-medium",
 		},
 	},
 }
