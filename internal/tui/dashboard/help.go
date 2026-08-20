@@ -113,7 +113,7 @@ func (h *HelpOverlay) View(width, height int) string {
 	var out strings.Builder
 	padding := strings.Repeat(" ", leftPad)
 
-	for i := 0; i < topPad; i++ {
+	for range topPad {
 		out.WriteByte('\n')
 	}
 	for _, line := range boxLines {

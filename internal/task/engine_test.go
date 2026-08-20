@@ -4355,7 +4355,7 @@ func TestEngine_IsSkippableGitOperation_Push(t *testing.T) {
 	step := &domain.StepDefinition{
 		Name: "push-step",
 		Type: domain.StepTypeGit,
-		Config: map[string]interface{}{
+		Config: map[string]any{
 			"operation": "push",
 		},
 	}
@@ -4373,7 +4373,7 @@ func TestEngine_IsSkippableGitOperation_Commit(t *testing.T) {
 	step := &domain.StepDefinition{
 		Name: "commit-step",
 		Type: domain.StepTypeGit,
-		Config: map[string]interface{}{
+		Config: map[string]any{
 			"operation": "commit",
 		},
 	}

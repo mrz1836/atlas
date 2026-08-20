@@ -362,14 +362,14 @@ func TestJSONOutput_JSON(t *testing.T) {
 	var buf bytes.Buffer
 	out := NewJSONOutput(&buf)
 
-	data := map[string]interface{}{
+	data := map[string]any{
 		"name":  "test",
 		"count": 42,
 	}
 	err := out.JSON(data)
 	require.NoError(t, err)
 
-	var result map[string]interface{}
+	var result map[string]any
 	err = json.Unmarshal(buf.Bytes(), &result)
 	require.NoError(t, err)
 	assert.Equal(t, "test", result["name"])

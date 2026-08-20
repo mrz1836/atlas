@@ -850,7 +850,7 @@ func startTaskExecution(ctx context.Context, ws *domain.Workspace, tmpl *domain.
 
 	// Create executor progress callback wrapper that handles both task.StepProgressEvent
 	// and steps.AutoFixProgressEvent
-	executorProgressCallback := func(event interface{}) {
+	executorProgressCallback := func(event any) {
 		switch e := event.(type) {
 		case task.StepProgressEvent:
 			progressCallback(e)

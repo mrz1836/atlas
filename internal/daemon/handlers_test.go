@@ -57,7 +57,7 @@ func TestHandlerDaemonShutdown(t *testing.T) {
 	result, err := d.handleDaemonShutdown(context.Background(), nil)
 	require.NoError(t, err)
 
-	m, ok := result.(map[string]interface{})
+	m, ok := result.(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, true, m["ok"])
 
@@ -301,7 +301,7 @@ func TestHandlerTaskList_TerminalTasksVisible(t *testing.T) {
 		if i == 1 {
 			status = "failed"
 		}
-		pairs := [][2]interface{}{{"status", status}}
+		pairs := [][2]any{{"status", status}}
 		require.NoError(t, cache.HashMapSet(ctx, d.redis, hashKey, pairs))
 		require.NoError(t, cache.SetRemoveMember(ctx, d.redis, activeKey, taskID))
 	}
@@ -503,7 +503,7 @@ func TestHandlerQueueClear_All(t *testing.T) {
 	// Clear all.
 	result, err := d.handleQueueClear(ctx, nil)
 	require.NoError(t, err)
-	m := result.(map[string]interface{})
+	m := result.(map[string]any)
 	assert.Equal(t, true, m["ok"])
 
 	// Verify empty.
@@ -531,7 +531,7 @@ func TestHandlerQueueClear_ByPriority(t *testing.T) {
 	require.NoError(t, err)
 	result, err := d.handleQueueClear(ctx, clearParams)
 	require.NoError(t, err)
-	assert.Equal(t, true, result.(map[string]interface{})["ok"])
+	assert.Equal(t, true, result.(map[string]any)["ok"])
 
 	statsResult, err := d.handleQueueStats(ctx, nil)
 	require.NoError(t, err)

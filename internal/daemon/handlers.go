@@ -66,26 +66,26 @@ var errNotImplemented = errors.New("not implemented: deferred to Phase 5")
 // stubHandler returns a HandlerFunc that always returns errNotImplemented.
 // Retained for use in tests.
 func stubHandler(method string) HandlerFunc {
-	return func(_ context.Context, _ json.RawMessage) (interface{}, error) {
+	return func(_ context.Context, _ json.RawMessage) (any, error) {
 		return nil, fmt.Errorf("%w: %s", errNotImplemented, method)
 	}
 }
 
 // -- daemon.* --
 
-func (d *Daemon) handleDaemonPing(_ context.Context, _ json.RawMessage) (interface{}, error) {
+func (d *Daemon) handleDaemonPing(_ context.Context, _ json.RawMessage) (any, error) {
 	return DaemonPingResponse{Alive: true, Version: daemonVersion}, nil
 }
 
-func (d *Daemon) handleDaemonStatus(ctx context.Context, _ json.RawMessage) (interface{}, error) {
+func (d *Daemon) handleDaemonStatus(ctx context.Context, _ json.RawMessage) (any, error) {
 	return d.Health(ctx)
 }
 
-func (d *Daemon) handleDaemonDoctor(ctx context.Context, _ json.RawMessage) (interface{}, error) {
+func (d *Daemon) handleDaemonDoctor(ctx context.Context, _ json.RawMessage) (any, error) {
 	return d.Doctor(ctx)
 }
 
-func (d *Daemon) handleDaemonShutdown(_ context.Context, _ json.RawMessage) (interface{}, error) {
+func (d *Daemon) handleDaemonShutdown(_ context.Context, _ json.RawMessage) (any, error) {
 	go func() { //nolint:gosec,contextcheck // G118: background ctx is intentional — request ctx will be canceled before shutdown completes
 		// Brief delay so the response can be flushed to the client before shutdown.
 		time.Sleep(100 * time.Millisecond)
@@ -93,12 +93,12 @@ func (d *Daemon) handleDaemonShutdown(_ context.Context, _ json.RawMessage) (int
 			d.logger.Error().Err(err).Msg("daemon: shutdown via RPC failed")
 		}
 	}()
-	return map[string]interface{}{"ok": true}, nil
+	return map[string]any{"ok": true}, nil
 }
 
 // -- task.* --
 
-func (d *Daemon) handleTaskSubmit(ctx context.Context, params json.RawMessage) (interface{}, error) { //nolint:gocognit // complexity is inherent to multi-step transactional submit with rollback
+func (d *Daemon) handleTaskSubmit(ctx context.Context, params json.RawMessage) (any, error) { //nolint:gocognit // complexity is inherent to multi-step transactional submit with rollback
 	var req TaskSubmitRequest
 	if err := json.Unmarshal(params, &req); err != nil {
 		return nil, fmt.Errorf("invalid params: %w", err)
@@ -168,7 +168,7 @@ func (d *Daemon) handleTaskSubmit(ctx context.Context, params json.RawMessage) (
 
 	// Step 1: Store task metadata in a Redis hash.
 	hashKey := d.cfg.Redis.KeyPrefix + "task:" + taskID
-	pairs := [][2]interface{}{
+	pairs := [][2]any{
 		{"id", taskID},
 		{"description", req.Description},
 		{"template", req.Template},
@@ -178,28 +178,28 @@ func (d *Daemon) handleTaskSubmit(ctx context.Context, params json.RawMessage) (
 		{"workspace", wsName},
 	}
 	if req.Branch != "" {
-		pairs = append(pairs, [2]interface{}{"branch", req.Branch})
+		pairs = append(pairs, [2]any{"branch", req.Branch})
 	}
 	if req.RepoPath != "" {
-		pairs = append(pairs, [2]interface{}{"repo_path", req.RepoPath})
+		pairs = append(pairs, [2]any{"repo_path", req.RepoPath})
 	}
 	if req.Agent != "" {
-		pairs = append(pairs, [2]interface{}{"agent", req.Agent})
+		pairs = append(pairs, [2]any{"agent", req.Agent})
 	}
 	if req.Model != "" {
-		pairs = append(pairs, [2]interface{}{"model", req.Model})
+		pairs = append(pairs, [2]any{"model", req.Model})
 	}
 	if req.TargetBranch != "" {
-		pairs = append(pairs, [2]interface{}{"target_branch", req.TargetBranch})
+		pairs = append(pairs, [2]any{"target_branch", req.TargetBranch})
 	}
 	if req.UseLocal {
-		pairs = append(pairs, [2]interface{}{"use_local", "true"})
+		pairs = append(pairs, [2]any{"use_local", "true"})
 	}
 	if req.Verify {
-		pairs = append(pairs, [2]interface{}{"verify", "true"})
+		pairs = append(pairs, [2]any{"verify", "true"})
 	}
 	if req.NoVerify {
-		pairs = append(pairs, [2]interface{}{"no_verify", "true"})
+		pairs = append(pairs, [2]any{"no_verify", "true"})
 	}
 	if err := cache.HashMapSet(ctx, d.redis, hashKey, pairs); err != nil {
 		return nil, fmt.Errorf("store task hash: %w", err)
@@ -283,7 +283,7 @@ func daemonGenerateWorkspaceName(description string) string {
 	return name
 }
 
-func (d *Daemon) handleTaskStatus(ctx context.Context, params json.RawMessage) (interface{}, error) {
+func (d *Daemon) handleTaskStatus(ctx context.Context, params json.RawMessage) (any, error) {
 	var req TaskStatusRequest
 	if err := json.Unmarshal(params, &req); err != nil {
 		return nil, fmt.Errorf("invalid params: %w", err)
@@ -294,7 +294,7 @@ func (d *Daemon) handleTaskStatus(ctx context.Context, params json.RawMessage) (
 
 	hashKey := d.cfg.Redis.KeyPrefix + "task:" + req.TaskID
 
-	fields := []interface{}{
+	fields := []any{
 		"id", "status", "priority", "submitted_at", "started_at", "completed_at", "error",
 		"description", "workspace", "agent", "model", "branch", "template", "crash_recovery",
 	}
@@ -326,7 +326,7 @@ func (d *Daemon) handleTaskStatus(ctx context.Context, params json.RawMessage) (
 	return resp, nil
 }
 
-func (d *Daemon) handleTaskList(ctx context.Context, params json.RawMessage) (interface{}, error) {
+func (d *Daemon) handleTaskList(ctx context.Context, params json.RawMessage) (any, error) {
 	var req TaskListRequest
 	if len(params) > 0 {
 		if err := json.Unmarshal(params, &req); err != nil {
@@ -356,7 +356,7 @@ func (d *Daemon) handleTaskList(ctx context.Context, params json.RawMessage) (in
 			break
 		}
 		hashKey := d.cfg.Redis.KeyPrefix + "task:" + taskID
-		fields := []interface{}{
+		fields := []any{
 			"id", "status", "priority", "submitted_at", "started_at", "completed_at", "error",
 			"description", "workspace", "agent", "model", "branch", "template", "crash_recovery",
 		}
@@ -389,7 +389,7 @@ func (d *Daemon) handleTaskList(ctx context.Context, params json.RawMessage) (in
 	return TaskListResponse{Tasks: tasks, Total: len(tasks)}, nil
 }
 
-func (d *Daemon) handleTaskCancel(ctx context.Context, params json.RawMessage) (interface{}, error) {
+func (d *Daemon) handleTaskCancel(ctx context.Context, params json.RawMessage) (any, error) {
 	var req TaskCancelRequest
 	if err := json.Unmarshal(params, &req); err != nil {
 		return nil, fmt.Errorf("invalid params: %w", err)
@@ -412,14 +412,14 @@ func (d *Daemon) handleTaskCancel(ctx context.Context, params json.RawMessage) (
 		}
 	}
 
-	return map[string]interface{}{"ok": true}, nil
+	return map[string]any{"ok": true}, nil
 }
 
 // cancelQueuedTask marks a non-running task as canceled in Redis and removes it from
 // the active set. This path is taken when the task has not yet been picked up by a worker.
 func (d *Daemon) cancelQueuedTask(ctx context.Context, taskID string) error {
 	hashKey := d.cfg.Redis.KeyPrefix + "task:" + taskID
-	pairs := [][2]interface{}{
+	pairs := [][2]any{
 		{"status", "canceled"},
 		{"completed_at", time.Now().UTC().Format(time.RFC3339)},
 	}
@@ -433,7 +433,7 @@ func (d *Daemon) cancelQueuedTask(ctx context.Context, taskID string) error {
 	return nil
 }
 
-func (d *Daemon) handleTaskAbandon(ctx context.Context, params json.RawMessage) (interface{}, error) {
+func (d *Daemon) handleTaskAbandon(ctx context.Context, params json.RawMessage) (any, error) {
 	var req TaskAbandonRequest
 	if err := json.Unmarshal(params, &req); err != nil {
 		return nil, fmt.Errorf("invalid params: %w", err)
@@ -454,7 +454,7 @@ func (d *Daemon) handleTaskAbandon(ctx context.Context, params json.RawMessage) 
 		}
 	}
 
-	return map[string]interface{}{"ok": true}, nil
+	return map[string]any{"ok": true}, nil
 }
 
 // abandonQueuedTask notifies the executor (if available) and marks the task as abandoned in Redis.
@@ -465,7 +465,7 @@ func (d *Daemon) abandonQueuedTask(ctx context.Context, taskID string) error {
 		d.tryAbandonEngineTask(ctx, taskID)
 	}
 	hashKey := d.cfg.Redis.KeyPrefix + "task:" + taskID
-	pairs := [][2]interface{}{
+	pairs := [][2]any{
 		{"status", "abandoned"},
 		{"completed_at", time.Now().UTC().Format(time.RFC3339)},
 	}
@@ -491,7 +491,7 @@ func (d *Daemon) tryAbandonEngineTask(ctx context.Context, taskID string) {
 	}
 }
 
-func (d *Daemon) handleTaskResume(ctx context.Context, params json.RawMessage) (interface{}, error) {
+func (d *Daemon) handleTaskResume(ctx context.Context, params json.RawMessage) (any, error) {
 	var req TaskResumeRequest
 	if err := json.Unmarshal(params, &req); err != nil {
 		return nil, fmt.Errorf("invalid params: %w", err)
@@ -515,10 +515,10 @@ func (d *Daemon) handleTaskResume(ctx context.Context, params json.RawMessage) (
 	if err := d.runner.RequeueForResume(ctx, req.TaskID, "", ""); err != nil {
 		return nil, fmt.Errorf("requeue task: %w", err)
 	}
-	return map[string]interface{}{"ok": true}, nil
+	return map[string]any{"ok": true}, nil
 }
 
-func (d *Daemon) handleTaskApprove(ctx context.Context, params json.RawMessage) (interface{}, error) {
+func (d *Daemon) handleTaskApprove(ctx context.Context, params json.RawMessage) (any, error) {
 	var req TaskApproveRequest
 	if err := json.Unmarshal(params, &req); err != nil {
 		return nil, fmt.Errorf("invalid params: %w", err)
@@ -538,10 +538,10 @@ func (d *Daemon) handleTaskApprove(ctx context.Context, params json.RawMessage) 
 	if err := d.runner.RequeueForResume(ctx, req.TaskID, "approve", ""); err != nil {
 		return nil, fmt.Errorf("requeue task for approval: %w", err)
 	}
-	return map[string]interface{}{"ok": true}, nil
+	return map[string]any{"ok": true}, nil
 }
 
-func (d *Daemon) handleTaskReject(ctx context.Context, params json.RawMessage) (interface{}, error) {
+func (d *Daemon) handleTaskReject(ctx context.Context, params json.RawMessage) (any, error) {
 	var req TaskRejectRequest
 	if err := json.Unmarshal(params, &req); err != nil {
 		return nil, fmt.Errorf("invalid params: %w", err)
@@ -561,10 +561,10 @@ func (d *Daemon) handleTaskReject(ctx context.Context, params json.RawMessage) (
 	if err := d.runner.RequeueForResume(ctx, req.TaskID, "reject", req.Feedback); err != nil {
 		return nil, fmt.Errorf("requeue task for rejection: %w", err)
 	}
-	return map[string]interface{}{"ok": true}, nil
+	return map[string]any{"ok": true}, nil
 }
 
-func (d *Daemon) handleTaskPause(ctx context.Context, params json.RawMessage) (interface{}, error) {
+func (d *Daemon) handleTaskPause(ctx context.Context, params json.RawMessage) (any, error) {
 	var req TaskPauseRequest
 	if err := json.Unmarshal(params, &req); err != nil {
 		return nil, fmt.Errorf("invalid params: %w", err)
@@ -586,14 +586,14 @@ func (d *Daemon) handleTaskPause(ctx context.Context, params json.RawMessage) (i
 			return nil, err
 		}
 	}
-	return map[string]interface{}{"ok": true}, nil
+	return map[string]any{"ok": true}, nil
 }
 
 // pauseQueuedTask marks a non-running task as paused in Redis and removes it from
 // the active set. Paused tasks are resumable via task.resume.
 func (d *Daemon) pauseQueuedTask(ctx context.Context, taskID string) error {
 	hashKey := d.cfg.Redis.KeyPrefix + "task:" + taskID
-	pairs := [][2]interface{}{
+	pairs := [][2]any{
 		{"status", "paused"},
 	}
 	if err := cache.HashMapSet(ctx, d.redis, hashKey, pairs); err != nil {
@@ -604,7 +604,7 @@ func (d *Daemon) pauseQueuedTask(ctx context.Context, taskID string) error {
 
 // -- queue.* --
 
-func (d *Daemon) handleQueueStats(ctx context.Context, _ json.RawMessage) (interface{}, error) {
+func (d *Daemon) handleQueueStats(ctx context.Context, _ json.RawMessage) (any, error) {
 	stats, err := d.queue.Stats(ctx)
 	if err != nil {
 		return nil, err
@@ -617,7 +617,7 @@ func (d *Daemon) handleQueueStats(ctx context.Context, _ json.RawMessage) (inter
 	}, nil
 }
 
-func (d *Daemon) handleQueueList(ctx context.Context, params json.RawMessage) (interface{}, error) {
+func (d *Daemon) handleQueueList(ctx context.Context, params json.RawMessage) (any, error) {
 	var req QueueListRequest
 	if len(params) > 0 {
 		if err := json.Unmarshal(params, &req); err != nil {
@@ -665,7 +665,7 @@ func (d *Daemon) handleQueueList(ctx context.Context, params json.RawMessage) (i
 	return resp, nil
 }
 
-func (d *Daemon) handleQueueClear(ctx context.Context, params json.RawMessage) (interface{}, error) {
+func (d *Daemon) handleQueueClear(ctx context.Context, params json.RawMessage) (any, error) {
 	var req QueueClearRequest
 	if len(params) > 0 {
 		if err := json.Unmarshal(params, &req); err != nil {
@@ -682,7 +682,7 @@ func (d *Daemon) handleQueueClear(ctx context.Context, params json.RawMessage) (
 	if err := d.queue.Clear(ctx, prio); err != nil {
 		return nil, err
 	}
-	return map[string]interface{}{"ok": true}, nil
+	return map[string]any{"ok": true}, nil
 }
 
 // -- events.* --
@@ -690,7 +690,7 @@ func (d *Daemon) handleQueueClear(ctx context.Context, params json.RawMessage) (
 // handleEventsSubscribe returns the Redis channel name and log key prefix so clients
 // can subscribe directly to Redis pub/sub and tail log streams without routing
 // through the JSON-RPC socket.
-func (d *Daemon) handleEventsSubscribe(_ context.Context, _ json.RawMessage) (interface{}, error) {
+func (d *Daemon) handleEventsSubscribe(_ context.Context, _ json.RawMessage) (any, error) {
 	return EventSubscribeResponse{
 		Channel:   defaultEventsChannel,
 		LogPrefix: d.cfg.Redis.KeyPrefix + logKeyPrefix,
@@ -701,7 +701,7 @@ func (d *Daemon) handleEventsSubscribe(_ context.Context, _ json.RawMessage) (in
 
 // handleWorkspaceDestroy destroys a workspace (removes worktree + branch).
 // It uses workspace.DefaultManager so all the NFR18 "always succeed" semantics are preserved.
-func (d *Daemon) handleWorkspaceDestroy(ctx context.Context, params json.RawMessage) (interface{}, error) {
+func (d *Daemon) handleWorkspaceDestroy(ctx context.Context, params json.RawMessage) (any, error) {
 	var req WorkspaceDestroyRequest
 	if err := json.Unmarshal(params, &req); err != nil {
 		return nil, fmt.Errorf("invalid params: %w", err)
@@ -725,7 +725,7 @@ func (d *Daemon) handleWorkspaceDestroy(ctx context.Context, params json.RawMess
 	if err = mgr.Destroy(ctx, req.Workspace); err != nil {
 		return nil, fmt.Errorf("destroy workspace: %w", err)
 	}
-	return map[string]interface{}{"ok": true}, nil
+	return map[string]any{"ok": true}, nil
 }
 
 // -- hook.* --
@@ -733,7 +733,7 @@ func (d *Daemon) handleWorkspaceDestroy(ctx context.Context, params json.RawMess
 // handleHookRetry clears the crash_recovery: degraded flag on a task.
 // The caller (CLI) is responsible for re-initializing hooks via the local hook manager.
 // The daemon simply clears the flag so the task no longer appears degraded in status.
-func (d *Daemon) handleHookRetry(ctx context.Context, params json.RawMessage) (interface{}, error) {
+func (d *Daemon) handleHookRetry(ctx context.Context, params json.RawMessage) (any, error) {
 	var req HookRetryRequest
 	if err := json.Unmarshal(params, &req); err != nil {
 		return nil, fmt.Errorf("invalid params: %w", err)
@@ -754,7 +754,7 @@ func (d *Daemon) handleHookRetry(ctx context.Context, params json.RawMessage) (i
 	}
 
 	// Clear crash_recovery flag.
-	pairs := [][2]interface{}{
+	pairs := [][2]any{
 		{"crash_recovery", ""},
 		{"crash_recovery_reason", ""},
 	}
@@ -762,7 +762,7 @@ func (d *Daemon) handleHookRetry(ctx context.Context, params json.RawMessage) (i
 		return nil, fmt.Errorf("clear crash_recovery flag: %w", err)
 	}
 
-	return map[string]interface{}{"ok": true, "task_id": req.TaskID}, nil
+	return map[string]any{"ok": true, "task_id": req.TaskID}, nil
 }
 
 // -- helpers --

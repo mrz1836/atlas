@@ -361,14 +361,14 @@ func TestExtractPRURL(t *testing.T) {
 		},
 		{
 			name:     "empty metadata",
-			task:     &domain.Task{ID: "task-1", Metadata: map[string]interface{}{}},
+			task:     &domain.Task{ID: "task-1", Metadata: map[string]any{}},
 			expected: "",
 		},
 		{
 			name: "no pr_url key",
 			task: &domain.Task{
 				ID:       "task-1",
-				Metadata: map[string]interface{}{"other_key": "value"},
+				Metadata: map[string]any{"other_key": "value"},
 			},
 			expected: "",
 		},
@@ -376,7 +376,7 @@ func TestExtractPRURL(t *testing.T) {
 			name: "pr_url present",
 			task: &domain.Task{
 				ID:       "task-1",
-				Metadata: map[string]interface{}{"pr_url": "https://github.com/owner/repo/pull/123"},
+				Metadata: map[string]any{"pr_url": "https://github.com/owner/repo/pull/123"},
 			},
 			expected: "https://github.com/owner/repo/pull/123",
 		},
@@ -384,7 +384,7 @@ func TestExtractPRURL(t *testing.T) {
 			name: "pr_url not a string",
 			task: &domain.Task{
 				ID:       "task-1",
-				Metadata: map[string]interface{}{"pr_url": 123},
+				Metadata: map[string]any{"pr_url": 123},
 			},
 			expected: "",
 		},
@@ -426,7 +426,7 @@ func TestApproveResponse_JSONStructure(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify JSON structure
-	var parsed map[string]interface{}
+	var parsed map[string]any
 	err = json.Unmarshal(data, &parsed)
 	require.NoError(t, err)
 
@@ -455,7 +455,7 @@ func TestApproveResponse_JSONError(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify error is present
-	var parsed map[string]interface{}
+	var parsed map[string]any
 	err = json.Unmarshal(data, &parsed)
 	require.NoError(t, err)
 
@@ -1011,7 +1011,7 @@ func TestRunAutoApprove_WithPRURL(t *testing.T) {
 		WorkspaceID: "test-ws",
 		Description: "Test auto-approve with PR",
 		Status:      constants.TaskStatusAwaitingApproval,
-		Metadata:    map[string]interface{}{"pr_url": "https://github.com/owner/repo/pull/123"},
+		Metadata:    map[string]any{"pr_url": "https://github.com/owner/repo/pull/123"},
 		CreatedAt:   time.Now(),
 		UpdatedAt:   time.Now(),
 	}
@@ -1149,7 +1149,7 @@ func TestApproveResponse_WorkspaceClosedField(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify workspace_closed field is present
-	var parsed map[string]interface{}
+	var parsed map[string]any
 	err = json.Unmarshal(data, &parsed)
 	require.NoError(t, err)
 
@@ -1492,42 +1492,42 @@ func TestExtractPRNumber(t *testing.T) {
 		{
 			name: "no pr_number key",
 			task: &domain.Task{
-				Metadata: map[string]interface{}{"other_key": "value"},
+				Metadata: map[string]any{"other_key": "value"},
 			},
 			expected: 0,
 		},
 		{
 			name: "int value",
 			task: &domain.Task{
-				Metadata: map[string]interface{}{"pr_number": 42},
+				Metadata: map[string]any{"pr_number": 42},
 			},
 			expected: 42,
 		},
 		{
 			name: "float64 value",
 			task: &domain.Task{
-				Metadata: map[string]interface{}{"pr_number": float64(123)},
+				Metadata: map[string]any{"pr_number": float64(123)},
 			},
 			expected: 123,
 		},
 		{
 			name: "string value",
 			task: &domain.Task{
-				Metadata: map[string]interface{}{"pr_number": "456"},
+				Metadata: map[string]any{"pr_number": "456"},
 			},
 			expected: 456,
 		},
 		{
 			name: "invalid string value",
 			task: &domain.Task{
-				Metadata: map[string]interface{}{"pr_number": "not-a-number"},
+				Metadata: map[string]any{"pr_number": "not-a-number"},
 			},
 			expected: 0,
 		},
 		{
 			name: "unsupported type",
 			task: &domain.Task{
-				Metadata: map[string]interface{}{"pr_number": true},
+				Metadata: map[string]any{"pr_number": true},
 			},
 			expected: 0,
 		},
@@ -1602,7 +1602,7 @@ func TestApproveAndOutputJSON_Success(t *testing.T) {
 		Status:      constants.TaskStatusAwaitingApproval,
 		Steps:       make([]domain.Step, 3),
 		CurrentStep: 2,
-		Metadata:    map[string]interface{}{"pr_url": "https://github.com/owner/repo/pull/123"},
+		Metadata:    map[string]any{"pr_url": "https://github.com/owner/repo/pull/123"},
 		CreatedAt:   time.Now(),
 		UpdatedAt:   time.Now(),
 	}
@@ -1883,7 +1883,7 @@ func TestExecuteApprovalAction_OpenPR(t *testing.T) {
 
 	task := &domain.Task{
 		ID:       "task-1",
-		Metadata: map[string]interface{}{"pr_url": "https://github.com/owner/repo/pull/123"},
+		Metadata: map[string]any{"pr_url": "https://github.com/owner/repo/pull/123"},
 	}
 	mockStore := &mockTaskStoreForApprove{}
 	ws := &domain.Workspace{Name: "test-ws"}

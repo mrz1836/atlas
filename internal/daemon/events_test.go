@@ -188,7 +188,7 @@ func waitPubSubReady(ctx context.Context, t *testing.T, client *cache.Client, ch
 		if err != nil {
 			return false
 		}
-		pairs, ok := result.([]interface{})
+		pairs, ok := result.([]any)
 		if !ok || len(pairs) < 2 {
 			return false
 		}

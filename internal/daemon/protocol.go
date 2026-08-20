@@ -9,29 +9,29 @@ type Request struct {
 	JSONRPC string          `json:"jsonrpc"`
 	Method  string          `json:"method"`
 	Params  json.RawMessage `json:"params,omitempty"`
-	ID      interface{}     `json:"id,omitempty"`
+	ID      any             `json:"id,omitempty"`
 }
 
 // Response is a JSON-RPC 2.0 response object.
 type Response struct {
-	JSONRPC string      `json:"jsonrpc"`
-	Result  interface{} `json:"result,omitempty"`
-	Error   *RPCError   `json:"error,omitempty"`
-	ID      interface{} `json:"id,omitempty"`
+	JSONRPC string    `json:"jsonrpc"`
+	Result  any       `json:"result,omitempty"`
+	Error   *RPCError `json:"error,omitempty"`
+	ID      any       `json:"id,omitempty"`
 }
 
 // Notification is a JSON-RPC 2.0 notification (request with no ID).
 type Notification struct {
-	JSONRPC string      `json:"jsonrpc"`
-	Method  string      `json:"method"`
-	Params  interface{} `json:"params,omitempty"`
+	JSONRPC string `json:"jsonrpc"`
+	Method  string `json:"method"`
+	Params  any    `json:"params,omitempty"`
 }
 
 // RPCError is the JSON-RPC 2.0 error object.
 type RPCError struct {
-	Code    int         `json:"code"`
-	Message string      `json:"message"`
-	Data    interface{} `json:"data,omitempty"`
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+	Data    any    `json:"data,omitempty"`
 }
 
 // Standard JSON-RPC 2.0 error codes.
@@ -340,7 +340,7 @@ const (
 )
 
 // NewRequest constructs a JSON-RPC 2.0 request, marshaling params to JSON.
-func NewRequest(method string, params, id interface{}) (*Request, error) {
+func NewRequest(method string, params, id any) (*Request, error) {
 	var raw json.RawMessage
 	if params != nil {
 		data, err := json.Marshal(params)
@@ -358,7 +358,7 @@ func NewRequest(method string, params, id interface{}) (*Request, error) {
 }
 
 // NewResponse constructs a successful JSON-RPC 2.0 response.
-func NewResponse(result, id interface{}) *Response {
+func NewResponse(result, id any) *Response {
 	return &Response{
 		JSONRPC: "2.0",
 		Result:  result,
@@ -367,7 +367,7 @@ func NewResponse(result, id interface{}) *Response {
 }
 
 // NewErrorResponse constructs a JSON-RPC 2.0 error response.
-func NewErrorResponse(code int, message string, id interface{}) *Response {
+func NewErrorResponse(code int, message string, id any) *Response {
 	return &Response{
 		JSONRPC: "2.0",
 		Error: &RPCError{
@@ -379,7 +379,7 @@ func NewErrorResponse(code int, message string, id interface{}) *Response {
 }
 
 // NewNotification constructs a JSON-RPC 2.0 notification (no ID).
-func NewNotification(method string, params interface{}) *Notification {
+func NewNotification(method string, params any) *Notification {
 	return &Notification{
 		JSONRPC: "2.0",
 		Method:  method,

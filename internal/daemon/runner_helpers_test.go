@@ -25,7 +25,7 @@ func TestLoadTaskJob(t *testing.T) {
 	hashKey := "atlas:task:" + taskID
 
 	// Seed all fields in Redis.
-	pairs := [][2]interface{}{
+	pairs := [][2]any{
 		{"description", "do something"},
 		{"template", "bug"},
 		{"workspace", "my-ws"},
@@ -66,7 +66,7 @@ func TestLoadTaskJob_PartialFields(t *testing.T) {
 	hashKey := "atlas:task:" + taskID
 
 	// Seed only description.
-	pairs := [][2]interface{}{{"description", "minimal"}}
+	pairs := [][2]any{{"description", "minimal"}}
 	require.NoError(t, cache.HashMapSet(ctx, client, hashKey, pairs))
 
 	job, err := r.loadTaskJob(ctx, taskID)
@@ -215,7 +215,7 @@ func TestRequeueForResume_Basic(t *testing.T) {
 	hashKey := "atlas:task:" + taskID
 
 	// Seed task as failed.
-	pairs := [][2]interface{}{{"status", "failed"}}
+	pairs := [][2]any{{"status", "failed"}}
 	require.NoError(t, cache.HashMapSet(ctx, client, hashKey, pairs))
 
 	err := r.RequeueForResume(ctx, taskID, "", "")
@@ -242,7 +242,7 @@ func TestRequeueForResume_WithApprovalFields(t *testing.T) {
 	taskID := "resume-approval-task"
 	hashKey := "atlas:task:" + taskID
 
-	pairs := [][2]interface{}{{"status", "awaiting_approval"}}
+	pairs := [][2]any{{"status", "awaiting_approval"}}
 	require.NoError(t, cache.HashMapSet(ctx, client, hashKey, pairs))
 
 	err := r.RequeueForResume(ctx, taskID, "approve", "")
@@ -263,7 +263,7 @@ func TestRequeueForResume_WithRejectFeedback(t *testing.T) {
 	taskID := "resume-reject-task"
 	hashKey := "atlas:task:" + taskID
 
-	pairs := [][2]interface{}{{"status", "awaiting_approval"}}
+	pairs := [][2]any{{"status", "awaiting_approval"}}
 	require.NoError(t, cache.HashMapSet(ctx, client, hashKey, pairs))
 
 	err := r.RequeueForResume(ctx, taskID, "reject", "the code is wrong")
@@ -289,7 +289,7 @@ func TestExecuteTask_WithExecutor_Completed(t *testing.T) {
 	hashKey := "atlas:task:" + taskID
 
 	// Seed task metadata.
-	pairs := [][2]interface{}{
+	pairs := [][2]any{
 		{"description", "test task"},
 		{"template", "bug"},
 		{"status", "queued"},
@@ -324,7 +324,7 @@ func TestExecuteTask_WithExecutor_AwaitingApproval(t *testing.T) {
 	taskID := "exec-approval"
 	hashKey := "atlas:task:" + taskID
 
-	pairs := [][2]interface{}{{"description", "approval task"}, {"status", "queued"}}
+	pairs := [][2]any{{"description", "approval task"}, {"status", "queued"}}
 	require.NoError(t, cache.HashMapSet(ctx, client, hashKey, pairs))
 	require.NoError(t, cache.SetAdd(ctx, client, "atlas:active", taskID))
 	require.NoError(t, q.Submit(ctx, taskID, PriorityNormal))
@@ -350,7 +350,7 @@ func TestExecuteTask_WithExecutor_Failed(t *testing.T) {
 	taskID := "exec-failed"
 	hashKey := "atlas:task:" + taskID
 
-	pairs := [][2]interface{}{{"description", "failing task"}, {"status", "queued"}}
+	pairs := [][2]any{{"description", "failing task"}, {"status", "queued"}}
 	require.NoError(t, cache.HashMapSet(ctx, client, hashKey, pairs))
 	require.NoError(t, cache.SetAdd(ctx, client, "atlas:active", taskID))
 	require.NoError(t, q.Submit(ctx, taskID, PriorityNormal))
@@ -378,7 +378,7 @@ func TestExecuteTask_WithExecutor_CancelDuringExecution(t *testing.T) {
 	taskID := "exec-cancel"
 	hashKey := "atlas:task:" + taskID
 
-	pairs := [][2]interface{}{{"description", "long task"}, {"status", "queued"}}
+	pairs := [][2]any{{"description", "long task"}, {"status", "queued"}}
 	require.NoError(t, cache.HashMapSet(ctx, client, hashKey, pairs))
 	require.NoError(t, cache.SetAdd(ctx, client, "atlas:active", taskID))
 	require.NoError(t, q.Submit(ctx, taskID, PriorityNormal))
@@ -415,7 +415,7 @@ func TestExecuteTask_WithExecutor_AbandonDuringExecution(t *testing.T) {
 	taskID := "exec-abandon"
 	hashKey := "atlas:task:" + taskID
 
-	pairs := [][2]interface{}{{"description", "long task 2"}, {"status", "queued"}}
+	pairs := [][2]any{{"description", "long task 2"}, {"status", "queued"}}
 	require.NoError(t, cache.HashMapSet(ctx, client, hashKey, pairs))
 	require.NoError(t, cache.SetAdd(ctx, client, "atlas:active", taskID))
 	require.NoError(t, q.Submit(ctx, taskID, PriorityNormal))

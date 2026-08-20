@@ -111,7 +111,7 @@ func (l *Layout) Render(left, right string) string {
 	var sb strings.Builder
 	sb.Grow((leftW + 1 + rightW + 1) * h) // +1 divider, +1 newline per row
 
-	for i := 0; i < h; i++ {
+	for i := range h {
 		leftCell := padOrTruncateLine(leftPadded[i], leftW)
 		rightCell := padOrTruncateLine(rightPadded[i], rightW)
 

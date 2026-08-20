@@ -23,7 +23,7 @@ func TestRedisFixture_Hash(t *testing.T) {
 	f := testfakes.NewRedisFixture(t, "")
 	ctx := context.Background()
 
-	pairs := [][2]interface{}{{"status", "queued"}, {"template", "bug"}}
+	pairs := [][2]any{{"status", "queued"}, {"template", "bug"}}
 	require.NoError(t, cache.HashMapSet(ctx, f.Client, "test:task:h1", pairs))
 
 	val, err := cache.HashGet(ctx, f.Client, "test:task:h1", "status")
@@ -238,7 +238,7 @@ func TestRedisFixture_NewClient(t *testing.T) {
 	ctx := context.Background()
 
 	// Additional client should be able to read keys written by the primary client.
-	pairs := [][2]interface{}{{"extra", "yes"}}
+	pairs := [][2]any{{"extra", "yes"}}
 	require.NoError(t, cache.HashMapSet(ctx, f.Client, "test:extra:key", pairs))
 
 	client2 := f.NewClient(t)

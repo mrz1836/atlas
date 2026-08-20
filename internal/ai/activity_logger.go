@@ -200,7 +200,7 @@ func (l *ActivityLogger) cleanupOldLogs() {
 
 	// Remove oldest files
 	toRemove := len(logFiles) - l.maxLogFiles
-	for i := 0; i < toRemove; i++ {
+	for i := range toRemove {
 		path := filepath.Join(l.logDir, logFiles[i].Name())
 		_ = os.Remove(path) // Silently ignore errors
 	}

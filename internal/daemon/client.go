@@ -56,7 +56,7 @@ func DialContext(ctx context.Context, socketPath string) (*Client, error) {
 // Call sends a JSON-RPC request and decodes the response into result.
 // Safe for concurrent use from multiple goroutines.
 // If ctx carries a deadline, it is applied to the underlying connection.
-func (c *Client) Call(ctx context.Context, method string, params, result interface{}) error {
+func (c *Client) Call(ctx context.Context, method string, params, result any) error {
 	c.mu.Lock()
 	c.nextID++
 	id := c.nextID

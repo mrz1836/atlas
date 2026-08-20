@@ -20,18 +20,18 @@ func TestRouterDispatch(t *testing.T) {
 	router := NewRouter(logger)
 
 	// Register a simple echo handler.
-	router.Register("test.echo", func(_ context.Context, params json.RawMessage) (interface{}, error) {
+	router.Register("test.echo", func(_ context.Context, params json.RawMessage) (any, error) {
 		return string(params), nil
 	})
 
 	// Register a handler that returns an error.
-	router.Register("test.fail", func(_ context.Context, _ json.RawMessage) (interface{}, error) {
+	router.Register("test.fail", func(_ context.Context, _ json.RawMessage) (any, error) {
 		return nil, errTestHandler
 	})
 
 	// Register a handler that returns a non-nil result (suppresses nil-nil).
-	router.Register("test.accepted", func(_ context.Context, _ json.RawMessage) (interface{}, error) {
-		return map[string]interface{}{"accepted": true}, nil
+	router.Register("test.accepted", func(_ context.Context, _ json.RawMessage) (any, error) {
+		return map[string]any{"accepted": true}, nil
 	})
 
 	ctx := context.Background()

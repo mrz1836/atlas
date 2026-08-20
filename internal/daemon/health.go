@@ -87,7 +87,7 @@ func (d *Daemon) refreshHeartbeat(ctx context.Context) {
 	}
 
 	// Update state hash with current metadata.
-	pairs := [][2]interface{}{
+	pairs := [][2]any{
 		{"pid", fmt.Sprintf("%d", pid)},
 		{"uptime", uptime},
 		{"version", daemonVersion},

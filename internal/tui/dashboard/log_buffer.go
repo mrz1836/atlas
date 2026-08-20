@@ -89,7 +89,7 @@ func (b *LogBuffer) Filter(level string) []daemon.LogEntry {
 	}
 
 	out := make([]daemon.LogEntry, 0, b.count)
-	for i := 0; i < b.count; i++ {
+	for i := range b.count {
 		idx := (b.head + i) % logBufferCap
 		entry := b.entries[idx]
 		rank, rankOK := levelRank[entry.Level]

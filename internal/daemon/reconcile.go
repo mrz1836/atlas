@@ -228,7 +228,7 @@ func (d *Daemon) Reconcile(ctx context.Context, req ReconcileRequest) (Reconcile
 // This is used by Reconcile to cross-reference Redis tasks with filesystem workspaces.
 func (d *Daemon) getReconcileTaskFields(ctx context.Context, taskID, keyPrefix string) (map[string]string, error) {
 	hashKey := keyPrefix + "task:" + taskID
-	keys := []interface{}{"status", "workspace", "priority"}
+	keys := []any{"status", "workspace", "priority"}
 
 	values, err := cache.HashMapGet(ctx, d.redis, hashKey, keys...)
 	if err != nil {
@@ -247,7 +247,7 @@ func (d *Daemon) getReconcileTaskFields(ctx context.Context, taskID, keyPrefix s
 }
 
 // handleDaemonReconcile handles the daemon.reconcile JSON-RPC method.
-func (d *Daemon) handleDaemonReconcile(ctx context.Context, params json.RawMessage) (interface{}, error) {
+func (d *Daemon) handleDaemonReconcile(ctx context.Context, params json.RawMessage) (any, error) {
 	var req ReconcileRequest
 	if len(params) > 0 && string(params) != "null" {
 		if err := json.Unmarshal(params, &req); err != nil {

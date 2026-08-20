@@ -9,7 +9,7 @@ import (
 )
 
 // HandlerFunc is a JSON-RPC method handler.
-type HandlerFunc func(ctx context.Context, params json.RawMessage) (interface{}, error)
+type HandlerFunc func(ctx context.Context, params json.RawMessage) (any, error)
 
 // Router dispatches JSON-RPC methods to registered handlers.
 type Router struct {

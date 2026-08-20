@@ -17,7 +17,7 @@ func seedTaskInRedis(t *testing.T, d *Daemon, taskID, status string) {
 	t.Helper()
 	ctx := context.Background()
 	hashKey := d.cfg.Redis.KeyPrefix + "task:" + taskID
-	pairs := [][2]interface{}{
+	pairs := [][2]any{
 		{"id", taskID},
 		{"description", "test task"},
 		{"status", status},
@@ -46,7 +46,7 @@ func TestHandlerTaskCancel_NotRunning(t *testing.T) {
 	result, err := d.handleTaskCancel(ctx, params)
 	require.NoError(t, err)
 
-	m, ok := result.(map[string]interface{})
+	m, ok := result.(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, true, m["ok"])
 
@@ -111,7 +111,7 @@ func TestHandlerTaskCancel_WithRunningTask(t *testing.T) {
 
 	result, err := d.handleTaskCancel(ctx, params)
 	require.NoError(t, err)
-	assert.Equal(t, true, result.(map[string]interface{})["ok"])
+	assert.Equal(t, true, result.(map[string]any)["ok"])
 
 	// The cancel func should have been called.
 	select {
@@ -138,7 +138,7 @@ func TestHandlerTaskAbandon_NotRunning(t *testing.T) {
 
 	result, err := d.handleTaskAbandon(ctx, params)
 	require.NoError(t, err)
-	assert.Equal(t, true, result.(map[string]interface{})["ok"])
+	assert.Equal(t, true, result.(map[string]any)["ok"])
 
 	hashKey := d.cfg.Redis.KeyPrefix + "task:" + taskID
 	status, getErr := cache.HashGet(ctx, d.redis, hashKey, "status")
@@ -178,7 +178,7 @@ func TestHandlerTaskAbandon_WithExecutor(t *testing.T) {
 	hashKey := d.cfg.Redis.KeyPrefix + "task:" + taskID
 
 	// Seed with engine_task_id and workspace so the executor can be called.
-	pairs := [][2]interface{}{
+	pairs := [][2]any{
 		{"id", taskID},
 		{"status", "failed"},
 		{"engine_task_id", "eng-abc"},
@@ -212,7 +212,7 @@ func TestHandlerTaskAbandon_WithExecutor(t *testing.T) {
 
 	result, err := d.handleTaskAbandon(ctx, params)
 	require.NoError(t, err)
-	assert.Equal(t, true, result.(map[string]interface{})["ok"])
+	assert.Equal(t, true, result.(map[string]any)["ok"])
 	assert.True(t, abandonCalled, "executor.Abandon should have been called")
 }
 
@@ -245,7 +245,7 @@ func TestHandlerTaskResume_Valid(t *testing.T) {
 
 	result, err := d.handleTaskResume(ctx, params)
 	require.NoError(t, err)
-	assert.Equal(t, true, result.(map[string]interface{})["ok"])
+	assert.Equal(t, true, result.(map[string]any)["ok"])
 
 	// Task should now be queued.
 	hashKey := d.cfg.Redis.KeyPrefix + "task:" + taskID
@@ -275,7 +275,7 @@ func TestHandlerTaskResume_AwaitingApproval(t *testing.T) {
 
 	result, err := d.handleTaskResume(ctx, params)
 	require.NoError(t, err)
-	assert.Equal(t, true, result.(map[string]interface{})["ok"])
+	assert.Equal(t, true, result.(map[string]any)["ok"])
 }
 
 func TestHandlerTaskResume_NotResumable(t *testing.T) {
@@ -367,7 +367,7 @@ func TestHandlerTaskApprove_Valid(t *testing.T) {
 
 	result, err := d.handleTaskApprove(ctx, params)
 	require.NoError(t, err)
-	assert.Equal(t, true, result.(map[string]interface{})["ok"])
+	assert.Equal(t, true, result.(map[string]any)["ok"])
 
 	// Approval choice should be stored.
 	hashKey := d.cfg.Redis.KeyPrefix + "task:" + taskID
@@ -445,7 +445,7 @@ func TestHandlerTaskReject_Valid(t *testing.T) {
 
 	result, err := d.handleTaskReject(ctx, params)
 	require.NoError(t, err)
-	assert.Equal(t, true, result.(map[string]interface{})["ok"])
+	assert.Equal(t, true, result.(map[string]any)["ok"])
 
 	// Reject feedback should be stored.
 	hashKey := d.cfg.Redis.KeyPrefix + "task:" + taskID

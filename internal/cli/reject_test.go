@@ -211,7 +211,7 @@ func TestRejectResponse_JSONStructure(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify JSON structure
-	var parsed map[string]interface{}
+	var parsed map[string]any
 	err = json.Unmarshal(data, &parsed)
 	require.NoError(t, err)
 
@@ -262,7 +262,7 @@ func TestRejectResponse_JSONError(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify error is present
-	var parsed map[string]interface{}
+	var parsed map[string]any
 	err = json.Unmarshal(data, &parsed)
 	require.NoError(t, err)
 

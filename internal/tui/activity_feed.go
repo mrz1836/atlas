@@ -145,7 +145,7 @@ func (f *ActivityFeed) clearPreviousRender() {
 	linesToClear := len(f.activities) + 3
 
 	// Move cursor up and clear each line
-	for i := 0; i < linesToClear; i++ {
+	for range linesToClear {
 		_, _ = fmt.Fprint(f.w, "\033[A\033[K") // Move up, clear line
 	}
 }

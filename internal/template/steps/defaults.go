@@ -119,7 +119,7 @@ type ExecutorDeps struct {
 
 	// ProgressCallback is used for progress notifications (e.g., spinners, status updates).
 	// If nil, progress notifications are not sent.
-	ProgressCallback func(event interface{})
+	ProgressCallback func(event any)
 
 	// ValidationProgressCallback is used for validation sub-step progress reporting.
 	// If nil, validation sub-step progress is not reported.
@@ -262,7 +262,7 @@ func NewMinimalRegistry(workDir string) *ExecutorRegistry {
 	return r
 }
 
-// getIntFromAny extracts an int from various numeric types stored in interface{}.
+// getIntFromAny extracts an int from various numeric types stored in an any value.
 // This handles JSON unmarshaling which may produce int, int64, or float64.
 // Returns 0, false if the value is nil, not a number, or <= 0.
 func getIntFromAny(val any) (int, bool) {

@@ -73,7 +73,7 @@ func handleTestConn(conn net.Conn) {
 				Status: "queued",
 			}, req.ID))
 		case MethodDaemonShutdown:
-			encErr = enc.Encode(NewResponse(map[string]interface{}{"ok": true}, req.ID))
+			encErr = enc.Encode(NewResponse(map[string]any{"ok": true}, req.ID))
 			if encErr == nil {
 				return // close connection after shutdown
 			}

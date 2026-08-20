@@ -214,7 +214,7 @@ func (d *Daemon) removeFromActiveSet(ctx context.Context, taskID, keyPrefix stri
 // getTaskFields reads the status, retry_count, and priority fields for a task.
 func (d *Daemon) getTaskFields(ctx context.Context, taskID, keyPrefix string) (map[string]string, error) {
 	hashKey := keyPrefix + "task:" + taskID
-	keys := []interface{}{"status", "retry_count", "priority"}
+	keys := []any{"status", "retry_count", "priority"}
 
 	values, err := cache.HashMapGet(ctx, d.redis, hashKey, keys...)
 	if err != nil {

@@ -428,7 +428,7 @@ func createResumeEngine(ctx context.Context, ws *domain.Workspace, taskStore *ta
 
 	// Create executor progress callback wrapper that handles both task.StepProgressEvent
 	// and steps.AutoFixProgressEvent
-	executorProgressCallback := func(event interface{}) {
+	executorProgressCallback := func(event any) {
 		switch e := event.(type) {
 		case task.StepProgressEvent:
 			progressCallback(e)

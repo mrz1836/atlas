@@ -50,7 +50,7 @@ func TestHandlerTaskPause_QueuedTask(t *testing.T) {
 	resp, err := d.handleTaskPause(ctx, pauseParams)
 	require.NoError(t, err)
 
-	m, ok := resp.(map[string]interface{})
+	m, ok := resp.(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, true, m["ok"])
 
@@ -82,7 +82,7 @@ func TestHandlerTaskPause_RunnerNotInitialized(t *testing.T) {
 	require.NoError(t, err)
 	resp, err := d.handleTaskPause(ctx, pauseParams)
 	require.NoError(t, err)
-	m := resp.(map[string]interface{})
+	m := resp.(map[string]any)
 	assert.Equal(t, true, m["ok"])
 }
 

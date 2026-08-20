@@ -166,7 +166,7 @@ func runDaemonStop(cmd *cobra.Command, _ []string) error {
 	}
 	defer func() { _ = c.Close() }()
 
-	var result map[string]interface{}
+	var result map[string]any
 	callCtx, cancel := context.WithTimeout(cmd.Context(), 5*time.Second)
 	defer cancel()
 	if callErr := c.Call(callCtx, daemon.MethodDaemonShutdown, nil, &result); callErr != nil {
@@ -225,7 +225,7 @@ func runDaemonStatus(cmd *cobra.Command, jsonOutput, reconcile bool) error {
 		out := cmd.OutOrStdout()
 
 		if jsonOutput {
-			b, err := json.MarshalIndent(map[string]interface{}{
+			b, err := json.MarshalIndent(map[string]any{
 				"running": false,
 				"error":   "daemon not running",
 			}, "", "  ")
@@ -418,7 +418,7 @@ func runDaemonDoctor(cmd *cobra.Command, jsonOutput bool) error {
 	c, dialErr := daemon.DialFromConfigContext(cmd.Context(), cfg.Daemon.SocketPath)
 	if dialErr != nil {
 		if jsonOutput {
-			out := map[string]interface{}{
+			out := map[string]any{
 				"error":  "daemon not running",
 				"detail": dialErr.Error(),
 			}

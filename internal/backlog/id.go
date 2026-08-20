@@ -46,7 +46,7 @@ func DeriveShortID(guid string) (string, error) {
 	// Use first 8 bytes as a seed number
 	seed := binary.BigEndian.Uint64(bytes[:8])
 
-	for i := 0; i < idLength; i++ {
+	for i := range idLength {
 		result[i] = idChars[seed%charsetLen]
 		seed /= charsetLen
 	}

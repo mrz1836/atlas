@@ -77,7 +77,7 @@ func TestServerHandleConn(t *testing.T) {
 	router := NewRouter(logger)
 
 	// Register a ping handler.
-	router.Register(MethodDaemonPing, func(_ context.Context, _ json.RawMessage) (interface{}, error) {
+	router.Register(MethodDaemonPing, func(_ context.Context, _ json.RawMessage) (any, error) {
 		return DaemonPingResponse{Alive: true, Version: "test"}, nil
 	})
 

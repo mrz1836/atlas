@@ -480,7 +480,7 @@ func (m *Model) renderStartupError() string {
 
 	topPad := (lines - 3) / 2
 	var sb strings.Builder
-	for i := 0; i < topPad; i++ {
+	for range topPad {
 		sb.WriteByte('\n')
 	}
 	// Center each line horizontally.
@@ -1139,7 +1139,7 @@ func (m *Model) executeActionCmd(action, taskID, feedback string) tea.Cmd {
 // It is a pure function (no model state) to keep the goroutine-safe closure simple.
 func callDaemonAction(c *daemon.Client, action, taskID, feedback, repoPath string) error {
 	ctx := context.Background()
-	var resp map[string]interface{}
+	var resp map[string]any
 
 	switch action {
 	case "approve":

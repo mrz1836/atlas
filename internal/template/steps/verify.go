@@ -72,7 +72,7 @@ type VerifyExecutor struct {
 	logger           zerolog.Logger
 	workingDir       string
 	artifactHelper   *ArtifactHelper
-	progressCallback func(event interface{})
+	progressCallback func(event any)
 	operationsConfig *config.OperationsConfig
 }
 
@@ -102,7 +102,7 @@ func WithGarbageChecker(checker GarbageChecker) VerifyExecutorOption {
 }
 
 // WithVerifyProgressCallback sets the progress callback for auto-fix notifications.
-func WithVerifyProgressCallback(callback func(event interface{})) VerifyExecutorOption {
+func WithVerifyProgressCallback(callback func(event any)) VerifyExecutorOption {
 	return func(e *VerifyExecutor) {
 		e.progressCallback = callback
 	}

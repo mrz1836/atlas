@@ -44,7 +44,7 @@ type RegistryDeps struct {
 	Logger           zerolog.Logger
 	GitServices      *GitServices
 	Config           *config.Config
-	ProgressCallback func(event interface{})
+	ProgressCallback func(event any)
 
 	// ValidationProgressCallback is used for validation sub-step progress.
 	// If nil, validation sub-step progress is not reported.

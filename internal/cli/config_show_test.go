@@ -156,15 +156,15 @@ func TestFormatConfigValue(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		value    interface{}
+		value    any
 		expected string
 	}{
 		{"empty string", "", "(not set)"},
 		{"non-empty string", "hello", "hello"},
 		{"empty slice", []string{}, "[]"},
 		{"string slice", []string{"a", "b", "c"}, "[a, b, c]"},
-		{"empty interface slice", []interface{}{}, "[]"},
-		{"interface slice", []interface{}{"x", 1, true}, "[x, 1, true]"},
+		{"empty interface slice", []any{}, "[]"},
+		{"interface slice", []any{"x", 1, true}, "[x, 1, true]"},
 		{"integer", 42, "42"},
 		{"boolean true", true, "true"},
 		{"boolean false", false, "false"},
@@ -244,7 +244,7 @@ func TestDetermineSource(t *testing.T) {
 	tests := []struct {
 		name       string
 		key        string
-		value      interface{}
+		value      any
 		globalCfg  configValues
 		projectCfg configValues
 		envSet     bool

@@ -15,7 +15,7 @@ import (
 
 //nolint:gochecknoglobals // package-level pool is the intended pattern for sync.Pool
 var scannerBufferPool = sync.Pool{
-	New: func() interface{} {
+	New: func() any {
 		buf := make([]byte, 1<<20)
 		return &buf // pointer avoids SA6002 allocation on Put
 	},

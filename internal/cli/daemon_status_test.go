@@ -49,7 +49,7 @@ func TestDaemonStatusJSON_Schema(t *testing.T) {
 	}
 
 	// Construct a plausible status payload.
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"version":      "0.21.0",
 		"pid":          12345,
 		"uptime":       "1h2m3s",
@@ -83,7 +83,7 @@ func TestDaemonStatusJSON_NotRunning(t *testing.T) {
 	t.Parallel()
 
 	// Simulate the "daemon not running" JSON output produced by runDaemonStatus.
-	notRunningPayload := map[string]interface{}{
+	notRunningPayload := map[string]any{
 		"running": false,
 		"error":   "daemon not running",
 	}
@@ -93,7 +93,7 @@ func TestDaemonStatusJSON_NotRunning(t *testing.T) {
 	require.NoError(t, err)
 	_, _ = buf.Write(b)
 
-	var parsed map[string]interface{}
+	var parsed map[string]any
 	require.NoError(t, json.Unmarshal(buf.Bytes(), &parsed))
 
 	running, ok := parsed["running"].(bool)
@@ -109,9 +109,9 @@ func TestDaemonStatusJSON_NotRunning(t *testing.T) {
 func TestReconcileJSONSchema(t *testing.T) {
 	t.Parallel()
 
-	payload := map[string]interface{}{
-		"drift_items": []interface{}{
-			map[string]interface{}{
+	payload := map[string]any{
+		"drift_items": []any{
+			map[string]any{
 				"type":             "redis_only",
 				"task_id":          "abc-123",
 				"workspace":        "ws-test",
@@ -127,7 +127,7 @@ func TestReconcileJSONSchema(t *testing.T) {
 	b, err := json.MarshalIndent(payload, "", "  ")
 	require.NoError(t, err)
 
-	var parsed map[string]interface{}
+	var parsed map[string]any
 	require.NoError(t, json.Unmarshal(b, &parsed))
 
 	assert.Contains(t, parsed, "drift_items", "drift_items must be present")
@@ -135,11 +135,11 @@ func TestReconcileJSONSchema(t *testing.T) {
 	assert.Contains(t, parsed, "summary", "summary must be present")
 	assert.Contains(t, parsed, "atlas_home", "atlas_home must be present")
 
-	items, ok := parsed["drift_items"].([]interface{})
+	items, ok := parsed["drift_items"].([]any)
 	require.True(t, ok, "drift_items must be an array")
 	require.Len(t, items, 1)
 
-	item, ok := items[0].(map[string]interface{})
+	item, ok := items[0].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "redis_only", item["type"])
 	assert.NotEmpty(t, item["suggested_action"])

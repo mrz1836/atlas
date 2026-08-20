@@ -100,7 +100,7 @@ func (r *Runner) Stop() {
 func (r *Runner) CancelTask(ctx context.Context, taskID string) bool {
 	r.canceledTasks.Store(taskID, "canceled")
 	hashKey := r.cfg.Redis.KeyPrefix + "task:" + taskID
-	if err := cache.HashMapSet(ctx, r.redis, hashKey, [][2]interface{}{{"status", "canceled"}}); err != nil {
+	if err := cache.HashMapSet(ctx, r.redis, hashKey, [][2]any{{"status", "canceled"}}); err != nil {
 		r.logger.Error().Err(err).Str("task_id", taskID).Msg("runner: failed to persist canceled status")
 	}
 
@@ -119,7 +119,7 @@ func (r *Runner) CancelTask(ctx context.Context, taskID string) bool {
 func (r *Runner) PauseRunningTask(ctx context.Context, taskID string) bool {
 	r.canceledTasks.Store(taskID, "paused")
 	hashKey := r.cfg.Redis.KeyPrefix + "task:" + taskID
-	if err := cache.HashMapSet(ctx, r.redis, hashKey, [][2]interface{}{{"status", "paused"}}); err != nil {
+	if err := cache.HashMapSet(ctx, r.redis, hashKey, [][2]any{{"status", "paused"}}); err != nil {
 		r.logger.Error().Err(err).Str("task_id", taskID).Msg("runner: failed to persist paused status")
 	}
 
@@ -138,7 +138,7 @@ func (r *Runner) PauseRunningTask(ctx context.Context, taskID string) bool {
 func (r *Runner) AbandonRunningTask(ctx context.Context, taskID string) bool {
 	r.canceledTasks.Store(taskID, "abandoned")
 	hashKey := r.cfg.Redis.KeyPrefix + "task:" + taskID
-	if err := cache.HashMapSet(ctx, r.redis, hashKey, [][2]interface{}{{"status", "abandoned"}}); err != nil {
+	if err := cache.HashMapSet(ctx, r.redis, hashKey, [][2]any{{"status", "abandoned"}}); err != nil {
 		r.logger.Error().Err(err).Str("task_id", taskID).Msg("runner: failed to persist abandoned status")
 	}
 
@@ -156,12 +156,12 @@ func (r *Runner) AbandonRunningTask(ctx context.Context, taskID string) bool {
 // re-submits the task to the queue at normal priority.
 func (r *Runner) RequeueForResume(ctx context.Context, taskID, approvalChoice, rejectFeedback string) error {
 	hashKey := r.cfg.Redis.KeyPrefix + "task:" + taskID
-	pairs := [][2]interface{}{{"status", "queued"}}
+	pairs := [][2]any{{"status", "queued"}}
 	if approvalChoice != "" {
-		pairs = append(pairs, [2]interface{}{"approval_choice", approvalChoice})
+		pairs = append(pairs, [2]any{"approval_choice", approvalChoice})
 	}
 	if rejectFeedback != "" {
-		pairs = append(pairs, [2]interface{}{"reject_feedback", rejectFeedback})
+		pairs = append(pairs, [2]any{"reject_feedback", rejectFeedback})
 	}
 	if err := cache.HashMapSet(ctx, r.redis, hashKey, pairs); err != nil {
 		return fmt.Errorf("requeue: update task hash: %w", err)
@@ -185,7 +185,7 @@ func (r *Runner) RequeueForResume(ctx context.Context, taskID, approvalChoice, r
 // returns a populated TaskJob.
 func (r *Runner) loadTaskJob(ctx context.Context, taskID string) (TaskJob, error) {
 	hashKey := r.cfg.Redis.KeyPrefix + "task:" + taskID
-	fields := []interface{}{
+	fields := []any{
 		"description", "template", "workspace", "branch",
 		"repo_path", "agent", "model",
 		"engine_task_id", "approval_choice", "reject_feedback",
@@ -218,7 +218,7 @@ func (r *Runner) loadTaskJob(ctx context.Context, taskID string) (TaskJob, error
 // so future resume/approve/reject calls can find the engine task.
 func (r *Runner) storeEngineTaskID(ctx context.Context, taskID, engineTaskID string) {
 	hashKey := r.cfg.Redis.KeyPrefix + "task:" + taskID
-	pairs := [][2]interface{}{{"engine_task_id", engineTaskID}}
+	pairs := [][2]any{{"engine_task_id", engineTaskID}}
 	if err := cache.HashMapSet(ctx, r.redis, hashKey, pairs); err != nil {
 		r.logger.Warn().Err(err).Str("task_id", taskID).Msg("runner: failed to store engine task ID")
 	}
@@ -227,7 +227,7 @@ func (r *Runner) storeEngineTaskID(ctx context.Context, taskID, engineTaskID str
 // markTaskStatus sets the task's status field in the Redis hash.
 func (r *Runner) markTaskStatus(ctx context.Context, taskID, status string) {
 	hashKey := r.cfg.Redis.KeyPrefix + "task:" + taskID
-	pairs := [][2]interface{}{{"status", status}}
+	pairs := [][2]any{{"status", status}}
 	if err := cache.HashMapSet(ctx, r.redis, hashKey, pairs); err != nil {
 		r.logger.Warn().Err(err).Str("task_id", taskID).Msg("runner: failed to update task status")
 	}
@@ -595,7 +595,7 @@ func (r *Runner) executeTask(_ context.Context, taskID string) {
 // to avoid running a task whose state cannot be recorded.
 func (r *Runner) markTaskRunning(ctx context.Context, taskID string) error {
 	hashKey := r.cfg.Redis.KeyPrefix + "task:" + taskID
-	pairs := [][2]interface{}{
+	pairs := [][2]any{
 		{"status", "running"},
 		{"started_at", time.Now().UTC().Format(time.RFC3339)},
 	}
@@ -609,7 +609,7 @@ func (r *Runner) markTaskRunning(ctx context.Context, taskID string) error {
 // markTaskCompleted updates the task hash to status=completed with a completed_at timestamp.
 func (r *Runner) markTaskCompleted(ctx context.Context, taskID string) {
 	hashKey := r.cfg.Redis.KeyPrefix + "task:" + taskID
-	pairs := [][2]interface{}{
+	pairs := [][2]any{
 		{"status", "completed"},
 		{"completed_at", time.Now().UTC().Format(time.RFC3339)},
 	}
@@ -636,7 +636,7 @@ func (r *Runner) finalizeCanceledTask(taskID, hashKey string) {
 	if loaded {
 		status, _ = finalStatVal.(string)
 	}
-	termPairs := [][2]interface{}{
+	termPairs := [][2]any{
 		{"status", status},
 		{"completed_at", time.Now().UTC().Format(time.RFC3339)},
 	}
@@ -711,7 +711,7 @@ func (r *Runner) writeLog(ctx context.Context, taskID string, entry LogEntry) {
 // markTaskFailed updates the task hash to status=failed with an error message.
 func (r *Runner) markTaskFailed(ctx context.Context, taskID, errMsg string) {
 	hashKey := r.cfg.Redis.KeyPrefix + "task:" + taskID
-	pairs := [][2]interface{}{
+	pairs := [][2]any{
 		{"status", "failed"},
 		{"error", errMsg},
 		{"completed_at", time.Now().UTC().Format(time.RFC3339)},
@@ -734,7 +734,7 @@ func (r *Runner) markTaskFailed(ctx context.Context, taskID, errMsg string) {
 // The task continues to execute, but crash recovery is unavailable for this run.
 func (r *Runner) markCrashRecoveryDegraded(ctx context.Context, taskID, reason string) {
 	hashKey := r.cfg.Redis.KeyPrefix + "task:" + taskID
-	pairs := [][2]interface{}{
+	pairs := [][2]any{
 		{"crash_recovery", "degraded"},
 		{"crash_recovery_reason", reason},
 	}

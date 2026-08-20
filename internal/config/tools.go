@@ -527,7 +527,7 @@ func CompareVersions(current, required string) int {
 	requiredParts := parseVersionParts(required)
 
 	// Compare each part
-	for i := 0; i < maxVersionSegments; i++ {
+	for i := range maxVersionSegments {
 		if currentParts[i] < requiredParts[i] {
 			return -1
 		}

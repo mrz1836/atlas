@@ -449,7 +449,7 @@ func runHookRetry(ctx context.Context, cmd *cobra.Command, w io.Writer, taskID s
 	defer func() { _ = c.Close() }()
 
 	// Ask the daemon to clear the crash_recovery flag.
-	var result map[string]interface{}
+	var result map[string]any
 	if callErr := c.Call(ctx, daemon.MethodHookRetry, daemon.HookRetryRequest{TaskID: taskID}, &result); callErr != nil {
 		if outputFormat == OutputJSON {
 			return outputHookErrorJSON(w, "retry", callErr.Error())
