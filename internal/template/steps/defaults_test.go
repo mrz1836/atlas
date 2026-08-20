@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/mrz1836/atlas/internal/domain"
+	"github.com/mrz1836/atlas/internal/testutil"
 )
 
 // mockArtifactSaver is a test mock for ArtifactSaver.
@@ -22,7 +23,7 @@ func (m *mockArtifactSaver) SaveVersionedArtifact(_ context.Context, _, _, _ str
 }
 
 func TestNewDefaultRegistry(t *testing.T) {
-	runner := &mockAIRunner{}
+	runner := &testutil.FakeAIRunner{}
 	deps := ExecutorDeps{
 		AIRunner:      runner,
 		WorkDir:       "/tmp/work",
@@ -72,7 +73,7 @@ func TestNewDefaultRegistry_NilAIRunner(t *testing.T) {
 }
 
 func TestNewDefaultRegistry_ExecutorTypes(t *testing.T) {
-	runner := &mockAIRunner{}
+	runner := &testutil.FakeAIRunner{}
 	deps := ExecutorDeps{
 		AIRunner:      runner,
 		WorkDir:       "/tmp/work",
@@ -145,7 +146,7 @@ func TestNewMinimalRegistry_ExecutorTypes(t *testing.T) {
 }
 
 func TestExecutorDeps(t *testing.T) {
-	runner := &mockAIRunner{}
+	runner := &testutil.FakeAIRunner{}
 	saver := &mockArtifactSaver{}
 	deps := ExecutorDeps{
 		AIRunner:      runner,

@@ -14,23 +14,11 @@ import (
 	"github.com/mrz1836/atlas/internal/ai"
 	"github.com/mrz1836/atlas/internal/domain"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
+	"github.com/mrz1836/atlas/internal/testutil"
 )
 
-// mockAIRunner is a mock implementation of ai.Runner for testing.
-type mockAIRunner struct {
-	response *domain.AIResult
-	err      error
-}
-
-func (m *mockAIRunner) Run(_ context.Context, _ *domain.AIRequest) (*domain.AIResult, error) {
-	if m.err != nil {
-		return nil, m.err
-	}
-	return m.response, nil
-}
-
-// Compile-time interface check for mockAIRunner.
-var _ ai.Runner = (*mockAIRunner)(nil)
+// Compile-time interface check for the shared fake AI runner.
+var _ ai.Runner = (*testutil.FakeAIRunner)(nil)
 
 func TestNewSmartCommitRunner(t *testing.T) {
 	// Create a temp git repo
@@ -613,8 +601,8 @@ func TestSmartCommitRunner_GenerateAIMessage_Success(t *testing.T) {
 	gitRunner, err := NewRunner(context.Background(), tmpDir)
 	require.NoError(t, err)
 
-	mockAI := &mockAIRunner{
-		response: &domain.AIResult{
+	mockAI := &testutil.FakeAIRunner{
+		Result: &domain.AIResult{
 			Success: true,
 			Output:  "feat(git): add smart commit functionality",
 		},
@@ -642,8 +630,8 @@ func TestSmartCommitRunner_GenerateAIMessage_AIError(t *testing.T) {
 	gitRunner, err := NewRunner(context.Background(), tmpDir)
 	require.NoError(t, err)
 
-	mockAI := &mockAIRunner{
-		err: atlaserrors.ErrAIError,
+	mockAI := &testutil.FakeAIRunner{
+		Err: atlaserrors.ErrAIError,
 	}
 
 	runner := NewSmartCommitRunner(gitRunner, tmpDir, mockAI)
@@ -668,8 +656,8 @@ func TestSmartCommitRunner_GenerateAIMessage_AIReturnsError(t *testing.T) {
 	gitRunner, err := NewRunner(context.Background(), tmpDir)
 	require.NoError(t, err)
 
-	mockAI := &mockAIRunner{
-		response: &domain.AIResult{
+	mockAI := &testutil.FakeAIRunner{
+		Result: &domain.AIResult{
 			Success: false,
 			Error:   "rate limit exceeded",
 		},
@@ -694,8 +682,8 @@ func TestSmartCommitRunner_GenerateAIMessage_EmptyResponse(t *testing.T) {
 	gitRunner, err := NewRunner(context.Background(), tmpDir)
 	require.NoError(t, err)
 
-	mockAI := &mockAIRunner{
-		response: &domain.AIResult{
+	mockAI := &testutil.FakeAIRunner{
+		Result: &domain.AIResult{
 			Success: true,
 			Output:  "   ", // whitespace only
 		},
@@ -720,8 +708,8 @@ func TestSmartCommitRunner_GenerateAIMessage_InvalidFormat(t *testing.T) {
 	gitRunner, err := NewRunner(context.Background(), tmpDir)
 	require.NoError(t, err)
 
-	mockAI := &mockAIRunner{
-		response: &domain.AIResult{
+	mockAI := &testutil.FakeAIRunner{
+		Result: &domain.AIResult{
 			Success: true,
 			Output:  "This is not a conventional commit message",
 		},
@@ -747,8 +735,8 @@ func TestSmartCommitRunner_GenerateAIMessage_ReturnsFullMessageWithBody(t *testi
 	require.NoError(t, err)
 
 	// AI returns message with subject and synopsis body
-	mockAI := &mockAIRunner{
-		response: &domain.AIResult{
+	mockAI := &testutil.FakeAIRunner{
+		Result: &domain.AIResult{
 			Success: true,
 			Output:  "feat(git): add runner\n\nThis commit adds the runner implementation.",
 		},
@@ -776,8 +764,8 @@ func TestSmartCommitRunner_GenerateAIMessage_StripsCodeBlocks(t *testing.T) {
 	require.NoError(t, err)
 
 	// AI wraps output in markdown code blocks (common with haiku)
-	mockAI := &mockAIRunner{
-		response: &domain.AIResult{
+	mockAI := &testutil.FakeAIRunner{
+		Result: &domain.AIResult{
 			Success: true,
 			Output:  "```\nfeat(git): add smart commit functionality\n\nImplements intelligent commit grouping.\n```",
 		},
@@ -803,8 +791,8 @@ func TestSmartCommitRunner_GenerateAIMessage_StripsPreamble(t *testing.T) {
 	require.NoError(t, err)
 
 	// AI prepends preamble text (common with haiku)
-	mockAI := &mockAIRunner{
-		response: &domain.AIResult{
+	mockAI := &testutil.FakeAIRunner{
+		Result: &domain.AIResult{
 			Success: true,
 			Output:  "Here's the commit message:\nfeat(git): add smart commit functionality",
 		},
@@ -973,8 +961,8 @@ func TestSmartCommitRunner_GenerateCommitMessage_FallbackOnAIError(t *testing.T)
 	require.NoError(t, err)
 
 	// AI runner that always fails
-	mockAI := &mockAIRunner{
-		err: atlaserrors.ErrAIError,
+	mockAI := &testutil.FakeAIRunner{
+		Err: atlaserrors.ErrAIError,
 	}
 
 	runner := NewSmartCommitRunner(gitRunner, tmpDir, mockAI)

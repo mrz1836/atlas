@@ -11,19 +11,8 @@ import (
 	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/domain"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
+	"github.com/mrz1836/atlas/internal/testutil"
 )
-
-// mockAIRunner implements AIRunner for testing.
-type mockAIRunner struct {
-	response *domain.AIResult
-	err      error
-	requests []*domain.AIRequest
-}
-
-func (m *mockAIRunner) Run(_ context.Context, req *domain.AIRequest) (*domain.AIResult, error) {
-	m.requests = append(m.requests, req)
-	return m.response, m.err
-}
 
 func validDiscoveryForAI() *Discovery {
 	return &Discovery{
@@ -52,7 +41,7 @@ func TestNewAIPromoter(t *testing.T) {
 
 	t.Run("creates promoter with runner and config", func(t *testing.T) {
 		t.Parallel()
-		runner := &mockAIRunner{}
+		runner := &testutil.FakeAIRunner{}
 		cfg := &config.AIConfig{
 			Agent: "claude",
 			Model: "sonnet",
@@ -67,7 +56,7 @@ func TestNewAIPromoter(t *testing.T) {
 
 	t.Run("creates promoter with nil config", func(t *testing.T) {
 		t.Parallel()
-		runner := &mockAIRunner{}
+		runner := &testutil.FakeAIRunner{}
 
 		promoter := NewAIPromoter(runner, nil)
 
@@ -88,8 +77,8 @@ func TestAIPromoter_Analyze(t *testing.T) {
 
 	t.Run("successful AI analysis", func(t *testing.T) {
 		t.Parallel()
-		runner := &mockAIRunner{
-			response: &domain.AIResult{
+		runner := &testutil.FakeAIRunner{
+			Result: &domain.AIResult{
 				Success: true,
 				Output: `{
 					"template": "bug",
@@ -116,8 +105,8 @@ func TestAIPromoter_Analyze(t *testing.T) {
 
 	t.Run("AI returns JSON with markdown code block", func(t *testing.T) {
 		t.Parallel()
-		runner := &mockAIRunner{
-			response: &domain.AIResult{
+		runner := &testutil.FakeAIRunner{
+			Result: &domain.AIResult{
 				Success: true,
 				Output: "```json\n" + `{
 					"template": "bug",
@@ -138,8 +127,8 @@ func TestAIPromoter_Analyze(t *testing.T) {
 
 	t.Run("falls back on AI error", func(t *testing.T) {
 		t.Parallel()
-		runner := &mockAIRunner{
-			err: atlaserrors.ErrClaudeInvocation,
+		runner := &testutil.FakeAIRunner{
+			Err: atlaserrors.ErrClaudeInvocation,
 		}
 
 		promoter := NewAIPromoter(runner, nil)
@@ -155,8 +144,8 @@ func TestAIPromoter_Analyze(t *testing.T) {
 
 	t.Run("falls back on AI failure result", func(t *testing.T) {
 		t.Parallel()
-		runner := &mockAIRunner{
-			response: &domain.AIResult{
+		runner := &testutil.FakeAIRunner{
+			Result: &domain.AIResult{
 				Success: false,
 				Error:   "Rate limited",
 			},
@@ -174,8 +163,8 @@ func TestAIPromoter_Analyze(t *testing.T) {
 
 	t.Run("falls back on empty AI output", func(t *testing.T) {
 		t.Parallel()
-		runner := &mockAIRunner{
-			response: &domain.AIResult{
+		runner := &testutil.FakeAIRunner{
+			Result: &domain.AIResult{
 				Success: true,
 				Output:  "",
 			},
@@ -192,8 +181,8 @@ func TestAIPromoter_Analyze(t *testing.T) {
 
 	t.Run("falls back on invalid JSON response", func(t *testing.T) {
 		t.Parallel()
-		runner := &mockAIRunner{
-			response: &domain.AIResult{
+		runner := &testutil.FakeAIRunner{
+			Result: &domain.AIResult{
 				Success: true,
 				Output:  "not valid json",
 			},
@@ -211,8 +200,8 @@ func TestAIPromoter_Analyze(t *testing.T) {
 
 	t.Run("falls back on invalid template in response", func(t *testing.T) {
 		t.Parallel()
-		runner := &mockAIRunner{
-			response: &domain.AIResult{
+		runner := &testutil.FakeAIRunner{
+			Result: &domain.AIResult{
 				Success: true,
 				Output: `{
 					"template": "invalid-template",
@@ -251,8 +240,8 @@ func TestAIPromoter_Analyze_ConfigOverrides(t *testing.T) {
 
 	t.Run("uses config agent and model", func(t *testing.T) {
 		t.Parallel()
-		runner := &mockAIRunner{
-			response: &domain.AIResult{
+		runner := &testutil.FakeAIRunner{
+			Result: &domain.AIResult{
 				Success: true,
 				Output: `{
 					"template": "bug",
@@ -273,15 +262,15 @@ func TestAIPromoter_Analyze_ConfigOverrides(t *testing.T) {
 		_, err := promoter.Analyze(ctx, d, nil)
 		require.NoError(t, err)
 
-		require.Len(t, runner.requests, 1)
-		assert.Equal(t, domain.Agent("gemini"), runner.requests[0].Agent)
-		assert.Equal(t, "flash", runner.requests[0].Model)
+		require.Len(t, runner.Requests, 1)
+		assert.Equal(t, domain.Agent("gemini"), runner.Requests[0].Agent)
+		assert.Equal(t, "flash", runner.Requests[0].Model)
 	})
 
 	t.Run("per-call config overrides global config", func(t *testing.T) {
 		t.Parallel()
-		runner := &mockAIRunner{
-			response: &domain.AIResult{
+		runner := &testutil.FakeAIRunner{
+			Result: &domain.AIResult{
 				Success: true,
 				Output: `{
 					"template": "bug",
@@ -308,16 +297,16 @@ func TestAIPromoter_Analyze_ConfigOverrides(t *testing.T) {
 		_, err := promoter.Analyze(ctx, d, callCfg)
 		require.NoError(t, err)
 
-		require.Len(t, runner.requests, 1)
-		assert.Equal(t, domain.Agent("gemini"), runner.requests[0].Agent)
-		assert.Equal(t, "pro", runner.requests[0].Model)
-		assert.Equal(t, 60*time.Second, runner.requests[0].Timeout)
+		require.Len(t, runner.Requests, 1)
+		assert.Equal(t, domain.Agent("gemini"), runner.Requests[0].Agent)
+		assert.Equal(t, "pro", runner.Requests[0].Model)
+		assert.Equal(t, 60*time.Second, runner.Requests[0].Timeout)
 	})
 
 	t.Run("respects max budget config", func(t *testing.T) {
 		t.Parallel()
-		runner := &mockAIRunner{
-			response: &domain.AIResult{
+		runner := &testutil.FakeAIRunner{
+			Result: &domain.AIResult{
 				Success: true,
 				Output: `{
 					"template": "bug",
@@ -337,8 +326,8 @@ func TestAIPromoter_Analyze_ConfigOverrides(t *testing.T) {
 		_, err := promoter.Analyze(ctx, d, callCfg)
 		require.NoError(t, err)
 
-		require.Len(t, runner.requests, 1)
-		assert.InDelta(t, 0.05, runner.requests[0].MaxBudgetUSD, 0.001)
+		require.Len(t, runner.Requests, 1)
+		assert.InDelta(t, 0.05, runner.Requests[0].MaxBudgetUSD, 0.001)
 	})
 }
 
@@ -587,8 +576,8 @@ func TestAIPromoter_AnalyzeWithFallback(t *testing.T) {
 
 	t.Run("returns AI analysis when successful", func(t *testing.T) {
 		t.Parallel()
-		runner := &mockAIRunner{
-			response: &domain.AIResult{
+		runner := &testutil.FakeAIRunner{
+			Result: &domain.AIResult{
 				Success: true,
 				Output: `{
 					"template": "feature",
@@ -609,8 +598,8 @@ func TestAIPromoter_AnalyzeWithFallback(t *testing.T) {
 
 	t.Run("returns fallback on AI error", func(t *testing.T) {
 		t.Parallel()
-		runner := &mockAIRunner{
-			err: atlaserrors.ErrClaudeInvocation,
+		runner := &testutil.FakeAIRunner{
+			Err: atlaserrors.ErrClaudeInvocation,
 		}
 
 		promoter := NewAIPromoter(runner, nil)
@@ -625,8 +614,8 @@ func TestAIPromoter_AnalyzeWithFallback(t *testing.T) {
 
 	t.Run("never returns nil", func(t *testing.T) {
 		t.Parallel()
-		runner := &mockAIRunner{
-			response: &domain.AIResult{
+		runner := &testutil.FakeAIRunner{
+			Result: &domain.AIResult{
 				Success: false,
 			},
 		}
@@ -677,8 +666,8 @@ func TestAIPromoter_Analyze_PartialJSONResponse(t *testing.T) {
 	ctx := context.Background()
 
 	// AI returns JSON with only required fields (no optional fields)
-	runner := &mockAIRunner{
-		response: &domain.AIResult{
+	runner := &testutil.FakeAIRunner{
+		Result: &domain.AIResult{
 			Success: true,
 			Output: `{
 				"template": "task",
@@ -707,8 +696,8 @@ func TestAIPromoter_Analyze_ExtraFieldsInResponse(t *testing.T) {
 	ctx := context.Background()
 
 	// AI returns JSON with extra fields not in our struct
-	runner := &mockAIRunner{
-		response: &domain.AIResult{
+	runner := &testutil.FakeAIRunner{
+		Result: &domain.AIResult{
 			Success: true,
 			Output: `{
 				"template": "bug",
@@ -795,8 +784,8 @@ func TestAIPromoter_Analyze_WhitespaceHandling(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			runner := &mockAIRunner{
-				response: &domain.AIResult{
+			runner := &testutil.FakeAIRunner{
+				Result: &domain.AIResult{
 					Success: true,
 					Output:  tc.output,
 				},
@@ -900,8 +889,8 @@ func TestAIPromoter_Analyze_NewFields(t *testing.T) {
 
 	t.Run("parses base_branch field", func(t *testing.T) {
 		t.Parallel()
-		runner := &mockAIRunner{
-			response: &domain.AIResult{
+		runner := &testutil.FakeAIRunner{
+			Result: &domain.AIResult{
 				Success: true,
 				Output: `{
 					"template": "bug",
@@ -923,8 +912,8 @@ func TestAIPromoter_Analyze_NewFields(t *testing.T) {
 
 	t.Run("parses use_verify true", func(t *testing.T) {
 		t.Parallel()
-		runner := &mockAIRunner{
-			response: &domain.AIResult{
+		runner := &testutil.FakeAIRunner{
+			Result: &domain.AIResult{
 				Success: true,
 				Output: `{
 					"template": "patch",
@@ -947,8 +936,8 @@ func TestAIPromoter_Analyze_NewFields(t *testing.T) {
 
 	t.Run("parses use_verify false", func(t *testing.T) {
 		t.Parallel()
-		runner := &mockAIRunner{
-			response: &domain.AIResult{
+		runner := &testutil.FakeAIRunner{
+			Result: &domain.AIResult{
 				Success: true,
 				Output: `{
 					"template": "task",
@@ -971,8 +960,8 @@ func TestAIPromoter_Analyze_NewFields(t *testing.T) {
 
 	t.Run("handles missing optional new fields", func(t *testing.T) {
 		t.Parallel()
-		runner := &mockAIRunner{
-			response: &domain.AIResult{
+		runner := &testutil.FakeAIRunner{
+			Result: &domain.AIResult{
 				Success: true,
 				Output: `{
 					"template": "bug",
@@ -994,8 +983,8 @@ func TestAIPromoter_Analyze_NewFields(t *testing.T) {
 
 	t.Run("parses file field", func(t *testing.T) {
 		t.Parallel()
-		runner := &mockAIRunner{
-			response: &domain.AIResult{
+		runner := &testutil.FakeAIRunner{
+			Result: &domain.AIResult{
 				Success: true,
 				Output: `{
 					"template": "bug",
@@ -1017,8 +1006,8 @@ func TestAIPromoter_Analyze_NewFields(t *testing.T) {
 
 	t.Run("parses file and line fields", func(t *testing.T) {
 		t.Parallel()
-		runner := &mockAIRunner{
-			response: &domain.AIResult{
+		runner := &testutil.FakeAIRunner{
+			Result: &domain.AIResult{
 				Success: true,
 				Output: `{
 					"template": "bug",

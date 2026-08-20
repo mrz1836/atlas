@@ -11,10 +11,11 @@ import (
 
 	"github.com/mrz1836/atlas/internal/domain"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
+	"github.com/mrz1836/atlas/internal/testutil"
 )
 
 func TestNewSDDExecutorWithArtifactSaver(t *testing.T) {
-	runner := &mockAIRunner{}
+	runner := &testutil.FakeAIRunner{}
 	saver := newTestArtifactSaver()
 	executor := NewSDDExecutorWithArtifactSaver(runner, saver, "/tmp/worktree", zerolog.Nop())
 
@@ -25,7 +26,7 @@ func TestNewSDDExecutorWithArtifactSaver(t *testing.T) {
 }
 
 func TestSDDExecutor_SetWorkingDir(t *testing.T) {
-	executor := NewSDDExecutorWithArtifactSaver(&mockAIRunner{}, nil, "", zerolog.Nop())
+	executor := NewSDDExecutorWithArtifactSaver(&testutil.FakeAIRunner{}, nil, "", zerolog.Nop())
 	assert.Empty(t, executor.workingDir)
 
 	executor.SetWorkingDir("/path/to/worktree")
@@ -33,7 +34,7 @@ func TestSDDExecutor_SetWorkingDir(t *testing.T) {
 }
 
 func TestSDDExecutor_Type(t *testing.T) {
-	executor := NewSDDExecutorWithArtifactSaver(&mockAIRunner{}, nil, "", zerolog.Nop())
+	executor := NewSDDExecutorWithArtifactSaver(&testutil.FakeAIRunner{}, nil, "", zerolog.Nop())
 
 	assert.Equal(t, domain.StepTypeSDD, executor.Type())
 }
@@ -46,8 +47,8 @@ func TestSDDExecutor_Execute_Success(t *testing.T) {
 	ctx := context.Background()
 	saver := newTestArtifactSaver()
 
-	runner := &mockAIRunner{
-		result: &domain.AIResult{
+	runner := &testutil.FakeAIRunner{
+		Result: &domain.AIResult{
 			Output: "# Specification\nThis is the specification...",
 		},
 	}
@@ -127,8 +128,8 @@ func TestSDDExecutor_Execute_SlashCommandFormat(t *testing.T) {
 			ctx := context.Background()
 			tmpDir := t.TempDir()
 
-			runner := &mockAIRunner{
-				result: &domain.AIResult{Output: "done"},
+			runner := &testutil.FakeAIRunner{
+				Result: &domain.AIResult{Output: "done"},
 			}
 			executor := NewSDDExecutorWithArtifactSaver(runner, nil, tmpDir, zerolog.Nop())
 
@@ -148,8 +149,8 @@ func TestSDDExecutor_Execute_SlashCommandFormat(t *testing.T) {
 			_, err := executor.Execute(ctx, task, step)
 
 			require.NoError(t, err)
-			require.NotNil(t, runner.request)
-			assert.Equal(t, tt.expected, runner.request.Prompt)
+			require.NotNil(t, runner.LastRequest())
+			assert.Equal(t, tt.expected, runner.LastRequest().Prompt)
 		})
 	}
 }
@@ -161,8 +162,8 @@ func TestSDDExecutor_Execute_WorkingDirPassed(t *testing.T) {
 	ctx := context.Background()
 	worktreePath := "/path/to/worktree"
 
-	runner := &mockAIRunner{
-		result: &domain.AIResult{Output: "done"},
+	runner := &testutil.FakeAIRunner{
+		Result: &domain.AIResult{Output: "done"},
 	}
 	executor := NewSDDExecutorWithArtifactSaver(runner, nil, worktreePath, zerolog.Nop())
 
@@ -179,8 +180,8 @@ func TestSDDExecutor_Execute_WorkingDirPassed(t *testing.T) {
 	_, err := executor.Execute(ctx, task, step)
 
 	require.NoError(t, err)
-	require.NotNil(t, runner.request)
-	assert.Equal(t, worktreePath, runner.request.WorkingDir)
+	require.NotNil(t, runner.LastRequest())
+	assert.Equal(t, worktreePath, runner.LastRequest().WorkingDir)
 }
 
 func TestSDDExecutor_Execute_ContextCancellation(t *testing.T) {
@@ -190,7 +191,7 @@ func TestSDDExecutor_Execute_ContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately
 
-	executor := NewSDDExecutorWithArtifactSaver(&mockAIRunner{}, nil, "", zerolog.Nop())
+	executor := NewSDDExecutorWithArtifactSaver(&testutil.FakeAIRunner{}, nil, "", zerolog.Nop())
 	task := &domain.Task{ID: "task-123"}
 	step := &domain.StepDefinition{Name: "sdd", Type: domain.StepTypeSDD}
 
@@ -204,8 +205,8 @@ func TestSDDExecutor_Execute_RunnerError(t *testing.T) {
 	defer ResetSpeckitCheck()
 
 	ctx := context.Background()
-	runner := &mockAIRunner{
-		err: atlaserrors.ErrClaudeInvocation,
+	runner := &testutil.FakeAIRunner{
+		Err: atlaserrors.ErrClaudeInvocation,
 	}
 	executor := NewSDDExecutorWithArtifactSaver(runner, nil, "", zerolog.Nop())
 
@@ -225,8 +226,8 @@ func TestSDDExecutor_Execute_EmptyOutput(t *testing.T) {
 	defer ResetSpeckitCheck()
 
 	ctx := context.Background()
-	runner := &mockAIRunner{
-		result: &domain.AIResult{Output: ""}, // Empty output
+	runner := &testutil.FakeAIRunner{
+		Result: &domain.AIResult{Output: ""}, // Empty output
 	}
 	executor := NewSDDExecutorWithArtifactSaver(runner, nil, "", zerolog.Nop())
 
@@ -252,8 +253,8 @@ func TestSDDExecutor_Execute_SpeckitNotInstalled(t *testing.T) {
 
 	ctx := context.Background()
 	// Must configure a result in case Speckit IS installed, so runner doesn't return nil
-	runner := &mockAIRunner{
-		result: &domain.AIResult{Output: "done"},
+	runner := &testutil.FakeAIRunner{
+		Result: &domain.AIResult{Output: "done"},
 	}
 	executor := NewSDDExecutorWithArtifactSaver(runner, nil, "", zerolog.Nop())
 
@@ -276,8 +277,8 @@ func TestSDDExecutor_Execute_NoArtifactsDir(t *testing.T) {
 	defer ResetSpeckitCheck()
 
 	ctx := context.Background()
-	runner := &mockAIRunner{
-		result: &domain.AIResult{Output: "done"},
+	runner := &testutil.FakeAIRunner{
+		Result: &domain.AIResult{Output: "done"},
 	}
 	executor := NewSDDExecutorWithArtifactSaver(runner, nil, "", zerolog.Nop())
 
@@ -298,8 +299,8 @@ func TestSDDExecutor_Execute_ImplementCommand_NoArtifact(t *testing.T) {
 	ctx := context.Background()
 	tmpDir := t.TempDir()
 
-	runner := &mockAIRunner{
-		result: &domain.AIResult{Output: "Implementation complete"},
+	runner := &testutil.FakeAIRunner{
+		Result: &domain.AIResult{Output: "Implementation complete"},
 	}
 	executor := NewSDDExecutorWithArtifactSaver(runner, nil, tmpDir, zerolog.Nop())
 
@@ -327,8 +328,8 @@ func TestSDDExecutor_Execute_DefaultCommand(t *testing.T) {
 	ctx := context.Background()
 	tmpDir := t.TempDir()
 
-	runner := &mockAIRunner{
-		result: &domain.AIResult{Output: "done"},
+	runner := &testutil.FakeAIRunner{
+		Result: &domain.AIResult{Output: "done"},
 	}
 	executor := NewSDDExecutorWithArtifactSaver(runner, nil, tmpDir, zerolog.Nop())
 
@@ -343,13 +344,13 @@ func TestSDDExecutor_Execute_DefaultCommand(t *testing.T) {
 
 	require.NoError(t, err)
 	// Should default to "specify" with slash command format
-	assert.Equal(t, "/speckit.specify Build it", runner.request.Prompt)
+	assert.Equal(t, "/speckit.specify Build it", runner.LastRequest().Prompt)
 }
 
 func TestSDDExecutor_saveArtifact_SemanticNaming(t *testing.T) {
 	ctx := context.Background()
 	saver := newTestArtifactSaver()
-	executor := NewSDDExecutorWithArtifactSaver(&mockAIRunner{}, saver, "", zerolog.Nop())
+	executor := NewSDDExecutorWithArtifactSaver(&testutil.FakeAIRunner{}, saver, "", zerolog.Nop())
 
 	tests := []struct {
 		command      SDDCommand
@@ -377,7 +378,7 @@ func TestSDDExecutor_saveArtifact_SemanticNaming(t *testing.T) {
 func TestSDDExecutor_saveArtifact_Versioning(t *testing.T) {
 	ctx := context.Background()
 	saver := newTestArtifactSaver()
-	executor := NewSDDExecutorWithArtifactSaver(&mockAIRunner{}, saver, "", zerolog.Nop())
+	executor := NewSDDExecutorWithArtifactSaver(&testutil.FakeAIRunner{}, saver, "", zerolog.Nop())
 	task := &domain.Task{ID: "task-version", WorkspaceID: "test-ws"}
 
 	// Save multiple versions - versioning is now handled by the artifact saver
@@ -395,7 +396,7 @@ func TestSDDExecutor_saveArtifact_Versioning(t *testing.T) {
 
 func TestSDDExecutor_saveArtifact_NoArtifactSaver(t *testing.T) {
 	ctx := context.Background()
-	executor := NewSDDExecutorWithArtifactSaver(&mockAIRunner{}, nil, "", zerolog.Nop()) // No artifact saver
+	executor := NewSDDExecutorWithArtifactSaver(&testutil.FakeAIRunner{}, nil, "", zerolog.Nop()) // No artifact saver
 
 	task := &domain.Task{ID: "task-123", WorkspaceID: "test-ws"}
 	path, err := executor.saveArtifact(ctx, task, SDDCmdSpecify, "content")
@@ -407,7 +408,7 @@ func TestSDDExecutor_saveArtifact_NoArtifactSaver(t *testing.T) {
 func TestSDDExecutor_saveArtifact_UnknownCommand(t *testing.T) {
 	ctx := context.Background()
 	saver := newTestArtifactSaver()
-	executor := NewSDDExecutorWithArtifactSaver(&mockAIRunner{}, saver, "", zerolog.Nop())
+	executor := NewSDDExecutorWithArtifactSaver(&testutil.FakeAIRunner{}, saver, "", zerolog.Nop())
 	task := &domain.Task{ID: "task-123", WorkspaceID: "test-ws"}
 
 	// Unknown command should use timestamp-based naming with SaveArtifact (non-versioned)
@@ -419,7 +420,7 @@ func TestSDDExecutor_saveArtifact_UnknownCommand(t *testing.T) {
 }
 
 func TestSDDExecutor_buildPrompt_AllCommands(t *testing.T) {
-	executor := NewSDDExecutorWithArtifactSaver(&mockAIRunner{}, nil, "", zerolog.Nop())
+	executor := NewSDDExecutorWithArtifactSaver(&testutil.FakeAIRunner{}, nil, "", zerolog.Nop())
 	task := &domain.Task{Description: "Build auth system"}
 
 	tests := []struct {
@@ -449,8 +450,8 @@ func TestSDDExecutor_Execute_MaxTurnsAndTimeout(t *testing.T) {
 	ctx := context.Background()
 	tmpDir := t.TempDir()
 
-	runner := &mockAIRunner{
-		result: &domain.AIResult{Output: "done"},
+	runner := &testutil.FakeAIRunner{
+		Result: &domain.AIResult{Output: "done"},
 	}
 	executor := NewSDDExecutorWithArtifactSaver(runner, nil, tmpDir, zerolog.Nop())
 
@@ -471,10 +472,10 @@ func TestSDDExecutor_Execute_MaxTurnsAndTimeout(t *testing.T) {
 	_, err := executor.Execute(ctx, task, step)
 
 	require.NoError(t, err)
-	require.NotNil(t, runner.request)
-	assert.Equal(t, "opus", runner.request.Model)
-	assert.Equal(t, 15, runner.request.MaxTurns)
-	assert.Equal(t, task.Config.Timeout, runner.request.Timeout)
+	require.NotNil(t, runner.LastRequest())
+	assert.Equal(t, "opus", runner.LastRequest().Model)
+	assert.Equal(t, 15, runner.LastRequest().MaxTurns)
+	assert.Equal(t, task.Config.Timeout, runner.LastRequest().Timeout)
 }
 
 func TestResetSpeckitCheck(t *testing.T) {
@@ -506,8 +507,8 @@ func TestSDDExecutor_Execute_ArtifactSaverCalled(t *testing.T) {
 	ctx := context.Background()
 	saver := newTestArtifactSaver()
 
-	runner := &mockAIRunner{
-		result: &domain.AIResult{Output: "sensitive spec content"},
+	runner := &testutil.FakeAIRunner{
+		Result: &domain.AIResult{Output: "sensitive spec content"},
 	}
 	executor := NewSDDExecutorWithArtifactSaver(runner, saver, "", zerolog.Nop())
 
@@ -573,8 +574,8 @@ func TestSDDExecutor_Execute_StepTimeout(t *testing.T) {
 	ctx := context.Background()
 	tmpDir := t.TempDir()
 
-	runner := &mockAIRunner{
-		result: &domain.AIResult{Output: "done"},
+	runner := &testutil.FakeAIRunner{
+		Result: &domain.AIResult{Output: "done"},
 	}
 	executor := NewSDDExecutorWithArtifactSaver(runner, nil, tmpDir, zerolog.Nop())
 
@@ -603,8 +604,8 @@ func TestSDDExecutor_Execute_ContextCanceledDuringExecution(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	// Create a runner that cancels context during execution
-	runner := &mockAIRunner{
-		result: &domain.AIResult{Output: "done"},
+	runner := &testutil.FakeAIRunner{
+		Result: &domain.AIResult{Output: "done"},
 	}
 	executor := NewSDDExecutorWithArtifactSaver(runner, nil, "", zerolog.Nop())
 

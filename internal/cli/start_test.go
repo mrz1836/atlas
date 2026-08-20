@@ -16,7 +16,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/mrz1836/atlas/internal/ai"
 	"github.com/mrz1836/atlas/internal/backlog"
 	"github.com/mrz1836/atlas/internal/cli/workflow"
 	"github.com/mrz1836/atlas/internal/config"
@@ -25,6 +24,7 @@ import (
 	"github.com/mrz1836/atlas/internal/errors"
 	"github.com/mrz1836/atlas/internal/task"
 	"github.com/mrz1836/atlas/internal/template"
+	"github.com/mrz1836/atlas/internal/testutil"
 	"github.com/mrz1836/atlas/internal/tui"
 	"github.com/mrz1836/atlas/internal/workspace"
 )
@@ -1526,11 +1526,6 @@ func TestApplyAgentModelOverrides(t *testing.T) {
 	}
 }
 
-// mockAIRunner is a simple mock for ai.Runner interface
-type mockAIRunner struct {
-	ai.Runner
-}
-
 // TestCreateValidationRetryHandler tests the createValidationRetryHandler factory function
 func TestCreateValidationRetryHandler(t *testing.T) {
 	tests := []struct {
@@ -1558,7 +1553,7 @@ func TestCreateValidationRetryHandler(t *testing.T) {
 					MaxAIRetryAttempts: 2,
 				},
 			}
-			aiRunner := &mockAIRunner{}
+			aiRunner := &testutil.FakeAIRunner{}
 
 			handler := workflow.CreateValidationRetryHandler(aiRunner, cfg)
 
@@ -2691,7 +2686,7 @@ func TestTerminateAIProcess(t *testing.T) {
 	})
 
 	t.Run("non-terminatable runner does nothing", func(_ *testing.T) {
-		runner := &mockAIRunner{}
+		runner := &testutil.FakeAIRunner{}
 		state := &progressState{aiRunner: runner}
 		// Should not panic
 		terminateAIProcess(state, zerolog.Nop())

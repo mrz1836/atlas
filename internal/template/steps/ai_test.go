@@ -1,6 +1,7 @@
 package steps
 
-// This test suite uses mockAIRunner to simulate AI execution without making real API calls.
+// This test suite uses testutil.FakeAIRunner to simulate AI execution without
+// making real API calls.
 // IMPORTANT: Tests NEVER make real API calls or use production API keys.
 // All AI responses are pre-configured mock data to ensure test isolation.
 
@@ -16,28 +17,12 @@ import (
 	"github.com/mrz1836/atlas/internal/config"
 	"github.com/mrz1836/atlas/internal/domain"
 	atlaserrors "github.com/mrz1836/atlas/internal/errors"
+	"github.com/mrz1836/atlas/internal/testutil"
 	"github.com/mrz1836/atlas/internal/validation"
 )
 
-// mockAIRunner implements ai.Runner for testing without making real API calls.
-// It returns pre-configured results and captures requests for verification.
-// This ensures tests are fast, deterministic, and never require real API keys.
-type mockAIRunner struct {
-	result  *domain.AIResult
-	err     error
-	request *domain.AIRequest
-}
-
-func (m *mockAIRunner) Run(_ context.Context, req *domain.AIRequest) (*domain.AIResult, error) {
-	m.request = req
-	if m.err != nil {
-		return nil, m.err
-	}
-	return m.result, nil
-}
-
 func TestNewAIExecutor(t *testing.T) {
-	runner := &mockAIRunner{}
+	runner := &testutil.FakeAIRunner{}
 	executor := NewAIExecutor(runner, nil, zerolog.Nop())
 
 	require.NotNil(t, executor)
@@ -45,15 +30,15 @@ func TestNewAIExecutor(t *testing.T) {
 }
 
 func TestAIExecutor_Type(t *testing.T) {
-	executor := NewAIExecutor(&mockAIRunner{}, nil, zerolog.Nop())
+	executor := NewAIExecutor(&testutil.FakeAIRunner{}, nil, zerolog.Nop())
 
 	assert.Equal(t, domain.StepTypeAI, executor.Type())
 }
 
 func TestAIExecutor_Execute_Success(t *testing.T) {
 	ctx := context.Background()
-	runner := &mockAIRunner{
-		result: &domain.AIResult{
+	runner := &testutil.FakeAIRunner{
+		Result: &domain.AIResult{
 			Output:       "Implementation complete",
 			SessionID:    "test-session",
 			NumTurns:     5,
@@ -91,7 +76,7 @@ func TestAIExecutor_Execute_ContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately
 
-	executor := NewAIExecutor(&mockAIRunner{}, nil, zerolog.Nop())
+	executor := NewAIExecutor(&testutil.FakeAIRunner{}, nil, zerolog.Nop())
 	task := &domain.Task{ID: "task-123"}
 	step := &domain.StepDefinition{Name: "implement", Type: domain.StepTypeAI}
 
@@ -102,8 +87,8 @@ func TestAIExecutor_Execute_ContextCancellation(t *testing.T) {
 
 func TestAIExecutor_Execute_RunnerError(t *testing.T) {
 	ctx := context.Background()
-	runner := &mockAIRunner{
-		err: atlaserrors.ErrClaudeInvocation,
+	runner := &testutil.FakeAIRunner{
+		Err: atlaserrors.ErrClaudeInvocation,
 	}
 	executor := NewAIExecutor(runner, nil, zerolog.Nop())
 
@@ -120,8 +105,8 @@ func TestAIExecutor_Execute_RunnerError(t *testing.T) {
 
 func TestAIExecutor_Execute_PassesCorrectRequest(t *testing.T) {
 	ctx := context.Background()
-	runner := &mockAIRunner{
-		result: &domain.AIResult{Output: "done"},
+	runner := &testutil.FakeAIRunner{
+		Result: &domain.AIResult{Output: "done"},
 	}
 	executor := NewAIExecutor(runner, nil, zerolog.Nop())
 
@@ -144,18 +129,18 @@ func TestAIExecutor_Execute_PassesCorrectRequest(t *testing.T) {
 	_, err := executor.Execute(ctx, task, step)
 
 	require.NoError(t, err)
-	require.NotNil(t, runner.request)
-	assert.Equal(t, "Fix the null pointer", runner.request.Prompt)
-	assert.Equal(t, "sonnet", runner.request.Model)
-	assert.Equal(t, 10, runner.request.MaxTurns)
-	assert.Equal(t, 5*time.Minute, runner.request.Timeout)
-	assert.Equal(t, "plan", runner.request.PermissionMode)
+	require.NotNil(t, runner.LastRequest())
+	assert.Equal(t, "Fix the null pointer", runner.LastRequest().Prompt)
+	assert.Equal(t, "sonnet", runner.LastRequest().Model)
+	assert.Equal(t, 10, runner.LastRequest().MaxTurns)
+	assert.Equal(t, 5*time.Minute, runner.LastRequest().Timeout)
+	assert.Equal(t, "plan", runner.LastRequest().PermissionMode)
 }
 
 func TestAIExecutor_Execute_StepConfigOverrides(t *testing.T) {
 	ctx := context.Background()
-	runner := &mockAIRunner{
-		result: &domain.AIResult{Output: "done"},
+	runner := &testutil.FakeAIRunner{
+		Result: &domain.AIResult{Output: "done"},
 	}
 	executor := NewAIExecutor(runner, nil, zerolog.Nop())
 
@@ -177,16 +162,16 @@ func TestAIExecutor_Execute_StepConfigOverrides(t *testing.T) {
 	_, err := executor.Execute(ctx, task, step)
 
 	require.NoError(t, err)
-	require.NotNil(t, runner.request)
-	assert.Equal(t, "Analyze this: Base description", runner.request.Prompt)
-	assert.Equal(t, "plan", runner.request.PermissionMode)
-	assert.Equal(t, "sonnet", runner.request.Model)
+	require.NotNil(t, runner.LastRequest())
+	assert.Equal(t, "Analyze this: Base description", runner.LastRequest().Prompt)
+	assert.Equal(t, "plan", runner.LastRequest().PermissionMode)
+	assert.Equal(t, "sonnet", runner.LastRequest().Model)
 }
 
 func TestAIExecutor_Execute_NilStepConfig(t *testing.T) {
 	ctx := context.Background()
-	runner := &mockAIRunner{
-		result: &domain.AIResult{Output: "done"},
+	runner := &testutil.FakeAIRunner{
+		Result: &domain.AIResult{Output: "done"},
 	}
 	executor := NewAIExecutor(runner, nil, zerolog.Nop())
 
@@ -209,8 +194,8 @@ func TestAIExecutor_Execute_NilStepConfig(t *testing.T) {
 
 func TestAIExecutor_Execute_StepTimeout(t *testing.T) {
 	ctx := context.Background()
-	runner := &mockAIRunner{
-		result: &domain.AIResult{Output: "done"},
+	runner := &testutil.FakeAIRunner{
+		Result: &domain.AIResult{Output: "done"},
 	}
 	executor := NewAIExecutor(runner, nil, zerolog.Nop())
 
@@ -231,8 +216,8 @@ func TestAIExecutor_Execute_StepTimeout(t *testing.T) {
 // agent is overridden but model is not specified, the new agent's default model is used
 func TestAIExecutor_Execute_AgentOverrideUsesAgentDefaultModel(t *testing.T) {
 	ctx := context.Background()
-	runner := &mockAIRunner{
-		result: &domain.AIResult{Output: "done"},
+	runner := &testutil.FakeAIRunner{
+		Result: &domain.AIResult{Output: "done"},
 	}
 	executor := NewAIExecutor(runner, nil, zerolog.Nop())
 
@@ -256,18 +241,18 @@ func TestAIExecutor_Execute_AgentOverrideUsesAgentDefaultModel(t *testing.T) {
 	_, err := executor.Execute(ctx, task, step)
 
 	require.NoError(t, err)
-	require.NotNil(t, runner.request)
-	assert.Equal(t, domain.AgentGemini, runner.request.Agent)
+	require.NotNil(t, runner.LastRequest())
+	assert.Equal(t, domain.AgentGemini, runner.LastRequest().Agent)
 	// Should use Gemini's default model, not the task's "opus"
-	assert.Equal(t, domain.AgentGemini.DefaultModel(), runner.request.Model)
+	assert.Equal(t, domain.AgentGemini.DefaultModel(), runner.LastRequest().Model)
 }
 
 // TestAIExecutor_Execute_AgentOverrideWithExplicitModel tests that explicit
 // model is preserved when agent is overridden
 func TestAIExecutor_Execute_AgentOverrideWithExplicitModel(t *testing.T) {
 	ctx := context.Background()
-	runner := &mockAIRunner{
-		result: &domain.AIResult{Output: "done"},
+	runner := &testutil.FakeAIRunner{
+		Result: &domain.AIResult{Output: "done"},
 	}
 	executor := NewAIExecutor(runner, nil, zerolog.Nop())
 
@@ -291,16 +276,16 @@ func TestAIExecutor_Execute_AgentOverrideWithExplicitModel(t *testing.T) {
 	_, err := executor.Execute(ctx, task, step)
 
 	require.NoError(t, err)
-	require.NotNil(t, runner.request)
-	assert.Equal(t, domain.AgentGemini, runner.request.Agent)
-	assert.Equal(t, "pro", runner.request.Model)
+	require.NotNil(t, runner.LastRequest())
+	assert.Equal(t, domain.AgentGemini, runner.LastRequest().Agent)
+	assert.Equal(t, "pro", runner.LastRequest().Model)
 }
 
 func TestAIExecutor_Execute_IncludePreviousErrors(t *testing.T) {
 	t.Run("injects validation errors when flag is set", func(t *testing.T) {
 		ctx := context.Background()
-		runner := &mockAIRunner{
-			result: &domain.AIResult{Output: "fixed"},
+		runner := &testutil.FakeAIRunner{
+			Result: &domain.AIResult{Output: "fixed"},
 		}
 		executor := NewAIExecutor(runner, nil, zerolog.Nop())
 
@@ -341,17 +326,17 @@ func TestAIExecutor_Execute_IncludePreviousErrors(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.Equal(t, "success", result.Status)
-		require.NotNil(t, runner.request)
+		require.NotNil(t, runner.LastRequest())
 		// Verify validation errors were injected into the prompt
-		assert.Contains(t, runner.request.Prompt, "Fix any issues")
-		assert.Contains(t, runner.request.Prompt, "Validation Errors to Fix")
-		assert.Contains(t, runner.request.Prompt, "main.go:10:5")
+		assert.Contains(t, runner.LastRequest().Prompt, "Fix any issues")
+		assert.Contains(t, runner.LastRequest().Prompt, "Validation Errors to Fix")
+		assert.Contains(t, runner.LastRequest().Prompt, "main.go:10:5")
 	})
 
 	t.Run("no injection when no validation errors exist", func(t *testing.T) {
 		ctx := context.Background()
-		runner := &mockAIRunner{
-			result: &domain.AIResult{Output: "done"},
+		runner := &testutil.FakeAIRunner{
+			Result: &domain.AIResult{Output: "done"},
 		}
 		executor := NewAIExecutor(runner, nil, zerolog.Nop())
 
@@ -385,16 +370,16 @@ func TestAIExecutor_Execute_IncludePreviousErrors(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.Equal(t, "success", result.Status)
-		require.NotNil(t, runner.request)
+		require.NotNil(t, runner.LastRequest())
 		// Original prompt should be unchanged
-		assert.Equal(t, "Fix any issues", runner.request.Prompt)
-		assert.NotContains(t, runner.request.Prompt, "Validation Errors to Fix")
+		assert.Equal(t, "Fix any issues", runner.LastRequest().Prompt)
+		assert.NotContains(t, runner.LastRequest().Prompt, "Validation Errors to Fix")
 	})
 
 	t.Run("no injection when flag is not set", func(t *testing.T) {
 		ctx := context.Background()
-		runner := &mockAIRunner{
-			result: &domain.AIResult{Output: "done"},
+		runner := &testutil.FakeAIRunner{
+			Result: &domain.AIResult{Output: "done"},
 		}
 		executor := NewAIExecutor(runner, nil, zerolog.Nop())
 
@@ -429,13 +414,13 @@ func TestAIExecutor_Execute_IncludePreviousErrors(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "success", result.Status)
 		// Prompt should NOT contain validation errors
-		assert.Equal(t, "Fix any issues", runner.request.Prompt)
+		assert.Equal(t, "Fix any issues", runner.LastRequest().Prompt)
 	})
 
 	t.Run("no injection when no previous step results", func(t *testing.T) {
 		ctx := context.Background()
-		runner := &mockAIRunner{
-			result: &domain.AIResult{Output: "done"},
+		runner := &testutil.FakeAIRunner{
+			Result: &domain.AIResult{Output: "done"},
 		}
 		executor := NewAIExecutor(runner, nil, zerolog.Nop())
 
@@ -457,15 +442,15 @@ func TestAIExecutor_Execute_IncludePreviousErrors(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.Equal(t, "success", result.Status)
-		assert.Equal(t, "Fix any issues", runner.request.Prompt)
+		assert.Equal(t, "Fix any issues", runner.LastRequest().Prompt)
 	})
 }
 
 func TestAIExecutor_OperationsConfigPriority(t *testing.T) {
 	t.Run("operations config overrides task defaults", func(t *testing.T) {
 		ctx := context.Background()
-		runner := &mockAIRunner{
-			result: &domain.AIResult{Output: "done"},
+		runner := &testutil.FakeAIRunner{
+			Result: &domain.AIResult{Output: "done"},
 		}
 
 		opsConfig := &config.OperationsConfig{
@@ -495,15 +480,15 @@ func TestAIExecutor_OperationsConfigPriority(t *testing.T) {
 		_, err := executor.Execute(ctx, task, step)
 
 		require.NoError(t, err)
-		assert.Equal(t, domain.Agent("gemini"), runner.request.Agent)
-		assert.Equal(t, "pro", runner.request.Model)
-		assert.Equal(t, 25*time.Minute, runner.request.Timeout)
+		assert.Equal(t, domain.Agent("gemini"), runner.LastRequest().Agent)
+		assert.Equal(t, "pro", runner.LastRequest().Model)
+		assert.Equal(t, 25*time.Minute, runner.LastRequest().Timeout)
 	})
 
 	t.Run("step config overrides operations config", func(t *testing.T) {
 		ctx := context.Background()
-		runner := &mockAIRunner{
-			result: &domain.AIResult{Output: "done"},
+		runner := &testutil.FakeAIRunner{
+			Result: &domain.AIResult{Output: "done"},
 		}
 
 		opsConfig := &config.OperationsConfig{
@@ -535,14 +520,14 @@ func TestAIExecutor_OperationsConfigPriority(t *testing.T) {
 		_, err := executor.Execute(ctx, task, step)
 
 		require.NoError(t, err)
-		assert.Equal(t, domain.Agent("codex"), runner.request.Agent)
-		assert.Equal(t, "o1", runner.request.Model)
+		assert.Equal(t, domain.Agent("codex"), runner.LastRequest().Agent)
+		assert.Equal(t, "o1", runner.LastRequest().Model)
 	})
 
 	t.Run("task defaults used when no operations config", func(t *testing.T) {
 		ctx := context.Background()
-		runner := &mockAIRunner{
-			result: &domain.AIResult{Output: "done"},
+		runner := &testutil.FakeAIRunner{
+			Result: &domain.AIResult{Output: "done"},
 		}
 
 		// No operations config
@@ -565,15 +550,15 @@ func TestAIExecutor_OperationsConfigPriority(t *testing.T) {
 		_, err := executor.Execute(ctx, task, step)
 
 		require.NoError(t, err)
-		assert.Equal(t, domain.Agent("claude"), runner.request.Agent)
-		assert.Equal(t, "opus", runner.request.Model)
-		assert.Equal(t, 45*time.Minute, runner.request.Timeout)
+		assert.Equal(t, domain.Agent("claude"), runner.LastRequest().Agent)
+		assert.Equal(t, "opus", runner.LastRequest().Model)
+		assert.Equal(t, 45*time.Minute, runner.LastRequest().Timeout)
 	})
 
 	t.Run("operations config permission_mode is applied", func(t *testing.T) {
 		ctx := context.Background()
-		runner := &mockAIRunner{
-			result: &domain.AIResult{Output: "done"},
+		runner := &testutil.FakeAIRunner{
+			Result: &domain.AIResult{Output: "done"},
 		}
 
 		opsConfig := &config.OperationsConfig{
@@ -599,13 +584,13 @@ func TestAIExecutor_OperationsConfigPriority(t *testing.T) {
 		_, err := executor.Execute(ctx, task, step)
 
 		require.NoError(t, err)
-		assert.Equal(t, "plan", runner.request.PermissionMode)
+		assert.Equal(t, "plan", runner.LastRequest().PermissionMode)
 	})
 
 	t.Run("agent change without model uses agent default", func(t *testing.T) {
 		ctx := context.Background()
-		runner := &mockAIRunner{
-			result: &domain.AIResult{Output: "done"},
+		runner := &testutil.FakeAIRunner{
+			Result: &domain.AIResult{Output: "done"},
 		}
 
 		opsConfig := &config.OperationsConfig{
@@ -633,15 +618,15 @@ func TestAIExecutor_OperationsConfigPriority(t *testing.T) {
 		_, err := executor.Execute(ctx, task, step)
 
 		require.NoError(t, err)
-		assert.Equal(t, domain.Agent("gemini"), runner.request.Agent)
+		assert.Equal(t, domain.Agent("gemini"), runner.LastRequest().Agent)
 		// Should use gemini's default model
-		assert.Equal(t, domain.Agent("gemini").DefaultModel(), runner.request.Model)
+		assert.Equal(t, domain.Agent("gemini").DefaultModel(), runner.LastRequest().Model)
 	})
 
 	t.Run("injects CI failure context from detect step", func(t *testing.T) {
 		ctx := context.Background()
-		runner := &mockAIRunner{
-			result: &domain.AIResult{Output: "fixed"},
+		runner := &testutil.FakeAIRunner{
+			Result: &domain.AIResult{Output: "fixed"},
 		}
 		executor := NewAIExecutor(runner, nil, zerolog.Nop())
 
@@ -674,9 +659,9 @@ func TestAIExecutor_OperationsConfigPriority(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.Equal(t, "success", result.Status)
-		require.NotNil(t, runner.request)
-		assert.Contains(t, runner.request.Prompt, "CI Failure Context")
-		assert.Contains(t, runner.request.Prompt, "CI / lint")
-		assert.Contains(t, runner.request.Prompt, "PR #23")
+		require.NotNil(t, runner.LastRequest())
+		assert.Contains(t, runner.LastRequest().Prompt, "CI Failure Context")
+		assert.Contains(t, runner.LastRequest().Prompt, "CI / lint")
+		assert.Contains(t, runner.LastRequest().Prompt, "PR #23")
 	})
 }

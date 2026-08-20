@@ -16,7 +16,8 @@ import (
 	"github.com/mrz1836/atlas/internal/git"
 )
 
-// mockAIRunner implements ai.Runner for testing verification.
+// mockVerifyRunner implements ai.Runner for testing verification, returning a
+// passing verification result by default unless runFunc overrides it.
 type mockVerifyRunner struct {
 	runFunc func(ctx context.Context, req *domain.AIRequest) (*domain.AIResult, error)
 }
