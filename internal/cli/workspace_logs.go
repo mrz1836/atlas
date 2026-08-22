@@ -410,8 +410,6 @@ func outputLogsJSON(w io.Writer, lines [][]byte) error {
 }
 
 // outputLogsFormatted outputs log lines with formatting and colors.
-//
-//nolint:unparam // error return is for interface consistency
 func outputLogsFormatted(w io.Writer, lines [][]byte) error {
 	styles := newLogStyles()
 

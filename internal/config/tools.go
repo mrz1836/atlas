@@ -54,8 +54,6 @@ var (
 )
 
 // ToolStatus represents the installation status of an external tool.
-//
-//nolint:recvcheck // UnmarshalJSON requires pointer receiver per json.Unmarshaler interface
 type ToolStatus int
 
 const (
