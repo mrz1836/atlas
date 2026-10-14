@@ -52,7 +52,7 @@ require (
 	github.com/erikgeiser/coninput v0.0.0-20211004153227-1c3628e74d0f // indirect
 	github.com/fsnotify/fsnotify v1.10.1 // indirect
 	github.com/gomodule/redigo v1.9.3 // indirect
-	github.com/google/pprof v0.0.0-20261008003335-7bae8d8c4c9e // indirect
+	github.com/google/pprof v0.0.0-20261014150452-c3b4e57cab2c // indirect
 	github.com/gorilla/css v1.0.1 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/lucasb-eyer/go-colorful v1.4.1 // indirect
@@ -78,8 +78,8 @@ require (
 	github.com/yuin/goldmark-emoji v1.0.6 // indirect
 	github.com/yuin/gopher-lua v1.1.2 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
-	golang.org/x/net v0.60.0 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20261005182115-fad411399dd8 // indirect
+	golang.org/x/net v0.61.0 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20261012220534-4341edf3f941 // indirect
 	google.golang.org/grpc v1.84.0 // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
 )
