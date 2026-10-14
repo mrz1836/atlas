@@ -99,15 +99,18 @@ func (e *StreamingExecutor) Execute(ctx context.Context, cmd *exec.Cmd) ([]byte,
 	// spawned child cannot be orphaned or hang the stdout/stderr readers below.
 	prepareCommand(cmd)
 
-	// Start the command
-	if startErr := cmd.Start(); startErr != nil {
+	// Start the command and track it for termination under the same lock, so a
+	// concurrent TerminateProcess cannot run after the process spawns but before
+	// it is tracked — and silently do nothing.
+	e.processMu.Lock()
+	startErr := cmd.Start()
+	if startErr == nil {
+		e.runningProcess = cmd.Process
+	}
+	e.processMu.Unlock()
+	if startErr != nil {
 		return nil, nil, startErr
 	}
-
-	// Track the running process for termination
-	e.processMu.Lock()
-	e.runningProcess = cmd.Process
-	e.processMu.Unlock()
 
 	// Start synthetic progress in background if no real activity
 	e.startSyntheticProgress(ctx)
@@ -210,8 +213,8 @@ func (e *StreamingExecutor) TerminateProcess() error {
 
 		// Also try to check if process is still alive by sending signal 0
 		if err := proc.Signal(syscall.Signal(0)); err != nil {
-			// Process no longer exists
-			return err
+			// Process no longer exists - this is success for termination
+			return nil //nolint:nilerr // Process already finished is success for termination
 		}
 
 		time.Sleep(100 * time.Millisecond)

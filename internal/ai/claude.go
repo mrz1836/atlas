@@ -63,15 +63,18 @@ func (e *DefaultExecutor) Execute(_ context.Context, cmd *exec.Cmd) ([]byte, []b
 	// spawned child cannot be orphaned or hang cmd.Wait.
 	prepareCommand(cmd)
 
-	// Start the command
-	if err := cmd.Start(); err != nil {
-		return nil, nil, err
-	}
-
-	// Track the running process for termination
+	// Start the command and track it for termination under the same lock, so a
+	// concurrent TerminateProcess cannot run after the process spawns but before
+	// it is tracked — and silently do nothing.
 	e.processMu.Lock()
-	e.runningProcess = cmd.Process
+	startErr := cmd.Start()
+	if startErr == nil {
+		e.runningProcess = cmd.Process
+	}
 	e.processMu.Unlock()
+	if startErr != nil {
+		return nil, nil, startErr
+	}
 
 	// Wait for command completion
 	err := cmd.Wait()
