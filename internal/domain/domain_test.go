@@ -40,7 +40,7 @@ const (
     "created_at": "2025-12-27T10:00:00Z",
     "updated_at": "2025-12-27T10:05:00Z",
     "config": {
-        "model": "claude-sonnet-4-20250514",
+        "model": "claude-sonnet-5-5",
         "max_turns": 10
     },
     "schema_version": "1.0"
@@ -92,7 +92,7 @@ func TestTask_JSONSerialization(t *testing.T) {
 		CreatedAt: now,
 		UpdatedAt: later,
 		Config: TaskConfig{
-			Model:    "claude-sonnet-4-20250514",
+			Model:    "claude-sonnet-5-5",
 			MaxTurns: 10,
 		},
 		SchemaVersion: "1.0",
@@ -208,7 +208,7 @@ func TestTemplate_JSONSerialization(t *testing.T) {
 		Name:         "bugfix",
 		Description:  "Fix a reported bug",
 		BranchPrefix: "fix/",
-		DefaultModel: "claude-sonnet-4-20250514",
+		DefaultModel: "claude-sonnet-5-5",
 		Steps: []StepDefinition{
 			{
 				Name:        "analyze",
@@ -264,7 +264,7 @@ func TestAIRequest_JSONSerialization(t *testing.T) {
 	req := AIRequest{
 		Prompt:         "Fix the null pointer in parseConfig",
 		Context:        "This is a Go project",
-		Model:          "claude-sonnet-4-20250514",
+		Model:          "claude-sonnet-5-5",
 		MaxTurns:       10,
 		Timeout:        30 * time.Minute,
 		PermissionMode: "plan",
@@ -590,7 +590,7 @@ func TestDeserializeExampleWorkspaceJSON(t *testing.T) {
 // TestTaskConfig_JSONSerialization verifies TaskConfig marshals to JSON with snake_case keys.
 func TestTaskConfig_JSONSerialization(t *testing.T) {
 	cfg := TaskConfig{
-		Model:          "claude-sonnet-4-20250514",
+		Model:          "claude-sonnet-5-5",
 		MaxTurns:       15,
 		Timeout:        30 * time.Minute,
 		PermissionMode: "plan",
@@ -697,7 +697,7 @@ func TestTemplate_Clone(t *testing.T) {
 		Description:  "Add new feature",
 		BranchPrefix: "feat/",
 		DefaultAgent: AgentClaude,
-		DefaultModel: "claude-sonnet-4-20250514",
+		DefaultModel: "claude-sonnet-5-5",
 		Steps: []StepDefinition{
 			{
 				Name:        "implement",

@@ -50,7 +50,7 @@ func (s StepType) String() string {
 //	    "name": "bugfix",
 //	    "description": "Fix a reported bug",
 //	    "branch_prefix": "fix/",
-//	    "default_model": "claude-sonnet-4-20250514",
+//	    "default_model": "claude-sonnet-5-5",
 //	    "steps": [...],
 //	    "validation_commands": ["magex lint", "magex test"]
 //	}

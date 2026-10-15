@@ -781,14 +781,14 @@ func TestDetectDiscoverer(t *testing.T) {
 	t.Run("flag mode with CLAUDE_CODE returns Claude format", func(t *testing.T) {
 		clearDiscovererEnvVars()
 		_ = os.Setenv("CLAUDE_CODE", "1")
-		_ = os.Setenv("ANTHROPIC_MODEL", "claude-sonnet-4")
+		_ = os.Setenv("ANTHROPIC_MODEL", "claude-sonnet-5-5")
 		defer func() {
 			_ = os.Unsetenv("CLAUDE_CODE")
 			_ = os.Unsetenv("ANTHROPIC_MODEL")
 		}()
 
 		result := detectDiscoverer(ctx, tmpDir, false)
-		assert.Equal(t, "ai:claude-code:claude-sonnet-4", result)
+		assert.Equal(t, "ai:claude-code:claude-sonnet-5-5", result)
 	})
 
 	t.Run("flag mode with ANTHROPIC_API_KEY returns Claude format", func(t *testing.T) {

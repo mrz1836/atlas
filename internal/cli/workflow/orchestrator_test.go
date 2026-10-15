@@ -780,7 +780,7 @@ func TestApplyVerifyOverrides_VerifyModelPropagation(t *testing.T) {
 					Type:     domain.StepTypeVerify,
 					Required: true,
 					Config: map[string]any{
-						"model": "sonnet-4", // Existing model
+						"model": "claude-sonnet-5-5", // Existing model
 					},
 				},
 			},
@@ -789,8 +789,8 @@ func TestApplyVerifyOverrides_VerifyModelPropagation(t *testing.T) {
 		ApplyVerifyOverrides(tmpl, true, false)
 
 		// Existing model should be preserved
-		if model, ok := tmpl.Steps[0].Config["model"].(string); !ok || model != "sonnet-4" {
-			t.Errorf("expected model to remain 'sonnet-4', got %v", model)
+		if model, ok := tmpl.Steps[0].Config["model"].(string); !ok || model != "claude-sonnet-5-5" {
+			t.Errorf("expected model to remain 'claude-sonnet-5-5', got %v", model)
 		}
 	})
 }

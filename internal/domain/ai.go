@@ -11,7 +11,7 @@ import "time"
 //	{
 //	    "prompt": "Fix the null pointer in parseConfig",
 //	    "context": "This is a Go project using...",
-//	    "model": "claude-sonnet-4-20250514",
+//	    "model": "claude-sonnet-5-5",
 //	    "max_turns": 10,
 //	    "timeout": "30m",
 //	    "permission_mode": "plan",

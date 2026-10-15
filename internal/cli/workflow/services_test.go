@@ -249,7 +249,7 @@ func TestGitConfig(t *testing.T) {
 	t.Run("struct fields exist and are accessible", func(t *testing.T) {
 		gitCfg := GitConfig{
 			CommitAgent:         "claude",
-			CommitModel:         "sonnet-4",
+			CommitModel:         "claude-sonnet-5-5",
 			CommitTimeout:       30000000000,
 			CommitMaxRetries:    3,
 			CommitBackoffFactor: 2.0,
@@ -258,7 +258,7 @@ func TestGitConfig(t *testing.T) {
 		}
 
 		assert.Equal(t, "claude", gitCfg.CommitAgent)
-		assert.Equal(t, "sonnet-4", gitCfg.CommitModel)
+		assert.Equal(t, "claude-sonnet-5-5", gitCfg.CommitModel)
 		assert.Equal(t, int64(30000000000), int64(gitCfg.CommitTimeout))
 		assert.Equal(t, 3, gitCfg.CommitMaxRetries)
 		assert.InDelta(t, 2.0, gitCfg.CommitBackoffFactor, 0.01)
