@@ -85,7 +85,7 @@ func (p *DryRunPresenter) Plan(task *domain.Task, step *domain.StepDefinition) *
 // planAI generates a plan for AI step execution.
 func (p *DryRunPresenter) planAI(plan *DryRunPlan, task *domain.Task, step *domain.StepDefinition) {
 	// Extract model from step config or template
-	model := "claude-sonnet-4-20250514" // default
+	model := "claude-sonnet-5-5" // default
 	if m, ok := step.Config["model"].(string); ok && m != "" {
 		model = m
 	}
@@ -237,7 +237,7 @@ func (p *DryRunPresenter) planCI(plan *DryRunPlan, _ *domain.Task, _ *domain.Ste
 
 // planVerify generates a plan for verification step execution.
 func (p *DryRunPresenter) planVerify(plan *DryRunPlan, _ *domain.Task, step *domain.StepDefinition) {
-	model := "claude-sonnet-4-20250514"
+	model := "claude-sonnet-5-5"
 	if m, ok := step.Config["model"].(string); ok && m != "" {
 		model = m
 	}
