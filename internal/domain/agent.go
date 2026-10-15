@@ -48,7 +48,7 @@ var agentConfigs = map[Agent]agentConfig{ //nolint:gochecknoglobals // Central c
 		tool:      "claude",
 		aliases:   []string{"sonnet", "opus", "haiku"},
 		resolution: map[string]string{
-			"sonnet": "claude-sonnet-5",
+			"sonnet": "claude-sonnet-5-5",
 			"opus":   "claude-opus-5",
 			"haiku":  "claude-haiku-4-5-20251001",
 		},

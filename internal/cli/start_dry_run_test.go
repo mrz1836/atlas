@@ -400,7 +400,7 @@ func TestDryRunResponse_Types(t *testing.T) {
 				Required:    true,
 				Status:      "would_execute",
 				WouldDo:     []string{"Execute AI"},
-				Config:      map[string]any{"model": "claude-sonnet-4-20250514"},
+				Config:      map[string]any{"model": "claude-sonnet-5-5"},
 			},
 		},
 		Summary: dryRunSummary{

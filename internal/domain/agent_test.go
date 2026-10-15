@@ -114,10 +114,10 @@ func TestAgent_ResolveModelAlias(t *testing.T) {
 		want  string
 	}{
 		// Claude aliases
-		{"claude sonnet resolves", AgentClaude, "sonnet", "claude-sonnet-5"},
+		{"claude sonnet resolves", AgentClaude, "sonnet", "claude-sonnet-5-5"},
 		{"claude opus resolves", AgentClaude, "opus", "claude-opus-5"},
 		{"claude haiku resolves", AgentClaude, "haiku", "claude-haiku-4-5-20251001"},
-		{"claude full name passes through", AgentClaude, "claude-sonnet-5", "claude-sonnet-5"},
+		{"claude full name passes through", AgentClaude, "claude-sonnet-5-5", "claude-sonnet-5-5"},
 		{"claude unknown passes through", AgentClaude, "custom-model", "custom-model"},
 
 		// Gemini aliases

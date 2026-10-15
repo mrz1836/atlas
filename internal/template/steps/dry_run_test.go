@@ -389,7 +389,7 @@ func TestDryRunPresenter_Plan_DefaultValues(t *testing.T) {
 			Type: domain.StepTypeAI,
 		})
 		// Model should default if not in config
-		assert.Contains(t, plan.WouldDo[0], "claude-sonnet-4-20250514")
+		assert.Contains(t, plan.WouldDo[0], "claude-sonnet-5-5")
 	})
 
 	t.Run("Git PR defaults to main base branch", func(t *testing.T) {

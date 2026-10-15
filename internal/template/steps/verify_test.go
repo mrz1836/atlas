@@ -245,7 +245,7 @@ func TestVerifyExecutor_Execute_ModelOverride(t *testing.T) {
 		Description: "Test task",
 		CurrentStep: 0,
 		Config: domain.TaskConfig{
-			Model: "claude-sonnet-4", // Default model
+			Model: "claude-sonnet-5-5", // Default model
 		},
 	}
 
@@ -877,7 +877,7 @@ func TestVerifyExecutor_CompleteWorkflow(t *testing.T) {
 		Description: "Implement user login feature",
 		CurrentStep: 2,
 		Config: domain.TaskConfig{
-			Model: "claude-sonnet-4",
+			Model: "claude-sonnet-5-5",
 		},
 	}
 
