@@ -305,7 +305,7 @@ Showing what would happen without making changes.
 
 [1/9] ai Step: 'analyze'
       Would:
-        - Execute AI with model: claude-sonnet-4-20250514
+        - Execute AI with model: claude-sonnet-5-5
         - Prompt: "fix null pointer in parseConfig"
 ...
 
@@ -860,7 +860,7 @@ Location:   config/parser.go:47
 Tags:       config, error-handling
 
 Discovered: 2026-01-18 14:32:15 UTC
-By:         ai:claude-code:claude-sonnet-4
+By:         ai:claude-code:claude-sonnet-5-5
 During:     task-20260118-143022
 Git:        feat/auth-refactor @ 7b3f1a2
 ```

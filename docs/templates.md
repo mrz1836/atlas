@@ -442,19 +442,19 @@ Update an existing PR description based on new changes.
 | Step Type | Recommended Model | Rationale |
 |-----------|------------------|-----------|
 | Deep Analysis | `claude-opus-4-5` + ultrathink | Complex architecture, critical decisions |
-| Analysis | `claude-sonnet-4-5` | Good reasoning, cost-effective |
-| Specification | `claude-sonnet-4-5` | Creativity + precision |
-| Planning | `claude-sonnet-4-5` | Strategic thinking |
-| Implementation | `claude-sonnet-4-5` | Best coding model |
+| Analysis | `claude-sonnet-5-5` | Good reasoning, cost-effective |
+| Specification | `claude-sonnet-5-5` | Creativity + precision |
+| Planning | `claude-sonnet-5-5` | Strategic thinking |
+| Implementation | `claude-sonnet-5-5` | Best coding model |
 | Commit messages | `claude-haiku-4-5` or `gemini-3-flash` | Simple task, speed |
-| PR descriptions | `claude-sonnet-4-5` | Good summarization |
+| PR descriptions | `claude-sonnet-5-5` | Good summarization |
 
 **Extended Thinking (Ultrathink):**
 - Use for Opus 4.5 on architecture decisions
 - Budget tokens: 32k+ for complex multi-step reasoning
 
 **Fallback Strategy:**
-- Primary: Claude Sonnet 4.5 (best coding)
+- Primary: Claude Sonnet 5.5 (best coding)
 - Deep thinking: Claude Opus 4.5 + ultrathink
 - Fallback: Gemini 3 Pro (when Claude unavailable)
 - Fast/cheap: Haiku 4.5 or Gemini 3 Flash
@@ -464,7 +464,7 @@ Update an existing PR description based on new changes.
 | Provider | Model | Model ID | Use Case |
 |----------|-------|----------|----------|
 | Claude | Opus 4.5 | `claude-opus-4-5-20251101` | Deep thinking + ultrathink |
-| Claude | Sonnet 4.5 | `claude-sonnet-4-5-20250916` | Default, best coding |
+| Claude | Sonnet 5.5 | `claude-sonnet-5-5` | Default, best coding |
 | Claude | Haiku 4.5 | `claude-haiku-4-5-20251015` | Fast, cheap |
 | Gemini | 3 Pro | `gemini-3-pro-preview` | Complex reasoning fallback |
 | Gemini | 3 Flash | `gemini-3-flash-preview` | Fast fallback |
@@ -561,7 +561,7 @@ Global configuration in `~/.atlas/config.yaml`:
 model:
   primary:
     provider: claude
-    model: claude-sonnet-4-5-20250916
+    model: claude-sonnet-5-5
     api_key_env: ANTHROPIC_API_KEY
   fallback:
     provider: gemini

@@ -191,7 +191,7 @@ Template config overrides in `.atlas/config.yaml`:
 templates:
   bugfix:
     branch_prefix: "fix"
-    model: claude-sonnet-4-5-20250916
+    model: claude-sonnet-5-5
   feature:
     branch_prefix: "feat"
     model: claude-opus-4-5-20251101
