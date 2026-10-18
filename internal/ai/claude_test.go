@@ -879,8 +879,9 @@ func TestDefaultExecutor_TerminateProcess_RunningProcess(t *testing.T) {
 
 	// Wait for execution to complete (should be quick after termination)
 	select {
-	case <-done:
-		// Process was terminated successfully
+	case err := <-done:
+		// The killed process exits by signal, so Execute reports an error
+		require.Error(t, err)
 	case <-time.After(5 * time.Second):
 		t.Error("Process termination took too long")
 	}
@@ -939,7 +940,7 @@ func TestDefaultExecutor_TracksRunningProcess(t *testing.T) {
 	assert.Positive(t, pid)
 
 	// Wait for completion
-	<-done
+	require.NoError(t, <-done)
 
 	// After completion, process should be cleared
 	executor.processMu.Lock()
