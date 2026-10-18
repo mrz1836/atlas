@@ -855,8 +855,11 @@ func TestStreamingExecutor_TerminateProcess_RunningProcess(t *testing.T) {
 
 	// Wait for execution to complete (should be quick after termination)
 	select {
-	case <-done:
-		// Process was terminated successfully
+	case err := <-done:
+		// The killed process exits by signal, so Execute reports an error
+		if err == nil {
+			t.Error("Execute() error = nil, want error from terminated process")
+		}
 	case <-time.After(5 * time.Second):
 		t.Error("Process termination took too long")
 	}
@@ -913,8 +916,11 @@ func TestStreamingExecutor_TerminateProcess_BlocksUntilComplete(t *testing.T) {
 
 	// After TerminateProcess returns, Execute() should complete quickly
 	select {
-	case <-done:
-		// Process was terminated successfully
+	case err := <-done:
+		// The killed process exits by signal, so Execute reports an error
+		if err == nil {
+			t.Error("Execute() error = nil, want error from terminated process")
+		}
 	case <-time.After(5 * time.Second):
 		t.Error("Execute() did not return after TerminateProcess")
 	}
@@ -958,7 +964,9 @@ func TestStreamingExecutor_GetRunningPID(t *testing.T) {
 	}
 
 	// Wait for completion
-	<-done
+	if err := <-done; err != nil {
+		t.Errorf("Execute() error = %v, want nil", err)
+	}
 
 	// After completion, PID should be 0 again
 	if pid := executor.GetRunningPID(); pid != 0 {

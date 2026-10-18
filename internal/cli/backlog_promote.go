@@ -463,41 +463,41 @@ func runBacklogPromoteInteractive(ctx context.Context, cmd *cobra.Command, w io.
 		return fmt.Errorf("selection failed: %w", err)
 	}
 
-	// Ask about AI mode (unless already specified via flag)
-	useAI := opts.ai
-	if !opts.ai {
-		useAI, err = tui.Confirm("Use AI to determine optimal task configuration?", false)
-		if err != nil {
-			if errors.Is(err, tui.ErrMenuCanceled) {
-				out.Info("Promotion canceled.")
-				return nil
-			}
-			return fmt.Errorf("confirmation failed: %w", err)
+	// Ask about AI mode and template override (unless already specified via flags)
+	promoteOpts, err := promptPromoteMode(opts)
+	if err != nil {
+		if errors.Is(err, tui.ErrMenuCanceled) {
+			out.Info("Promotion canceled.")
+			return nil
 		}
-	}
-
-	// If not using AI, optionally select template override
-	templateOverride := opts.template
-	if !useAI && templateOverride == "" {
-		templateOverride, err = selectTemplateOverride()
-		if err != nil {
-			if errors.Is(err, tui.ErrMenuCanceled) {
-				out.Info("Promotion canceled.")
-				return nil
-			}
-			return fmt.Errorf("template selection failed: %w", err)
-		}
-	}
-
-	// Build options for promotion
-	promoteOpts := opts
-	promoteOpts.ai = useAI
-	if templateOverride != "" {
-		promoteOpts.template = templateOverride
+		return err
 	}
 
 	// Execute promotion with selected ID
 	return runBacklogPromote(ctx, cmd, w, selectedID, promoteOpts)
+}
+
+// promptPromoteMode asks whether to use AI (unless already specified via flag)
+// and, when not using AI, optionally selects a template override.
+// Returned errors wrap tui.ErrMenuCanceled if the user cancels a prompt.
+func promptPromoteMode(opts promoteOptions) (promoteOptions, error) {
+	if !opts.ai {
+		useAI, err := tui.Confirm("Use AI to determine optimal task configuration?", false)
+		if err != nil {
+			return opts, fmt.Errorf("confirmation failed: %w", err)
+		}
+		opts.ai = useAI
+	}
+
+	if !opts.ai && opts.template == "" {
+		templateOverride, err := selectTemplateOverride()
+		if err != nil {
+			return opts, fmt.Errorf("template selection failed: %w", err)
+		}
+		opts.template = templateOverride
+	}
+
+	return opts, nil
 }
 
 // buildDiscoveryOptions builds TUI options from discoveries.

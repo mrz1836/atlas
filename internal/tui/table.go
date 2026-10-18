@@ -1045,7 +1045,8 @@ func (t *HierarchicalStatusTable) renderTaskRow(w io.Writer, task TaskInfo, isLa
 		percent = (task.CurrentStep * 100) / task.TotalSteps
 	}
 
-	//exhaustive:ignore // All non-active/non-completed states show percentage
+	// All non-active/non-completed states show percentage
+	//exhaustive:ignore
 	switch task.Status {
 	case constants.TaskStatusCompleted:
 		// Clean text for completed - no visual noise
