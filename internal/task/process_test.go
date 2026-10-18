@@ -183,8 +183,9 @@ func TestProcessManager_TerminateProcesses(t *testing.T) {
 		}()
 
 		select {
-		case <-done:
-			// Process exited successfully
+		case err := <-done:
+			// The terminated process exits by signal, so Wait reports an error
+			require.Error(t, err)
 		case <-time.After(1 * time.Second):
 			t.Fatal("process did not exit within timeout")
 		}
@@ -209,8 +210,9 @@ func TestProcessManager_TerminateProcesses(t *testing.T) {
 		}()
 
 		select {
-		case <-done:
-			// Process exited successfully
+		case err := <-done:
+			// The terminated process exits by signal, so Wait reports an error
+			require.Error(t, err)
 		case <-time.After(1 * time.Second):
 			t.Fatal("process did not exit within timeout")
 		}
@@ -260,8 +262,9 @@ func TestProcessManager_TerminateProcesses(t *testing.T) {
 		}()
 
 		select {
-		case <-done:
-			// Process exited successfully
+		case err := <-done:
+			// The terminated process exits by signal, so Wait reports an error
+			require.Error(t, err)
 		case <-time.After(1 * time.Second):
 			t.Fatal("alive process did not exit within timeout")
 		}
