@@ -116,8 +116,8 @@ github.com/microcosm-cc/bluemonday v1.0.27 h1:MpEUotklkwCSLeH+Qdx1VJgNqLlpY2KXwX
 github.com/microcosm-cc/bluemonday v1.0.27/go.mod h1:jFi9vgW+H7c3V0lb6nR74Ib/DIB5OBs92Dimizgw2cA=
 github.com/mitchellh/hashstructure/v2 v2.0.2 h1:vGKWl0YJqUNxE8d+h8f6NJLcCJrgbhC4NcD46KavDd4=
 github.com/mitchellh/hashstructure/v2 v2.0.2/go.mod h1:MG3aRVU/N29oo/V/IhBX8GR/zz4kQkprJgF2EVszyDE=
-github.com/mrz1836/go-cache v1.2.1 h1:XNKo2kK8/UX8oFbHn+CxNsDfdlJx5TIzkxp7CNS4FH0=
-github.com/mrz1836/go-cache v1.2.1/go.mod h1:/F7BlDaLDH1oNP8fqH6m/gFEX2nHV/J499oUTGztQcs=
+github.com/mrz1836/go-cache v1.2.2 h1:C9MgX4Ru7t1mVZwRZh7IWwF01iNbPCeAJKz1B+N2ttI=
+github.com/mrz1836/go-cache v1.2.2/go.mod h1:vkK32uk8oZMz5wrafgb1RimEltsAh/cNPlG5rqT46uE=
 github.com/mrz1836/go-selfupdate v0.1.4 h1:WXlZShndYe7GROnVufKJOeFPvnQrNyU5fTTdUQFGGpQ=
 github.com/mrz1836/go-selfupdate v0.1.4/go.mod h1:yREEv9yuDdiZ/inozWcfD39dNATgtEr7wpcszmbxupw=
 github.com/muesli/ansi v0.0.0-20230316100256-276c6243b2f6 h1:ZK8zHtRHOkbHy6Mmr5D264iyp3TiX5OmNcI5cIARiQI=
