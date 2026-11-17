@@ -1,11 +1,11 @@
 module github.com/mrz1836/atlas
 
-go 1.26.0
+go 1.26.7
 
 require (
 	charm.land/bubbles/v2 v2.2.1
 	charm.land/bubbletea/v2 v2.1.1
-	charm.land/lipgloss/v2 v2.0.6
+	charm.land/lipgloss/v2 v2.1.0
 	github.com/alicebob/miniredis/v2 v2.40.0
 	github.com/charmbracelet/colorprofile v0.4.3
 	github.com/charmbracelet/glamour v1.0.0
@@ -14,8 +14,8 @@ require (
 	github.com/go-viper/mapstructure/v2 v2.5.0
 	github.com/google/uuid v1.6.0
 	github.com/mattn/go-runewidth v0.0.31
-	github.com/mrz1836/go-cache v1.2.3
-	github.com/mrz1836/go-selfupdate v0.1.5
+	github.com/mrz1836/go-cache v1.2.4
+	github.com/mrz1836/go-selfupdate v0.1.6
 	github.com/rs/zerolog v1.35.1
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/viper v1.21.0
