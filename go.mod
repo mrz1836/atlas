@@ -4,8 +4,8 @@ go 1.26.7
 
 require (
 	charm.land/bubbles/v2 v2.2.1
-	charm.land/bubbletea/v2 v2.1.1
-	charm.land/lipgloss/v2 v2.1.0
+	charm.land/bubbletea/v2 v2.1.2
+	charm.land/lipgloss/v2 v2.1.1
 	github.com/alicebob/miniredis/v2 v2.40.0
 	github.com/charmbracelet/colorprofile v0.4.3
 	github.com/charmbracelet/glamour v1.0.0
@@ -15,7 +15,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/mattn/go-runewidth v0.0.31
 	github.com/mrz1836/go-cache v1.2.4
-	github.com/mrz1836/go-selfupdate v0.1.6
+	github.com/mrz1836/go-selfupdate v0.1.7
 	github.com/rs/zerolog v1.35.1
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/viper v1.21.0
@@ -71,7 +71,7 @@ require (
 	github.com/sagikazarmark/locafero v0.12.0 // indirect
 	github.com/spf13/afero v1.15.0 // indirect
 	github.com/spf13/cast v1.10.0 // indirect
-	github.com/spf13/pflag v1.0.10 // indirect
+	github.com/spf13/pflag v1.1.0 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
 	github.com/xo/terminfo v1.3.0 // indirect
 	github.com/yuin/goldmark v1.8.7 // indirect
