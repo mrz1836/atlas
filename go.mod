@@ -3,7 +3,7 @@ module github.com/mrz1836/atlas
 go 1.26.7
 
 require (
-	charm.land/bubbles/v2 v2.2.1
+	charm.land/bubbles/v2 v2.2.2
 	charm.land/bubbletea/v2 v2.1.2
 	charm.land/lipgloss/v2 v2.1.1
 	github.com/alicebob/miniredis/v2 v2.40.0
@@ -67,7 +67,7 @@ require (
 	github.com/muesli/termenv v0.16.0 // indirect
 	github.com/newrelic/go-agent/v3 v3.45.0 // indirect
 	github.com/pelletier/go-toml/v2 v2.4.3 // indirect
-	github.com/rivo/uniseg v0.4.7 // indirect
+	github.com/rivo/uniseg v0.4.8-0.20261110175422-3a370411ca06 // indirect
 	github.com/sagikazarmark/locafero v0.12.0 // indirect
 	github.com/spf13/afero v1.15.0 // indirect
 	github.com/spf13/cast v1.10.0 // indirect
